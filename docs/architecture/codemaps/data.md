@@ -207,7 +207,7 @@ interface CrawlResult {
 }
 
 interface Dependency {
-  type: "import" | "require" | "dynamic";
+  type: "import" | "require" | "export" | "dynamic" | "side-effect";
   module: string; // Import path (raw)
   resolvedPath: string; // Absolute file path
   lineNumber?: number;

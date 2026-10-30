@@ -49,6 +49,11 @@ export class Parser implements ILanguageAnalyzer {
     // import('...') - dynamic imports
     dynamicImport: /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
 
+    // import '...' - side-effect import, no binding. Only at a line start, so a
+    // string such as "a; import './x'" is not an import; template literals are blanked first.
+    // shortcut: `export {}; import './x'` on one line is missed, upgrade with a real tokenizer.
+    sideEffectImport: /^[ \t]*import\s*['"]([^'"]+)['"]/gm,
+
     // GraphQL #import directive (used in .gql/.graphql files)
     // Matches: #import "./fragment.gql" or #import './fragment.graphql'
     graphqlImport: /#import\s+['"]([^'"]+)['"]/g,
@@ -125,7 +130,22 @@ export class Parser implements ILanguageAnalyzer {
       seen,
     );
 
+    // Parse bare import: own dedupe set, so `import './x'` next to `import {a} from './x'` stays visible;
+    // the dependency resolver keeps the first (symbol-carrying) entry per target.
+    this.extractImports(
+      Parser.blankTemplateLiterals(content),
+      this.patterns.sideEffectImport,
+      "side-effect",
+      imports,
+      new Set<string>(),
+    );
+
     return imports;
+  }
+
+  /** Replaces template literal text with spaces (newlines kept) so code-like text in one is not parsed. */
+  private static blankTemplateLiterals(content: string): string {
+    return content.replaceAll(/`[^`]*`/g, (literal) => literal.replaceAll(/[^\n]/g, " "));
   }
 
   /**

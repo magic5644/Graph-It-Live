@@ -76,3 +76,51 @@ describe('SpiderSymbolService unsupported languages', () => {
     expect(analyzeFile).not.toHaveBeenCalled();
   });
 });
+
+describe('SpiderSymbolService side-effect imports (#515)', () => {
+  const build = (analyzer: { parseImports: ReturnType<typeof vi.fn>; resolvePath: ReturnType<typeof vi.fn> }) => {
+    const analyzeFile = vi.fn().mockResolvedValue({ symbols: [], dependencies: [] });
+    const service = new SpiderSymbolService(
+      { analyzeFile } as unknown as AstWorkerHost,
+      new Cache<SymbolGraph>({ maxSize: 10 }),
+      { readFile: vi.fn().mockResolvedValue('') } as unknown as FileReader,
+      { resolve: vi.fn().mockResolvedValue(null) } as unknown as PathResolver,
+      {} as SymbolDependencyHelper,
+      () => ({ rootDir: '/ws' }) as SpiderConfig,
+      vi.fn().mockResolvedValue([]),
+      { getAnalyzer: () => analyzer } as unknown as LanguageService,
+    );
+    return service;
+  };
+  const bare = { path: '', type: 'side-effect', line: 1, module: './side' };
+
+  it('treats a resolved bare import as used, with and without symbol dependencies', async () => {
+    const service = build({
+      parseImports: vi.fn().mockResolvedValue([bare]),
+      resolvePath: vi.fn().mockResolvedValue(String.raw`C:\ws\side.ts`),
+    });
+    await expect(service.verifyDependencyUsage('/ws/main.ts', 'C:/ws/side.ts')).resolves.toBe(true);
+    const batch = await service.verifyDependencyUsageBatch('/ws/main.ts', ['C:/ws/side.ts', 'C:/ws/other.ts']);
+    expect([...batch.values()]).toEqual([true, false]);
+  });
+
+  it('ignores a bare import that resolves to nothing', async () => {
+    const service = build({
+      parseImports: vi.fn().mockResolvedValue([bare, { ...bare, type: 'import', module: './named' }]),
+      resolvePath: vi.fn().mockResolvedValue(null),
+    });
+    await expect(service.verifyDependencyUsage('/ws/main.ts', '/ws/side.ts')).resolves.toBe(false);
+    const batch = await service.verifyDependencyUsageBatch('/ws/main.ts', ['/ws/side.ts']);
+    expect([...batch.values()]).toEqual([false]);
+  });
+
+  it('assumes used when the imports cannot be read', async () => {
+    const service = build({
+      parseImports: vi.fn().mockRejectedValue(new Error('boom')),
+      resolvePath: vi.fn(),
+    });
+    await expect(service.verifyDependencyUsage('/ws/main.ts', '/ws/side.ts')).resolves.toBe(true);
+    const batch = await service.verifyDependencyUsageBatch('/ws/main.ts', ['/ws/side.ts']);
+    expect([...batch.values()]).toEqual([true]);
+  });
+});
