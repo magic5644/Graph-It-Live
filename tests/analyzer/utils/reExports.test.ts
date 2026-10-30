@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { declaresExport, exportsOnlyAsDefault, mayReExport, parseReExports } from '../../../src/analyzer/utils/reExports';
+import { declaresExport, exportsOnlyAsDefault, mayReExport, parseNamespaceReExports, parseReExports } from '../../../src/analyzer/utils/reExports';
 
 describe('parseReExports', () => {
   it('reads named, renamed and wildcard re-exports', () => {
@@ -31,6 +31,10 @@ describe('parseReExports', () => {
 
 describe('mayReExport', () => {
   it.each(['export * from "./a";', 'export { a } from "./a";', 'export type { A } from "./a";', 'export * as ns from "./a";'])('detects %s', (line) => {
+    expect(mayReExport(line)).toBe(true);
+  });
+
+  it.each(['export { a };', 'export type { A };', 'export*from "./a";'])('detects the local form %s', (line) => {
     expect(mayReExport(line)).toBe(true);
   });
 
@@ -90,5 +94,32 @@ describe('exportsOnlyAsDefault', () => {
 
   it('ignores a match that only appears in a comment or string', () => {
     expect(exportsOnlyAsDefault('/x/m.ts', '// export default function a() {}\nexport function a() {}', 'a')).toBe(false);
+  });
+});
+
+describe('parseNamespaceReExports', () => {
+  it('reads `export * as ns from` only', () => {
+    const content = ['export * as ns from "./m";', 'export * from "./n";', 'export { a } from "./o";', 'export const x = 1;'].join('\n');
+    expect(parseNamespaceReExports('/x/index.ts', content)).toEqual([{ specifier: './m', alias: 'ns' }]);
+  });
+  it('returns nothing for plain modules, empty files and local namespace exports', () => {
+    expect(parseNamespaceReExports('/x/m.ts', 'export function a() {}')).toEqual([]);
+    expect(parseNamespaceReExports('/x/m.ts', 'import * as ns from "./m"; export { ns };')).toEqual([]);
+    expect(parseNamespaceReExports('/x/m.ts', '')).toEqual([]);
+  });
+});
+
+describe('parseReExports - import then export', () => {
+  it('follows named, aliased and default imports exported locally', () => {
+    const content = ['import d, { a, b as c } from "./m";', 'export { a, c as renamed, d as dflt };'].join('\n');
+    expect(parseReExports('/x/index.ts', content)).toEqual([
+      { specifier: './m', names: [{ imported: 'a', exported: 'a' }] },
+      { specifier: './m', names: [{ imported: 'b', exported: 'renamed' }] },
+      { specifier: './m', names: [{ imported: 'default', exported: 'dflt' }] },
+    ]);
+  });
+  it('ignores local declarations and unknown names exported without `from`', () => {
+    expect(parseReExports('/x/m.ts', 'const a = 1; export { a, missing };')).toEqual([]);
+    expect(parseReExports('/x/m.ts', 'import * as ns from "./m"; export { ns };')).toEqual([]);
   });
 });
