@@ -24,6 +24,7 @@ function useTempProject(prefix: string, files: Record<string, string>) {
     project.rootDir = await fs.mkdtemp(path.join(os.tmpdir(), prefix));
     await fs.mkdir(path.join(project.rootDir, 'src'));
     for (const [name, content] of Object.entries(files)) {
+      await fs.mkdir(path.dirname(project.file(name)), { recursive: true });
       await fs.writeFile(project.file(name), content, 'utf-8');
     }
     project.spider = new SpiderBuilder().withRootDir(project.rootDir).withReverseIndex(true).build();
@@ -253,5 +254,100 @@ describe('Spider - Referencing files behind a barrel, unreadable consumer (#521)
     expect(await referencesOf('one.ts')).toEqual(['gone.ts < index.ts', 'index.ts', 'kept.ts < index.ts']);
     await fs.rm(file('gone.ts'));
     expect(await referencesOf('one.ts')).toEqual(['index.ts', 'kept.ts < index.ts']);
+  });
+});
+
+describe('Spider - Referencing files behind Python and Rust re-exports (#521)', () => {
+  const project = useTempProject('gitl-refs-pyrs-', {
+    'py/pkg/impl.py': 'def one():\n    return 1\n\ndef lonely():\n    return 0\n',
+    'py/pkg/other.py': 'def one():\n    return 9\n\ndef two():\n    return 2\n',
+    'py/pkg/__init__.py': 'from .impl import one\nfrom .other import two\nfrom . import impl\n',
+    'py/main.py': 'from pkg import one\n\ndef run():\n    return one()\n',
+    'py/only_two.py': 'from pkg import two\n',
+    'py/doc_only.py': '"""Example: from pkg import one"""\nfrom pkg import two\n',
+    'py/whole.py': 'import pkg\n\nprint(pkg.one())\n',
+    'py/via_sub.py': 'from pkg import impl\n\nprint(impl.one())\n',
+    'py/renamed.py': 'from pkg.impl import one as uno\n',
+    'py/via_renamed.py': 'from renamed import uno\n',
+    'py/outer.py': 'from pkg import *\n',
+    'py/via_outer.py': 'from outer import one\n',
+    'py/cyc_a.py': 'from cyc_b import *\nfrom pkg.impl import one\n',
+    'py/cyc_b.py': 'from cyc_a import *\n',
+    'py/via_cycle.py': 'from cyc_b import one\n',
+    'py/other_barrel.py': 'from pkg.other import one\n',
+    'py/via_other.py': 'from other_barrel import one\n',
+    'py/limited.py': "from pkg.impl import one\n__all__ = ['other_name']\n",
+    'py/via_limited_star.py': 'from limited import *\n',
+    'py/via_limited_named.py': 'from limited import one\n',
+    'rs/Cargo.toml': '[package]\nname = "fixture"\nversion = "0.1.0"\n',
+    'rs/src/inner/imp.rs': 'pub fn one() -> i32 { 1 }\npub fn lonely() -> i32 { 0 }\n',
+    'rs/src/inner/other.rs': 'pub fn one() -> i32 { 9 }\npub fn two() -> i32 { 2 }\n',
+    'rs/src/inner/mod.rs': 'pub mod imp;\npub mod other;\npub use imp::one;\npub use self::other::two;\n',
+    'rs/src/main.rs': 'mod inner;\nuse inner::one;\nfn main() { one(); }\n',
+    'rs/src/only_two.rs': 'use crate::inner::two;\nconst DOC: &str = "use inner::one;";\nfn f() { two(); }\n',
+    'rs/src/nested/deep.rs': 'use crate::inner::one;\nfn d() -> i32 { one() }\n',
+    'rs/src/qualified.rs': 'pub fn q() -> i32 { crate::inner::one() }\n',
+    'rs/src/child.rs': 'use super::*;\nfn c() -> i32 { inner::one() }\n',
+    'rs/src/glob.rs': 'pub use crate::inner::*;\n',
+    'rs/src/via_glob.rs': 'use crate::glob::{one};\nfn g() { one(); }\n',
+    'rs/src/renamed.rs': 'pub use crate::inner::imp::one as uno;\n',
+    'rs/src/via_renamed.rs': 'use crate::renamed::uno;\nfn h() { uno(); }\n',
+    'rs/src/modrexp.rs': 'pub use crate::inner::imp;\n',
+    'rs/src/via_mod.rs': 'use crate::modrexp::imp;\nfn m() -> i32 { imp::one() }\n',
+    'rs/src/other_barrel.rs': 'pub use crate::inner::other::one;\n',
+    'rs/src/via_other.rs': 'use crate::other_barrel::one;\nfn k() { one(); }\n',
+  });
+
+  it.each([
+    [
+      'Python: from-import, renamed, star, chain, cycle, whole-module and submodule imports',
+      'py/pkg/impl.py',
+      [
+        '__init__.py',
+        'cyc_a.py',
+        'cyc_b.py < cyc_a.py',
+        'limited.py',
+        'main.py < __init__.py',
+        'outer.py < __init__.py',
+        'renamed.py',
+        'via_cycle.py < cyc_b.py',
+        'via_limited_named.py < limited.py', // via_limited_star.py: limited's __all__ leaves `one` out
+        'via_outer.py < outer.py',
+        'via_renamed.py < renamed.py',
+        'via_sub.py < __init__.py',
+        'whole.py < __init__.py',
+      ],
+    ],
+    [
+      'Rust: pub use, self::, crate::, qualified call, renamed, glob chain, module re-export',
+      'rs/src/inner/imp.rs',
+      [
+        'child.rs < mod.rs', // `use super::*;` then `inner::one()`
+        'deep.rs < mod.rs',
+        'glob.rs < mod.rs',
+        'main.rs < mod.rs',
+        'mod.rs',
+        'modrexp.rs',
+        'qualified.rs < mod.rs',
+        'renamed.rs',
+        'via_glob.rs < glob.rs',
+        'via_mod.rs < modrexp.rs',
+        'via_renamed.rs < renamed.rs',
+      ],
+    ],
+  ])('%s', async (_case, target, expected) => {
+    expect(await project.referencesOf(target)).toEqual(expected);
+  });
+
+  it.each([
+    ['Python package', 'py/pkg/impl.py', 'run'],
+    ['Rust module', 'rs/src/inner/imp.rs', 'main'],
+  ])('follows the %s barrel for symbol dependents too', async (_case, target, caller) => {
+    expect(await project.dependentsOf(target, 'one')).toContain(caller);
+  });
+
+  it.each([['py/pkg/impl.py'], ['rs/src/inner/imp.rs']])('reports only the unused symbol of %s behind its barrel', async (target) => {
+    const unused = await project.spider.findUnusedSymbols(project.file(target));
+    expect(unused.map((symbol) => symbol.name)).toEqual(['lonely']);
   });
 });
