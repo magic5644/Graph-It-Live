@@ -137,6 +137,10 @@ interface MoveIndex {
   targets: Map<string, Array<{ relativePath: string; absolutePath: string; content: string }>>;
   /** Memoized stale importers per old module and exported name; null when they could not be checked. */
   stale: Map<string, Promise<string[] | null>>;
+  /** Memoized text search for the importers of a deleted module, per module. */
+  grep: Map<string, Promise<string[] | string>>;
+  /** Memoized head content of the candidate importers, shared by every exported name. */
+  contents: Map<string, Promise<string | null>>;
 }
 
 /** The changed file whose removals are being matched against the other changed files. */
@@ -148,6 +152,8 @@ interface MoveScope {
   changedFiles: ReadonlySet<string>;
   moves: MoveIndex;
   limitations: string[];
+  /** The file no longer exists at the head ref: the resolver cannot find it, so importers are matched by specifier. */
+  deleted?: boolean;
 }
 
 interface DependentWalkState {
@@ -189,7 +195,7 @@ export class ReviewGateAnalyzer {
     }
 
     const sources = await this.loadChangedSources(changedFiles, options.baseRef, headRef);
-    const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map() };
+    const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map(), grep: new Map(), contents: new Map() };
     for (const relativePath of changedFiles) {
       symbols.push(...await this.analyzeChangedFile(relativePath, headRef, maxDepth, limitations, analysisAvailability, changedFileSet, moves)); // NOSONAR S9382: one file at a time, analyses share the limitations and the stale-importer cache
     }
@@ -277,8 +283,14 @@ export class ReviewGateAnalyzer {
     }
     const { absolutePath, oldContent, newContent } = source;
     if (newContent === null) {
-      limitations.push(`Could not compare ${relativePath}; file was deleted or unreadable.`);
-      return [];
+      if (oldContent === null) {
+        limitations.push(`Could not compare ${relativePath}; file is unreadable at both refs.`);
+        return [];
+      }
+      // `--no-renames` reports a moved file as its deletion plus the new path, so both land here.
+      const scope: MoveScope = { relativePath, absolutePath, oldContent, headRef, changedFiles, moves, limitations, deleted: true };
+      const removed = await this.analyzeSignatures(scope, "", limitations);
+      return Promise.all(removed.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, DELETED_FILE_EVIDENCE, changedFiles, headRef)));
     }
     // A file the diff adds has no prior signature, so nothing downstream can have
     // depended on it and no breaking change is possible. Reporting it as an
@@ -316,8 +328,9 @@ export class ReviewGateAnalyzer {
       // A removal still reported as such — not resolved through a re-export — may have moved to another changed file.
       const removals = new Set(comparisons.filter((comparison) => comparison.breakingChanges.length === 1));
       const headExports = this.signatures.exportedDeclarationNames(absolutePath, newContent);
-      return await Promise.all(reexports.results.map(async (result) =>
+      const resolved = await Promise.all(reexports.results.map(async (result) =>
         removals.has(result) && !headExports.has(exportedNameOf(result.symbolName)) ? this.resolveMove(result, scope) : result));
+      return scope.deleted ? await this.withDeletedImporters(resolved, scope) : resolved;
     } catch (error) {
       const detail = error instanceof Error ? error.message : "unknown parser error";
       limitations.push(`Signature evidence unavailable for ${relativePath}: ${detail}.`);
@@ -351,9 +364,31 @@ export class ReviewGateAnalyzer {
     return movedComparison(removal, moved.breakingChanges, target.relativePath, importers);
   }
 
+  /**
+   * A deleted module's removals that moved nowhere break every file still importing it. The
+   * index no longer knows the module, so those importers come from the head ref's text.
+   * A module declaring nothing (a barrel, a side-effect file) is reported once, when it has importers.
+   */
+  private async withDeletedImporters(results: ReviewComparison[], scope: MoveScope): Promise<ReviewComparison[]> {
+    if (results.length === 0) {
+      const importers = await this.staleImporters(scope, undefined);
+      if (!importers?.length) return [];
+      const change: BreakingChange = {
+        type: "member-removed", symbolName: MODULE_SYMBOL, severity: "error",
+        description: `Module ${scope.relativePath} was deleted, but ${importers.length} file(s) still import it: ${importers.join(", ")}`,
+      };
+      return [{ symbolName: MODULE_SYMBOL, breakingChanges: [change], staleImporters: importers }];
+    }
+    return Promise.all(results.map(async (result) => {
+      if (result.movedTo !== undefined || result.staleImporters !== undefined) return result;
+      const importers = await this.staleImporters(scope, exportedNameOf(result.symbolName));
+      return importers?.length ? { ...result, staleImporters: importers } : result;
+    }));
+  }
+
   /** Every member of a moved class shares its importers: look them up once per exported name. */
-  private staleImporters(scope: MoveScope, exportedName: string): Promise<string[] | null> {
-    const key = `${scope.relativePath}\0${exportedName}`;
+  private staleImporters(scope: MoveScope, exportedName: string | undefined): Promise<string[] | null> {
+    const key = `${scope.relativePath}\0${exportedName ?? "*"}`;
     let importers = scope.moves.stale.get(key);
     if (!importers) {
       importers = this.findStaleImporters(scope, exportedName);
@@ -366,10 +401,12 @@ export class ReviewGateAnalyzer {
    * Changed files and indexed referrers of the old module that may still reach `exportedName`
    * through it at the head ref. Null, with a limitation, when the referrers cannot be listed.
    */
-  private async findStaleImporters(scope: MoveScope, exportedName: string): Promise<string[] | null> {
-    const referrers = await this.referencingFiles(scope.absolutePath);
+  private async findStaleImporters(scope: MoveScope, exportedName: string | undefined): Promise<string[] | null> {
+    const referrers = scope.deleted ? await this.grepImporters(scope) : await this.referencingFiles(scope.absolutePath);
     if (typeof referrers === "string") {
-      scope.limitations.push(`${scope.relativePath}: '${exportedName}' looks moved, but its removal is kept because files importing the old module could not be listed (${referrers}).`);
+      scope.limitations.push(scope.deleted
+        ? `${scope.relativePath}: module deleted, but files still importing it could not be listed (${referrers}).`
+        : `${scope.relativePath}: '${exportedName}' looks moved, but its removal is kept because files importing the old module could not be listed (${referrers}).`);
       return null;
     }
     const candidates = new Set([...scope.changedFiles, ...referrers]);
@@ -392,15 +429,47 @@ export class ReviewGateAnalyzer {
     }
   }
 
-  /** Whether `file` imports `exportedName` from the old module, or references that module in a form not followed. */
-  private async mayImportFromModule(file: string, exportedName: string, scope: MoveScope): Promise<boolean> {
+  /** Memoized per deleted module: every exported name shares the one search. */
+  private grepImporters(scope: MoveScope): Promise<string[] | string> {
+    let hits = scope.moves.grep.get(scope.relativePath);
+    if (!hits) {
+      hits = this.searchImporters(scope);
+      scope.moves.grep.set(scope.relativePath, hits);
+    }
+    return hits;
+  }
+
+  /**
+   * Files whose text mentions the deleted module's name, or why they could not be searched.
+   * At "HEAD" the head content is the working tree (see readHeadContent), so that is searched.
+   */
+  private async searchImporters(scope: MoveScope): Promise<string[] | string> {
+    const atHead = scope.headRef === "HEAD";
+    const args = ["grep", "-l", "-z", "-F", "--full-name", ...(atHead ? ["--untracked"] : []), "-e", moduleNameOf(scope.absolutePath), ...(atHead ? [] : [scope.headRef]), "--"];
+    try {
+      const { stdout } = await execFileAsync("git", args, { cwd: this.workspaceRoot, maxBuffer: 4 * 1024 * 1024 });
+      const prefix = atHead ? "" : `${scope.headRef}:`;
+      return stdout.split("\0").filter(Boolean).map((hit) => normalizePath(hit.startsWith(prefix) ? hit.slice(prefix.length) : hit));
+    } catch (error) {
+      // git grep exits 1 when nothing matches.
+      return (error as { code?: unknown }).code === 1 ? [] : `git grep failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+  }
+
+  /** Whether `file` imports `exportedName` (any name when omitted) from the old module, or references that module in a form not followed. */
+  private async mayImportFromModule(file: string, exportedName: string | undefined, scope: MoveScope): Promise<boolean> {
     if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(file).toLowerCase())) return false;
-    const content = await this.readConsumerContent(file, scope.headRef);
+    let pending = scope.moves.contents.get(file);
+    if (!pending) {
+      pending = this.readConsumerContent(file, scope.headRef);
+      scope.moves.contents.set(file, pending);
+    }
+    const content = await pending;
     if (content === null) return false;
     const absolute = this.toAbsolute(file);
     for (const specifier of this.signatures.specifiersThatMayImport(absolute, content, exportedName)) {
       const resolved = await this.resolver.resolve(absolute, specifier).catch(() => null);
-      if (resolved && normalizePath(resolved) === scope.absolutePath) return true;
+      if (resolved ? normalizePath(resolved) === scope.absolutePath : scope.deleted && namesDeletedModule(absolute, specifier, scope.absolutePath)) return true;
     }
     return false;
   }
@@ -661,7 +730,7 @@ export class ReviewGateAnalyzer {
 
   private async getChangedFiles(baseRef: string, headRef: string, maxFiles: number): Promise<string[]> {
     const comparison = headRef === "HEAD" ? baseRef : `${baseRef}...${headRef}`;
-    const { stdout } = await execFileAsync("git", ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "--diff-filter=ACMR", comparison, "--"], {
+    const { stdout } = await execFileAsync("git", ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "--no-renames", "--diff-filter=ACMD", comparison, "--"], {
       cwd: this.workspaceRoot,
       maxBuffer: 1024 * 1024,
     });
@@ -1080,6 +1149,36 @@ function markStale(standing: ConsumerStanding, staleImporters: string[]): Consum
     covered: standing.covered.filter((file) => !stale.has(file)),
     unverified: [...new Set([...standing.unverified, ...staleImporters])].sort((left, right) => left.localeCompare(right)),
   };
+}
+
+/** Stands in for a deleted module that declares no export of its own. */
+const MODULE_SYMBOL = "(module)";
+
+/** A deleted file has no head content to collect cycle, unused-export or test evidence from. */
+const DELETED_FILE_EVIDENCE: FileEvidence = { cycleSymbols: new Set(), unusedSymbols: new Set(), testCandidates: [], functions: [] };
+
+// `.d.ts` first: a declaration file is imported as `./types`, not `./types.d`.
+const MODULE_EXTENSION_REGEX = /(?:\.d)?\.(?:[cm]?[jt]sx?|vue)$/i;
+
+/** Name a specifier uses for the module: its file name, or its folder's for an `index` file. */
+function moduleNameOf(absolutePath: string): string {
+  const stem = absolutePath.replace(MODULE_EXTENSION_REGEX, "");
+  return path.posix.basename(path.posix.basename(stem) === "index" ? path.posix.dirname(stem) : stem);
+}
+
+/**
+ * Whether `specifier`, written in `fromFile`, names the deleted module. The file is gone, so
+ * the resolver cannot say: a relative specifier is resolved by hand; a non-relative one (an alias)
+ * matches when it is the tail of the module's path, so unknown is kept rather than dropped.
+ */
+function namesDeletedModule(fromFile: string, specifier: string, deleted: string): boolean {
+  const stem = deleted.replace(MODULE_EXTENSION_REGEX, "");
+  const targets = new Set([stem, path.posix.basename(stem) === "index" ? path.posix.dirname(stem) : stem]);
+  const target = specifier.replace(MODULE_EXTENSION_REGEX, "");
+  if (specifier.startsWith(".")) return targets.has(normalizePath(path.resolve(path.dirname(fromFile), target)));
+  // shortcut: a bare package named like the module (`react` vs src/react.ts) is kept as an importer; narrow to the tsconfig aliases when that noise shows up.
+  const tail = `/${target.replace(/^[@~#]\//, "")}`;
+  return [...targets].some((candidate) => candidate.endsWith(tail));
 }
 
 const EMPTY_IMPACT: SymbolImpact = {
