@@ -171,8 +171,8 @@ describe('Spider - scanDeadCode through re-exports (#513)', () => {
     expect(unused('src/cyc/y.ts')).toEqual(['yFn']);
   });
 
-  it('lists the consumer as dependent of a symbol re-exported through import then export', async () => {
-    const dependents = await spider.getSymbolDependents(path.join(root, 'src/lib/g.ts'), 'localReexport');
+  it('lists the consumer as dependent of a symbol re-exported with `export ... from`', async () => {
+    const dependents = await spider.getSymbolDependents(path.join(root, 'src/lib/a.ts'), 'starUsed');
     expect(dependents.some((d) => d.sourceSymbolId.replaceAll('\\', '/').includes('/src/app.ts:'))).toBe(true);
   });
 

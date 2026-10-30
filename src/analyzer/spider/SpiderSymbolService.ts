@@ -170,7 +170,7 @@ export class SpiderSymbolService {
     const unusedSymbols = exportedSymbols.filter((symbol) => !usedSymbolIds.has(symbol.id));
     const throughBarrel = await Promise.all(
       unusedSymbols.map(async (symbol) => {
-        const chain = await this.collectReexportAliases(target, symbol.name, reExportMemo);
+        const chain = await this.collectReexportAliases(target, symbol.name, reExportMemo, true);
         const used = await Promise.all(chain.filter((alias) => alias.filePath !== target).map(isImported));
         return used.some(Boolean) || namespaceUses.some((use) => use.escapes || use.members.has(symbol.name));
       })
@@ -234,7 +234,7 @@ export class SpiderSymbolService {
       declared.map(async ({ barrelPath, specifier, alias }) => {
         const resolved = await this.resolveModuleSpecifier(barrelPath, specifier);
         if (!resolved || normalizePath(resolved) !== target) return [];
-        return this.collectReexportAliases(barrelPath, alias, reExportMemo);
+        return this.collectReexportAliases(barrelPath, alias, reExportMemo, true);
       })
     );
     return [...new Map(chains.flat().map((onward) => [`${onward.filePath}:${onward.name}`, onward])).values()];
@@ -261,11 +261,12 @@ export class SpiderSymbolService {
   private async collectReexportAliases(
     filePath: string,
     symbolName: string,
-    reExportMemo: ReExportMemo = new Map()
+    reExportMemo: ReExportMemo = new Map(),
+    readPlainImporters = false
   ): Promise<ReExportTarget[]> {
     const root = { filePath: normalizePath(filePath), name: symbolName };
     const aliases = new Map<string, ReExportTarget>([[`${root.filePath}:${root.name}`, root]]);
-    await this.expandReexportAliases([root], aliases, reExportMemo);
+    await this.expandReexportAliases([root], aliases, reExportMemo, readPlainImporters);
     return [...aliases.values()];
   }
 
@@ -273,9 +274,12 @@ export class SpiderSymbolService {
   private async expandReexportAliases(
     frontier: ReExportTarget[],
     aliases: Map<string, ReExportTarget>,
-    reExportMemo: ReExportMemo
+    reExportMemo: ReExportMemo,
+    readPlainImporters: boolean
   ): Promise<void> {
-    const found = (await Promise.all(frontier.map((current) => this.directReexports(current, reExportMemo)))).flat();
+    const found = (
+      await Promise.all(frontier.map((current) => this.directReexports(current, reExportMemo, readPlainImporters)))
+    ).flat();
     const next: ReExportTarget[] = [];
     for (const alias of found) {
       const key = `${alias.filePath}:${alias.name}`;
@@ -283,12 +287,21 @@ export class SpiderSymbolService {
       aliases.set(key, alias);
       next.push(alias);
     }
-    if (next.length > 0) await this.expandReexportAliases(next, aliases, reExportMemo);
+    if (next.length > 0) await this.expandReexportAliases(next, aliases, reExportMemo, readPlainImporters);
   }
 
-  /** Re-exports of `current` in any file that references it (a barrel may also be a plain importer). */
-  private async directReexports(current: ReExportTarget, reExportMemo: ReExportMemo): Promise<ReExportTarget[]> {
-    const referencing = await this.findReferencingFiles(current.filePath);
+  /**
+   * Re-exports of `current` in the files that reference it. Only `export ... from` referencers are read by
+   * default; `readPlainImporters` also reads plain importers, which is what finds `import { x }; export { x }`
+   * but costs one read per importer (paid once per scan by the dead-code walk, too much for per-symbol lookups).
+   */
+  private async directReexports(
+    current: ReExportTarget,
+    reExportMemo: ReExportMemo,
+    readPlainImporters: boolean
+  ): Promise<ReExportTarget[]> {
+    const all = await this.findReferencingFiles(current.filePath);
+    const referencing = readPlainImporters ? all : all.filter((ref) => ref.type === 'export');
     const perImporter = await Promise.all(referencing.map((importer) => this.reexportedAs(importer.path, current, reExportMemo)));
     return perImporter.flat();
   }
