@@ -67,16 +67,22 @@ export class DocumentReferenceIndexer {
   }
 }
 
+/** The file being indexed and the graph it adds to. */
+interface FileIndexContext {
+  filePath: string;
+  relativePath: string;
+  /** Set when the file is a document; code files are `file:` nodes. */
+  documentId: string | undefined;
+  root: string;
+  nodes: Map<string, GraphContextNode>;
+  edges: GraphContextEdge[];
+}
+
 /** Rationale comments of one file, as nodes explaining the document (or the code file) they sit in. */
 function collectRationale(
   lines: string[],
   extension: string,
-  relativePath: string,
-  documentId: string | undefined,
-  filePath: string,
-  root: string,
-  nodes: Map<string, GraphContextNode>,
-  edges: GraphContextEdge[],
+  { filePath, relativePath, documentId, root, nodes, edges }: FileIndexContext,
 ): { rationaleMarkers: RationaleMarker[]; markerLines: Set<number> } {
   const rationaleMarkers: RationaleMarker[] = [];
   const markerLines = new Set<number>();
@@ -121,11 +127,7 @@ function collectRationale(
 function addLinkEdges(
   link: DocumentLink,
   target: string,
-  relativePath: string,
-  documentId: string | undefined,
-  filePath: string,
-  root: string,
-  edges: GraphContextEdge[],
+  { filePath, relativePath, documentId, root, edges }: FileIndexContext,
 ): (DocumentLink & { targetPath: string }) | undefined {
   const targetIsDocument = DOCUMENT_EXTENSIONS.has(path.extname(target).toLowerCase());
   const targetIsCode = isCodePath(target);
@@ -159,7 +161,8 @@ function indexFile(filePath: string, relativePath: string, content: string, root
   });
 
   const lines = content.split(/\r?\n/);
-  const { rationaleMarkers, markerLines } = collectRationale(lines, extension, relativePath, documentId, filePath, root, nodes, edges);
+  const context: FileIndexContext = { filePath, relativePath, documentId, root, nodes, edges };
+  const { rationaleMarkers, markerLines } = collectRationale(lines, extension, context);
 
   const documentHeadings = headingsIn(lines, extension, markerLines);
   if (documentId && documentHeadings[0]) {
@@ -170,7 +173,7 @@ function indexFile(filePath: string, relativePath: string, content: string, root
 
   for (const link of linksIn(lines, extension)) {
     const target = resolveLocalTarget(filePath, link.target, root);
-    const codeLink = target ? addLinkEdges(link, target, relativePath, documentId, filePath, root, edges) : undefined;
+    const codeLink = target ? addLinkEdges(link, target, context) : undefined;
     if (codeLink) codeLinks.push(codeLink);
   }
 
