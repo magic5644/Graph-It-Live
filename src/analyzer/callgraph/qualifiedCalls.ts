@@ -10,7 +10,7 @@ import type { Node as TreeNode } from "web-tree-sitter";
  */
 export const QUALIFIED_PREFIX = "@@qualified:";
 
-/** `folder`: Go package directory; `type`: enclosing class (Java, C#); `module`: Rust file or type. */
+/** `folder`: Go package directory; `type`: enclosing class (Java, C#); `module`: Rust module file or impl type. */
 type Mode = "folder" | "type" | "module";
 
 function stub(mode: Mode, key: string, name: string): string {
@@ -89,27 +89,87 @@ function typeTargets(root: TreeNode, calls: TreeNode[], lang: "java" | "csharp")
 
 const RUST_SELF_PATHS = new Set(["Self", "self", "super", "crate"]);
 
+/** `Foo`, `&mut Foo`, `a::Foo`, `Foo<T>` -> `Foo`; anything else (`Vec<Foo>` is `Vec`, tuples, `dyn`) is not a plain type. */
+function rustTypeName(node: TreeNode | null): string | null {
+  if (!node) return null;
+  switch (node.type) {
+    case "type_identifier": return node.text;
+    case "scoped_type_identifier": return node.childForFieldName("name")?.text ?? null;
+    case "reference_type":
+    case "generic_type": return rustTypeName(node.childForFieldName("type"));
+    default: return null;
+  }
+}
+
+/** Type of the `impl` block (`impl Trait for Foo` -> `Foo`) or trait a method definition (its name node) sits in. */
+export function rustImplOwner(methodName: TreeNode): string | null {
+  const container = methodName.parent?.parent?.parent;
+  if (container?.type === "trait_item") return container.childForFieldName("name")?.text ?? null;
+  return container?.type === "impl_item" ? rustTypeName(container.childForFieldName("type")) : null;
+}
+
+/** What a `use` clause binds: the original name and the module it is read from (null when `crate`, `self`, `super` or bare). */
+interface UseAlias { name: string; module: string | null }
+
+/** `use a::b::f as g;` and `use a::b::{f as g};` -> `g` = { f, module b }. */
+function rustUseAliases(root: TreeNode): Map<string, UseAlias> {
+  const aliases = new Map<string, UseAlias>();
+  for (const clause of root.descendantsOfType("use_as_clause")) {
+    const path = clause.childForFieldName("path");
+    const original = lastSegment(path, "scoped_identifier", "name");
+    const alias = clause.childForFieldName("alias");
+    if (!original || !alias) continue;
+    let scope = path?.type === "scoped_identifier" ? path.childForFieldName("path") : null;
+    for (let up = clause.parent; !scope && up; up = up.parent) {
+      if (up.type === "scoped_use_list") scope = up.childForFieldName("path");
+    }
+    aliases.set(alias.text, { name: original.text, module: lastSegment(scope, "scoped_identifier", "name")?.text ?? null });
+  }
+  return aliases;
+}
+
+/**
+ * Type of the receiver of `recv.f()`: the type the enclosing function declares for it (parameter or
+ * annotated `let`), or the receiver itself when it is a capitalised name nothing declares (unit struct).
+ * shortcut: no inference (`let c = Calc::new()`, closures, fields, `self`) and a name declared with
+ * two types in one function is skipped; upgrade with receiver types (#499).
+ */
+function rustReceiverType(receiver: TreeNode | null, call: TreeNode): string | null {
+  if (receiver?.type !== "identifier") return null;
+  let fn: TreeNode | null = call;
+  while (fn && fn.type !== "function_item") fn = fn.parent;
+  const types = new Set<string | null>();
+  for (const decl of fn?.descendantsOfType(["parameter", "let_declaration"]) ?? []) {
+    if (decl.childForFieldName("pattern")?.text.replace(/^mut\s+/, "") === receiver.text) types.add(rustTypeName(decl.childForFieldName("type")));
+  }
+  if (types.size === 0) return TYPE_NAME.test(receiver.text) ? receiver.text : null;
+  return types.size === 1 ? [...types][0] : null;
+}
+
 /**
  * `Self::`, `self::`, `super::` and `crate::` paths and modules declared inline in this file keep
  * the in-file name match (the `RUST_SELF_PATHS` and `inline` skips below).
  * shortcut: a module declared inline in another file (`mod b { pub fn f() {} }` in `a.rs`) has no
- * node, so `b::f()` links nowhere; an `impl Foo` in a file other than the one declaring `Foo` is
- * not found either; `super::f()` / `crate::f()` still match by name. Upgrade: index `mod` and `impl` as nodes.
+ * node, so `b::f()` links nowhere; `super::f()` / `crate::f()` still match by name, and so does a
+ * function aliased from them (`use crate::f as g` links nowhere). Upgrade: index `mod` as nodes.
  */
 function rustTargets(root: TreeNode, calls: TreeNode[]): Map<number, string | null> {
-  const aliases = new Map<string, string>();
-  for (const clause of root.descendantsOfType("use_as_clause")) {
-    const original = lastSegment(clause.childForFieldName("path"), "scoped_identifier", "name");
-    const alias = clause.childForFieldName("alias");
-    if (original && alias) aliases.set(alias.text, original.text);
-  }
+  const aliases = rustUseAliases(root);
+  // shortcut: file-wide, a parameter or `let` named like an alias in one function blocks the alias in every function.
+  const declared = declaredNames(root, ["parameter", "let_declaration"], ["pattern"]);
   // A module declared in this very file keeps the in-file name match.
   const inline = new Set(root.descendantsOfType("mod_item").filter(mod => mod.childForFieldName("body")).map(mod => mod.childForFieldName("name")?.text ?? ""));
   const targets = new Map<number, string | null>();
   for (const call of calls) {
-    const qualifier = lastSegment(receiverOf(call, "scoped_identifier", "name", "path"), "scoped_identifier", "name");
-    if (!qualifier || RUST_SELF_PATHS.has(qualifier.text) || inline.has(qualifier.text)) continue;
-    targets.set(call.id, stub("module", aliases.get(qualifier.text) ?? qualifier.text, call.text));
+    const alias = call.type === "identifier" && call.parent?.type === "call_expression" && !declared.has(call.text) ? aliases.get(call.text) : undefined;
+    if (alias) {
+      targets.set(call.id, alias.module ? stub("module", alias.module, alias.name) : null);
+      continue;
+    }
+    const scoped = lastSegment(receiverOf(call, "scoped_identifier", "name", "path"), "scoped_identifier", "name")?.text;
+    const key = scoped ?? rustReceiverType(receiverOf(call, "field_expression", "field", "value"), call);
+    if (!key || RUST_SELF_PATHS.has(key) || (scoped && inline.has(key))) continue;
+    targets.set(call.id, stub("module", aliases.get(key)?.name ?? key, call.text));
   }
   return targets;
 }
@@ -204,7 +264,7 @@ export async function resolveQualifiedCalls(
 // Index side
 // ---------------------------------------------------------------------------
 
-export interface QualifiedMember { id: string; path: string; folder: string; startLine: number; endLine: number; isExported: number }
+export interface QualifiedMember { id: string; path: string; folder: string; startLine: number; endLine: number; isExported: number; owner: string }
 export interface QualifiedType { path: string; startLine: number; endLine: number }
 
 /** File stem a Rust module is declared in: `a.rs` and `a/mod.rs` both declare module `a`. */
@@ -222,9 +282,9 @@ export function qualifiedCandidates(
   const [mode, key, name] = JSON.parse(target.slice(QUALIFIED_PREFIX.length)) as [Mode, string, string];
   const candidates = members(name);
   if (mode === "folder") return candidates.filter(member => member.folder === key);
+  // A Rust method belongs to the type of its `impl` block, wherever that block is; a function, to its file's module.
+  if (mode === "module") return candidates.filter(member => (member.owner || rustModuleName(member.path)) === key);
   const declaring = types(key);
-  const inType = (member: QualifiedMember) => declaring.some(type => type.path === member.path &&
-    // A Rust `impl` block lies outside the span of its struct.
-    (mode === "module" || (type.startLine <= member.startLine && member.endLine <= type.endLine)));
-  return candidates.filter(member => (mode === "module" && rustModuleName(member.path) === key) || inType(member));
+  return candidates.filter(member => declaring.some(type => type.path === member.path &&
+    type.startLine <= member.startLine && member.endLine <= type.endLine));
 }

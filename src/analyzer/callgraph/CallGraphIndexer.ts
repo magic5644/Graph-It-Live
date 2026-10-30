@@ -38,6 +38,8 @@ export interface CallGraphNode {
   endLine: number;
   startCol: number;
   isExported: boolean;
+  /** Type an impl method belongs to (Rust `impl Foo { fn f() }` -> `Foo`); absent elsewhere. */
+  owner?: string;
 }
 
 export interface CallGraphEdge {
@@ -91,6 +93,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     end_line    INTEGER  NOT NULL,
     start_col   INTEGER  NOT NULL,
     is_exported INTEGER  NOT NULL DEFAULT 0,
+    owner       TEXT     NOT NULL DEFAULT '',
     indexed_at  INTEGER  NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (path) REFERENCES file_index(path) ON DELETE CASCADE
@@ -136,8 +139,9 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v7: the local name of a default export is not a named export (#508).
  * v8: Python calls retain their import binding; unimported bare names link nowhere (#497).
  * v9: qualified Go/Rust/Java/C# calls retain their package, module or type (#507).
+ * v10: Rust impl methods retain their type (`nodes.owner`); aliased `use` and typed receivers link (#522).
  */
-const CURRENT_SCHEMA_VERSION = 9;
+const CURRENT_SCHEMA_VERSION = 10;
 
 /**
  * Optional FTS5 schema for fast symbol name search.
@@ -319,8 +323,8 @@ export class CallGraphIndexer {
       // Insert all nodes (old nodes were cascade-deleted by file_index upsert)
       const nodeStmt = db.prepare(
         `INSERT OR REPLACE INTO nodes
-           (id, name, type, lang, path, folder, start_line, end_line, start_col, is_exported, indexed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, name, type, lang, path, folder, start_line, end_line, start_col, is_exported, owner, indexed_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const n of nodes) {
         nodeStmt.run([
@@ -334,6 +338,7 @@ export class CallGraphIndexer {
           n.endLine,
           n.startCol,
           n.isExported ? 1 : 0,
+          n.owner ?? "",
           now,
         ]);
       }
@@ -547,7 +552,7 @@ export class CallGraphIndexer {
     `)[0]?.values as [number, string, string, string][] | undefined;
     if (!rows) return { before: 0, resolved: 0, deleted: 0 };
     const memberStmt = db.prepare(
-      "SELECT id, path, folder, start_line, end_line, is_exported FROM nodes WHERE name = ? AND lang = ? AND type IN ('function','method','variable') ORDER BY id",
+      "SELECT id, path, folder, start_line, end_line, is_exported, owner FROM nodes WHERE name = ? AND lang = ? AND type IN ('function','method','variable') ORDER BY id",
     );
     const typeStmt = db.prepare(
       "SELECT path, start_line, end_line FROM nodes WHERE name = ? AND lang = ? AND type IN ('class','interface','type')",
@@ -575,8 +580,8 @@ export class CallGraphIndexer {
       if (!found) {
         found = qualifiedCandidates(
           target,
-          (name) => all(memberStmt, name, lang).map(([id, path, folder, startLine, endLine, isExported]) =>
-            ({ id: String(id), path: String(path), folder: String(folder), startLine: Number(startLine), endLine: Number(endLine), isExported: Number(isExported) })),
+          (name) => all(memberStmt, name, lang).map(([id, path, folder, startLine, endLine, isExported, owner]) =>
+            ({ id: String(id), path: String(path), folder: String(folder), startLine: Number(startLine), endLine: Number(endLine), isExported: Number(isExported), owner: String(owner) })),
           (name) => all(typeStmt, name, lang).map(([path, startLine, endLine]) =>
             ({ path: String(path), startLine: Number(startLine), endLine: Number(endLine) })),
         );
