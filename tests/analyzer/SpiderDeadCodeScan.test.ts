@@ -1,10 +1,11 @@
 import * as fs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as path from 'node:path';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
-import { SpiderErrorCode } from '../../src/analyzer/types';
+import { SpiderSymbolService } from '../../src/analyzer/spider/SpiderSymbolService';
+import { SpiderErrorCode, normalizePath } from '../../src/analyzer/types';
 
 describe('Spider - scanDeadCode', () => {
   const fixturesDir = path.resolve(process.cwd(), 'tests/fixtures/symbols');
@@ -95,6 +96,30 @@ describe('Spider - scanDeadCode', () => {
     await expect(spiderWithoutIndex.scanDeadCode()).rejects.toMatchObject({
       code: SpiderErrorCode.INDEX_NOT_READY,
     });
+  });
+
+  it('stops with the abort reason when the signal is aborted', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('cancelled by user'));
+    await expect(spider.scanDeadCode(undefined, { signal: controller.signal })).rejects.toThrow('cancelled by user');
+  });
+
+  it('skips a file whose analysis throws, keeps the others in file order (concurrent scan)', async () => {
+    const reference = await spider.scanDeadCode();
+    const original = SpiderSymbolService.prototype.findUnusedSymbols;
+    const spy = vi.spyOn(SpiderSymbolService.prototype, 'findUnusedSymbols').mockImplementation(function (this: SpiderSymbolService, filePath, memo) {
+      if (normalizePath(filePath) === normalizePath(utilsPath)) return Promise.reject(new Error('boom'));
+      return original.call(this, filePath, memo);
+    });
+    try {
+      const result = await spider.scanDeadCode();
+      expect(result.skippedFiles).toBe(1);
+      const scanned = (entries: typeof result.entries) => entries.map((e) => normalizePath(e.filePath));
+      expect(scanned(reference.entries)).toContain(normalizePath(utilsPath));
+      expect(scanned(result.entries)).toEqual(scanned(reference.entries).filter((f) => f !== normalizePath(utilsPath)));
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('should throw INDEX_NOT_READY after reset (index cleared)', async () => {
