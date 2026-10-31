@@ -431,12 +431,12 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
 
   it("marks changed source files without signature support as unsupported", async () => {
     const workspace = await createGitWorkspace();
-    await fs.writeFile(path.join(workspace, "src", "tool.py"), "def run():\n    return 1\n");
-    execFileSync("git", ["add", "src/tool.py"], { cwd: workspace });
+    await fs.writeFile(path.join(workspace, "src", "tool.go"), "package tool\n\nfunc Run() int { return 1 }\n");
+    execFileSync("git", ["add", "src/tool.go"], { cwd: workspace });
     const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
 
     expect(result.isPartial).toBe(true);
-    expect(result.limitations).toContain("Signature and symbol evidence unavailable for unsupported file type: src/tool.py.");
+    expect(result.limitations).toContain("Signature and symbol evidence unavailable for unsupported file type: src/tool.go.");
   });
 
   it("continues with an explicit limitation when signature analysis fails for one file", async () => {
@@ -1828,5 +1828,146 @@ describe("ReviewGateAnalyzer - import cycles added by the diff", { timeout: GIT_
     );
 
     expect(result.cycles).toEqual([expect.objectContaining({ classification: "introduced", files: ["pkg/a.py", "pkg/b.py"] })]);
+  });
+});
+
+/**
+ * Reference index over a real workspace: `referrers` maps a workspace-relative file to the files referencing it,
+ * returned as absolute paths with Windows separators; `dependents` maps `file:symbol` to dependent symbol ids.
+ */
+function importIndex(workspace: string, referrers: Record<string, string[]>, dependents: Record<string, string[]> = {}) {
+  const absolute = (file: string) => path.join(workspace, file).replaceAll("/", "\\");
+  const relative = (file: string) => path.relative(workspace, file).replaceAll("\\", "/");
+  return {
+    getSymbolDependents: async (file: string, symbol: string) =>
+      (dependents[`${relative(file)}:${symbol}`] ?? []).map((id) => ({ sourceSymbolId: path.join(workspace, id) })),
+    findReferencingFiles: async (file: string) => (referrers[relative(file)] ?? []).map((referrer) => ({ path: absolute(referrer) })),
+    findFileCycles: async () => ({ cycles: [], limitations: [] }),
+  };
+}
+
+/** Regression (#524): consumers that import a removed name without calling it, and Python modules, were missed. */
+describe("ReviewGateAnalyzer - importers of a removed name (#524)", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const symbolNamed = (result: Awaited<ReturnType<ReviewGateAnalyzer["analyze"]>>, name: string) =>
+    result.symbols.find((candidate) => candidate.name === name);
+
+  it("lists a TS file that imports a renamed function without calling it", async () => {
+    const workspace = await workspaceWith(
+      {
+        "src/lib.ts": "export function fn(a: number): number { return a + 1; }\n",
+        "src/user1.ts": 'import { fn } from "./lib";\nexport function u1() { return fn(1) * 2; }\n',
+        "src/user2.ts": 'import { fn } from "./lib";\nexport function u2() { return 3; }\n',
+      },
+      { "src/lib.ts": "export function fnRenamed(a: number): number { return a + 1; }\n" },
+      true,
+    );
+    const index = importIndex(workspace, { "src/lib.ts": ["src/user1.ts", "src/user2.ts"] }, { "src/lib.ts:fn": ["src/user1.ts:u1"] });
+    const result = await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main", headRef: "b1" });
+
+    expect(symbolNamed(result, "fn")?.consumers).toEqual({ updated: [], covered: [], unverified: ["src/user1.ts", "src/user2.ts"] });
+  });
+
+  it("lists aliased, type-only and barrel importers, but not an importer the diff already updated", async () => {
+    const workspace = await workspaceWith(
+      {
+        "src/lib.ts": "export interface Shape { size: number }\nexport function fn(): number { return 1; }\n",
+        "src/alias.ts": 'import { fn as run } from "./lib";\nexport const r = 1;\n',
+        "src/types.ts": 'import type { Shape } from "./lib";\nexport type S = Shape;\n',
+        "src/index.ts": 'export * from "./lib";\n',
+        "src/app.ts": 'import { fn, type Shape } from "./index";\nexport type A = Shape;\n',
+        "src/fixed.ts": 'import { fn } from "./lib";\nexport const f = fn;\n',
+      },
+      { "src/lib.ts": "export const unrelated = 1;\n", "src/fixed.ts": "export const f = 1;\n" },
+    );
+    const index = importIndex(workspace, {
+      "src/lib.ts": ["src/alias.ts", "src/types.ts", "src/index.ts"],
+      "src/index.ts": ["src/app.ts"],
+    });
+    const result = await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" });
+
+    expect(symbolNamed(result, "fn")?.consumers.unverified).toEqual(["src/alias.ts", "src/app.ts"]);
+    expect(symbolNamed(result, "Shape")?.consumers.unverified).toEqual(["src/app.ts", "src/types.ts"]);
+    expect(result.limitations.join(" ")).not.toContain("importing");
+  });
+
+  it("keeps the removal and reports the gap when importers cannot be listed", async () => {
+    const workspace = await workspaceWith(
+      { "src/lib.ts": "export function fn(): number { return 1; }\n" },
+      { "src/lib.ts": "export const other = 1;\n" },
+    );
+    const index = { getSymbolDependents: async () => [], findReferencingFiles: async () => { throw new Error("index down"); } };
+    const result = await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" });
+
+    expect(symbolNamed(result, "fn")?.breakingChanges.map((change) => change.type)).toEqual(["member-removed"]);
+    expect(result.limitations).toContain("src/lib.ts: files importing 'fn' could not all be listed (reference index failed: index down); its consumers may be incomplete.");
+  });
+
+  const PY_BASE = {
+    "pkg/__init__.py": "from .lib import pfn\n",
+    "pkg/lib.py": "def pfn(a):\n    return a + 1\n",
+    "pkg/user1.py": "from .lib import pfn\n\ndef u1():\n    return pfn(1) * 2\n",
+    "pkg/alias.py": "from .lib import pfn as p\n",
+    "app.py": "from pkg import pfn\n",
+    "mod.py": "import pkg.lib as m\nm.pfn(1)\n",
+  };
+  const PY_REFERRERS = {
+    "pkg/lib.py": ["pkg/__init__.py", "pkg/user1.py", "pkg/alias.py", "mod.py"],
+    "pkg/__init__.py": ["app.py"],
+  };
+
+  it("reports a renamed Python function and every file importing it, directly, aliased or through the package", async () => {
+    const workspace = await workspaceWith(PY_BASE, { "pkg/lib.py": "def pfn_renamed(a):\n    return a + 1\n" }, true);
+    const result = await new ReviewGateAnalyzer(workspace, importIndex(workspace, PY_REFERRERS)).analyze({ baseRef: "main", headRef: "b1" });
+
+    const pfn = symbolNamed(result, "pfn");
+    expect(pfn?.breakingChanges).toEqual([expect.objectContaining({ type: "member-removed", description: "Function 'pfn' was removed" })]);
+    expect(pfn?.consumers.unverified).toEqual(["app.py", "mod.py", "pkg/__init__.py", "pkg/alias.py", "pkg/user1.py"]);
+    expect(result.risk).not.toBe("low");
+  });
+
+  it("reports a required parameter added to a Python function, with its calling consumer", async () => {
+    const workspace = await workspaceWith(PY_BASE, { "pkg/lib.py": "def pfn(a, b):\n    return a + b\n" }, true);
+    const index = importIndex(workspace, PY_REFERRERS, { "pkg/lib.py:pfn": ["pkg/user1.py:u1"] });
+    const result = await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main", headRef: "b1" });
+
+    const pfn = symbolNamed(result, "pfn");
+    expect(pfn?.breakingChanges.map((change) => change.type)).toEqual(["parameter-added-required"]);
+    expect(pfn?.consumers.unverified).toEqual(["pkg/user1.py"]);
+    expect(pfn?.risk).toBe("high");
+  });
+
+  it("lists the files still importing a deleted Python module, by relative or absolute name", async () => {
+    const workspace = await workspaceWith(
+      {
+        "pkg/__init__.py": "",
+        "pkg/lib.py": "def pfn(a):\n    return a\n",
+        "pkg/rel.py": "from .lib import pfn\n",
+        "pkg/sub/up.py": "from ..lib import pfn\n",
+        "top.py": "from pkg.lib import pfn\n",
+        "other.py": "from pkg.library import pfn\n",
+      },
+      { "pkg/lib.py": null },
+    );
+    const result = await new ReviewGateAnalyzer(workspace, importIndex(workspace, {})).analyze({ baseRef: "main" });
+
+    expect(symbolNamed(result, "pfn")?.consumers.unverified).toEqual(["pkg/rel.py", "pkg/sub/up.py", "top.py"]);
+  });
+
+  it("recognizes pytest files as tests and as test candidates", async () => {
+    const workspace = await workspaceWith(
+      {
+        "pkg/lib.py": "def pfn(a):\n    return a\n",
+        "pkg/test_lib.py": "from .lib import pfn\n",
+        "pkg/user1.py": "from .lib import pfn\n\ndef u1():\n    return pfn(1)\n",
+        "pkg/user1_test.py": "from .user1 import u1\n",
+      },
+      { "pkg/lib.py": "def pfn(a, b):\n    return a\n" },
+    );
+    const index = importIndex(workspace, { "pkg/user1.py": ["pkg/user1_test.py"] }, { "pkg/lib.py:pfn": ["pkg/user1.py:u1", "pkg/test_lib.py:(file)"] });
+    const result = await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" });
+
+    const pfn = symbolNamed(result, "pfn");
+    expect(pfn?.testCandidates).toEqual(expect.arrayContaining(["pkg/test_lib.py"]));
+    expect(pfn?.consumers.covered).toEqual(["pkg/user1.py"]);
   });
 });

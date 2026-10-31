@@ -506,4 +506,28 @@ describe("createSpiderDependentsProvider", () => {
     expect(createSpiderDependentsProvider(spider as never).findFileCycles).toBeUndefined();
     expect(createSpiderDependentsProvider(spider as never, os.tmpdir()).findFileCycles).toBeTypeOf("function");
   });
+
+  /** Regression (#524): the CLI and MCP server built the cycle reader without the extension path, so its WASM parsers failed on Python files. */
+  it("reads Python import cycles through the extension path", { timeout: 30_000 }, async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "review-py-cycle-"));
+    try {
+      const git = (...args: string[]) => execFileSync("git", args, { cwd: workspace });
+      git("init", "--initial-branch=main");
+      git("config", "user.email", "test@example.com");
+      git("config", "user.name", "Test");
+      await fs.writeFile(path.join(workspace, "a.py"), "def a():\n    return 1\n");
+      await fs.writeFile(path.join(workspace, "b.py"), "from a import a\n");
+      git("add", ".");
+      git("commit", "-m", "base");
+      await fs.writeFile(path.join(workspace, "a.py"), "from b import a as b_a\n\ndef a():\n    return 1\n");
+      const spider = { getSymbolDependents: vi.fn() };
+
+      const withWasm = await createSpiderDependentsProvider(spider as never, workspace, process.cwd()).findFileCycles?.(["a.py"], "main");
+
+      expect(withWasm?.cycles.map((cycle) => [...cycle.files].sort((x, y) => x.localeCompare(y)))).toEqual([["a.py", "b.py"]]);
+      expect(withWasm?.limitations).toEqual([]);
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
 });

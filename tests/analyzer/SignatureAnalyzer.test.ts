@@ -1006,3 +1006,116 @@ describe('SignatureAnalyzer', () => {
     });
   });
 });
+
+describe('SignatureAnalyzer - Python modules (#524)', () => {
+  const analyzer = new SignatureAnalyzer();
+  const file = path.join('/repo', 'pkg', 'lib.py');
+  const changes = (oldContent: string, newContent: string, filePath = file) =>
+    analyzer.analyzeBreakingChanges(filePath, oldContent, newContent)
+      .map((result) => [result.symbolName, result.breakingChanges.map((change) => change.type)]);
+
+  it.each([
+    ['a renamed function', 'def pfn(a): return a + 1\n', 'def pfn_renamed(a): return a + 1\n', [['pfn', ['member-removed']]]],
+    ['a required parameter added', 'def pfn(a): return a\n', 'def pfn(a, b): return a\n', [['pfn', ['parameter-added-required']]]],
+    ['a parameter removed', 'def pfn(a, b): return a\n', 'def pfn(a): return a\n', [['pfn', ['parameter-removed']]]],
+    ['a default dropped', 'def pfn(a=1): return a\n', 'def pfn(a): return a\n', [['pfn', ['parameter-optional-to-required']]]],
+    ['an annotation changed', 'def pfn(a: int) -> int: return a\n', 'def pfn(a: str) -> str: return a\n', [['pfn', ['parameter-type-changed', 'return-type-changed']]]],
+    ['a function made async', 'def pfn(a): return a\n', 'async def pfn(a): return a\n', [['pfn', ['return-type-changed']]]],
+    ['an async function made sync', 'async def pfn(a): return a\n', 'def pfn(a): return a\n', [['pfn', ['return-type-changed']]]],
+    ['a removed class', 'class Box: pass\n', 'class Crate: pass\n', [['Box', ['member-removed']]]],
+    ['a removed module constant', 'LIMIT = 3\n', 'OTHER = 3\n', [['LIMIT', ['member-removed']]]],
+  ])('reports %s', (_label, oldContent, newContent, expected) => {
+    expect(changes(oldContent, newContent)).toEqual(expected);
+  });
+
+  it.each([
+    ['an optional parameter added', 'def pfn(a): return a\n', 'def pfn(a, b=None): return a\n'],
+    ['an annotation added', 'def pfn(a): return a\n', 'def pfn(a: int) -> int: return a\n'],
+    ['a function turned into a class of the same name', 'def pfn(a): return a\n', 'class pfn:\n    pass\n'],
+  ])('reports %s as non-breaking', (_label, oldContent, newContent) => {
+    expect(analyzer.analyzeBreakingChanges(file, oldContent, newContent).flatMap((result) => result.breakingChanges)).toEqual([]);
+  });
+
+  it('notes an added annotation and an added optional parameter as non-breaking changes', () => {
+    const [result] = analyzer.analyzeBreakingChanges(file, 'def pfn(a): return a\n', 'def pfn(a: int, b=1): return a\n');
+    expect(result.nonBreakingChanges).toEqual([
+      "New optional parameter 'b' added",
+      "Type of parameter 'a' changed from '' to 'int' (annotation added or removed)",
+    ]);
+  });
+
+  it('marks a removed defaulted parameter as breaking only calls that pass it', () => {
+    const [result] = analyzer.analyzeBreakingChanges(file, 'def pfn(a, b=1): return a\n', 'def pfn(a): return a\n');
+    expect(result.breakingChanges[0]).toMatchObject({ type: 'parameter-removed', breaksCallsWithArgs: 2 });
+  });
+
+  it('ignores private names and unchanged modules', () => {
+    expect(changes('def _helper(a): pass\n_CACHE = {}\n', 'def _helper(a, b): pass\n')).toEqual([]);
+    expect(changes('def pfn(a): pass\n', 'def pfn(a): pass\n')).toEqual([]);
+  });
+
+  it.each([
+    ['upper-case extension', path.join('/repo', 'LIB.PY')],
+    ['Windows path', String.raw`C:\repo\pkg\lib.py`],
+  ])('treats a %s as Python', (_label, filePath) => {
+    expect(changes('def pfn(a): pass\n', 'def other(a): pass\n', filePath)).toEqual([['pfn', ['member-removed']]]);
+  });
+
+  it('filters by symbol name, and tells a new symbol from an unknown one', () => {
+    expect(analyzer.analyzeBreakingChanges(file, 'def a(x): pass\ndef b(x): pass\n', 'def a(x, y): pass\n', 'b')
+      .map((result) => result.symbolName)).toEqual(['b']);
+    expect(analyzer.analyzeBreakingChanges(file, 'def a(x): pass\n', 'def a(x): pass\ndef c(): pass\n', 'c')[0].nonBreakingChanges[0])
+      .toContain("'c' is new");
+    expect(() => analyzer.analyzeBreakingChanges(file, 'def a(x): pass\n', 'def a(x): pass\n', 'zzz')).toThrow(/zzz/);
+  });
+
+  it('lists public top-level names as exported declarations, and function signatures', () => {
+    const content = 'X = 1\n_y = 2\ndef run(a): pass\nclass Box: pass\n';
+    expect([...analyzer.exportedDeclarationNames(file, content)]).toEqual(['X', 'run', 'Box']);
+    expect(analyzer.extractSignatures(file, content).map((signature) => signature.name)).toEqual(['run']);
+  });
+
+  it.each([
+    ['a named import of the name', 'from .lib import pfn\n', 'pfn', ['.lib']],
+    ['an aliased import', 'from .lib import pfn as p\n', 'pfn', ['.lib']],
+    ['a module import, whose use is not followed', 'import pkg.lib\n', 'pfn', ['pkg.lib']],
+    ['a star import', 'from .lib import *\n', 'pfn', ['.lib']],
+    ['an import of another name', 'from .lib import other\n', 'pfn', []],
+    ['any import when no name is given', 'from .lib import other\nimport os\n', undefined, ['.lib', 'os']],
+  ])('lists the specifiers that may import a Python name: %s', (_label, content, name, expected) => {
+    expect(analyzer.specifiersThatMayImport(path.join('/repo', 'pkg', 'use.py'), content, name)).toEqual(expected);
+  });
+
+  describe('resolveReexportedRemovals', () => {
+    const impl = { filePath: path.join('/repo', 'pkg', 'impl.py'), content: 'def pfn(a, b): return a\nclass Box: pass\n' };
+    const resolve = (newContent: string, oldContent = 'def pfn(a): return a\nclass Box: pass\n') => {
+      const results = analyzer.analyzeBreakingChanges(file, oldContent, newContent);
+      return analyzer.resolveReexportedRemovals(file, oldContent, newContent, results, async (_from, specifier) => (specifier === '.impl' ? impl : null));
+    };
+
+    it('compares a function moved behind `from .impl import name` with its new declaration', async () => {
+      const { results } = await resolve('from .impl import pfn, Box\n');
+      expect(results.map((result) => [result.symbolName, result.breakingChanges.map((change) => change.type)])).toEqual([['pfn', ['parameter-added-required']]]);
+    });
+
+    it('follows a star import, but keeps the removal when the target does not declare the name', async () => {
+      expect((await resolve('from .impl import *\n')).results.map((result) => result.symbolName)).toEqual(['pfn']);
+      const { results, limitations } = await resolve('from .missing import *\n');
+      expect(results.map((result) => result.symbolName).sort((a, b) => a.localeCompare(b))).toEqual(['Box', 'pfn']);
+      expect(limitations).toEqual(["Re-exports from '.missing' could not be resolved; removals behind them are unverified."]);
+    });
+
+    it('keeps a removal re-imported under another name', async () => {
+      const { results } = await resolve('from .impl import pfn as other, Box\n');
+      expect(results.map((result) => result.symbolName)).toEqual(['pfn']);
+    });
+  });
+
+  it('compares a Python symbol moved to another file, and finds no comparison when the target lacks it', () => {
+    const moved = { filePath: path.join('/repo', 'pkg', 'impl.py'), content: 'def pfn(a): return a\nclass Box: pass\n' };
+    const old = 'def pfn(a): return a\nclass Box: pass\nLIMIT = 1\n';
+    expect(analyzer.compareMovedRemoval(file, old, 'pfn', moved)?.breakingChanges).toEqual([]);
+    expect(analyzer.compareMovedRemoval(file, old, 'Box', moved)).toEqual({ symbolName: 'Box', hasBreakingChanges: false, breakingChanges: [], nonBreakingChanges: [] });
+    expect(analyzer.compareMovedRemoval(file, old, 'LIMIT', moved)).toBeUndefined();
+  });
+});

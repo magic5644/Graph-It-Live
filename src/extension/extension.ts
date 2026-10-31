@@ -70,7 +70,7 @@ export function activate(context: vscode.ExtensionContext) {
         commandCoordinator,
         logger: log,
     });
-    const lmToolsService = new LmToolsService({ provider, logger: log });
+    const lmToolsService = new LmToolsService({ provider, logger: log, extensionPath: context.extensionPath });
     
     // Get the fileChangeScheduler from provider (it's created during provider construction)
     const fileChangeScheduler = provider.fileChangeScheduler;

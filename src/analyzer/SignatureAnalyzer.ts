@@ -17,9 +17,16 @@ import * as path from 'node:path';
 import { mapWithConcurrency } from '../shared/concurrency';
 import { normalizePath } from '../shared/path';
 import { closestNames, symbolNotFoundMessage } from './utils/SymbolLookup';
+import { pythonImportBindings, pythonReExports, pythonStarExports } from './utils/pyRsImports';
+import { isPublicPythonName, pythonDeclarations, type PythonDeclarationKind } from './utils/pythonSignatures';
 
 /** Export name `export * from '<module>'` is reported under. */
 const wildcardExport = (specifier: string | undefined): string => `* from '${specifier}'`;
+
+/** Python modules are compared by the text scan in pythonSignatures.ts, never parsed as TypeScript. */
+const isPythonFile = (filePath: string): boolean => /\.py(?:\.(?:old|new))?$/i.test(filePath);
+
+const PYTHON_KIND_LABELS: Record<PythonDeclarationKind, string> = { function: 'Function', class: 'Class', variable: 'Variable' };
 
 /** Scratch in-memory file used to parse a parameter's declared type text. */
 const PARAMETER_TYPE_FILE = '__parameter_type__.ts';
@@ -152,6 +159,7 @@ export class SignatureAnalyzer {
    * Extract all function/method signatures from a file
    */
   public extractSignatures(filePath: string, content: string): SignatureInfo[] {
+    if (isPythonFile(filePath)) return pythonDeclarations(content).functions;
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const signatures: SignatureInfo[] = [];
 
@@ -550,8 +558,10 @@ export class SignatureAnalyzer {
 
     const matches = (name: string) =>
       name === symbolName || name.startsWith(`${symbolName}.`) || name.endsWith(`.${symbolName}`);
-    const oldNames = [...this.declaredNames(filePath, 'old', oldContent), ...this.exportNames(`${filePath}.old`, oldContent)];
-    const newNames = [...this.declaredNames(filePath, 'new', newContent), ...this.exportNames(`${filePath}.new`, newContent)];
+    // A Python module exports what it declares: there is no export syntax to add.
+    const exportsOf = (side: string, content: string) => (isPythonFile(filePath) ? [] : [...this.exportNames(`${filePath}.${side}`, content)]);
+    const oldNames = [...this.declaredNames(filePath, 'old', oldContent), ...exportsOf('old', oldContent)];
+    const newNames = [...this.declaredNames(filePath, 'new', newContent), ...exportsOf('new', newContent)];
     if (oldNames.some(matches)) {
       return results.filter((r) => matches(r.symbolName));
     }
@@ -579,6 +589,7 @@ export class SignatureAnalyzer {
     oldContent: string,
     newContent: string
   ): SignatureComparisonResult[] {
+    if (isPythonFile(filePath)) return this.comparePythonModules(oldContent, newContent);
     const results: SignatureComparisonResult[] = [];
 
     // Compare functions
@@ -637,6 +648,7 @@ export class SignatureAnalyzer {
 
   /** Names of the top-level declarations `content` exports directly (re-exports excluded). */
   public exportedDeclarationNames(filePath: string, content: string): Set<string> {
+    if (isPythonFile(filePath)) return new Set([...pythonDeclarations(content).names.keys()].filter(isPublicPythonName));
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const names = new Set<string>();
     for (const declaration of [
@@ -674,6 +686,12 @@ export class SignatureAnalyzer {
    * imports, `export *`, dynamic `import()`, `require()`, `import x = require()` and `import()` types.
    */
   public specifiersThatMayImport(filePath: string, content: string, name?: string): string[] {
+    if (isPythonFile(filePath)) {
+      // `import m` and `from m import *` bind the whole module: whether `name` is used through it is not followed.
+      return pythonImportBindings(content)
+        .filter((binding) => name === undefined || binding.imported === name || binding.imported === '*')
+        .map((binding) => binding.specifier);
+    }
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const imports = sourceFile.getImportDeclarations()
       .filter((declaration) => name === undefined
@@ -707,7 +725,9 @@ export class SignatureAnalyzer {
     limitations: Set<string>,
     visited: Set<string>,
   ): Promise<MovedDeclaration | undefined> {
-    const reexports = this.reexportsOf(this.getOrCreateSourceFile(fromFile, content), name);
+    const reexports = isPythonFile(fromFile)
+      ? pythonReexportsOf(content, name)
+      : this.reexportsOf(this.getOrCreateSourceFile(fromFile, content), name);
     // Load every candidate up front (bounded); the walk below stays in order, so results do not change.
     const targets = await mapWithConcurrency(reexports, 8, ({ specifier }) => loadModule(fromFile, specifier).catch(() => null));
     for (const [index, { specifier, importedName, wildcard }] of reexports.entries()) {
@@ -765,6 +785,7 @@ export class SignatureAnalyzer {
   }
 
   private declaresTopLevel(module: ReexportedModule, name: string): boolean {
+    if (isPythonFile(module.filePath)) return pythonDeclarations(module.content).names.has(name);
     const sourceFile = this.getOrCreateSourceFile(module.filePath, module.content);
     return [
       ...sourceFile.getFunctions(),
@@ -791,6 +812,10 @@ export class SignatureAnalyzer {
     const oldPath = `${filePath}.old`;
 
     const oldSig = this.extractSignatures(oldPath, oldContent).find((s) => s.name === symbolName);
+    if (isPythonFile(filePath) && !oldSig) {
+      // A Python class or variable has no comparable signature: declaring it is all its importers need.
+      return this.declaresTopLevel(moved, moved.importedName) ? { symbolName, hasBreakingChanges: false, breakingChanges: [], nonBreakingChanges: [] } : undefined;
+    }
     if (oldSig) {
       const newSig = this.extractSignatures(moved.filePath, moved.content)
         .find((s) => toOldName(s.name) === symbolName && (s.name === moved.importedName || s.name.startsWith(`${moved.importedName}.`)));
@@ -1010,6 +1035,7 @@ export class SignatureAnalyzer {
    * so a declared symbol with nothing comparable (an enum, a constant) is not reported as unknown.
    */
   private declaredNames(filePath: string, side: 'old' | 'new', content: string): string[] {
+    if (isPythonFile(filePath)) return [...pythonDeclarations(content).names.keys()];
     const sideFilePath = `${filePath}.${side}`;
     const names = [
       ...this.extractSignatures(sideFilePath, content).map((s) => s.name),
@@ -1035,6 +1061,52 @@ export class SignatureAnalyzer {
 
   private vuePropsName(filePath: string): string {
     return `${path.basename(filePath, path.extname(filePath))}.props`;
+  }
+
+  /**
+   * Public top-level names of a Python module that are gone or whose function signature changed. A name that
+   * changed kind (a function turned into a class) is still importable, so it is not reported as removed.
+   */
+  private comparePythonModules(oldContent: string, newContent: string): SignatureComparisonResult[] {
+    const before = pythonDeclarations(oldContent);
+    const after = pythonDeclarations(newContent);
+    const newFunctions = new Map(after.functions.map((fn) => [fn.name, fn]));
+    const results: SignatureComparisonResult[] = [];
+    for (const oldFn of before.functions) {
+      const newFn = newFunctions.get(oldFn.name);
+      if (!oldFn.isExported || !newFn) continue;
+      const result = this.comparePythonFunctions(oldFn, newFn);
+      if (result.hasBreakingChanges || result.nonBreakingChanges.length > 0) results.push(result);
+    }
+    for (const [name, { kind, line }] of before.names) {
+      if (isPublicPythonName(name) && !after.names.has(name)) {
+        results.push(this.createRemovedResult(name, 'member-removed', `${PYTHON_KIND_LABELS[kind]} '${name}' was removed`, line));
+      }
+    }
+    return results;
+  }
+
+  /**
+   * `compareSignatures`, except that adding or dropping an annotation is not a contract change (Python does not
+   * check it at a call), and switching between `def` and `async def` is: callers then get, or stop getting, a coroutine.
+   */
+  private comparePythonFunctions(oldSig: SignatureInfo, newSig: SignatureInfo): SignatureComparisonResult {
+    const result = this.compareSignatures(oldSig, newSig);
+    const annotationOnly = (change: BreakingChange) =>
+      (change.type === 'parameter-type-changed' || change.type === 'return-type-changed') && (change.oldValue === '' || change.newValue === '');
+    const breakingChanges = result.breakingChanges.filter((change) => !annotationOnly(change));
+    const nonBreakingChanges = [
+      ...result.nonBreakingChanges,
+      ...result.breakingChanges.filter(annotationOnly).map((change) => `${change.description} (annotation added or removed)`),
+    ];
+    if (oldSig.isAsync !== newSig.isAsync) {
+      breakingChanges.push({
+        type: 'return-type-changed', symbolName: newSig.name, severity: 'error', line: newSig.line,
+        description: newSig.isAsync ? `'${newSig.name}' became async: callers now get a coroutine` : `'${newSig.name}' is no longer async: callers no longer get a coroutine`,
+        oldValue: oldSig.isAsync ? 'async' : 'sync', newValue: newSig.isAsync ? 'async' : 'sync',
+      });
+    }
+    return { ...result, hasBreakingChanges: breakingChanges.length > 0, breakingChanges, nonBreakingChanges };
   }
 
   /**
@@ -1425,6 +1497,18 @@ export class SignatureAnalyzer {
       }
     }
   }
+}
+
+/**
+ * Python counterpart of `reexportsOf`: every `from m import x [as name]` binds `name` in the module, so importers
+ * still find it; `from m import *` may, unless `name` is private.
+ */
+function pythonReexportsOf(content: string, name: string): Array<{ specifier: string; importedName: string; wildcard?: boolean }> {
+  return pythonReExports(content).reExports.flatMap(({ specifier, names }) => {
+    if (names === 'all') return pythonStarExports(name, undefined) ? [{ specifier, importedName: name, wildcard: true }] : [];
+    const exported = names.find((pair) => pair.exported === name);
+    return exported ? [{ specifier, importedName: exported.imported }] : [];
+  });
 }
 
 /** Specifiers of `import()` calls and types, `require()` calls and `import x = require()`. */
