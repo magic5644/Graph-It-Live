@@ -1,8 +1,32 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { stripVTControlCharacters } from 'node:util';
 import wrapAnsi from 'wrap-ansi';
 import { normalizePath } from '../../../shared/path';
+import {
+  buildResultActions,
+  countBlockLines,
+  cursorIndexOf,
+  extractResultTarget,
+  findMatches,
+  findWorkspaceFile,
+  focusTargetIndex,
+  foldedBlocks,
+  highlightMatches,
+  openInEditor,
+  sameLine,
+  stepMatch,
+  selectPanelLines,
+  toWorkspaceRelativePath,
+  type FocusMove,
+  type LineKey,
+  type OutputLine,
+  type ResultAction,
+  type ResultTarget,
+} from '../resultsNavigation';
+
+export type { OutputLine } from '../resultsNavigation';
 
 const h = React.createElement;
 
@@ -219,10 +243,6 @@ const ARG_COMPLETIONS: Record<string, Array<{ value: string; description: string
   ],
 };
 
-function toWorkspaceRelativePath(absolutePath: string, workspaceRoot: string): string {
-  return normalizePath(path.relative(workspaceRoot, absolutePath));
-}
-
 function collectWorkspaceDirectories(allFiles: string[], workspaceRoot: string): string[] {
   const directories = new Set<string>();
   for (const absoluteFile of allFiles) {
@@ -294,12 +314,6 @@ function buildWorkspacePathSuggestions(
       autoExecute: true,
     })),
   ];
-}
-
-function findWorkspaceFile(typedPath: string, allFiles: string[], workspaceRoot: string): string | undefined {
-  const typed = normalizePath(typedPath);
-  return allFiles.find((absoluteFile) =>
-    normalizePath(absoluteFile) === typed || toWorkspaceRelativePath(absoluteFile, workspaceRoot) === typed);
 }
 
 /**
@@ -666,13 +680,6 @@ export function cycleNextStepHint(hints: string[], commandLine: string): string 
   return hints[(hints.indexOf(commandLine) + 1) % hints.length];
 }
 
-/** One logical output line; `lineIndex` counts from the block's `$ command` title line (0). */
-export interface OutputLine {
-  text: string;
-  blockIndex: number;
-  lineIndex: number;
-}
-
 /** One terminal row of the results panel: a slice of a wrapped logical line. */
 export interface OutputRow extends OutputLine {
   row: string;
@@ -797,33 +804,34 @@ function handleNavigationKey(
   return true;
 }
 
+/** Copy raw output lines (never the rendered markers or highlights) and report it. */
+function copyLinesWithNotice(
+  lines: readonly OutputLine[],
+  what: string,
+  setNotice: React.Dispatch<React.SetStateAction<string>>,
+): void {
+  const copied = copyToClipboard(lines.map((line) => line.text).join('\n'));
+  setNotice(copied ? `Copied ${what} to clipboard` : 'Clipboard copy failed');
+}
+
+/** Ctrl+Y copies the whole output; Ctrl+L no longer copies (cursor line = `y` in results focus). */
 function handleClipboardInput(
   input: string,
   key: { ctrl?: boolean },
-  visibleRows: OutputRow[],
-  filteredLines: OutputLine[],
+  copyLines: OutputLine[],
   setNotice: React.Dispatch<React.SetStateAction<string>>,
 ): boolean {
-  if (!(key.ctrl && input === 'y')) {
-    if (!(key.ctrl && input === 'l')) {
-      return false;
-    }
-
-    const line = visibleRows[0]?.text ?? '';
-    const copiedLine = copyToClipboard(line);
-    setNotice(copiedLine ? 'Copied selected line to clipboard' : 'Clipboard copy failed');
-    return true;
-  }
-
-  const fullText = filteredLines.map((line) => line.text).join('\n');
-  const copied = copyToClipboard(fullText);
-  setNotice(copied ? 'Copied full output to clipboard' : 'Clipboard copy failed');
+  if (!(key.ctrl && input === 'y')) return false;
+  copyLinesWithNotice(copyLines, 'full output', setNotice);
   return true;
 }
 
-function getPromptGlyph(isSearchMode: boolean, isRunning: boolean): string {
+function getPromptGlyph(isSearchMode: boolean, isRunning: boolean, isFocused: boolean): string {
   if (isSearchMode) {
     return '🔎';
+  }
+  if (isFocused) {
+    return '»';
   }
   if (isRunning) {
     return '⏳';
@@ -831,48 +839,77 @@ function getPromptGlyph(isSearchMode: boolean, isRunning: boolean): string {
   return '❯';
 }
 
+interface SearchInputContext {
+  isSearchMode: boolean;
+  searchFilter: boolean;
+  searchQuery: string;
+  setIsSearchMode: React.Dispatch<React.SetStateAction<boolean>>;
+  setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
+  setSearchFilter: React.Dispatch<React.SetStateAction<boolean>>;
+  setNotice: React.Dispatch<React.SetStateAction<string>>;
+  enterFocus: () => void;
+  jumpToMatch: (direction: 1 | -1) => void;
+}
+
+/** Enter keeps the search: a filter stays applied, highlights move to results focus for `n`/`N`. */
+function leaveSearchMode(ctx: SearchInputContext): void {
+  ctx.setIsSearchMode(false);
+  if (ctx.searchFilter || ctx.searchQuery.trim().length === 0) {
+    ctx.setNotice('Search filter applied');
+    return;
+  }
+  ctx.enterFocus();
+  ctx.setNotice('Search kept: n/N next/previous match · Esc back to prompt');
+}
+
+/** Search mode: type to highlight (or filter, Tab toggles), Ctrl+N/Ctrl+P jump, Enter keeps, Esc clears. */
 function handleSearchModeInputEvent(
-  isSearchMode: boolean,
   input: string,
   key: {
     return?: boolean;
     escape?: boolean;
     backspace?: boolean;
     delete?: boolean;
+    tab?: boolean;
     ctrl?: boolean;
     meta?: boolean;
   },
-  setIsSearchMode: React.Dispatch<React.SetStateAction<boolean>>,
-  setNotice: React.Dispatch<React.SetStateAction<string>>,
-  setSearchQuery: React.Dispatch<React.SetStateAction<string>>,
-  setScrollTop: React.Dispatch<React.SetStateAction<number>>,
+  ctx: SearchInputContext,
 ): boolean {
-  if (!isSearchMode) {
+  if (!ctx.isSearchMode) {
     return false;
   }
 
   if (key.return) {
-    setIsSearchMode(false);
-    setNotice('Search filter applied');
+    leaveSearchMode(ctx);
     return true;
   }
 
   if (key.escape) {
-    setIsSearchMode(false);
-    setSearchQuery('');
-    setNotice('Search cleared');
+    ctx.setIsSearchMode(false);
+    ctx.setSearchQuery('');
+    ctx.setNotice('Search cleared');
+    return true;
+  }
+
+  if (key.tab) {
+    ctx.setSearchFilter(!ctx.searchFilter);
+    ctx.setNotice(ctx.searchFilter ? 'Search highlights matches' : 'Search filters lines');
+    return true;
+  }
+
+  if (key.ctrl && (input === 'n' || input === 'p')) {
+    ctx.jumpToMatch(input === 'n' ? 1 : -1);
     return true;
   }
 
   if (key.backspace || key.delete) {
-    setSearchQuery((previous) => previous.slice(0, -1));
-    setScrollTop(0);
+    ctx.setSearchQuery((previous) => previous.slice(0, -1));
     return true;
   }
 
   if (!key.ctrl && !key.meta && input.length > 0) {
-    setSearchQuery((previous) => previous + input);
-    setScrollTop(0);
+    ctx.setSearchQuery((previous) => previous + input);
     return true;
   }
 
@@ -945,7 +982,7 @@ function dispatchGlobalInputEvent(
 
   if (key.ctrl && input === 'f') {
     setIsSearchMode(true);
-    setNotice('Search mode: type to filter results, Enter to return, Esc to clear');
+    setNotice('Search: type to highlight · Ctrl+N/Ctrl+P next/previous · Tab filter · Enter keep · Esc clear');
     return true;
   }
 
@@ -1209,6 +1246,448 @@ function handleEscapeInputEvent(key: { escape?: boolean }, ctx: EscapeInputConte
   return false;
 }
 
+interface FocusKey {
+  upArrow?: boolean;
+  downArrow?: boolean;
+  leftArrow?: boolean;
+  rightArrow?: boolean;
+  pageUp?: boolean;
+  pageDown?: boolean;
+  home?: boolean;
+  end?: boolean;
+  return?: boolean;
+  escape?: boolean;
+  tab?: boolean;
+  shift?: boolean;
+  ctrl?: boolean;
+}
+
+type FocusCommand = 'leave' | 'command' | 'copyLine' | 'copyBlock' | 'copyAll' | 'toggleFold' | 'fold' | 'unfold'
+  | 'toggleAll' | 'actions' | 'nextMatch' | 'previousMatch';
+
+const FOCUS_KEY_MOVES: ReadonlyArray<[keyof FocusKey, FocusMove]> = [
+  ['upArrow', 'up'], ['downArrow', 'down'], ['pageUp', 'pageUp'], ['pageDown', 'pageDown'], ['home', 'top'], ['end', 'bottom'],
+];
+const FOCUS_INPUT_MOVES = new Map<string, FocusMove>([
+  ['k', 'up'], ['j', 'down'], ['g', 'top'], ['G', 'bottom'], ['[', 'prevBlock'], [']', 'nextBlock'],
+]);
+const FOCUS_CTRL_MOVES = new Map<string, FocusMove>([['u', 'halfUp'], ['d', 'halfDown']]);
+const FOCUS_KEY_COMMANDS: ReadonlyArray<[keyof FocusKey, FocusCommand]> = [
+  ['escape', 'leave'], ['return', 'actions'], ['leftArrow', 'fold'], ['rightArrow', 'unfold'],
+];
+const FOCUS_INPUT_COMMANDS = new Map<string, FocusCommand>([
+  ['i', 'leave'], ['/', 'command'], ['y', 'copyLine'], ['Y', 'copyAll'], ['c', 'copyBlock'], [' ', 'toggleFold'],
+  ['z', 'toggleAll'], ['Z', 'toggleAll'], ['n', 'nextMatch'], ['N', 'previousMatch'],
+]);
+
+export function resolveFocusMove(input: string, key: FocusKey): FocusMove | undefined {
+  const flagged = FOCUS_KEY_MOVES.find(([flag]) => key[flag]);
+  if (flagged) return flagged[1];
+  return (key.ctrl ? FOCUS_CTRL_MOVES : FOCUS_INPUT_MOVES).get(input);
+}
+
+export function resolveFocusCommand(input: string, key: FocusKey): FocusCommand | undefined {
+  const flagged = FOCUS_KEY_COMMANDS.find(([flag]) => key[flag]);
+  if (flagged) return flagged[1];
+  if (key.ctrl) return input === 'y' ? 'copyAll' : undefined;
+  return FOCUS_INPUT_COMMANDS.get(input);
+}
+
+/**
+ * Scroll position showing rows `first..last` of the cursor line: `alignTop` puts the first row at
+ * the top (block jumps), otherwise the view moves as little as possible.
+ */
+export function scrollToCursor(
+  scrollTop: number,
+  first: number,
+  last: number,
+  pageSize: number,
+  maxScrollTop: number,
+  alignTop: boolean,
+): number {
+  const top = Math.min(scrollTop, maxScrollTop);
+  let next = top;
+  if (alignTop || first < top) next = first;
+  else if (last >= top + pageSize) next = last - pageSize + 1;
+  return next >= maxScrollTop ? FOLLOW_TAIL : Math.max(0, next);
+}
+
+type CursorScroll = 'follow' | 'top';
+
+interface ActionMenu {
+  target: ResultTarget;
+  actions: ResultAction[];
+  index: number;
+}
+
+interface ResultsFocusContext {
+  isFocused: boolean;
+  /** Every raw output line (folded or not). */
+  lines: OutputLine[];
+  /** What `Y` copies: the filtered lines when a filter is applied. */
+  copyLines: OutputLine[];
+  visibleLines: OutputLine[];
+  cursorIndex: number;
+  pageSize: number;
+  folded: ReadonlySet<number>;
+  blockCount: number;
+  workspaceRoot: string;
+  allFiles: string[];
+  placeCursor: (key: LineKey, scroll: CursorScroll) => void;
+  jumpToMatch: (direction: 1 | -1) => void;
+  setFoldOverrides: React.Dispatch<React.SetStateAction<ReadonlyMap<number, boolean>>>;
+  setFocus: React.Dispatch<React.SetStateAction<boolean>>;
+  setActionMenu: React.Dispatch<React.SetStateAction<ActionMenu | null>>;
+  setCommandLine: React.Dispatch<React.SetStateAction<string>>;
+  setNotice: React.Dispatch<React.SetStateAction<string>>;
+}
+
+function setBlockFold(ctx: ResultsFocusContext, line: OutputLine, fold: boolean): void {
+  ctx.setFoldOverrides((previous) => new Map(previous).set(line.blockIndex, fold));
+  // The title stays the cursor row and in view, whatever the block size becomes.
+  ctx.placeCursor({ blockIndex: line.blockIndex, lineIndex: 0 }, 'follow');
+}
+
+/** Fold every block, or unfold them all when all are already folded. */
+function toggleAllBlocks(ctx: ResultsFocusContext, line: OutputLine): void {
+  const fold = ctx.folded.size < ctx.blockCount;
+  ctx.setFoldOverrides(new Map(Array.from({ length: ctx.blockCount }, (_, blockIndex) => [blockIndex, fold])));
+  ctx.placeCursor({ blockIndex: line.blockIndex, lineIndex: 0 }, 'follow');
+  ctx.setNotice(fold ? 'All results folded' : 'All results expanded');
+}
+
+function openActionMenu(ctx: ResultsFocusContext, line: OutputLine): void {
+  const target = extractResultTarget(line.text, ctx.workspaceRoot, ctx.allFiles);
+  if (!target) {
+    ctx.setNotice('No file or symbol on line');
+    return;
+  }
+  ctx.setActionMenu({ target, actions: buildResultActions(target), index: 0 });
+  ctx.setNotice('Actions: ↑/↓ select · Enter run · Esc close');
+}
+
+/** `Esc`/`i` return to the prompt; `/` also starts a command. Works even when a filter hides every line. */
+function leaveFocus(startCommand: boolean, ctx: ResultsFocusContext): void {
+  ctx.setFocus(false);
+  if (startCommand) ctx.setCommandLine('/');
+  else ctx.setNotice('Back to prompt');
+}
+
+function runFocusCommand(command: FocusCommand, line: OutputLine, ctx: ResultsFocusContext): void {
+  switch (command) {
+    case 'copyLine':
+      copyLinesWithNotice([line], 'line', ctx.setNotice);
+      break;
+    case 'copyBlock':
+      // The last line of a block is its blank separator.
+      copyLinesWithNotice(ctx.lines.filter((entry) => entry.blockIndex === line.blockIndex).slice(0, -1), 'result', ctx.setNotice);
+      break;
+    case 'copyAll':
+      copyLinesWithNotice(ctx.copyLines, 'full output', ctx.setNotice);
+      break;
+    case 'toggleFold':
+      setBlockFold(ctx, line, !ctx.folded.has(line.blockIndex));
+      break;
+    case 'fold':
+    case 'unfold':
+      setBlockFold(ctx, line, command === 'fold');
+      break;
+    case 'toggleAll':
+      toggleAllBlocks(ctx, line);
+      break;
+    case 'actions':
+      openActionMenu(ctx, line);
+      break;
+    default:
+      ctx.jumpToMatch(command === 'nextMatch' ? 1 : -1);
+  }
+}
+
+/** Results focus: cursor moves, block jumps, folding, copies, actions; swallows every other key. */
+function handleResultsFocusInputEvent(input: string, key: FocusKey, ctx: ResultsFocusContext): boolean {
+  if (!ctx.isFocused) return false;
+  const line = ctx.visibleLines[ctx.cursorIndex];
+  const move = resolveFocusMove(input, key);
+  if (move && line) {
+    const target = ctx.visibleLines[focusTargetIndex(move, ctx.visibleLines, ctx.cursorIndex, ctx.pageSize)];
+    ctx.placeCursor(target, move === 'prevBlock' || move === 'nextBlock' ? 'top' : 'follow');
+    return true;
+  }
+  const command = resolveFocusCommand(input, key);
+  if (command === 'leave' || command === 'command') leaveFocus(command === 'command', ctx);
+  else if (command && line) runFocusCommand(command, line, ctx);
+  return true;
+}
+
+interface ActionMenuContext {
+  actionMenu: ActionMenu | null;
+  isRunning: boolean;
+  workspaceRoot: string;
+  runCommand: (commandLine: string) => void;
+  setActionMenu: React.Dispatch<React.SetStateAction<ActionMenu | null>>;
+  setFocus: React.Dispatch<React.SetStateAction<boolean>>;
+  setNotice: React.Dispatch<React.SetStateAction<string>>;
+}
+
+function runResultAction(menu: ActionMenu, ctx: ActionMenuContext): void {
+  const action = menu.actions[menu.index];
+  ctx.setActionMenu(null);
+  if (action.commandLine) {
+    ctx.setFocus(false);
+    ctx.runCommand(action.commandLine);
+    return;
+  }
+  ctx.setNotice('Opening editor…');
+  void openInEditor(menu.target, ctx.workspaceRoot).then(ctx.setNotice);
+}
+
+/** Action menu on a result row: ↑/↓ select, Enter runs, Esc closes; other keys are ignored while open. */
+function handleActionMenuInputEvent(key: FocusKey, ctx: ActionMenuContext): boolean {
+  const menu = ctx.actionMenu;
+  if (!menu) return false;
+  if (key.escape) {
+    ctx.setActionMenu(null);
+    ctx.setNotice('Actions closed');
+  } else if (key.upArrow || key.downArrow) {
+    const count = menu.actions.length;
+    ctx.setActionMenu({ ...menu, index: (menu.index + (key.upArrow ? count - 1 : 1)) % count });
+  } else if (key.return && !ctx.isRunning) {
+    runResultAction(menu, ctx);
+  }
+  return true;
+}
+
+/** Esc on an empty prompt (palette and filter already gone) or Shift+Tab moves focus to the results. */
+function handleFocusEntryInputEvent(
+  key: FocusKey,
+  ctx: { commandLine: string; enterFocus: () => void },
+): boolean {
+  const viaEscape = key.escape && ctx.commandLine.length === 0;
+  if (!viaEscape && !(key.tab && key.shift)) return false;
+  ctx.enterFocus();
+  return true;
+}
+
+const PROMPT_HELP_LINES = [
+  '↑/↓ PgUp/PgDn wheel scroll · Ctrl+P/Ctrl+N history · Ctrl+Y copy all · Esc/Shift+Tab focus results',
+  'Ctrl+F search · Esc clear filter/palette · Tab next step · Ctrl+C quit',
+];
+const FOCUS_HELP_LINES = [
+  '↑↓/jk move · PgUp/PgDn Ctrl+U/D page · g/G ends · [ ] results · Space ←/→ fold · z fold all · Enter actions',
+  'y copy line · c copy result · Y copy all · Ctrl+F search · n/N match · Esc/i prompt · / command',
+];
+
+/** Header key map of the active mode. */
+function getHelpLines(isFocused: boolean): string[] {
+  return isFocused ? FOCUS_HELP_LINES : PROMPT_HELP_LINES;
+}
+
+/** Cursor position in the visible lines, and the line to highlight when the cursor is shown. */
+function resolveCursor(
+  cursor: LineKey | null,
+  visibleLines: OutputLine[],
+  show: boolean,
+): { cursorIndex: number; cursorLine: OutputLine | undefined } {
+  const cursorIndex = cursor ? cursorIndexOf(visibleLines, cursor) : -1;
+  return { cursorIndex, cursorLine: show ? visibleLines[cursorIndex] : undefined };
+}
+
+const GREEN = '\u001b[32m';
+const INVERSE = '\u001b[7m';
+const NO_INVERSE = '\u001b[27m';
+const RED = '\u001b[31m';
+
+/** Title row as rendered: green/red status marker, fold arrow and body size; copies keep the raw `$ command`. */
+export function decorateTitle(text: string, failed: boolean, folded: boolean, lineCount: number): string {
+  const size = `${lineCount} line${lineCount === 1 ? '' : 's'}`;
+  return `${failed ? RED : GREEN}●${RESET} ${folded ? '▸' : '▾'} ${text} ${DIM}(${size})${RESET}`;
+}
+
+interface LineDecoration {
+  /** Search query to highlight; empty when filtering. */
+  highlight: string;
+  folded: ReadonlySet<number>;
+  failed: ReadonlySet<number>;
+  counts: ReadonlyMap<number, number>;
+}
+
+function decorateLine(line: OutputLine, decoration: LineDecoration): string {
+  const text = decoration.highlight ? highlightMatches(line.text, decoration.highlight) : line.text;
+  if (line.lineIndex !== 0) return text;
+  const { blockIndex } = line;
+  return decorateTitle(text, decoration.failed.has(blockIndex), decoration.folded.has(blockIndex), decoration.counts.get(blockIndex) ?? 0);
+}
+
+/** `(block 2/5 · lines 12-40 / 87)`, then the filter or the search position. */
+function buildResultsSummary(state: {
+  rowCount: number;
+  firstRow: number;
+  shownRows: number;
+  block: number | undefined;
+  blockCount: number;
+  searchQuery: string;
+  searchFilter: boolean;
+  matchLabel: string;
+}): string {
+  const blockPart = state.block === undefined ? '' : `block ${state.block + 1}/${state.blockCount} · `;
+  const range = state.rowCount === 0
+    ? ''
+    : ` ${DIM}(${blockPart}lines ${state.firstRow + 1}-${state.firstRow + state.shownRows} / ${state.rowCount})${RESET}`;
+  let searchPart = '';
+  if (state.searchQuery) {
+    searchPart = state.searchFilter
+      ? ` ${SPARK}filter:${RESET} ${state.searchQuery}`
+      : ` ${SPARK}search:${RESET} ${state.searchQuery} ${DIM}${state.matchLabel}${RESET}`;
+  }
+  return `${BOLD}Results${RESET}${range}${searchPart}`;
+}
+
+/** `match 3/12` when the cursor is on a match, else the match count. */
+function describeMatches(matches: readonly number[], lines: readonly OutputLine[], cursor: LineKey | null): string {
+  if (matches.length === 0) return 'no match';
+  const position = cursor ? matches.indexOf(lines.findIndex((line) => sameLine(line, cursor))) : -1;
+  return position >= 0 ? `match ${position + 1}/${matches.length}` : `${matches.length} matches`;
+}
+
+interface CursorActionState {
+  cursor: LineKey | null;
+  lines: OutputLine[];
+  visibleRows: OutputRow[];
+  matches: number[];
+  folded: ReadonlySet<number>;
+  searchQuery: string;
+  setCursor: React.Dispatch<React.SetStateAction<LineKey | null>>;
+  setCursorScroll: React.Dispatch<React.SetStateAction<CursorScroll | null>>;
+  setFoldOverrides: React.Dispatch<React.SetStateAction<ReadonlyMap<number, boolean>>>;
+  setFocus: React.Dispatch<React.SetStateAction<boolean>>;
+  setNotice: React.Dispatch<React.SetStateAction<string>>;
+}
+
+/** Cursor moves shared by the focus, search and action handlers of one render. */
+function createCursorActions(state: CursorActionState): {
+  placeCursor: (target: LineKey, scroll: CursorScroll) => void;
+  jumpToMatch: (direction: 1 | -1, inclusive?: boolean) => void;
+  enterFocus: () => void;
+} {
+  const placeCursor = (target: LineKey, scroll: CursorScroll): void => {
+    state.setCursor({ blockIndex: target.blockIndex, lineIndex: target.lineIndex });
+    state.setCursorScroll(scroll);
+  };
+
+  const jumpToMatch = (direction: 1 | -1, inclusive = false): void => {
+    const anchor = state.cursor ?? state.visibleRows[0];
+    const from = anchor ? state.lines.findIndex((line) => sameLine(line, anchor)) : -1;
+    const position = stepMatch(state.matches, from, direction, inclusive);
+    if (position === undefined) {
+      state.setNotice(state.searchQuery ? 'No match' : 'No search: Ctrl+F to search');
+      return;
+    }
+    const line = state.lines[state.matches[position]];
+    // A match hidden by folding unfolds its block.
+    if (state.folded.has(line.blockIndex)) {
+      state.setFoldOverrides((previous) => new Map(previous).set(line.blockIndex, false));
+    }
+    placeCursor(line, 'follow');
+    state.setNotice(`Match ${position + 1}/${state.matches.length}`);
+  };
+
+  const enterFocus = (): void => {
+    const { cursor } = state;
+    const anchor = cursor && state.visibleRows.some((row) => sameLine(row, cursor)) ? cursor : state.visibleRows.at(-1);
+    if (!anchor) {
+      state.setNotice('No results yet');
+      return;
+    }
+    state.setFocus(true);
+    placeCursor(anchor, 'follow');
+    state.setNotice('Results: ↑/↓ j/k move · [ ] results · Space fold · Enter actions · y copy line · Esc/i prompt');
+  };
+
+  return { placeCursor, jumpToMatch, enterFocus };
+}
+
+/** Search-as-you-type: a filter restarts from the top, highlights move the cursor to the next match. */
+function useSearchJump(
+  isSearchMode: boolean,
+  searchFilter: boolean,
+  matches: number[],
+  jumpToMatch: (direction: 1 | -1, inclusive?: boolean) => void,
+  setScrollTop: React.Dispatch<React.SetStateAction<number>>,
+): void {
+  useEffect(() => {
+    if (!isSearchMode) return;
+    if (searchFilter) setScrollTop(0);
+    else if (matches.length > 0) jumpToMatch(1, true);
+    // Only a new match list or mode moves the cursor; other dependencies would re-jump on every render.
+  }, [matches, searchFilter]);
+}
+
+/** Scroll once the rows of the new cursor position are laid out (folding may have just changed them). */
+function useCursorScroll(args: {
+  cursorScroll: CursorScroll | null;
+  target: OutputLine | undefined;
+  outputRows: OutputRow[];
+  pageSize: number;
+  maxScrollTop: number;
+  setCursorScroll: React.Dispatch<React.SetStateAction<CursorScroll | null>>;
+  setScrollTop: React.Dispatch<React.SetStateAction<number>>;
+}): void {
+  const { cursorScroll, target, outputRows, pageSize, maxScrollTop } = args;
+  useEffect(() => {
+    if (!cursorScroll) return;
+    args.setCursorScroll(null);
+    if (!target) return;
+    const line: OutputLine = target;
+    const first = outputRows.findIndex((row) => sameLine(row, line));
+    if (first < 0) return;
+    const last = outputRows.findLastIndex((row) => sameLine(row, line));
+    args.setScrollTop((previous) => scrollToCursor(previous, first, last, pageSize, maxScrollTop, cursorScroll === 'top'));
+  }, [cursorScroll, target, outputRows]);
+}
+
+/** Rendered text of a panel row: the cursor row in inverse video, without its own colors (embedded resets would cut it). */
+function renderRowText(row: OutputRow, cursorLine: OutputLine | undefined): string {
+  if (!cursorLine || !sameLine(row, cursorLine)) return row.row || ' ';
+  return `${INVERSE}${stripVTControlCharacters(row.row) || ' '}${NO_INVERSE}`;
+}
+
+function getPromptText(state: { isFocused: boolean; isSearchMode: boolean; isRunning: boolean; searchQuery: string; commandLine: string }): string {
+  if (state.isSearchMode) return state.searchQuery;
+  if (state.isFocused) return `${DIM}results focus · Esc/i back to prompt · / command${RESET}`;
+  return `${state.commandLine}${state.isRunning ? ' …' : ''}`;
+}
+
+/** Footer lines of the action menu: its title, then one line per action. */
+function buildActionMenuLines(menu: ActionMenu | null): string[] {
+  if (!menu) return [];
+  const { relativePath, symbol } = menu.target;
+  const subject = symbol ? `${relativePath}#${symbol}` : relativePath;
+  return [
+    `${DIM}Actions for ${subject}: ↑/↓ select · Enter run · Esc close${RESET}`,
+    ...menu.actions.map((action, index) => (index === menu.index ? `${SPARK}› ${action.label}${RESET}` : `${DIM}  ${action.label}${RESET}`)),
+  ];
+}
+
+/** Decoration inputs for the visible lines: highlight only when not filtering, failed blocks, sizes. */
+function buildLineDecoration(state: {
+  blocks: OutputBlock[];
+  lines: OutputLine[];
+  folded: ReadonlySet<number>;
+  searchQuery: string;
+  searchFilter: boolean;
+}): LineDecoration {
+  const failed = new Set<number>();
+  state.blocks.forEach((block, index) => {
+    if (/^Error:/m.test(block.body)) failed.add(index);
+  });
+  return {
+    highlight: state.searchFilter ? '' : state.searchQuery,
+    folded: state.folded,
+    failed,
+    counts: countBlockLines(state.lines),
+  };
+}
+
 function handleCommandInputEvent(
   input: string,
   key: {
@@ -1385,6 +1864,12 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
     const [isRunning, setIsRunning] = useState(false);
     const [blocks, setBlocks] = useState<OutputBlock[]>([]);
     const [scrollTop, setScrollTop] = useState(0);
+    const [isFocused, setFocus] = useState(false);
+    const [cursor, setCursor] = useState<LineKey | null>(null);
+    const [cursorScroll, setCursorScroll] = useState<CursorScroll | null>(null);
+    const [foldOverrides, setFoldOverrides] = useState<ReadonlyMap<number, boolean>>(new Map());
+    const [searchFilter, setSearchFilter] = useState(false);
+    const [actionMenu, setActionMenu] = useState<ActionMenu | null>(null);
     const [notice, setNotice] = useState('Ready. Enter a command like /summary or /trace src/index.ts#main');
     const [currentAllFiles, setCurrentAllFiles] = useState(options.allFiles);
     const [displayWorkspace, setDisplayWorkspace] = useState(options.workspaceRoot);
@@ -1470,14 +1955,17 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       },
       [commandLine, selectedSlashSuggestion],
     );
-    const filteredLines = useMemo(() => {
-      if (searchQuery.trim().length === 0) {
-        return lines;
-      }
-
-      const needle = searchQuery.toLowerCase();
-      return lines.filter((line) => line.text.toLowerCase().includes(needle));
-    }, [lines, searchQuery]);
+    const folded = useMemo(() => foldedBlocks(blocks.length, foldOverrides), [blocks.length, foldOverrides]);
+    const matches = useMemo(() => findMatches(lines, searchQuery), [lines, searchQuery]);
+    const { visible: visibleLines, copy: filteredLines } = useMemo(
+      () => selectPanelLines(lines, folded, matches, searchFilter && searchQuery.trim().length > 0),
+      [lines, folded, matches, searchFilter, searchQuery],
+    );
+    const displayLines = useMemo(() => {
+      const decoration = buildLineDecoration({ blocks, lines, folded, searchQuery, searchFilter });
+      return visibleLines.map((line) => ({ ...line, text: decorateLine(line, decoration) }));
+    }, [visibleLines, searchFilter, searchQuery, folded, blocks, lines]);
+    const actionMenuLines = buildActionMenuLines(actionMenu);
     const nextStepHints = useMemo(
       () => (blocks.length > 0 ? getNextStepHints(displayLastFile, displayLastSymbol) : []),
       [blocks.length, displayLastFile, displayLastSymbol],
@@ -1494,14 +1982,16 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       + (hasSlashSuggestions && completionPreview.length > 0 ? 1 : 0)
       + (argsHintLine ? 1 : 0)
       + (slashWindowIndicator ? 1 : 0)
-      + (hasSlashSuggestions ? visibleSlashSuggestions.length : 0);
+      + (hasSlashSuggestions ? visibleSlashSuggestions.length : 0)
+      + actionMenuLines.length;
     const panelHeight = Math.max(1, rows - HEADER_ROWS - computedFooterRows);
     const panelContentHeight = Math.max(1, panelHeight - 2);
     // Panel content starts after paddingLeft: 1.
-    const outputRows = useMemo(() => wrapLines(filteredLines, columns - 1), [filteredLines, columns]);
+    const outputRows = useMemo(() => wrapLines(displayLines, columns - 1), [displayLines, columns]);
     const maxScrollTop = Math.max(0, outputRows.length - panelContentHeight);
     const clampedScrollTop = Math.max(0, Math.min(scrollTop, maxScrollTop));
     const visibleRows = outputRows.slice(clampedScrollTop, clampedScrollTop + panelContentHeight);
+    const { cursorIndex, cursorLine } = resolveCursor(cursor, visibleLines, isFocused || isSearchMode);
     const arrowTarget = resolveArrowTarget({
       commandLine,
       historyIndex,
@@ -1600,6 +2090,30 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
         });
     };
 
+    const { placeCursor, jumpToMatch, enterFocus } = createCursorActions({
+      cursor,
+      lines,
+      visibleRows,
+      matches,
+      folded,
+      searchQuery,
+      setCursor,
+      setCursorScroll,
+      setFoldOverrides,
+      setFocus,
+      setNotice,
+    });
+    useSearchJump(isSearchMode, searchFilter, matches, jumpToMatch, setScrollTop);
+    useCursorScroll({
+      cursorScroll,
+      target: visibleLines[cursorIndex],
+      outputRows,
+      pageSize: panelContentHeight,
+      maxScrollTop,
+      setCursorScroll,
+      setScrollTop,
+    });
+
     useInput((input, key) => {
       if (pickerMode !== 'none') {
         handlePickerInputEvent(input, key, {
@@ -1619,7 +2133,45 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
         return;
       }
       if (dispatchGlobalInputEvent(input, key, exit, setIsSearchMode, setNotice, [
-        () => handleSearchModeInputEvent(isSearchMode, input, key, setIsSearchMode, setNotice, setSearchQuery, setScrollTop),
+        () => handleActionMenuInputEvent(key, {
+          actionMenu,
+          isRunning,
+          workspaceRoot: displayWorkspace,
+          runCommand,
+          setActionMenu,
+          setFocus,
+          setNotice,
+        }),
+        () => handleSearchModeInputEvent(input, key, {
+          isSearchMode,
+          searchFilter,
+          searchQuery,
+          setIsSearchMode,
+          setSearchQuery,
+          setSearchFilter,
+          setNotice,
+          enterFocus,
+          jumpToMatch,
+        }),
+        () => handleResultsFocusInputEvent(input, key, {
+          isFocused,
+          lines,
+          copyLines: filteredLines,
+          visibleLines,
+          cursorIndex,
+          pageSize: panelContentHeight,
+          folded,
+          blockCount: blocks.length,
+          workspaceRoot: displayWorkspace,
+          allFiles: currentAllFiles,
+          placeCursor,
+          jumpToMatch,
+          setFoldOverrides,
+          setFocus,
+          setActionMenu,
+          setCommandLine,
+          setNotice,
+        }),
         () => handleEscapeInputEvent(key, {
           hasSlashSuggestions,
           searchQuery,
@@ -1629,6 +2181,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
           setSearchQuery,
           setNotice,
         }),
+        () => handleFocusEntryInputEvent(key, { commandLine, enterFocus }),
         () => handleHistoryInputEvent(input, key, {
           arrowTarget,
           commandHistory,
@@ -1655,7 +2208,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
           setNotice,
         ),
         () => handleNavigationKey(key, panelContentHeight, maxScrollTop, setScrollTop),
-        () => handleClipboardInput(input, key, visibleRows, filteredLines, setNotice),
+        () => handleClipboardInput(input, key, filteredLines, setNotice),
         () => handleCommandInputEvent(
           input,
           key,
@@ -1693,13 +2246,18 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
 
       // Rows already fit the panel width; ' ' keeps an empty row one row tall.
       const resultNodes = visibleRows.length > 0
-        ? visibleRows.map((row, index) => h(Text, { key: `row-${clampedScrollTop + index}`, wrap: 'truncate' }, row.row || ' '))
+        ? visibleRows.map((row, index) => h(Text, { key: `row-${clampedScrollTop + index}`, wrap: 'truncate' }, renderRowText(row, cursorLine)))
         : [h(Text, { dimColor: true, key: 'empty' }, 'No results yet')];
-      const filterSuffix = searchQuery ? ` ${SPARK}filter:${RESET} ${searchQuery}` : '';
-      const range = outputRows.length === 0
-        ? ''
-        : ` ${DIM}(lines ${clampedScrollTop + 1}-${clampedScrollTop + visibleRows.length} / ${outputRows.length})${RESET}`;
-      const resultsSummary = `${BOLD}Results${RESET}${range}${filterSuffix}`;
+      const resultsSummary = buildResultsSummary({
+        rowCount: outputRows.length,
+        firstRow: clampedScrollTop,
+        shownRows: visibleRows.length,
+        block: (cursorLine ?? visibleRows[0])?.blockIndex,
+        blockCount: blocks.length,
+        searchQuery,
+        searchFilter,
+        matchLabel: describeMatches(matches, lines, cursor),
+      });
 
       return h(
         Box,
@@ -1709,12 +2267,16 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       );
     }
 
+    const promptText = getPromptText({ isFocused, isSearchMode, isRunning, searchQuery, commandLine });
+
     function buildFooterItems(): React.ReactElement[] {
       const footerItems: React.ReactElement[] = [
         h(Text, { wrap: 'truncate' }, `${DIM}${notice}${RESET}`),
         // The glyph stays outside the truncated text, so a long command keeps its prompt marker.
-        h(Box, {}, h(Box, { marginRight: 1, flexShrink: 0 }, h(Text, {}, getPromptGlyph(isSearchMode, isRunning))), h(Text, { wrap: 'truncate-start' }, `${isSearchMode ? searchQuery : commandLine}${isRunning ? ' …' : ''}`)),
+        h(Box, {}, h(Box, { marginRight: 1, flexShrink: 0 }, h(Text, {}, getPromptGlyph(isSearchMode, isRunning, isFocused))), h(Text, { wrap: 'truncate-start' }, promptText)),
       ];
+
+      footerItems.push(...actionMenuLines.map((line, index) => h(Text, { key: `action-${index}`, wrap: 'truncate' }, line)));
 
       if (showNextStepHints) {
         const hintLabels = nextStepHints.map((hint) => (hint === commandLine ? `${SPARK}${hint}${RESET}${DIM}` : hint));
@@ -1758,6 +2320,8 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       return footerItems;
     }
 
+    const helpLines = getHelpLines(isFocused);
+
     return h(
       Box,
       { flexDirection: 'column', height: rows },
@@ -1765,8 +2329,8 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
         Box,
         { flexDirection: 'column', marginBottom: 1 },
         h(Text, { wrap: 'truncate' }, `${BLUE}●${RESET}${DIM}─${RESET}${BLUE}■${RESET}   ${BOLD}Graph-It-Live${RESET} ${DIM}v${options.version}${RESET} ${SPARK}✦${RESET}`),
-        h(Text, { wrap: 'truncate' }, `${BLUE}│${RESET} ${DIM}╲${RESET}   ${DIM}↑/↓ PgUp/PgDn wheel scroll · Ctrl+P/Ctrl+N history · Ctrl+Y copy all · Ctrl+L copy line${RESET}`),
-        h(Text, { wrap: 'truncate' }, `${BLUE}●${RESET}${DIM}─${RESET}${ORANGE}■${RESET}   ${DIM}Ctrl+F search · Esc clear filter/palette · Tab next step · Ctrl+C quit${RESET}`),
+        h(Text, { wrap: 'truncate' }, `${BLUE}│${RESET} ${DIM}╲${RESET}   ${DIM}${helpLines[0]}${RESET}`),
+        h(Text, { wrap: 'truncate' }, `${BLUE}●${RESET}${DIM}─${RESET}${ORANGE}■${RESET}   ${DIM}${helpLines[1]}${RESET}`),
       ),
       h(
         Box,
