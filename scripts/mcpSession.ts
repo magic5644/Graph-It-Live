@@ -1,6 +1,7 @@
 /** Minimal MCP stdio client over `graph-it serve`, shared by the CLI E2E tests and the E2E benchmark. */
 
 import { spawn } from "node:child_process";
+import { once } from "node:events";
 
 export interface ToolResult {
   isError?: boolean;
@@ -16,10 +17,18 @@ export async function closeSession(child: ReturnType<typeof spawn>): Promise<num
   const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), 15_000));
   const outcome = await Promise.race([exited, timeout]);
   if (outcome === "timeout") {
-    child.kill();
+    await stopSession(child);
     throw new Error("MCP server did not exit after stdin closed");
   }
   return outcome;
+}
+
+/** Kill the session and wait for the process tree to exit: a server still shutting down may be writing the workspace cache. */
+export async function stopSession(child: ReturnType<typeof spawn>): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = once(child, "exit");
+  child.kill();
+  await exited;
 }
 
 /** Start `graph-it serve --workspace <workspace>` from `cwd` and complete the MCP handshake. */

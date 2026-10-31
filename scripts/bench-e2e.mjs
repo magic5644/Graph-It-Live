@@ -7,7 +7,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs, promisify } from 'node:util';
 import { runTests } from '@vscode/test-electron';
-import { closeSession, startMcpSession } from './mcpSession.ts';
+import { closeSession, startMcpSession, stopSession } from './mcpSession.ts';
 
 // End-to-end benchmarks of the built CLI and MCP server on frozen corpora (#294).
 // Unlike the vitest benches, each sample is a real process: wall time includes
@@ -239,7 +239,7 @@ async function measureMcp(workspace, target, runs, scratch) {
       [`mcp.concurrent${CONCURRENT_CALLS}.queueWait`]: summarize(bursts.flatMap(queueWaits).map((wallMs) => ({ wallMs }))),
     };
   } finally {
-    session.child.kill();
+    await stopSession(session.child);
   }
 }
 
@@ -317,7 +317,7 @@ async function measureMemory(workspace, target, cycles, scratch) {
     await closeSession(session.child);
     return summarizeMemory(probes, readPeakRss(rssDir));
   } finally {
-    session.child.kill();
+    await stopSession(session.child);
   }
 }
 
