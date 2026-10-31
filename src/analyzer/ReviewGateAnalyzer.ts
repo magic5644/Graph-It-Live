@@ -9,16 +9,25 @@ import { detectCycles } from "../shared/cycleUtils";
 import { SignatureAnalyzer, type BreakingChange, type ReexportedModule, type SignatureInfo } from "./SignatureAnalyzer";
 import type { SymbolDependency, SymbolInfo } from "./types";
 import { PathResolver } from "./utils/PathResolver";
+import { maskNonCode } from "./utils/maskNonCode";
 import { findRemovedNameImporters } from "./utils/removedNameImporters";
+import { checkText, isMissingFile, MAX_TEXT_FILE_BYTES, readWorkspaceText } from "./utils/workspaceText";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_MAX_FILES = 200;
 const DEFAULT_MAX_DEPTH = 3;
 const MAX_MAX_FILES = 1_000;
+/** Most changed files one review reads; callers with a higher budget (Branch Watch) clamp to it. */
+export const REVIEW_GATE_MAX_FILES_LIMIT = MAX_MAX_FILES;
 const MAX_MAX_DEPTH = 10;
 /** Bound on the reverse-index walk used to decide whether a consumer is under test. */
 const MAX_COVERAGE_LOOKUP_FILES = 200;
 const SIGNATURE_ANALYSIS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".py"]);
+
+/** Whether the review compares signatures of `file`: the one list review-pr and Branch Watch share. */
+export function hasSignatureAnalysis(file: string): boolean {
+  return SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(file).toLowerCase());
+}
 
 export type ReviewRiskLevel = "low" | "medium" | "high" | "critical";
 
@@ -75,6 +84,11 @@ export interface ReviewSymbol {
   breakingChanges: BreakingChange[];
   impactedSymbolCount: number;
   consumers: ConsumerStanding;
+  /**
+   * Consumers, tests included, that may handle every member of a union or enum that gained
+   * members (switch, `Record<T, …>`, mapped type `[K in T]`): likely to stop compiling.
+   */
+  exhaustiveConsumers?: string[];
   cycleEvidence: string[];
   unusedExportEvidence: boolean;
   testCandidates: string[];
@@ -151,6 +165,8 @@ interface ChangedSource {
   absolutePath: string;
   oldContent: string | null;
   newContent: string | null;
+  /** Why the file could not be read at one of the refs (unsafe, too large, binary); absent when both reads worked. */
+  unreadable?: string;
 }
 
 /** Cross-file state of one review, used to tell a moved symbol from a removed one. */
@@ -222,7 +238,7 @@ export class ReviewGateAnalyzer {
     const sources = await this.loadChangedSources(changedFiles, options.baseRef, headRef);
     const fileCycles = options.fileCycles === false ? { cycles: [], limitations: [] } : await this.collectFileCycles(changedFiles, options.baseRef, headRef);
     limitations.push(...fileCycles.limitations);
-    const cycleFiles = new Set(fileCycles.cycles.flatMap((cycle) => cycle.changedFiles.map(normalizePath)));
+    const cycleFiles = new Set(fileCycles.cycles.flatMap((cycle) => cycle.changedFiles.map((file) => normalizePath(file))));
     const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map(), grep: new Map(), contents: new Map(), cycleFiles };
     // Each file gets its own limitations, merged in file order, so the report matches a sequential run.
     // The shared caches memoize promises, so files analyzed at the same time share one lookup.
@@ -282,15 +298,20 @@ export class ReviewGateAnalyzer {
 
   /** Base and head content of every changed file the signature analysis supports, read once per review. */
   private async loadChangedSources(changedFiles: string[], baseRef: string, headRef: string): Promise<Map<string, ChangedSource>> {
-    const supported = changedFiles.filter((relativePath) => SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(relativePath).toLowerCase()));
+    const supported = changedFiles.filter(hasSignatureAnalysis);
     // Up to two git processes per file: 4 files at a time keeps at most 8 running, for up to 1 000 changed files.
     const loaded = await mapWithConcurrency(supported, 4, async (relativePath): Promise<ChangedSource> => {
       const absolutePath = this.resolveWorkspacePath(relativePath);
-      const [oldContent, newContent] = await Promise.all([
-        this.gitShow(baseRef, relativePath),
-        this.readHeadContent(headRef, absolutePath, relativePath),
-      ]);
-      return { relativePath, absolutePath, oldContent, newContent };
+      try {
+        const [oldContent, newContent] = await Promise.all([
+          this.gitShow(baseRef, relativePath),
+          this.readHeadContent(headRef, absolutePath, relativePath),
+        ]);
+        return { relativePath, absolutePath, oldContent, newContent };
+      } catch (error) {
+        // An unreadable file is neither added nor deleted: the review goes on with the others, marked partial.
+        return { relativePath, absolutePath, oldContent: null, newContent: null, unreadable: error instanceof Error ? error.message : String(error) };
+      }
     });
     return new Map(loaded.map((source) => [source.relativePath, source]));
   }
@@ -330,6 +351,10 @@ export class ReviewGateAnalyzer {
       if (SUPPORTED_SOURCE_FILE_REGEX.test(relativePath)) {
         limitations.push(`Signature and symbol evidence unavailable for unsupported file type: ${relativePath}.`);
       }
+      return [];
+    }
+    if (source.unreadable !== undefined) {
+      limitations.push(`Could not compare ${relativePath}; ${source.unreadable}`);
       return [];
     }
     const { absolutePath, oldContent, newContent } = source;
@@ -380,8 +405,8 @@ export class ReviewGateAnalyzer {
       // A removal still reported as such — not resolved through a re-export — may have moved to another changed file.
       const removals = new Set(comparisons.filter((comparison) => comparison.breakingChanges.length === 1));
       const headExports = this.signatures.exportedDeclarationNames(absolutePath, newContent);
-      const resolved = await Promise.all(reexports.results.map(async (result) =>
-        removals.has(result) && !headExports.has(exportedNameOf(result.symbolName)) ? this.resolveMove(result, scope) : result));
+      const resolved = await Promise.all(reexports.results.map((result) =>
+        removals.has(result) && !headExports.has(exportedNameOf(result.symbolName)) ? this.resolveMove(result, scope) : Promise.resolve(result)));
       return scope.deleted ? await this.withDeletedImporters(resolved, scope) : resolved;
     } catch (error) {
       const detail = error instanceof Error ? error.message : "unknown parser error";
@@ -533,7 +558,7 @@ export class ReviewGateAnalyzer {
 
   /** Head content of a candidate importer, read once per review; null when unreadable or not a language the review parses. */
   private cachedConsumerContent(file: string, scope: MoveScope): Promise<string | null> {
-    if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(file).toLowerCase())) return Promise.resolve(null);
+    if (!hasSignatureAnalysis(file)) return Promise.resolve(null);
     let pending = scope.moves.contents.get(file);
     if (!pending) {
       pending = this.readConsumerContent(file, scope.headRef);
@@ -582,25 +607,35 @@ export class ReviewGateAnalyzer {
     const allTestCandidates = [...new Set([...fileEvidence.testCandidates, ...impact.testDependents])];
     const consumers = markStale(await this.getConsumerStanding(impact, changedFiles), staleImporters);
     const consumersMustAct = this.requiresConsumerUpdate(errorBreakingChanges);
+    const exhaustiveConsumers = comparison.breakingChanges.some((change) => change.type === "member-added")
+      ? await this.findExhaustiveConsumers(impact, comparison.symbolName, headRef)
+      : undefined;
     const scoreFactors = this.getScoreFactors({
       breakingChangeCount: errorBreakingChanges.length, impact, consumers, consumersMustAct, cycles, unusedExport,
       testCandidateCount: allTestCandidates.length, hasConfirmedZeroImpact, hasTestCoverage,
       moved: comparison.movedTo !== undefined,
+      untouchedExhaustiveConsumers: exhaustiveConsumers?.filter((file) => !changedFiles.has(file)).length ?? 0,
     });
     const score = Math.min(100, Object.values(scoreFactors).reduce((total, value) => total + value, 0));
     return {
       name: comparison.symbolName, filePath: relativePath, score, risk: riskForScore(score),
       breakingChanges: comparison.breakingChanges, impactedSymbolCount: impact.count, consumers,
+      ...(exhaustiveConsumers ? { exhaustiveConsumers } : {}),
       cycleEvidence: cycles ? [comparison.symbolName] : [], unusedExportEvidence: unusedExport,
       testCandidates: allTestCandidates, scoreFactors,
       evidence: this.getEvidence({
         breakingChanges: comparison.breakingChanges, impact, consumers, consumersMustAct, cycles, unusedExport,
-        testCandidates: allTestCandidates, hasTestCoverage,
+        testCandidates: allTestCandidates, hasTestCoverage, exhaustiveConsumers: exhaustiveConsumers ?? [],
+        lookup: { symbolName: comparison.symbolName, relativePath, dependents: Boolean(this.dependents) },
       }),
     };
   }
 
-  /** Dependents of a changed contract that its error-level changes can break; a moved symbol's are walked at its new file. */
+  /**
+   * Dependents of a changed contract, breaking or not (#546): a compatible change still has consumers
+   * to re-check and tests to run. Narrowed to the calls its error-level changes break; a moved symbol's
+   * dependents are walked at its new file.
+   */
   private async getContractImpact(
     comparison: ReviewComparison,
     errorBreakingChanges: BreakingChange[],
@@ -609,12 +644,11 @@ export class ReviewGateAnalyzer {
     fileEvidence: FileEvidence,
     headRef: string,
   ): Promise<SymbolImpact> {
-    if (errorBreakingChanges.length === 0) return EMPTY_IMPACT;
     // Member-level changes (a single interface/class member removed or retyped) only
     // implicate direct consumers of that member. Hop 2+ chases callers of the *type's*
     // consumers (e.g. everyone who calls a class that merely returns the type) — noise
     // unrelated to the specific member being changed.
-    const isMemberLevelChange = errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-renamed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
+    const isMemberLevelChange = errorBreakingChanges.length > 0 && errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-renamed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
     const effectiveMaxDepth = isMemberLevelChange ? 1 : maxDepth;
     const declaringPath = comparison.movedTo ? this.toAbsolute(comparison.movedTo) : absolutePath;
     const contractImpact = this.isVuePropsSymbol(comparison.symbolName)
@@ -642,6 +676,27 @@ export class ReviewGateAnalyzer {
    */
   private requiresConsumerUpdate(errorBreakingChanges: BreakingChange[]): boolean {
     return errorBreakingChanges.some((change) => change.type !== "return-type-changed");
+  }
+
+  /**
+   * Consumers and tests that may handle every member of `symbolName`, so a member added breaks
+   * them: `Record<T, …>` (also under `satisfies`), a mapped type `[K in T]`, or a `switch` in a
+   * file naming T. Textual, on code with comments and strings masked: a hint to re-check, not a proof.
+   * A file that cannot be read is not flagged: the consumer list already asks to re-check it.
+   */
+  private async findExhaustiveConsumers(impact: SymbolImpact, symbolName: string, headRef: string): Promise<string[]> {
+    // `t.Lang` too: a namespace import names the type through its namespace.
+    const name = String.raw`(?:[\w$]+\s*\.\s*)?${escapeRegExp(symbolName)}`;
+    const total = new RegExp(String.raw`\bRecord\s*<\s*${name}\b|\bin\s+${name}(?:\s*\]|\s+as\b)`);
+    const named = new RegExp(String.raw`(?:^|[^\w$])${escapeRegExp(symbolName)}(?:$|[^\w$])`);
+    const files = [...new Set([...impact.consumerFiles, ...impact.testDependents])].sort((left, right) => left.localeCompare(right));
+    const contents = await mapWithConcurrency(files, 8, (file) => this.readConsumerContent(file, headRef));
+    return files.filter((_file, index) => {
+      const content = contents[index];
+      if (content === null) return false;
+      const code = maskNonCode(content);
+      return total.test(code) || (/\bswitch\s*\(/.test(code) && named.test(code));
+    });
   }
 
   /**
@@ -727,6 +782,8 @@ export class ReviewGateAnalyzer {
     hasTestCoverage: boolean;
     /** The symbol moved to another changed file: residual work even when nothing else changed. */
     moved: boolean;
+    /** Consumers this diff does not touch that may handle every member of a union or enum that gained members. */
+    untouchedExhaustiveConsumers: number;
   }): ReviewScoreFactors {
     // Residual weight: the change is real and worth a look, but nothing downstream
     // has to be edited for it, so it must not drown the findings that do need work.
@@ -741,8 +798,14 @@ export class ReviewGateAnalyzer {
     // on their own they are the state of the code, not a risk this diff creates.
     // A compatible change to a symbol in an existing cycle used to score "medium".
     if (input.breakingChangeCount === 0) {
-      // A pure move keeps the residual weight so it stays visible in the report.
-      return { breakingChanges: Number(input.moved) * RESIDUAL_WEIGHT, unverifiedConsumers: 0, cycles: 0, unusedExport: 0, missingTestCandidate: 0, partialImpact: 0 };
+      // A pure move, or a compatible change with consumers to re-check, keeps the residual weight so
+      // it stays visible. Only a consumer that may handle every member of a widened union or enum is
+      // likely broken, so only those weigh as consumers (#546).
+      const recheck = input.moved || untouchedConsumers > 0 || input.untouchedExhaustiveConsumers > 0;
+      return {
+        breakingChanges: Number(recheck) * RESIDUAL_WEIGHT, unverifiedConsumers: input.untouchedExhaustiveConsumers * 5,
+        cycles: 0, unusedExport: 0, missingTestCandidate: 0, partialImpact: 0,
+      };
     }
     let breakingChangeWeight = 50;
     if (input.hasConfirmedZeroImpact || !input.consumersMustAct || consumersAccountedFor) {
@@ -776,27 +839,19 @@ export class ReviewGateAnalyzer {
     unusedExport: boolean;
     testCandidates: string[];
     hasTestCoverage: boolean;
+    exhaustiveConsumers: string[];
+    /** What the test lookup searched, named when it found nothing. */
+    lookup: { symbolName: string; relativePath: string; dependents: boolean };
   }): ReviewEvidence[] {
     const evidence: ReviewEvidence[] = input.breakingChanges.map((change) => ({ kind: evidenceKindOf(change), detail: change.description }));
     if (input.impact.count > 0) evidence.push({ kind: "impact", detail: `${input.impact.count} known dependent symbol(s).` });
-    const consumerTotal = input.consumers.updated.length + input.consumers.covered.length + input.consumers.unverified.length;
-    if (consumerTotal > 0) {
-      const { updated, covered, unverified } = input.consumers;
-      const unverifiedDetail = unverified.length > 0 ? `: ${unverified.join(", ")}` : "";
-      const standing = input.consumersMustAct
-        ? `${covered.length + unverified.length} must be updated (${covered.length} with tests that will fail, ${unverified.length} unverified${unverifiedDetail})`
-        : `${covered.length} covered by tests, ${unverified.length} neither; return-type compatibility is not checked, so these are potentially, not provably, broken: review how each uses the returned value`;
-      evidence.push({
-        kind: "consumers",
-        detail: `${consumerTotal} consumer file(s): ${updated.length} updated in this diff, ${standing}.`,
-      });
-    }
+    evidence.push(...consumerEvidence(input.consumers, input.consumersMustAct, input.breakingChanges, input.exhaustiveConsumers));
     if (input.cycles) evidence.push({ kind: "cycle", detail: "Changed symbol participates in a detected symbol dependency cycle, or its file in an import cycle this diff adds." });
     if (input.unusedExport) evidence.push({ kind: "unused-export", detail: "Changed exported symbol is currently reported as unused." });
     if (input.testCandidates.length > 0) {
       evidence.push({ kind: "test-candidate", detail: `Conventional test candidate(s): ${input.testCandidates.join(", ")}.` });
     } else {
-      evidence.push({ kind: "test-candidate", detail: "No conventional test candidate found; manual test selection is required." });
+      evidence.push({ kind: "test-candidate", detail: missingTestDetail(input.lookup) });
     }
     if (input.hasTestCoverage) evidence.push({ kind: "test-candidate", detail: "Symbol is directly depended on by an existing test — a real incompatibility would fail that test." });
     if (input.impact.fileScoped) {
@@ -817,7 +872,7 @@ export class ReviewGateAnalyzer {
 
   private async getChangedFiles(baseRef: string, headRef: string, maxFiles: number): Promise<string[]> {
     const comparison = headRef === "HEAD" ? baseRef : `${baseRef}...${headRef}`;
-    const { stdout } = await execFileAsync("git", ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "--no-renames", "--diff-filter=ACMD", comparison, "--"], {
+    const { stdout } = await execFileAsync("git", ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "--no-renames", "--diff-filter=ACMDT", comparison, "--"], {
       cwd: this.workspaceRoot,
       maxBuffer: 1024 * 1024,
     });
@@ -844,16 +899,20 @@ export class ReviewGateAnalyzer {
     return resolved;
   }
 
+  /** Content of `relativePath` at `ref`; null when the ref has no such file, throws when it is too large or binary. */
   private async gitShow(ref: string, relativePath: string): Promise<string | null> {
+    let stdout: string;
     try {
-      const { stdout } = await execFileAsync("git", ["show", `${ref}:${relativePath}`], {
+      ({ stdout } = await execFileAsync("git", ["show", `${ref}:${relativePath}`], {
         cwd: this.workspaceRoot,
-        maxBuffer: 2 * 1024 * 1024,
-      });
-      return stdout;
-    } catch {
+        maxBuffer: MAX_TEXT_FILE_BYTES,
+      }));
+    } catch (error) {
+      // Output past maxBuffer means the file exists: reading it as absent made a large file look added or deleted.
+      if ((error as { code?: unknown }).code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER") throw new Error("File exceeds the 2 MiB size limit.", { cause: error });
       return null;
     }
+    return checkText(stdout);
   }
 
   /** Head content of a module a changed file re-exports from; null when unresolved or outside the workspace. */
@@ -866,19 +925,22 @@ export class ReviewGateAnalyzer {
     } catch {
       return null;
     }
-    const content = await this.readHeadContent(headRef, absolutePath, normalizePath(path.relative(this.normalizedRoot, absolutePath)));
+    const content = await this.readHeadContent(headRef, absolutePath, normalizePath(path.relative(this.normalizedRoot, absolutePath))).catch(() => null);
     return content === null ? null : { filePath: absolutePath, content };
   }
 
+  /**
+   * Head content of a file: null when it does not exist there; throws when it is unsafe (a symbolic link,
+   * outside the workspace), too large or binary, the files Branch Watch does not read either.
+   */
   private async readHeadContent(headRef: string, absolutePath: string, relativePath: string): Promise<string | null> {
-    if (headRef === "HEAD") {
-      try {
-        return await fs.readFile(absolutePath, "utf8");
-      } catch {
-        return null;
-      }
+    if (headRef !== "HEAD") return this.gitShow(headRef, relativePath);
+    try {
+      return await readWorkspaceText(this.workspaceRoot, absolutePath);
+    } catch (error) {
+      if (isMissingFile(error)) return null;
+      throw error;
     }
-    return this.gitShow(headRef, relativePath);
   }
 
   /** Top-level functions only: a class method is not a factory consumers call by name. */
@@ -1184,7 +1246,7 @@ export class ReviewGateAnalyzer {
         path.join("tests", `test_${baseName}.py`),
         path.join("tests", mirroredDir, `test_${baseName}.py`),
       ] : []),
-    ].map(normalizePath);
+    ].map((candidate) => normalizePath(candidate));
     const sorted = [...new Set(candidates)].sort((left, right) => left.localeCompare(right));
     const exists = await Promise.all(sorted.map(async (candidate) => {
       try {
@@ -1209,6 +1271,40 @@ export class ReviewGateAnalyzer {
 function isPytestFile(filePath: string): boolean {
   const name = filePath.slice(filePath.lastIndexOf("/") + 1);
   return name.endsWith(".py") && (name.startsWith("test_") || name.endsWith("_test.py"));
+}
+
+/** Where the consumers of a changed contract stand, and which of them may handle every member of a widened union or enum. */
+function consumerEvidence(consumers: ConsumerStanding, consumersMustAct: boolean, changes: BreakingChange[], exhaustive: string[]): ReviewEvidence[] {
+  const { updated, covered, unverified } = consumers;
+  const evidence: ReviewEvidence[] = [];
+  const total = updated.length + covered.length + unverified.length;
+  if (total > 0) {
+    const unverifiedDetail = unverified.length > 0 ? `: ${unverified.join(", ")}` : "";
+    const standing = consumersMustAct
+      ? `${covered.length + unverified.length} must be updated (${covered.length} with tests that will fail, ${unverified.length} unverified${unverifiedDetail})`
+      : `${covered.length} covered by tests, ${unverified.length} neither; ${recheckReason(changes)}`;
+    evidence.push({ kind: "consumers", detail: `${total} consumer file(s): ${updated.length} updated in this diff, ${standing}.` });
+  }
+  if (exhaustive.length > 0) {
+    evidence.push({
+      kind: "consumers",
+      detail: `${exhaustive.length} file(s) may handle every member (switch, Record, mapped type) and likely stop compiling: ${exhaustive.join(", ")}.`,
+    });
+  }
+  return evidence;
+}
+
+/** The test lookups that found nothing, named so the reader knows what was searched (#546). */
+function missingTestDetail(lookup: { symbolName: string; relativePath: string; dependents: boolean }): string {
+  const dependentLookup = lookup.dependents ? `no test depends on '${lookup.symbolName}' within the walked depth` : "test dependents unknown (no dependency index)";
+  return `No test file named after ${lookup.relativePath}, ${dependentLookup}; manual test selection is required.`;
+}
+
+/** Why consumers of a change that leaves call sites valid are still listed. */
+function recheckReason(changes: BreakingChange[]): string {
+  return changes.some((change) => change.type === "return-type-changed" && change.severity === "error")
+    ? "return-type compatibility is not checked, so these are potentially, not provably, broken: review how each uses the returned value"
+    : "the change is compatible, so these are to re-check, not to update";
 }
 
 /** Every member of a moved class meets the same ambiguity: report it once. */
@@ -1443,15 +1539,20 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     `| ${safe(symbol.risk)} | ${symbol.score} | ${safe(symbol.filePath)} | ${safe(symbol.name)} | ${symbol.consumers.updated.length} | ${symbol.consumers.covered.length} | ${symbol.consumers.unverified.length} |`,
   );
 
-  const untouchedConsumers = (symbol: ReviewSymbol): string =>
-    `- ${safe(symbol.name)}: ${[...symbol.consumers.covered, ...symbol.consumers.unverified].map(safe).join(", ")}`;
+  const untouched = (symbol: ReviewSymbol): string[] => [...symbol.consumers.covered, ...symbol.consumers.unverified];
+  const consumerLine = (symbol: ReviewSymbol, files: string[]): string => `- ${safe(symbol.name)}: ${files.map(safe).join(", ")}`;
+  const untouchedConsumers = (symbol: ReviewSymbol): string => consumerLine(symbol, untouched(symbol));
+  const compatible = (symbol: ReviewSymbol): boolean => !symbol.breakingChanges.some((change) => change.severity === "error");
 
   // A non-zero consumer weight means the change breaks call sites, so every
-  // untouched consumer is to check — a tested one included.
+  // untouched consumer is to check — a tested one included. For a compatible
+  // change, only the consumers that may handle every member of a widened union weigh.
   const unverified = result.symbols
     .filter((symbol) => symbol.scoreFactors.unverifiedConsumers > 0)
     .slice(0, 10)
-    .map(untouchedConsumers);
+    .map((symbol) => compatible(symbol) && symbol.exhaustiveConsumers
+      ? consumerLine(symbol, untouched(symbol).filter((file) => symbol.exhaustiveConsumers?.includes(file)))
+      : untouchedConsumers(symbol));
 
   // A return-type-only change charges no consumer, yet any of them may use the
   // returned value in a way the new type no longer supports (#530).
@@ -1459,6 +1560,12 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     .filter((symbol) => symbol.scoreFactors.unverifiedConsumers === 0
       && symbol.consumers.covered.length + symbol.consumers.unverified.length > 0
       && symbol.breakingChanges.some((change) => change.type === "return-type-changed"))
+    .slice(0, 10)
+    .map(untouchedConsumers);
+
+  // A compatible change breaks no call site, yet its consumers and their tests are the ones to re-run (#546).
+  const compatibleConsumers = result.symbols
+    .filter((symbol) => compatible(symbol) && untouched(symbol).length > 0)
     .slice(0, 10)
     .map(untouchedConsumers);
 
@@ -1481,6 +1588,7 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     ...(returnTypeConsumers.length > 0
       ? ["", "### Return type changed: consumers to re-check", "Compatibility of each use of the returned value is not checked; these consumers are potentially, not provably, broken.", ...returnTypeConsumers]
       : []),
+    ...(compatibleConsumers.length > 0 ? ["", "### Compatible change: consumers to re-check", ...compatibleConsumers] : []),
     ...(moved.length > 0 ? ["", "### Moved symbols", ...moved] : []),
     ...(cycles.length > 0 ? ["", "### Import cycles", ...cycles] : []),
     ...(result.limitations.length > 0 ? ["", "### Limitations", ...result.limitations.map((item) => `- ${safe(item)}`)] : []),

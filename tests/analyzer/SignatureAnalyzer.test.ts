@@ -1127,3 +1127,61 @@ describe('SignatureAnalyzer - Python modules (#524)', () => {
     expect(analyzer.compareMovedRemoval(file, old, 'LIMIT', moved)).toBeUndefined();
   });
 });
+
+describe('SignatureAnalyzer - members added to unions and enums (#546)', () => {
+  const analyzer = new SignatureAnalyzer();
+  const changesOf = (oldContent: string, newContent: string) =>
+    analyzer.analyzeBreakingChanges('/src/lang.ts', oldContent, newContent)
+      .flatMap((result) => result.breakingChanges.map(({ type, symbolName, severity }) => ({ type, symbolName, severity })));
+
+  it.each([
+    ['a member appended', 'export type Lang = "a" | "b";', 'export type Lang = "a" | "b" | "c";', '"c"'],
+    ['a lone type widened to a union', 'export type Lang = "a";', 'export type Lang = "a" | "b";', '"b"'],
+    ['a member inserted with a leading pipe', 'export type Lang =\n  | "a"\n  | "b";', 'export type Lang =\n  | "a"\n  | "x"\n  | "b";', '"x"'],
+    ['object members', 'export type Msg = { t: "i" };', 'export type Msg = { t: "i" } | { t: "c" };', '{ t: "c" }'],
+  ])('reports %s as member-added, a warning', (_case, oldContent, newContent, added) => {
+    const [result] = analyzer.analyzeBreakingChanges('/src/lang.ts', oldContent, newContent);
+    expect(result.breakingChanges).toEqual([expect.objectContaining({ type: 'member-added', severity: 'warning', description: expect.stringContaining(`gained member(s) ${added}`) })]);
+  });
+
+  it.each([
+    ['a member removed', 'export type Lang = "a" | "b";', 'export type Lang = "a";'],
+    ['a member replaced', 'export type Lang = "a" | "b";', 'export type Lang = "a" | "c";'],
+    ['a union turned into another type', 'export type Lang = "a" | "b";', 'export type Lang = string;'],
+  ])('keeps %s a type-alias-changed warning', (_case, oldContent, newContent) => {
+    expect(changesOf(oldContent, newContent)).toEqual([{ type: 'type-alias-changed', symbolName: 'Lang', severity: 'warning' }]);
+  });
+
+  it('reports nothing for an unchanged union', () => {
+    expect(changesOf('export type Lang = "a" | "b";', 'export type Lang = "a" | "b";')).toEqual([]);
+  });
+
+  it.each([
+    ['a member appended', 'export enum Color { Red, Green }', 'export enum Color { Red, Green, Blue }',
+      [{ type: 'member-added', symbolName: 'Color', severity: 'warning' }]],
+    ['a member removed', 'export enum Color { Red = "r", Green = "g" }', 'export enum Color { Red = "r" }',
+      [{ type: 'member-removed', symbolName: 'Color.Green', severity: 'error' }]],
+    ['a member inserted before implicit values, which shift', 'export enum Color { Red, Green }', 'export enum Color { Red, Blue, Green }',
+      [{ type: 'member-type-changed', symbolName: 'Color.Green', severity: 'warning' }, { type: 'member-added', symbolName: 'Color', severity: 'warning' }]],
+    ['a string value changed', 'export enum Color { Red = "r" }', 'export enum Color { Red = "red" }',
+      [{ type: 'member-type-changed', symbolName: 'Color.Red', severity: 'warning' }]],
+    ['implicit values after an explicit number kept', 'export enum Level { Low = 10, High }', 'export enum Level { Low = 10, High = 11 }', []],
+    ['a member after a computed one, whose value is unknown both times', 'export const enum Flag { A = 1 << 0, B }', 'export const enum Flag { A = 1 << 0, B }', []],
+    ['an enum that is not exported', 'enum Color { Red }', 'enum Color { Red, Blue }', []],
+  ])('compares enum members: %s', (_case, oldContent, newContent, expected) => {
+    expect(changesOf(oldContent, newContent)).toEqual(expected);
+  });
+
+  it('describes the shifted value and leaves a removed enum to the export comparison', () => {
+    const [shifted] = analyzer.analyzeBreakingChanges('/src/c.ts', 'export enum Color { Red, Green }', 'export enum Color { Red, Blue, Green }');
+    expect(shifted.breakingChanges[0]).toMatchObject({ description: "Value of enum member 'Color.Green' changed from 1 to 2", oldValue: '1', newValue: '2' });
+    expect(changesOf('export enum Color { Red }\nexport const x = 1;', 'export const x = 1;')).toEqual([{ type: 'member-removed', symbolName: 'Color', severity: 'error' }]);
+  });
+
+  it('keeps union members in extractTypeAliases, and none for other types', () => {
+    expect(analyzer.extractTypeAliases('/src/t.ts', 'export type A = "a" | "b";\nexport type B = string;')).toEqual([
+      { name: 'A', type: '"a" | "b"', typeParameters: [], unionMembers: ['"a"', '"b"'] },
+      { name: 'B', type: 'string', typeParameters: [] },
+    ]);
+  });
+});

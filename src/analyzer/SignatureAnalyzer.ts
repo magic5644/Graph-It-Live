@@ -77,6 +77,8 @@ export interface TypeAliasInfo {
   name: string;
   type: string;
   typeParameters?: string[];
+  /** Members of a union alias, as written; absent for any other type. */
+  unionMembers?: string[];
 }
 
 /**
@@ -94,6 +96,7 @@ export type BreakingChangeType =
   | 'member-type-changed'          // Interface/class member type changed
   | 'member-optional-to-required'  // Optional member became required
   | 'type-alias-changed'           // Type alias definition changed
+  | 'member-added'                 // Union or enum gained members: exhaustive consumers stop compiling
   | 'symbol-moved';                // Removed here, declared by another changed file (review_pr)
 
 /**
@@ -285,10 +288,12 @@ export class SignatureAnalyzer {
     const types: TypeAliasInfo[] = [];
 
     for (const typeAlias of sourceFile.getTypeAliases().filter((candidate) => candidate.isExported())) {
+      const typeNode = typeAlias.getTypeNode();
       types.push({
         name: typeAlias.getName(),
-        type: this.safeGetTypeNodeText(typeAlias.getTypeNode(), 'unknown'),
+        type: this.safeGetTypeNodeText(typeNode, 'unknown'),
         typeParameters: typeAlias.getTypeParameters().map(tp => this.safeGetText(tp)),
+        ...(Node.isUnionTypeNode(typeNode) ? { unionMembers: typeNode.getTypeNodes().map((member) => this.safeGetText(member)) } : {}),
       });
     }
 
@@ -523,7 +528,10 @@ export class SignatureAnalyzer {
     const breakingChanges: BreakingChange[] = [];
     const nonBreakingChanges: string[] = [];
 
-    if (oldType.type !== newType.type) {
+    const added = addedUnionMembers(oldType, newType);
+    if (added) {
+      breakingChanges.push(memberAddedChange(`Union '${newType.name}'`, newType.name, added, oldType.type, newType.type));
+    } else if (oldType.type !== newType.type) {
       breakingChanges.push({
         type: 'type-alias-changed',
         symbolName: newType.name,
@@ -600,6 +608,9 @@ export class SignatureAnalyzer {
 
     // Compare type aliases
     this.compareTypeAliasDefinitions(filePath, oldContent, newContent, results);
+
+    // An enum keeps its name when it gains or loses members: compare them.
+    this.compareEnumDefinitions(filePath, oldContent, newContent, results);
 
     // A declaration that stays in the file but leaves its export set is compared by none of the above.
     this.compareExportSets(filePath, oldContent, newContent, results);
@@ -961,6 +972,58 @@ export class SignatureAnalyzer {
         results.push(this.createRemovedResult(name, 'type-alias-changed', `Type alias '${name}' was removed`));
       }
     }
+  }
+
+  /** Exported enums kept by the new content, member by member; a removed enum leaves the export set, see compareExportSets. */
+  private compareEnumDefinitions(
+    filePath: string,
+    oldContent: string,
+    newContent: string,
+    results: SignatureComparisonResult[]
+  ): void {
+    const newEnums = this.enumMembers(`${filePath}.new`, newContent);
+    for (const [name, oldMembers] of this.enumMembers(`${filePath}.old`, oldContent)) {
+      const newMembers = newEnums.get(name);
+      if (!newMembers) continue;
+      const breakingChanges: BreakingChange[] = [];
+      for (const [member, oldValue] of oldMembers) {
+        const newValue = newMembers.get(member);
+        if (!newMembers.has(member)) {
+          breakingChanges.push({ type: 'member-removed', symbolName: `${name}.${member}`, severity: 'error', description: `Member '${member}' removed from enum '${name}'` });
+        } else if (newValue !== oldValue) {
+          // Compiles everywhere, but a value stored or sent elsewhere no longer maps to this member.
+          breakingChanges.push({
+            type: 'member-type-changed', symbolName: `${name}.${member}`, severity: 'warning',
+            description: `Value of enum member '${name}.${member}' changed from ${oldValue} to ${newValue}`, oldValue, newValue,
+          });
+        }
+      }
+      const added = [...newMembers.keys()].filter((member) => !oldMembers.has(member));
+      if (added.length > 0) breakingChanges.push(memberAddedChange(`Enum '${name}'`, name, added));
+      if (breakingChanges.length > 0) results.push({ symbolName: name, hasBreakingChanges: true, breakingChanges, nonBreakingChanges: [] });
+    }
+  }
+
+  /**
+   * Members of each exported enum with their value as written: the initializer, or the
+   * implicit number following the previous numeric one ('?' after a computed member).
+   */
+  private enumMembers(filePath: string, content: string): Map<string, Map<string, string>> {
+    const enums = new Map<string, Map<string, string>>();
+    for (const declaration of this.getOrCreateSourceFile(filePath, content).getEnums()) {
+      if (!declaration.isExported()) continue;
+      const members = new Map<string, string>();
+      let next: number | undefined = 0;
+      for (const member of declaration.getMembers()) {
+        const initializer = member.getInitializer()?.getText();
+        const value: string = initializer ?? (next === undefined ? '?' : String(next));
+        const numeric: number = Number(value);
+        next = Number.isFinite(numeric) && value.trim() !== '' ? numeric + 1 : undefined;
+        members.set(member.getName(), value);
+      }
+      enums.set(declaration.getName(), members);
+    }
+    return enums;
   }
 
   /**
@@ -1541,4 +1604,22 @@ function dynamicSpecifiers(sourceFile: SourceFile): string[] {
     if (Node.isStringLiteral(expression)) specifiers.push(expression.getLiteralValue());
   }
   return specifiers;
+}
+
+/** Members `newType` adds to the union `oldType` (a lone type counts as a one-member union); undefined unless it only adds. */
+function addedUnionMembers(oldType: TypeAliasInfo, newType: TypeAliasInfo): string[] | undefined {
+  if (!newType.unionMembers) return undefined;
+  const before = oldType.unionMembers ?? [oldType.type];
+  const after = new Set(newType.unionMembers);
+  if (!before.every((member) => after.has(member))) return undefined;
+  const added = newType.unionMembers.filter((member) => !before.includes(member));
+  return added.length > 0 ? added : undefined;
+}
+
+/** A union or enum that gained members: compatible for its producers, breaking for consumers that handle every member. */
+function memberAddedChange(subject: string, symbolName: string, added: string[], oldValue?: string, newValue?: string): BreakingChange {
+  return {
+    type: 'member-added', symbolName, severity: 'warning', oldValue, newValue,
+    description: `${subject} gained member(s) ${added.join(', ')}: consumers that handle every member (exhaustive switch, Record, mapped type) must handle them too`,
+  };
 }

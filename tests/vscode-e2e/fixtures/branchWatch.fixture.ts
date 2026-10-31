@@ -33,7 +33,7 @@ export async function createBranchWatchFixture(mode: 'git' | 'noGit' | 'unborn' 
   await fs.writeFile(path.join(root, 'go.mod'), 'module example.com/watch\n\ngo 1.22\n');
   await fs.writeFile(path.join(root, 'python/__init__.py'), '');
   await fs.writeFile(path.join(root, 'tsconfig.json'), '{"compilerOptions":{"jsx":"preserve"}}');
-  await fs.writeFile(path.join(root, '.gitignore'), '.vscode/\n.graph-it-live/\n');
+  await fs.writeFile(path.join(root, '.gitignore'), '.vscode/\n.graph-it-live/\n.graph-it/\n');
   await fs.mkdir(path.join(root, '.empty-git-hooks'));
   if (mode !== 'noGit') {
     fixtureGit(root, 'init', '-b', 'main');
