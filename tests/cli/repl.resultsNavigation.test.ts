@@ -240,6 +240,8 @@ describe('extractResultTarget', () => {
   it('ignores ANSI colors and JSON punctuation', () => {
     expect(extract('\u001b[36msrc/a.ts\u001b[0m')?.file).toBe(fileA);
     expect(extract('  "relativePath": "src/lib/b.ts",')?.file).toBe(fileB);
+    expect(extract('(`src/a.ts`).')?.file).toBe(fileA);
+    expect(extract(`${')'.repeat(5000)}x`)).toBeUndefined();
   });
 
   it('returns nothing for a row without a target', () => {

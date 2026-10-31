@@ -1358,7 +1358,7 @@ interface ResultsFocusContext {
   placeCursor: (key: LineKey, scroll: CursorScroll) => void;
   jumpToMatch: (direction: 1 | -1) => void;
   setFoldOverrides: React.Dispatch<React.SetStateAction<ReadonlyMap<number, boolean>>>;
-  setFocus: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsFocused: React.Dispatch<React.SetStateAction<boolean>>;
   setActionMenu: React.Dispatch<React.SetStateAction<ActionMenu | null>>;
   setCommandLine: React.Dispatch<React.SetStateAction<string>>;
   setNotice: React.Dispatch<React.SetStateAction<string>>;
@@ -1390,7 +1390,7 @@ function openActionMenu(ctx: ResultsFocusContext, line: OutputLine): void {
 
 /** `Esc`/`i` return to the prompt; `/` also starts a command. Works even when a filter hides every line. */
 function leaveFocus(startCommand: boolean, ctx: ResultsFocusContext): void {
-  ctx.setFocus(false);
+  ctx.setIsFocused(false);
   if (startCommand) ctx.setCommandLine('/');
   else ctx.setNotice('Back to prompt');
 }
@@ -1447,7 +1447,7 @@ interface ActionMenuContext {
   workspaceRoot: string;
   runCommand: (commandLine: string) => void;
   setActionMenu: React.Dispatch<React.SetStateAction<ActionMenu | null>>;
-  setFocus: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsFocused: React.Dispatch<React.SetStateAction<boolean>>;
   setNotice: React.Dispatch<React.SetStateAction<string>>;
 }
 
@@ -1455,7 +1455,7 @@ function runResultAction(menu: ActionMenu, ctx: ActionMenuContext): void {
   const action = menu.actions[menu.index];
   ctx.setActionMenu(null);
   if (action.commandLine) {
-    ctx.setFocus(false);
+    ctx.setIsFocused(false);
     ctx.runCommand(action.commandLine);
     return;
   }
@@ -1581,7 +1581,7 @@ interface CursorActionState {
   setCursor: React.Dispatch<React.SetStateAction<LineKey | null>>;
   setCursorScroll: React.Dispatch<React.SetStateAction<CursorScroll | null>>;
   setFoldOverrides: React.Dispatch<React.SetStateAction<ReadonlyMap<number, boolean>>>;
-  setFocus: React.Dispatch<React.SetStateAction<boolean>>;
+  setIsFocused: React.Dispatch<React.SetStateAction<boolean>>;
   setNotice: React.Dispatch<React.SetStateAction<string>>;
 }
 
@@ -1620,7 +1620,7 @@ function createCursorActions(state: CursorActionState): {
       state.setNotice('No results yet');
       return;
     }
-    state.setFocus(true);
+    state.setIsFocused(true);
     placeCursor(anchor, 'follow');
     state.setNotice('Results: ↑/↓ j/k move · [ ] results · Space fold · Enter actions · y copy line · Esc/i prompt');
   };
@@ -1886,7 +1886,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
     const [isRunning, setIsRunning] = useState(false);
     const [blocks, setBlocks] = useState<OutputBlock[]>([]);
     const [scrollTop, setScrollTop] = useState(0);
-    const [isFocused, setFocus] = useState(false);
+    const [isFocused, setIsFocused] = useState(false);
     const [cursor, setCursor] = useState<LineKey | null>(null);
     const [cursorScroll, setCursorScroll] = useState<CursorScroll | null>(null);
     const [foldOverrides, setFoldOverrides] = useState<ReadonlyMap<number, boolean>>(new Map());
@@ -2123,7 +2123,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       setCursor,
       setCursorScroll,
       setFoldOverrides,
-      setFocus,
+      setIsFocused,
       setNotice,
     });
     useSearchJump(isSearchMode, searchFilter, matches, jumpToMatch, setScrollTop);
@@ -2162,7 +2162,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
           workspaceRoot: displayWorkspace,
           runCommand,
           setActionMenu,
-          setFocus,
+          setIsFocused,
           setNotice,
         }),
         () => handleSearchModeInputEvent(input, key, {
@@ -2190,7 +2190,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
           placeCursor,
           jumpToMatch,
           setFoldOverrides,
-          setFocus,
+          setIsFocused,
           setActionMenu,
           setCommandLine,
           setNotice,

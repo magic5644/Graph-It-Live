@@ -157,7 +157,17 @@ export interface ResultTarget {
   line?: number;
 }
 
-const TOKEN_EDGES = /^[("'`[{<]+|[)"'`,;\]}>.]+$/g;
+const LEADING_PUNCTUATION = '("\'`[{<';
+const TRAILING_PUNCTUATION = ')"\'`,;]}>.';
+
+/** Word without surrounding quotes, brackets and punctuation (a loop: a trailing-class regex backtracks quadratically). */
+function trimTokenEdges(word: string): string {
+  let start = 0;
+  let end = word.length;
+  while (start < end && LEADING_PUNCTUATION.includes(word[start])) start++;
+  while (end > start && TRAILING_PUNCTUATION.includes(word[end - 1])) end--;
+  return word.slice(start, end);
+}
 const SYMBOL_NAME = /^[\w$.]+$/;
 
 function parseTargetToken(token: string): { candidate: string; symbol?: string; line?: number } {
@@ -181,7 +191,7 @@ function parseTargetToken(token: string): { candidate: string; symbol?: string; 
  */
 export function extractResultTarget(text: string, workspaceRoot: string, allFiles: string[]): ResultTarget | undefined {
   for (const word of stripVTControlCharacters(text).split(/\s+/)) {
-    const token = word.replaceAll(TOKEN_EDGES, '');
+    const token = trimTokenEdges(word);
     if (token.length === 0) continue;
     const { candidate, symbol, line } = parseTargetToken(token);
     const file = findWorkspaceFile(candidate, allFiles, workspaceRoot);
