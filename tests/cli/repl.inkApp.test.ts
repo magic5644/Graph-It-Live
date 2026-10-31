@@ -14,6 +14,7 @@ const spawn = vi.hoisted(() => vi.fn());
 vi.mock('node:child_process', () => ({ spawnSync, spawn }));
 
 import { runInkReplSession, type InkReplCommandResponse } from '../../src/cli/repl/ink/ReplInkApp';
+import { MOUSE_TRACKING_OFF, MOUSE_TRACKING_ON, toFileUri } from '../../src/cli/repl/resultsNavigation';
 
 class FakeStdout extends EventEmitter {
   readonly isTTY = true;
@@ -610,3 +611,105 @@ describe('Ink REPL results focus', () => {
   });
 });
 
+
+describe('Ink REPL links and mouse', () => {
+  const fileA = path.join(workspaceRoot, 'src', 'a.ts');
+  const allFiles = [fileA];
+  const rawFrame = (session: Session) => session.stdout.frames.findLast((frame) => frame.includes('Graph-It-Live')) ?? '';
+  const panelRows = (session: Session) => session.screen().slice(session.screen().findIndex((line) => line.includes('Results')) + 2);
+  /** SGR report of a left press on a 0-based screen row. */
+  const clickRow = (row: number) => `\u001b[<0;3;${row + 1}M`;
+  const terminal = (termProgram: string) => {
+    for (const name of ['FORCE_HYPERLINK', 'NO_COLOR', 'WT_SESSION', 'KITTY_WINDOW_ID', 'VTE_VERSION', 'TERM']) vi.stubEnv(name, undefined);
+    vi.stubEnv('TERM_PROGRAM', termProgram);
+  };
+
+  it('renders result targets as OSC 8 links in a supporting terminal, cursor row included', async () => {
+    terminal('vscode');
+    const session = await startSession(echo('relativePath: src/a.ts'), { allFiles });
+    await run(session, '/summary');
+    const link = `\u001b]8;;${toFileUri(fileA)}\u0007src/a.ts\u001b]8;;\u0007`;
+    expect(rawFrame(session)).toContain(link);
+    expect(session.text()).toContain('relativePath: src/a.ts');
+
+    await session.press(KEY.escape, 'k');
+    expect(rawFrame(session)).toContain(`\u001b[7mrelativePath: ${link}`);
+  });
+
+  it('keeps a wrapped linked row as wide as the plain one', async () => {
+    terminal('iTerm.app');
+    const output = `${'x'.repeat(60)} relativePath: src/a.ts`;
+    const session = await startSession(echo(output), { allFiles, columns: 70 });
+    await run(session, '/summary');
+    expect(panelRows(session).slice(1, 3).map((row) => row.trim())).toEqual(['x'.repeat(60), 'relativePath: src/a.ts']);
+    expect(rawFrame(session)).toContain('\u001b]8;;file://');
+  });
+
+  it('prints plain text in Terminal.app', async () => {
+    terminal('Apple_Terminal');
+    const session = await startSession(echo('relativePath: src/a.ts'), { allFiles });
+    await run(session, '/summary');
+    expect(session.text()).toContain('relativePath: src/a.ts');
+    expect(session.stdout.frames.join('')).not.toContain('\u001b]8;;');
+  });
+
+  it('turns mouse tracking on and off, scrolls with the wheel and focuses the clicked row', async () => {
+    terminal('Apple_Terminal');
+    const session = await startSession(async (line) => ({ command: line, output: `relativePath: src/a.ts\n${numbered(40)}` }), { allFiles });
+    const listeners = session.stdin.listenerCount('data');
+    await run(session, '/mouse on');
+    expect(session.stdout.frames).toContain(MOUSE_TRACKING_ON);
+    expect(session.stdin.listenerCount('data')).toBe(listeners + 1);
+    await run(session, '/summary');
+    expect(session.screen().findIndex((line) => line.includes('Results'))).toBe(6);
+
+    const [, , total] = counter(session) ?? [];
+    await session.press('\u001b[<64;1;1M');
+    expect(counter(session)?.[2]).toBe(total);
+    expect(Number(counter(session)?.[1])).toBe(Number(total) - 3);
+    expect(session.text()).toMatch(/❯ *$/m);
+
+    await session.press(KEY.home);
+    const row = panelRows(session).findIndex((line) => line.includes('relativePath: src/a.ts'));
+    await session.press(clickRow(8 + row));
+    expect(session.text()).toContain('results focus');
+    expect(session.text()).toContain('double click or Enter for actions');
+    // A click on another row first, so the previous click does not pair with the next one.
+    await session.press(clickRow(8 + row + 1));
+    expect(session.text()).not.toContain('Actions for');
+    await session.press(clickRow(8 + row) + clickRow(8 + row));
+    expect(session.text()).toContain('Actions for src/a.ts');
+
+    await session.press(KEY.escape, 'i');
+    await run(session, '/mouse off');
+    expect(session.stdout.frames).toContain(MOUSE_TRACKING_OFF);
+    expect(session.stdin.listenerCount('data')).toBe(listeners);
+  });
+
+  it('puts a clicked next-step hint on the prompt and selects a clicked palette entry', async () => {
+    const session = await startSession(async (line) => ({ command: line, output: 'ok', updatedContext: { lastFile: fileA } }), { allFiles });
+    await run(session, '/mouse on');
+    const hintRow = session.screen().findIndex((line) => line.startsWith('→ '));
+    const firstHint = /→ (.+?) · /.exec(session.screen()[hintRow])?.[1];
+    expect(firstHint).toBeTruthy();
+    await session.press(`\u001b[<0;4;${hintRow + 1}M`);
+    expect(session.text()).toContain(`❯ ${firstHint}`);
+
+    await session.press(...Array.from({ length: firstHint!.length }, () => KEY.backspace), '/');
+    const entries = session.screen().map((line, index) => ({ line, index })).filter(({ line }) => /^[› ] \/\S+ {2,}/.test(line));
+    expect(entries[0].line.startsWith('›')).toBe(true);
+    await session.press(`\u001b[<0;4;${entries[2].index + 1}M`);
+    expect(session.screen()[entries[2].index].startsWith('›')).toBe(true);
+  });
+
+  it('restores the terminal when the REPL exits with tracking on', async () => {
+    const session = await startSession(echo(''));
+    const listeners = session.stdin.listenerCount('data');
+    await run(session, '/mouse on');
+    session.stdin.write(KEY.ctrlC);
+    await session.done;
+    active = undefined;
+    expect(session.stdout.frames.lastIndexOf(MOUSE_TRACKING_OFF)).toBeGreaterThan(session.stdout.frames.indexOf(MOUSE_TRACKING_ON));
+    expect(session.stdin.listenerCount('data')).toBeLessThanOrEqual(listeners);
+  });
+});
