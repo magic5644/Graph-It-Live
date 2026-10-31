@@ -1304,7 +1304,7 @@ function namesDeletedPythonModule(fromFile: string, specifier: string, targets: 
   const dots = specifier.length - specifier.replace(/^\.+/, "").length;
   const dotted = specifier.slice(dots).split(".").filter(Boolean);
   if (dots > 0) {
-    const base = path.resolve(path.dirname(fromFile), ...Array<string>(dots - 1).fill(".."));
+    const base = path.resolve(path.dirname(fromFile), ..."../".repeat(dots - 1).split("/"));
     return targets.has(normalizePath(path.resolve(base, ...dotted)));
   }
   let folder = normalizePath(path.dirname(fromFile));
