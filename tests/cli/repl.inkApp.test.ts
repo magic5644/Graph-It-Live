@@ -335,6 +335,28 @@ describe('Ink REPL results navigation', () => {
     expect(submit).toHaveBeenCalledWith('/scope src');
   });
 
+  it('reopens the file picker in the folder of the current file, preselected', async () => {
+    const allFiles = [path.join(workspaceRoot, 'src', 'a.ts'), path.join(workspaceRoot, 'src', 'b.ts'), path.join(workspaceRoot, 'top.ts')];
+    const submit = vi.fn(async (line: string): Promise<InkReplCommandResponse> => ({
+      command: line,
+      output: 'ok',
+      updatedContext: { lastFile: path.join(workspaceRoot, 'src', 'b.ts') },
+    }));
+    const session = await startSession(submit, { allFiles });
+    await run(session, '/explain src/b.ts');
+    await session.press('/', 'e', 'x', 'p', 'l', 'a', 'i', 'n', KEY.enter);
+    expect(session.text()).toContain('📍 src');
+    expect(session.text()).toContain('❯ 📄 b.ts');
+    await session.press(KEY.up, KEY.enter);
+    await tick(60);
+    expect(submit).toHaveBeenLastCalledWith('/explain src/a.ts');
+
+    // /trace keeps the current file on the command line for `#` symbol completion.
+    await session.press('/', 't', 'r', 'a', 'c', 'e', KEY.enter);
+    expect(session.text()).toMatch(/❯ \/trace src[\\/]b\.ts/);
+    await session.press(KEY.escape);
+  });
+
   it('picks a file in the file picker and runs the command on it', async () => {
     const allFiles = [path.join(workspaceRoot, 'src', 'a.ts')];
     const submit = vi.fn(echo('ok'));
@@ -365,7 +387,7 @@ describe('Ink REPL results navigation', () => {
 
   it('applies the context returned by a command and suggests follow-ups for the file', async () => {
     const otherRoot = path.resolve('/other');
-    const session = await startSession(async (line) => ({
+    const submit = vi.fn(async (line: string): Promise<InkReplCommandResponse> => ({
       command: line,
       output: 'done',
       updatedContext: {
@@ -376,13 +398,19 @@ describe('Ink REPL results navigation', () => {
         lastSymbol: null,
       },
     }));
+    const session = await startSession(submit);
     await run(session, '/file b.ts');
     expect(session.text()).toContain('format: json');
     expect(session.text()).toContain('last file: b.ts');
     expect(session.text()).toContain('/explain b.ts');
 
+    // The picker reopens on the current file: Enter reruns on it, ↑/↓ or Backspace pick another one.
     await session.press('/', 'c', 'y', 'c', 'l', 'e', 's', KEY.enter);
-    expect(session.text()).toContain('❯ /cycles b.ts');
+    expect(session.text()).toContain('Select file for /cycles');
+    expect(session.text()).toContain('❯ 📄 b.ts');
+    await session.press(KEY.enter);
+    await tick(60);
+    expect(submit).toHaveBeenLastCalledWith('/cycles b.ts');
   });
 
   it('lists the symbols of a file after # for /trace', async () => {
