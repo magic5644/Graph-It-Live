@@ -17,6 +17,7 @@ import {
   stepHistory,
   toLines,
   wrapLines,
+  pickerStartPosition,
 } from '../../src/cli/repl/ink/ReplInkApp';
 
 const HIDDEN_ALIASES = ['/path', '/deps', '/dependencies', '/deps-in', '/deps-out', '/path-in', '/path-out', '/cycle'];
@@ -336,5 +337,33 @@ describe('Ink result rows', () => {
   it('puts one character per row at width 1, and clamps smaller widths to 1', () => {
     expect(rows('abc', 1)).toEqual(['a', 'b', 'c']);
     expect(rows('abc', 0)).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('pickerStartPosition', () => {
+  const root = path.resolve('/ws');
+  const files = [path.join(root, 'src', 'a.ts'), path.join(root, 'src', 'b.ts'), path.join(root, 'top.ts')];
+
+  it('opens the folder of the current file with that file selected', () => {
+    expect(pickerStartPosition(files, root, 'src/b.ts')).toEqual({ dir: 'src', index: 1 });
+    expect(pickerStartPosition(files, root, String.raw`src\b.ts`)).toEqual({ dir: 'src', index: 1 });
+  });
+
+  it('selects a file at the workspace root after its folders', () => {
+    expect(pickerStartPosition(files, root, 'top.ts')).toEqual({ dir: '', index: 1 });
+  });
+
+  it('falls back to the root without a current file or when it left the index', () => {
+    expect(pickerStartPosition(files, root, undefined)).toEqual({ dir: '', index: 0 });
+    expect(pickerStartPosition(files, root, 'none')).toEqual({ dir: '', index: 0 });
+    expect(pickerStartPosition(files, root, 'src/gone.ts')).toEqual({ dir: '', index: 0 });
+  });
+});
+
+describe('filterSlashCommands ranking', () => {
+  it('lists commands named like the input before description matches', () => {
+    const commands = filterSlashCommands('/explain', [], path.resolve('/ws')).map((entry) => entry.command);
+    expect(commands[0]).toBe('/explain');
+    expect(commands).toContain('/trace');
   });
 });

@@ -85,6 +85,8 @@ interface PickerEntry {
 interface PickerTarget {
   command: string;
   baseLine?: string;
+  /** Workspace-relative file to preselect (the current file), so Enter reruns on it. */
+  startFile?: string;
 }
 
 const BLUE = '\u001b[38;5;33m';
@@ -467,11 +469,10 @@ export function filterSlashCommands(
     return buildArgumentSuggestions(activeCommand, currentArgToken, argumentQuery, allFiles, workspaceRoot, getFileSymbols);
   }
 
-  return commandEntries
-    .filter((entry) =>
-      entry.command.startsWith(queryToken) ||
-      entry.description.toLowerCase().includes(query.slice(1)),
-    );
+  // Name matches first: typing `/explain` must not select `/trace` ("… explain file").
+  const descriptionMatches = commandEntries.filter((entry) =>
+    !entry.command.startsWith(queryToken) && entry.description.toLowerCase().includes(query.slice(1)));
+  return [...commandMatches, ...descriptionMatches];
 }
 
 function completeCommandLine(currentInput: string, targetCommand: string): string {
@@ -560,6 +561,27 @@ function lineHasFileArgument(commandLine: string): boolean {
   }
 
   return false;
+}
+
+/**
+ * `/trace` with a current file puts it on the command line, so `#` completes its symbols; other file
+ * commands reopen the file picker on the current file instead, where another file is one key away.
+ */
+function keepsFileOnCommandLine(command: string, displayLastFile: string): boolean {
+  return SYMBOL_ARGUMENT_COMMANDS.has(command) && hasUsableFileContext(displayLastFile);
+}
+
+/** Picker folder and row of the current file, or the workspace root when there is none or it left the index. */
+export function pickerStartPosition(
+  allFiles: string[],
+  workspaceRoot: string,
+  startFile: string | undefined,
+): { dir: string; index: number } {
+  const relative = startFile && hasUsableFileContext(startFile) ? normalizePath(startFile) : '';
+  const parent = path.posix.dirname(relative);
+  const dir = parent === '.' ? '' : parent;
+  const index = buildPickerEntries(allFiles, workspaceRoot, dir).findIndex((entry) => entry.relPath === relative);
+  return index < 0 ? { dir: '', index: 0 } : { dir, index };
 }
 
 function buildPrefilledCommandLine(command: string, displayLastFile: string): string {
@@ -1146,8 +1168,8 @@ function handleCommandSelectionBranch(
 
   if (isScopeCommand(selectedCommand)) {
     onActivatePicker('path', { command: selectedCommand });
-  } else if (FILE_ARGUMENT_COMMANDS.has(selectedCommand) && !hasUsableFileContext(displayLastFile)) {
-    onActivatePicker('file', { command: selectedCommand });
+  } else if (FILE_ARGUMENT_COMMANDS.has(selectedCommand) && !keepsFileOnCommandLine(selectedCommand, displayLastFile)) {
+    onActivatePicker('file', { command: selectedCommand, startFile: displayLastFile });
   } else {
     setCommandLine(buildPrefilledCommandLine(selectedCommand, displayLastFile));
     setNotice(`Command selected: ${selectedCommand}`);
@@ -1729,7 +1751,7 @@ function handleCommandInputEvent(
     }
 
     if (isScopeCommand(trimmed) || trimmed === '/file') {
-      onActivatePicker(isScopeCommand(trimmed) ? 'path' : 'file', { command: trimmed });
+      onActivatePicker(isScopeCommand(trimmed) ? 'path' : 'file', { command: trimmed, startFile: displayLastFile });
       setCommandLine('');
       return true;
     }
@@ -1748,11 +1770,11 @@ function handleCommandInputEvent(
 
     const firstToken = getFirstToken(trimmed);
     if (FILE_ARGUMENT_COMMANDS.has(firstToken) && !lineHasFileArgument(trimmed)) {
-      if (hasUsableFileContext(displayLastFile)) {
+      if (keepsFileOnCommandLine(firstToken, displayLastFile)) {
         setCommandLine(`${insertFileArgument(trimmed, displayLastFile)} `);
         setNotice(`Using current file: ${displayLastFile}`);
       } else {
-        onActivatePicker('file', { command: firstToken, baseLine: trimmed });
+        onActivatePicker('file', { command: firstToken, baseLine: trimmed, startFile: displayLastFile });
         setCommandLine('');
       }
       return true;
@@ -2029,8 +2051,9 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
     const onActivatePicker = (mode: 'path' | 'file', target?: PickerTarget): void => {
       setPickerMode(mode);
       setPickerTarget(target ?? { command: mode === 'path' ? '/scope' : '/file' });
-      setPickerDir('');
-      setPickerIndex(0);
+      const start = mode === 'file' ? pickerStartPosition(currentAllFiles, displayWorkspace, target?.startFile) : { dir: '', index: 0 };
+      setPickerDir(start.dir);
+      setPickerIndex(start.index);
       setNotice(mode === 'path'
         ? 'Directory picker: ↑/↓ navigate · Enter=enter dir · Space=select current dir · Backspace=up · Esc=cancel'
         : 'File picker: ↑/↓ navigate · Enter=select file or enter dir · Backspace=up · Esc=cancel');
