@@ -29,16 +29,15 @@ async function snapshotOf(): Promise<BranchWatchSnapshot> {
 }
 
 /** Polls until Branch Watch is ready and `predicate` holds; the last snapshot is in the failure message. */
-async function waitForReview(predicate: (symbols: string[]) => boolean, timeoutMs = 90_000): Promise<string[]> {
-  const deadline = Date.now() + timeoutMs;
-  let last: BranchWatchSnapshot | undefined;
-  while (Date.now() < deadline) {
-    last = await snapshotOf();
-    if (last.state.phase === 'ready' && predicate(reviewedSymbols(last))) return reviewedSymbols(last);
-    if (last.state.phase === 'unavailable') await vscode.commands.executeCommand('graph-it-live.branchWatch.refresh');
-    await new Promise(resolve => setTimeout(resolve, 500));
+async function waitForReview(predicate: (symbols: string[]) => boolean, deadline = Date.now() + 90_000): Promise<string[]> {
+  const snapshot = await snapshotOf();
+  if (snapshot.state.phase === 'ready' && predicate(reviewedSymbols(snapshot))) return reviewedSymbols(snapshot);
+  if (Date.now() >= deadline) {
+    assert.fail(`Branch Watch review not reached: ${JSON.stringify({ state: snapshot.state, symbols: reviewedSymbols(snapshot) })}`);
   }
-  assert.fail(`Branch Watch review not reached: ${JSON.stringify({ state: last?.state, symbols: last && reviewedSymbols(last) })}`);
+  if (snapshot.state.phase === 'unavailable') await vscode.commands.executeCommand('graph-it-live.branchWatch.refresh');
+  await new Promise(resolve => setTimeout(resolve, 500));
+  return waitForReview(predicate, deadline);
 }
 
 /**
@@ -75,7 +74,7 @@ suite('Branch Watch review in a Git workspace (#546)', function () {
     try {
       await vscode.commands.executeCommand('graph-it-live.branchWatch.refresh');
       const symbols = await waitForReview(labels => labels.some(label => label.startsWith('value: ')));
-      assert.ok(symbols.some(label => /^value: Function 'value' was removed/.test(label)), `Deletion not reviewed: ${JSON.stringify(symbols)}`);
+      assert.ok(symbols.some(label => label.startsWith("value: Function 'value' was removed")), `Deletion not reviewed: ${JSON.stringify(symbols)}`);
     } finally {
       await fs.writeFile(source, content);
     }
