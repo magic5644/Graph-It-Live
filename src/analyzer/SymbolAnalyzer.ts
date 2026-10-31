@@ -84,15 +84,33 @@ export interface SymbolAnalyzerOptions {
  * re-exports (`export *`, `export { x } from`, `import x; export { x }`) into the other files of the
  * shared in-memory project, so it would list them only if those files were analyzed before (#541).
  * A symbol belongs to the file that declares it; re-exports are followed by `reExports.ts`.
- * An import alias (`import y = require()`) is local, yet ts-morph returns it only once its target is loaded.
  */
 function localExportedDeclarations(sourceFile: SourceFile): Map<string, Node[]> {
   const local = new Map<string, Node[]>();
   for (const [name, declarations] of sourceFile.getExportedDeclarations()) {
-    const own = declarations.filter((decl) => decl.getSourceFile() === sourceFile && !Node.isImportEqualsDeclaration(decl));
+    const own = declarations.filter((decl) => decl.getSourceFile() === sourceFile && !isForeignAlias(decl, sourceFile));
     if (own.length > 0) local.set(name, own);
   }
   return local;
+}
+
+/**
+ * `import y = require()` or `import A = Ns.B` with `Ns` taken from another file: a re-export that ts-morph
+ * returns only once its target is loaded. `import A = N.B` of a namespace declared in the file stays local.
+ */
+function isForeignAlias(decl: Node, sourceFile: SourceFile): boolean {
+  if (!Node.isImportEqualsDeclaration(decl)) return false;
+  let root: Node = decl.getModuleReference();
+  while (Node.isQualifiedName(root)) root = root.getLeft();
+  if (!Node.isIdentifier(root)) return true;
+  const rootDeclarations = root.getSymbol()?.getDeclarations() ?? [];
+  return !rootDeclarations.some(
+    (rootDecl) => rootDecl.getSourceFile() === sourceFile && !Node.isImportEqualsDeclaration(rootDecl) && !isImportBinding(rootDecl),
+  );
+}
+
+function isImportBinding(node: Node): boolean {
+  return Node.isImportSpecifier(node) || Node.isImportClause(node) || Node.isNamespaceImport(node);
 }
 
 export class SymbolAnalyzer implements ISymbolAnalyzer {

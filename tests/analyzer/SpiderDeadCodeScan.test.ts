@@ -104,6 +104,25 @@ describe('Spider - scanDeadCode', () => {
     await expect(spider.scanDeadCode(undefined, { signal: controller.signal })).rejects.toThrow('cancelled by user');
   });
 
+  it('stops starting files once the signal aborts mid-scan', async () => {
+    const { scannedFiles } = await spider.scanDeadCode();
+    const controller = new AbortController();
+    const original = SpiderSymbolService.prototype.findUnusedSymbols;
+    let started = 0;
+    const spy = vi.spyOn(SpiderSymbolService.prototype, 'findUnusedSymbols').mockImplementation(function (this: SpiderSymbolService, filePath, memo) {
+      started++;
+      controller.abort(new Error('cancelled mid-scan'));
+      return original.call(this, filePath, memo);
+    });
+    try {
+      await expect(spider.scanDeadCode(undefined, { signal: controller.signal })).rejects.toThrow('cancelled mid-scan');
+      expect(scannedFiles).toBeGreaterThan(1);
+      expect(started).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it('skips a file whose analysis throws, keeps the others in file order (concurrent scan)', async () => {
     const reference = await spider.scanDeadCode();
     const original = SpiderSymbolService.prototype.findUnusedSymbols;

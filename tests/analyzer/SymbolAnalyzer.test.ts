@@ -507,6 +507,10 @@ describe('SymbolAnalyzer - symbols do not depend on the files analyzed before (#
     ['local non-exported name shadowed by export *', 'function yFn() {}\nexport * from "./y";', ['yFn:FunctionDeclaration']],
     ['local export of the same name as export *', 'export function yFn() {}\nexport * from "./y";', ['yFn*:FunctionDeclaration']],
     ['export = of an import', 'import y = require("./y");\nexport = y;', []],
+    ['export import of a require', 'export import Y = require("./y");', []],
+    ['export import alias of an imported namespace', 'import * as Y from "./y";\nexport import A = Y.yFn;', []],
+    ['export import alias of a local namespace', 'namespace N { export function b() {} }\nexport import A = N.b;', ['A*:ImportEqualsDeclaration']],
+    ['export import alias of a nested local namespace', 'namespace N { export namespace M { export const c = 1; } }\nexport import A = N.M.c;', ['A*:ImportEqualsDeclaration']],
   ])('%s: same symbols alone and after the re-exported file', (_form, source, expected) => {
     for (const [x, y] of [['/ws/cyc/x.ts', '/ws/cyc/y.ts'], [String.raw`C:\ws\cyc\x.ts`, String.raw`C:\ws\cyc\y.ts`]]) {
       const alone = new SymbolAnalyzer().analyzeFileContent(x, source);
