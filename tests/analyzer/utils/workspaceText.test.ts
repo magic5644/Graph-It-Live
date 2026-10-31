@@ -28,7 +28,8 @@ describe("workspaceText", () => {
   });
 
   afterAll(async () => {
-    await Promise.all([root, outside].map((directory) => fs.rm(directory, { recursive: true, force: true })));
+    // Retries: on Windows, removing a folder holding a symbolic link can briefly fail with EBUSY.
+    await Promise.all([root, outside].map((directory) => fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
   });
 
   it("reads a regular text file, up to the size limit included", async () => {
