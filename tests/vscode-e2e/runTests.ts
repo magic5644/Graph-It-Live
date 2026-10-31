@@ -17,6 +17,7 @@ import * as path from 'node:path';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import { runTests, runVSCodeCommand } from '@vscode/test-electron';
+import { createBranchWatchFixture } from './fixtures/branchWatch.fixture';
 
 // The folder containing the Extension Manifest package.json
 const extensionDevelopmentPath = path.resolve(__dirname, '../../');
@@ -33,6 +34,41 @@ function removeFixtureIndexCaches(): void {
     if (entry.isDirectory() && entry.name === '.graph-it') {
       fs.rmSync(path.join(entry.parentPath, entry.name), { recursive: true, force: true });
     }
+  }
+}
+
+/** Suite run in a Git repository root, which tests/fixtures is not: Branch Watch needs one (#546). */
+const GIT_WORKSPACE_SUITE = 'suite/branchWatchReview.gitWorkspace.js';
+
+/** The Git-workspace pass runs with every suite, or when a scoped run selects Branch Watch. */
+function runsGitWorkspaceSuite(env: NodeJS.ProcessEnv = process.env): boolean {
+  const selected = env.E2E_SUITE_GLOB?.trim();
+  return !selected || /branchWatch/i.test(selected);
+}
+
+/**
+ * Opens the Branch Watch fixture repository (on `feature`, branched from `main`) with Branch Watch
+ * enabled against `main`. Built-in extensions stay enabled: Branch Watch reads the repository through
+ * the built-in Git extension. Test-only commands are absent from the VSIX, so this runs from source only.
+ */
+async function runGitWorkspaceSuite(options: { version: string; cachePath: string; extensionTestsPath: string; env: NodeJS.ProcessEnv }): Promise<void> {
+  const workspace = await createBranchWatchFixture();
+  try {
+    fs.mkdirSync(path.join(workspace, '.vscode'), { recursive: true });
+    fs.writeFileSync(path.join(workspace, '.vscode', 'settings.json'), JSON.stringify({
+      'graph-it-live.branchWatch.enabled': true,
+      'graph-it-live.branchWatch.baseRef': 'main',
+    }));
+    await runTests({
+      version: options.version,
+      cachePath: options.cachePath,
+      extensionDevelopmentPath,
+      extensionTestsPath: options.extensionTestsPath,
+      extensionTestsEnv: { ...options.env, E2E_SUITE_GLOB: GIT_WORKSPACE_SUITE },
+      launchArgs: [workspace],
+    });
+  } finally {
+    fs.rmSync(workspace, { recursive: true, force: true });
   }
 }
 
@@ -133,6 +169,9 @@ async function main() {
         extensionTestsEnv,
         launchArgs,
       });
+      if (runsGitWorkspaceSuite()) {
+        await runGitWorkspaceSuite({ version: vscodeVersion, cachePath: vscodeCachePath, extensionTestsPath, env: extensionTestsEnv });
+      }
     }
 
     console.log('✅ All tests passed!');

@@ -53,7 +53,7 @@ describe('BranchWatchAnalyzer capture', { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(before.changes).toEqual([
       { path: 'api.ts', kind: 'modified' }, { path: 'new space file.ts', kind: 'untracked' }, { path: 'removed.ts', kind: 'deleted' },
     ]);
-    expect(before.limitations.join(' ')).toContain('deletion impact');
+    expect(before.limitations.join(' ')).toContain('removed.ts: deleted');
     await fs.writeFile(path.join(root, 'api.ts'), 'export function value(n: number) { return n + 1; }\n');
     git(root, 'add', 'api.ts');
     await fs.writeFile(path.join(root, 'api.ts'), 'export function value(n: number) { return n; }\n');
@@ -248,15 +248,53 @@ describe('BranchWatchAnalyzer findings', { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(result.cycleSummary).toEqual({ detected: 0, scopeComplete: true });
   });
 
-  it('marks the review partial when a changed source file cannot be compared', async () => {
+  it('reviews a Python-only signature change (#546)', async () => {
     const root = await workspace();
-    await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
+    await fs.writeFile(path.join(root, 'api.py'), 'def value(n):\n    return n\n');
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'python');
+    await fs.writeFile(path.join(root, 'api.py'), 'def value(n, m):\n    return n\n');
     const analyzer = new BranchWatchAnalyzer(root);
-    const snapshot = await analyzer.capture('main');
-    const result = await analyzer.analyze({ ...snapshot, readablePaths: [] });
+    const result = await analyzer.analyze(await analyzer.capture('main'));
+    expect(result.review.symbols.map(symbol => `${symbol.filePath}:${symbol.name}:${symbol.breakingChanges[0]?.type}`)).toEqual(['api.py:value:parameter-added-required']);
+    expect(result.limitations.join(' ')).not.toContain('api.py: behavior unverified');
+  }, GIT_TEST_TIMEOUT);
+
+  it('reviews a deletion-only diff and lists the files still importing the deleted module (#546)', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'consumer.ts'), "import { old } from './removed';\nexport const copy = old;\n");
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'consumer');
+    await fs.unlink(path.join(root, 'removed.ts'));
+    const analyzer = new BranchWatchAnalyzer(root);
+    const result = await analyzer.analyze(await analyzer.capture('main'));
+    expect(result.review.symbols).toEqual([expect.objectContaining({ filePath: 'removed.ts', name: '(module)', consumers: { updated: [], covered: [], unverified: ['consumer.ts'] } })]);
+  }, GIT_TEST_TIMEOUT);
+
+  it('has nothing to review when only untracked files changed', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'draft.ts'), 'export const draft = 1;\n');
+    const analyzer = new BranchWatchAnalyzer(root);
+    const result = await analyzer.analyze(await analyzer.capture('main'));
+    expect(result.review).toMatchObject({ changedFiles: [], symbols: [], isPartial: false, limitations: [] });
+  }, GIT_TEST_TIMEOUT);
+
+  it('clamps a file budget above the review limit instead of failing the review', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'api.ts'), 'export function value(n: string) { return n; }\n');
+    const analyzer = new BranchWatchAnalyzer(root, undefined, undefined, 'git', 2000);
+    const result = await analyzer.analyze(await analyzer.capture('main'));
+    expect(result.review.symbols.map(symbol => symbol.name)).toEqual(['value']);
+  }, GIT_TEST_TIMEOUT);
+
+  it('reviews the other files and marks the review partial when one changed source file cannot be compared (#546)', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'api.ts'), 'export function value(n: number) { return n; }\0\n');
+    await fs.writeFile(path.join(root, 'removed.ts'), 'export const renamed = 1;\n');
+    const analyzer = new BranchWatchAnalyzer(root);
+    const result = await analyzer.analyze(await analyzer.capture('main'));
     expect(result.review.isPartial).toBe(true);
-    expect(result.limitations.join(' ')).toContain('Signature comparison unavailable');
-  });
+    expect(result.review.limitations).toContain('Could not compare api.ts; File is binary.');
+    expect(result.review.symbols.map(symbol => `${symbol.filePath}:${symbol.name}`)).toEqual(['removed.ts:old']);
+  }, GIT_TEST_TIMEOUT);
 
   it('bounds impact depth and exposes lookup failures instead of inventing zero impact', async () => {
     const root = await workspace();

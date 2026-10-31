@@ -8,14 +8,13 @@ import { mapWithConcurrency } from '@/shared/concurrency';
 import { normalizePath, normalizePathForComparison } from '@/shared/path';
 import { resolveReviewCallGraphPath } from '@/shared/reviewTarget';
 import { LanguageService } from './LanguageService';
-import { ReviewGateAnalyzer, type FileCycleAnalysis, type ReviewGateResult, type SymbolDependentsProvider } from './ReviewGateAnalyzer';
+import { hasSignatureAnalysis, REVIEW_GATE_MAX_FILES_LIMIT, ReviewGateAnalyzer, type FileCycleAnalysis, type ReviewGateResult, type SymbolDependentsProvider } from './ReviewGateAnalyzer';
 import { detectCycleEdges } from '../shared/cycleUtils';
+import { checkText, MAX_TEXT_FILE_BYTES, readWorkspaceText, resolveRegularFile } from './utils/workspaceText';
 
 const execFileAsync = promisify(execFile);
 export const BRANCH_WATCH_MAX_FILES = 200;
 export const BRANCH_WATCH_MAX_FILES_LIMIT = 2000;
-const MAX_FILE_BYTES = 2 * 1024 * 1024;
-const SIGNATURE_FILES = /\.(ts|tsx|js|jsx|cjs|mjs|vue)$/i;
 const CONFIG_FILES = /(?:^|\/)(?:tsconfig[^/]*\.json|package\.json|go\.mod|Cargo\.toml)$/;
 
 export type BranchWatchErrorCode = 'not-a-repository' | 'git-unavailable' | 'unborn-head' | 'ambiguous-root'
@@ -147,14 +146,11 @@ export class BranchWatchAnalyzer {
   private async buildReview(snapshot: BranchWatchSnapshot, limitations: string[]): Promise<ReviewGateResult> {
     const emptyReview: ReviewGateResult = { baseRef: snapshot.mergeBaseSha, headRef: snapshot.headReference ?? 'HEAD', changedFiles: [],
       symbols: [], cycles: [], score: 0, risk: 'low', isPartial: false, limitations: [] };
-    const signatureChanges = snapshot.changes.filter(c => SIGNATURE_FILES.test(c.path) && c.kind !== 'deleted' && c.kind !== 'untracked');
-    if (!signatureChanges.length) return emptyReview;
-    if (!signatureChanges.every(c => snapshot.readablePaths.includes(c.path))) {
-      limitations.push('Signature comparison unavailable: some changed files are unsafe, unreadable or outside the analysis limit.');
-      return { ...emptyReview, isPartial: true };
-    }
+    // The review reads the diff itself and decides per file, as review-pr does (#546): untracked
+    // files are not in `git diff`, so a diff of untracked files only has nothing to review.
+    if (snapshot.changes.every(c => c.kind === 'untracked')) return emptyReview;
     const review = await new ReviewGateAnalyzer(this.root, this.dependents).analyze({
-      baseRef: snapshot.mergeBaseSha, maxFiles: this.maxFiles, maxDepth: 3,
+      baseRef: snapshot.mergeBaseSha, maxFiles: Math.min(this.maxFiles, REVIEW_GATE_MAX_FILES_LIMIT), maxDepth: 3,
       headRef: snapshot.headReference, fileCycles: false,
     });
     limitations.push(...review.limitations);
@@ -164,7 +160,7 @@ export class BranchWatchAnalyzer {
   private addBehaviorLimitations(snapshot: BranchWatchSnapshot, review: ReviewGateResult, limitations: string[]): void {
     for (const change of snapshot.changes) {
       if (change.kind === 'deleted' || review.symbols.some(s => s.filePath === change.path)) continue;
-      const detail = SIGNATURE_FILES.test(change.path) ? '.' : '; signature comparison unavailable for this file type.';
+      const detail = hasSignatureAnalysis(change.path) ? '.' : '; signature comparison unavailable for this file type.';
       limitations.push(`${change.path}: behavior unverified${detail}`);
     }
   }
@@ -202,7 +198,7 @@ export class BranchWatchAnalyzer {
     const graph: FileGraph = { edges: [], limitations: [] };
     const language = new LanguageService(root, undefined, this.extensionPath);
     const reader = root === this.root ? this : new BranchWatchAnalyzer(root, undefined, this.extensionPath, this.gitPath, this.maxFiles);
-    const queue = await this.readGraphLevel([...new Set(seeds.map(normalizePath))], new Set<string>(), graph,
+    const queue = await this.readGraphLevel([...new Set(seeds.map(seed => normalizePath(seed)))], new Set<string>(), graph,
       file => this.readFileDependencies(root, file, language, reader));
     if (queue.length) graph.limitations.push(`Cycle analysis reached the ${this.maxFiles}-file affected-scope limit.`);
     return graph;
@@ -399,7 +395,7 @@ export class BranchWatchAnalyzer {
       const tab = entry.indexOf('\t');
       return { meta: entry.slice(0, tab).split(' '), file: this.relativePath(entry.slice(tab + 1)) };
     }).filter(entry => LanguageService.isSupported(entry.file) || CONFIG_FILES.test(entry.file));
-    const scopedFiles = scope ? new Set([...scope, ...seeds].map(normalizePath)) : undefined;
+    const scopedFiles = scope ? new Set([...scope, ...seeds].map(file => normalizePath(file))) : undefined;
     const candidates = scopedFiles
       ? entries.filter(entry => scopedFiles.has(entry.file) || CONFIG_FILES.test(entry.file))
       : entries;
@@ -421,7 +417,7 @@ export class BranchWatchAnalyzer {
         const blobLimitations = await mapWithConcurrency(selectedEntries, 8, async ({ meta, file }) => {
           if (!['100644', '100755'].includes(meta[0])) return `${file}: unsupported baseline file mode.`;
           const size = Number.parseInt((await this.git(['cat-file', '-s', meta[2]])).trim(), 10);
-          if (size > MAX_FILE_BYTES) return `${file}: baseline file exceeds text analysis limits.`;
+          if (size > MAX_TEXT_FILE_BYTES) return `${file}: baseline file exceeds text analysis limits.`;
           const content = await this.git(['cat-file', 'blob', meta[2]]);
           if (content.includes('\0')) return `${file}: baseline file is binary.`;
           const target = resolveReviewCallGraphPath(directory, file);
@@ -600,7 +596,7 @@ export class BranchWatchAnalyzer {
     for (const [index, change] of changes.entries()) {
       const read = reads[index];
       if (change.kind === 'deleted') {
-        limitations.push(`${change.path}: deletion impact not analyzed; renames are represented as deletion and addition.`);
+        limitations.push(`${change.path}: deleted; a rename is represented as a deletion plus an addition.`);
         hash.update(JSON.stringify([change.path, 'deleted']));
       } else if (read) {
         limitations.push(...read.readLimitations);
@@ -621,30 +617,14 @@ export class BranchWatchAnalyzer {
   }
 
   async resolveFile(file: string): Promise<string> {
-    const absolute = resolveReviewCallGraphPath(this.root, file);
-    const [rootReal, fileReal, stat] = await Promise.all([fs.realpath(this.root), fs.realpath(absolute), fs.lstat(absolute)]);
-    const relative = path.relative(rootReal, fileReal);
-    if (stat.isSymbolicLink() || relative.startsWith(`..${path.sep}`) || relative === '..' || path.isAbsolute(relative)) {
-      throw new Error('File is a symbolic link or resolves outside the workspace.');
-    }
-    if (!stat.isFile()) throw new Error('File is not a regular file.');
-    if (stat.size > MAX_FILE_BYTES) throw new Error('File exceeds the 2 MiB size limit.');
-    return absolute;
+    // Awaited so an outside path rejects the promise rather than throwing before it exists.
+    return await resolveRegularFile(this.root, resolveReviewCallGraphPath(this.root, file));
   }
 
   private async readText(file: string, limitations: string[], headSha?: string): Promise<string | undefined> {
     try {
-      if (headSha) {
-        const content = await this.git(['cat-file', 'blob', `${headSha}:${file}`]);
-        if (content.includes('\0')) throw new Error('File is binary.');
-        if (Buffer.byteLength(content) > MAX_FILE_BYTES) throw new Error('File exceeds the 2 MiB size limit.');
-        return content;
-      }
-      const absolute = await this.resolveFile(file);
-      const content = await fs.readFile(absolute);
-      if (content.length > MAX_FILE_BYTES) throw new Error('File exceeds the 2 MiB size limit.');
-      if (content.includes(0)) throw new Error('File is binary.');
-      return content.toString('utf8');
+      if (headSha) return checkText(await this.git(['cat-file', 'blob', `${headSha}:${file}`]));
+      return await readWorkspaceText(this.root, resolveReviewCallGraphPath(this.root, file));
     } catch (error) {
       limitations.push(`${file}: ${error instanceof Error ? error.message : 'File is unreadable.'}`);
       return undefined;

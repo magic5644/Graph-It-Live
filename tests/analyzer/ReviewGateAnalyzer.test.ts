@@ -214,7 +214,7 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(result.symbols[0].evidence.some((e) => e.kind === "impact")).toBe(true);
   });
 
-  it("does not score dependents for a non-breaking optional interface member", async () => {
+  it("lists consumers of a non-breaking optional interface member to re-check, without charging them (#546)", async () => {
     const workspace = await createGitWorkspaceWithDiff(
       "export interface Api { name: string; }\n",
       "export interface Api { name: string; label?: string; }\n",
@@ -229,13 +229,14 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
 
     expect(result.symbols[0]).toMatchObject({
       name: "Api",
-      score: 0,
+      score: 5,
       risk: "low",
-      impactedSymbolCount: 0,
-      // No contract broken: a missing test is not a risk this diff creates.
-      scoreFactors: { breakingChanges: 0, unverifiedConsumers: 0, cycles: 0, missingTestCandidate: 0 },
+      impactedSymbolCount: 107,
+      // No contract broken: consumers are to re-check, and a missing test is not a risk this diff creates.
+      scoreFactors: { breakingChanges: 5, unverifiedConsumers: 0, cycles: 0, missingTestCandidate: 0 },
     });
-    expect(result.symbols[0].evidence.some((e) => e.kind === "impact")).toBe(false);
+    expect(result.symbols[0].consumers.unverified).toHaveLength(107);
+    expect(result.symbols[0].evidence).toContainEqual({ kind: "consumers", detail: expect.stringContaining("the change is compatible, so these are to re-check, not to update") });
   });
 
   it("downgrades breaking-change weight when a dependents provider confirms zero live consumers", async () => {
@@ -325,7 +326,7 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     });
   });
 
-  it("does not score dependents for a warning-only type alias change", async () => {
+  it("charges no consumer of a widened union that none handles exhaustively (#546)", async () => {
     const workspace = await createGitWorkspaceWithDiff(
       'export type Message = { type: "init" };\n',
       'export type Message = { type: "init" } | { type: "cancel" };\n',
@@ -340,12 +341,14 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
 
     expect(result.symbols[0]).toMatchObject({
       name: "Message",
-      score: 0,
+      score: 5,
       risk: "low",
-      impactedSymbolCount: 0,
-      // No contract broken: a missing test is not a risk this diff creates.
-      scoreFactors: { breakingChanges: 0, unverifiedConsumers: 0, cycles: 0, missingTestCandidate: 0 },
+      impactedSymbolCount: 10,
+      exhaustiveConsumers: [],
+      // The consumer files are unreadable here, so none is flagged as exhaustive.
+      scoreFactors: { breakingChanges: 5, unverifiedConsumers: 0, cycles: 0, missingTestCandidate: 0 },
     });
+    expect(result.symbols[0].breakingChanges[0]).toMatchObject({ type: "member-added", severity: "warning" });
   });
 
   it("reports cycle, unused-export, and conventional test-candidate evidence", async () => {
@@ -1982,5 +1985,182 @@ describe("ReviewGateAnalyzer - importers of a removed name (#524)", { timeout: G
     const pfn = symbolNamed(result, "pfn");
     expect(pfn?.testCandidates).toEqual(expect.arrayContaining(["pkg/test_lib.py"]));
     expect(pfn?.consumers.covered).toEqual(["pkg/user1.py"]);
+  });
+});
+
+/** Regression (#546): a compatible contract change reported no consumer, no test and no exhaustive use. */
+describe("ReviewGateAnalyzer - compatible contract changes (#546)", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const LANG_BASE = {
+    "src/lang.ts": 'export type Lang = "a" | "b";\n',
+    "src/use.ts": 'import type { Lang } from "./lang";\nexport const names: Record<Lang, string> = { a: "A", b: "B" };\n',
+    "tests/use.test.ts": 'import { names } from "../src/use";\nexport const first = names.a;\n',
+  };
+  const LANG_INDEX = {
+    referrers: { "src/lang.ts": ["src/use.ts"], "src/use.ts": ["tests/use.test.ts"] },
+    dependents: { "src/lang.ts:Lang": ["src/use.ts:names"], "src/use.ts:names": ["tests/use.test.ts:first"] },
+  };
+
+  it("lists the consumers and tests of a widened union and flags the exhaustive one", async () => {
+    const workspace = await workspaceWith(LANG_BASE, { "src/lang.ts": 'export type Lang = "a" | "b" | "c";\n' });
+    const index = importIndex(workspace, LANG_INDEX.referrers, LANG_INDEX.dependents);
+    const result = await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" });
+    const lang = result.symbols.find((symbol) => symbol.name === "Lang");
+
+    expect(lang).toMatchObject({
+      impactedSymbolCount: 2,
+      consumers: { updated: [], covered: ["src/use.ts"], unverified: [] },
+      exhaustiveConsumers: ["src/use.ts"],
+      testCandidates: ["tests/use.test.ts"],
+      // Residual weight for the change, plus the exhaustive consumer this diff leaves untouched.
+      scoreFactors: { breakingChanges: 5, unverifiedConsumers: 5, missingTestCandidate: 0 },
+      score: 10,
+    });
+    expect(lang?.breakingChanges).toEqual([expect.objectContaining({ type: "member-added", severity: "warning" })]);
+    expect(lang?.evidence.map((item) => item.detail)).toEqual(expect.arrayContaining([
+      expect.stringContaining("1 consumer file(s): 0 updated in this diff, 1 covered by tests, 0 neither; the change is compatible"),
+      "1 file(s) may handle every member (switch, Record, mapped type) and likely stop compiling: src/use.ts.",
+    ]));
+    const markdown = renderReviewMarkdown(result);
+    expect(markdown).toContain("### Consumers to check\n- Lang: src/use.ts");
+    expect(markdown).toContain("### Compatible change: consumers to re-check\n- Lang: src/use.ts");
+  });
+
+  it("charges no exhaustive consumer the diff already updates", async () => {
+    const workspace = await workspaceWith(LANG_BASE, {
+      "src/lang.ts": 'export type Lang = "a" | "b" | "c";\n',
+      "src/use.ts": 'import type { Lang } from "./lang";\nexport const names: Record<Lang, string> = { a: "A", b: "B", c: "C" };\n',
+    });
+    const index = importIndex(workspace, LANG_INDEX.referrers, LANG_INDEX.dependents);
+    const lang = (await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" })).symbols.find((symbol) => symbol.name === "Lang");
+    expect(lang).toMatchObject({ consumers: { updated: ["src/use.ts"] }, exhaustiveConsumers: ["src/use.ts"], scoreFactors: { breakingChanges: 0, unverifiedConsumers: 0 }, score: 0 });
+  });
+
+  it.each([
+    ["Record", 'export const n: Record<Lang, number> = { a: 1, b: 2 };', true],
+    ["satisfies Record", 'export const n = { a: 1, b: 2 } satisfies Record<Lang, number>;', true],
+    ["a namespace-qualified Record", 'import * as t from "./lang";\nexport const n: Partial<Record<t.Lang, number>> = {};', true],
+    ["a mapped type", 'export type M = { [K in Lang]: number };', true],
+    ["a mapped type with an as clause", 'export type M = { [K in Lang as `x_${K}`]: K };', true],
+    ["a switch in a file naming the type", 'export function f(l: Lang): number {\n  switch (l) { case "a": return 1; case "b": return 2; }\n}', true],
+    ["Record written in a comment", '// Record<Lang, number>\nexport const x: Lang = "a";', false],
+    ["Record written in a string", 'export const s = "Record<Lang, number>";\nexport const x: Lang = "a";', false],
+    ["a plain use", 'export function f(l: Lang): Lang { return l; }', false],
+    ["a switch in a file not naming the type", 'import { n } from "./other";\nexport function f() { switch (n) { default: return n; } }', false],
+    ["a longer name sharing the prefix", 'export const n: Record<Language, number> = {};\nexport type Language = string;', false],
+  ])("flags %s as exhaustive: %s", async (_case, consumer, exhaustive) => {
+    const workspace = await workspaceWith(
+      // A consumer reached through another one need not import the type: such a case writes its own imports.
+      { "src/lang.ts": 'export type Lang = "a" | "b";\n', "src/use.ts": consumer.startsWith("import") ? consumer : `import type { Lang } from "./lang";\n${consumer}\n` },
+      { "src/lang.ts": 'export type Lang = "a" | "b" | "c";\n' },
+    );
+    const index = importIndex(workspace, {}, { "src/lang.ts:Lang": ["src/use.ts:n"] });
+    const [lang] = (await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" })).symbols;
+    expect(lang.exhaustiveConsumers).toEqual(exhaustive ? ["src/use.ts"] : []);
+  });
+
+  it("flags a switch over an enum that gained a member", async () => {
+    const workspace = await workspaceWith(
+      {
+        "src/color.ts": "export enum Color { Red, Green }\n",
+        "src/paint.ts": 'import { Color } from "./color";\nexport function hex(c: Color): string {\n  switch (c) { case Color.Red: return "f00"; case Color.Green: return "0f0"; }\n}\n',
+      },
+      { "src/color.ts": "export enum Color { Red, Green, Blue }\n" },
+    );
+    const index = importIndex(workspace, {}, { "src/color.ts:Color": ["src/paint.ts:hex"] });
+    const [color] = (await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" })).symbols;
+    expect(color).toMatchObject({ name: "Color", exhaustiveConsumers: ["src/paint.ts"], consumers: { unverified: ["src/paint.ts"] }, score: 10 });
+  });
+
+  it.each([
+    ["TypeScript", "src/api.ts", "export function f(a: number): number { return a; }\n", "export function f(a: number, b?: number): number { return a; }\n", "src/use.ts"],
+    ["Python", "pkg/api.py", "def f(a):\n    return a\n", "def f(a, b=None):\n    return a\n", "pkg/use.py"],
+  ])("lists the consumers of an optional %s parameter to re-check, charging none", async (_language, file, before, after, consumer) => {
+    const workspace = await workspaceWith({ [file]: before, [consumer]: "" }, { [file]: after });
+    const index = importIndex(workspace, {}, { [`${file}:f`]: [`${consumer}:g`] });
+    const [symbol] = (await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" })).symbols;
+    expect(symbol).toMatchObject({
+      name: "f", breakingChanges: [], consumers: { unverified: [consumer] },
+      scoreFactors: { breakingChanges: 5, unverifiedConsumers: 0, missingTestCandidate: 0 }, score: 5,
+    });
+    expect(symbol.exhaustiveConsumers).toBeUndefined();
+  });
+
+  it("walks a pure move's dependents once, at its new file", async () => {
+    const workspace = await workspaceWith(
+      { "src/a.ts": "export function fn(n: number): number { return n; }\n", "src/use.ts": 'import { fn } from "./a";\nexport const r = fn(1);\n' },
+      { "src/a.ts": "export const keep = 1;\n", "src/b.ts": "export function fn(n: number): number { return n; }\n", "src/use.ts": 'import { fn } from "./b";\nexport const r = fn(1);\n' },
+    );
+    const index = importIndex(workspace, { "src/a.ts": [] }, { "src/b.ts:fn": ["src/use.ts:r"] });
+    const walked: string[] = [];
+    const getSymbolDependents = index.getSymbolDependents;
+    index.getSymbolDependents = async (file: string, symbol: string) => {
+      walked.push(`${path.relative(workspace, file).replaceAll("\\", "/")}:${symbol}`);
+      return getSymbolDependents(file, symbol);
+    };
+    const result = await new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" });
+    expect(walked.filter((entry) => entry.endsWith(":fn"))).toEqual(["src/b.ts:fn"]);
+    expect(result.symbols).toEqual([expect.objectContaining({
+      name: "fn", consumers: { updated: ["src/use.ts"], covered: [], unverified: [] }, score: 5,
+    })]);
+    expect(result.symbols[0].exhaustiveConsumers).toBeUndefined();
+  });
+
+  it.each([
+    ["with a dependency index", true, "No test file named after src/api.ts, no test depends on 'f' within the walked depth; manual test selection is required."],
+    ["without one", false, "No test file named after src/api.ts, test dependents unknown (no dependency index); manual test selection is required."],
+  ])("names the test lookups that found nothing, %s", async (_case, provider, detail) => {
+    const workspace = await createGitWorkspaceWithDiff("export function f(a: number) { return a; }\n", "export function f(a: string) { return a; }\n");
+    const analyzer = new ReviewGateAnalyzer(workspace, provider ? importIndex(workspace, {}) : undefined);
+    const [symbol] = (await analyzer.analyze({ baseRef: "main" })).symbols;
+    expect(symbol.evidence).toContainEqual({ kind: "test-candidate", detail });
+  });
+});
+
+/** Regression (#546): an unreadable or oversized file was read as absent, so as added or deleted. */
+describe("ReviewGateAnalyzer - unreadable changed files (#546)", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const OVERSIZED = `export const big = 1;\n${"// pad\n".repeat(320_000)}`;
+
+  it.each([
+    ["binary at the head", { "src/odd.ts": "export const odd = 1;\n" }, { "src/odd.ts": "export const odd = 1;\0\n" }, "File is binary."],
+    ["oversized at the head", { "src/odd.ts": "export const odd = 1;\n" }, { "src/odd.ts": OVERSIZED }, "File exceeds the 2 MiB size limit."],
+    ["oversized at the base", { "src/odd.ts": OVERSIZED }, { "src/odd.ts": "export const odd = 1;\n" }, "File exceeds the 2 MiB size limit."],
+  ])("marks a file %s partial and reviews the others", async (_case, base, head, reason) => {
+    const workspace = await workspaceWith(
+      { ...base, "src/api.ts": "export function f(a: number) { return a; }\n" },
+      { ...head, "src/api.ts": "export function f(a: string) { return a; }\n" },
+    );
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+    expect(result.isPartial).toBe(true);
+    expect(result.limitations).toContain(`Could not compare src/odd.ts; ${reason}`);
+    expect(result.symbols.map((symbol) => `${symbol.filePath}:${symbol.name}`)).toEqual(["src/api.ts:f"]);
+  });
+
+  it("reads oversized committed refs as unreadable too, not as absent", async () => {
+    const workspace = await workspaceWith({ "src/odd.ts": "export const odd = 1;\n" }, { "src/odd.ts": OVERSIZED }, true);
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main", headRef: "b1" });
+    expect(result.limitations).toContain("Could not compare src/odd.ts; File exceeds the 2 MiB size limit.");
+  });
+
+  it("does not follow a symbolic link out of the workspace", async () => {
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), "review-gate-outside-"));
+    temporaryDirectories.push(outside);
+    await fs.writeFile(path.join(outside, "secret.ts"), "export const secret = 1;\n");
+    const workspace = await workspaceWith({ "src/link.ts": "export const link = 1;\n" }, {});
+    await fs.rm(path.join(workspace, "src", "link.ts"));
+    try {
+      await fs.symlink(path.join(outside, "secret.ts"), path.join(workspace, "src", "link.ts"));
+    } catch {
+      return; // Creating a symbolic link needs a privilege Windows runners may lack.
+    }
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+    expect(result.limitations).toContain("Could not compare src/link.ts; File is a symbolic link or resolves outside the workspace.");
+    expect(result.symbols).toEqual([]);
+  });
+
+  it("still reviews a deleted file as a deletion", async () => {
+    const workspace = await workspaceWith({ "src/old.ts": "export function gone() {}\n" }, { "src/old.ts": null });
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+    expect(result.symbols.map((symbol) => symbol.name)).toEqual(["gone"]);
+    expect(result.limitations.join(" ")).not.toContain("Could not compare");
   });
 });
