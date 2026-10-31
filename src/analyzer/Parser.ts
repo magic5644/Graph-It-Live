@@ -17,7 +17,10 @@ export class Parser implements ILanguageAnalyzer {
    * Group 2 matches single-line and block comments (replaced with whitespace).
    */
   private static readonly STRIP_COMMENTS_RE: RegExp = (() => {
-    const stringPattern = /'[^']*'|"[^"]*"/;
+    // A quoted string never spans a line and may hold escapes: a stray quote (`/'[^']*'/` in a
+    // regex literal) then only misreads its own line instead of swallowing the comments after it.
+    // shortcut: regex literals are not recognized, upgrade with a real tokenizer.
+    const stringPattern = /'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"/;
     const commentPattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\//;
     return new RegExp(
       `(${stringPattern.source})|(${commentPattern.source})`,
