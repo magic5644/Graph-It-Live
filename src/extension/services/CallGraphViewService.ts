@@ -16,7 +16,7 @@
 import { IndexCache } from "@/analyzer/cache/IndexCache";
 import { CallGraphIndexer, getSqlJsWasmPath } from "@/analyzer/callgraph/CallGraphIndexer";
 import { queryNeighbourhood } from "@/analyzer/callgraph/CallGraphQuery";
-import { collectChangedFiles, getQueryFreshnessCutoffs, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
+import { collectChangedFiles, fileExtToLang, getQueryFreshnessCutoffs, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
 import type {
   CallGraphExtensionMessage,
@@ -85,16 +85,8 @@ function toSupportedLang(languageId: string): SupportedLang | null {
 
 /** Maps a file extension to the SupportedLang key used by GraphExtractor queries. */
 function langFromPath(filePath: string): SupportedLang | null {
-  const ext = path.extname(filePath).toLowerCase();
-  if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext)) return "typescript";
-  if (ext === ".vue" || ext === ".svelte") return "typescript";
-  if ([".py", ".pyi"].includes(ext)) return "python";
-  if (ext === ".rs") return "rust";
-  if (ext === ".cs") return "csharp";
-  if (ext === ".go") return "go";
-  if (ext === ".java") return "java";
   // .csproj is XML — not suitable for call graph extraction
-  return null;
+  return path.extname(filePath).toLowerCase() === ".csproj" ? null : fileExtToLang(filePath);
 }
 
 // ---------------------------------------------------------------------------
@@ -268,10 +260,11 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       return;
     }
 
-    const lang = toSupportedLang(editor.document.languageId);
+    // GraphQL has no built-in VS Code language id: fall back to the file extension.
+    const lang = toSupportedLang(editor.document.languageId) ?? langFromPath(editor.document.uri.fsPath);
     if (!lang) {
       await vscode.window.showInformationMessage(
-        `Graph-It-Live: Call Graph is not supported for "${editor.document.languageId}". Supported: TypeScript, JavaScript, Vue, Svelte, Python, Rust.`,
+        `Graph-It-Live: Call Graph is not supported for "${editor.document.languageId}". Supported: TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, Java, GraphQL.`,
       );
       return;
     }
@@ -978,7 +971,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   }
 
   private async refreshFile(filePath: string, languageId: string, workspaceRoot: string): Promise<void> {
-    const lang = toSupportedLang(languageId);
+    const lang = toSupportedLang(languageId) ?? langFromPath(filePath);
     if (!lang || !this.currentFilePath) { return; }
 
     const indexer = await this.ensureIndexer();

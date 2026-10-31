@@ -456,7 +456,7 @@ export class CallGraphIndexer {
     // Fetch all external stub edges together with the source node's file path and lang.
     // Joining nodes gives us the source file path + lang without parsing the composite ID.
     const stubRows = db.exec(`
-      SELECT e.rowid, s.path AS source_path, s.lang AS source_lang, SUBSTR(e.target_id, 12) AS sym_name
+      SELECT e.rowid, s.path AS source_path, s.lang AS source_lang, SUBSTR(e.target_id, 12) AS sym_name, e.type_relation
       FROM edges e
       JOIN nodes s ON s.id = e.source_id
       WHERE e.target_id LIKE '@@external:%'
@@ -468,7 +468,7 @@ export class CallGraphIndexer {
     // return rows in any order, and pickBestCandidate's first-wins tie handling
     // would resolve the same workspace differently from one run to the next.
     const candidateRows = db.exec(`
-      SELECT name, id, path, is_exported, lang
+      SELECT name, id, path, is_exported, lang, type
       FROM nodes
       WHERE name IN (
         SELECT DISTINCT SUBSTR(target_id, 12) FROM edges WHERE target_id LIKE '@@external:%'
@@ -479,14 +479,14 @@ export class CallGraphIndexer {
     // Build (lang + "\0" + name) → candidates map so lookups are language-scoped.
     const candidateMap = new Map<string, NodeCandidate[]>();
     if (candidateRows[0]) {
-      for (const row of candidateRows[0].values as [string, string, string, number, string][]) {
-        const [name, id, nodePath, isExported, lang] = row;
+      for (const row of candidateRows[0].values as [string, string, string, number, string, string][]) {
+        const [name, id, nodePath, isExported, lang, type] = row;
         const key = `${lang}\0${name}`;
         const existing = candidateMap.get(key);
         if (existing) {
-          existing.push({ id, path: nodePath, isExported });
+          existing.push({ id, path: nodePath, isExported, type });
         } else {
-          candidateMap.set(key, [{ id, path: nodePath, isExported }]);
+          candidateMap.set(key, [{ id, path: nodePath, isExported, type }]);
         }
       }
     }
@@ -496,9 +496,10 @@ export class CallGraphIndexer {
     const updateStmt = db.prepare("UPDATE OR IGNORE edges SET target_id = ? WHERE rowid = ?");
     let resolved = 0;
     if (stubRows[0]) {
-      for (const row of stubRows[0].values as [number, string, string, string][]) {
-        const [rowid, sourcePath, sourceLang, symName] = row;
-        const candidates = candidateMap.get(`${sourceLang}\0${symName}`);
+      for (const row of stubRows[0].values as [number, string, string, string, string][]) {
+        const [rowid, sourcePath, sourceLang, symName, relation] = row;
+        const candidates = candidateMap.get(`${sourceLang}\0${symName}`)
+          ?.filter((c) => inGraphQLNamespace(sourceLang, relation, c.type));
         if (!candidates || candidates.length === 0) { continue; }
         const best = pickBestCandidate(sourcePath, candidates);
         updateStmt.run([best.id, rowid]);
@@ -816,7 +817,18 @@ export function getSqlJsWasmPath(extensionPath: string): string {
 // Module-level helpers for resolveExternalEdges
 // ---------------------------------------------------------------------------
 
-type NodeCandidate = { id: string; path: string; isExported: number };
+type NodeCandidate = { id: string; path: string; isExported: number; type: string };
+
+/**
+ * GraphQL fragments and types live in separate namespaces (`fragment User on User`
+ * is common): a spread (CALLS) reaches executable definitions only, a type
+ * reference (USES/IMPLEMENTS) reaches type-system definitions only. Other
+ * languages keep one namespace.
+ */
+export function inGraphQLNamespace(sourceLang: string, relation: string, candidateType: string): boolean {
+  if (sourceLang !== "graphql") return true;
+  return (relation === "CALLS") === (candidateType === "function");
+}
 
 /**
  * Count the number of leading directory segments two file paths share.
@@ -847,7 +859,7 @@ function sharedPathSegments(pathA: string, pathB: string): number {
  * Recency carried no signal about which homonym is the real target anyway: it is
  * an arbitrary choice either way, so the id is used instead because it is stable.
  */
-function pickBestCandidate(sourcePath: string, candidates: NodeCandidate[]): NodeCandidate {
+function pickBestCandidate<T extends Omit<NodeCandidate, "type">>(sourcePath: string, candidates: T[]): T {
   let best = candidates[0];
   let bestSim = sharedPathSegments(sourcePath, best.path);
   for (let i = 1; i < candidates.length; i++) {

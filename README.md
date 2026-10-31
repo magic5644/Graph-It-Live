@@ -109,7 +109,7 @@ The Live Call Graph shows cross-file symbol relationships in a Cytoscape.js pane
   <img src="media/call-graph-view-example.png" alt="Graph-It-Live live call graph" width="800"/>
 </div>
 
-The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, and Java. C#, Go, and Java are supported in the file graph and Live Call Graph; Symbol View support is currently limited to TypeScript, JavaScript, Python, and Rust.
+The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, Java, and GraphQL. C#, Go, Java, and GraphQL are supported in the file graph and Live Call Graph; Symbol View support is currently limited to TypeScript, JavaScript, Python, and Rust. In GraphQL, operations and fragments call the fragments they spread; an operation's default root type (`Query`, `Mutation`, `Subscription`), type conditions, field, argument and variable types, and union members are type-only references (`USES`, shown with `includeTypeOnly`); `implements` is an `IMPLEMENTS` edge.
 
 ### Architecture view
 
@@ -419,7 +419,7 @@ Use `pull_request`, not `pull_request_target`, for untrusted pull requests. The 
 | Python | Yes | Yes | Yes |
 | Rust | Yes | Yes | Yes |
 | C# / Go / Java | Yes | No | Yes |
-| GraphQL | Yes | No | No |
+| GraphQL | Yes | No | Yes |
 
 ## Documentation
 

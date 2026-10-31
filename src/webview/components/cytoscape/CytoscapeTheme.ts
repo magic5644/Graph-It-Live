@@ -115,6 +115,7 @@ const LANG_COLORS: ReadonlyArray<[string, string]> = [
   ["csharp", LANGUAGE_COLORS.csharp ?? UNKNOWN_COLOR],
   ["go", LANGUAGE_COLORS.go ?? UNKNOWN_COLOR],
   ["java", LANGUAGE_COLORS.java ?? UNKNOWN_COLOR],
+  ["graphql", LANGUAGE_COLORS.graphql ?? UNKNOWN_COLOR],
 ];
 
 // ---------------------------------------------------------------------------

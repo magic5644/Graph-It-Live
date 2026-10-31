@@ -17,6 +17,7 @@ const noCutoffs = {
   csharp: 0,
   go: 0,
   java: 0,
+  graphql: 0,
 } satisfies Record<SupportedLang, number>;
 
 describe("getQueryFreshnessCutoffs", () => {
