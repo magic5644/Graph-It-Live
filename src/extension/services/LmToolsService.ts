@@ -717,8 +717,7 @@ export class LmToolsService {
     const walkLevel = async (level: Array<{ symbolId: string; depth: number }>): Promise<void> => {
       const current = level.filter((item) => item.depth <= maxDepth);
       if (current.length === 0) return;
-      // 1: the AST worker symbol results depend on which files it has loaded (`export *`), so symbol lookups stay one at a time, in order.
-      const results = await mapWithConcurrency(current, 1, (item) => this.symbolDependentsOf(spider, item.symbolId));
+      const results = await mapWithConcurrency(current, 4, (item) => this.symbolDependentsOf(spider, item.symbolId));
       const next: Array<{ symbolId: string; depth: number }> = [];
       results.forEach((deps, i) => {
         for (const dep of deps) {

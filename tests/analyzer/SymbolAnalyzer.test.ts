@@ -488,3 +488,65 @@ function localFn() { return local() + localValue; }
     );
   });
 });
+
+describe('SymbolAnalyzer - symbols do not depend on the files analyzed before (#541)', () => {
+  const DEP = 'export function yFn() {}\nexport default function dflt() {}\nexport const yv = 1;\nexport * from "./x";\n';
+  const summary = (symbols: Array<{ name: string; isExported: boolean; kind: string }>) =>
+    symbols.map((s) => `${s.name}${s.isExported ? '*' : ''}:${s.kind}`);
+
+  // [form, source of the barrel, expected symbols of the barrel]
+  it.each([
+    ['export *', 'export * from "./y";', []],
+    ['export * as ns', 'export * as ns from "./y";', []],
+    ['named and renamed re-export', 'export { yFn, yv as alias } from "./y";', []],
+    ['import then export', 'import { yFn } from "./y";\nexport { yFn };', []],
+    ['default re-export through an import', 'import d from "./y";\nexport default d;', []],
+    ['export { default } from', 'export { default } from "./y";', []],
+    ['namespace import then export', 'import * as N from "./y";\nexport { N };', []],
+    ['local export renamed next to export *', 'function f() {}\nexport { f as g };\nexport * from "./y";', ['g*:FunctionDeclaration', 'f:FunctionDeclaration']],
+    ['local non-exported name shadowed by export *', 'function yFn() {}\nexport * from "./y";', ['yFn:FunctionDeclaration']],
+    ['local export of the same name as export *', 'export function yFn() {}\nexport * from "./y";', ['yFn*:FunctionDeclaration']],
+    ['export = of an import', 'import y = require("./y");\nexport = y;', []],
+  ])('%s: same symbols alone and after the re-exported file', (_form, source, expected) => {
+    for (const [x, y] of [['/ws/cyc/x.ts', '/ws/cyc/y.ts'], [String.raw`C:\ws\cyc\x.ts`, String.raw`C:\ws\cyc\y.ts`]]) {
+      const alone = new SymbolAnalyzer().analyzeFileContent(x, source);
+      const warm = new SymbolAnalyzer();
+      warm.analyzeFileContent(y, DEP);
+      const after = warm.analyzeFileContent(x, source);
+
+      expect(summary(alone.symbols)).toEqual(expected);
+      expect(summary(after.symbols)).toEqual(expected);
+      expect(after.dependencies).toEqual(alone.dependencies);
+      expect(new SymbolAnalyzer().getExportedSymbols(x, source)).toEqual(warm.getExportedSymbols(x, source));
+    }
+  });
+
+  it('keeps the symbols of the file that declares them', () => {
+    const analyzer = new SymbolAnalyzer();
+    analyzer.analyzeFileContent('/ws/cyc/x.ts', 'export * from "./y";');
+    const { symbols } = analyzer.analyzeFileContent('/ws/cyc/y.ts', DEP);
+
+    // A named default export is also listed under its local name (existing behavior).
+    expect(summary(symbols)).toEqual(['yFn*:FunctionDeclaration', 'default*:FunctionDeclaration', 'yv*:VariableDeclaration', 'dflt:FunctionDeclaration']);
+    expect(symbols.every((s) => s.id.startsWith('/ws/cyc/y.ts:'))).toBe(true);
+  });
+
+  it('builds the internal export graph from local exports only, in any order', () => {
+    const source = 'import { yFn } from "./y";\nexport { yFn };\nexport function use() { return yFn(); }\nexport function helper() { return use(); }';
+    const alone = new SymbolAnalyzer().getInternalExportDependencyGraph('/ws/x.ts', source);
+    const warm = new SymbolAnalyzer();
+    warm.analyzeFileContent('/ws/y.ts', DEP);
+    const after = warm.getInternalExportDependencyGraph('/ws/x.ts', source);
+
+    expect([...alone].map(([id, deps]) => [id, [...deps]])).toEqual([
+      ['/ws/x.ts:use', []],
+      ['/ws/x.ts:helper', ['/ws/x.ts:use']],
+    ]);
+    expect([...after].map(([id, deps]) => [id, [...deps]])).toEqual([...alone].map(([id, deps]) => [id, [...deps]]));
+  });
+
+  it('returns no symbols for an empty file or a file of re-exports only', () => {
+    expect(new SymbolAnalyzer().analyzeFileContent('/ws/empty.ts', '').symbols).toEqual([]);
+    expect(new SymbolAnalyzer().getExportedSymbols('/ws/barrel.ts', 'export * from "./missing";')).toEqual([]);
+  });
+});

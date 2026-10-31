@@ -34,7 +34,7 @@ function createService(options: {
 }
 
 describe('SpiderIndexingService', () => {
-  it('analyzes files concurrently but builds symbol graphs one at a time in file order', async () => {
+  it('builds each symbol graph as soon as its file is analyzed, concurrently, within the symbol file limit', async () => {
     let inFlight = 0;
     let maxInFlight = 0;
     const symbolOrder: string[] = [];
@@ -59,8 +59,10 @@ describe('SpiderIndexingService', () => {
 
     expect(result).toMatchObject({ indexedFiles: 5, cancelled: false });
     expect(maxInFlight).toBe(3);
-    expect(symbolOrder).toEqual(FILES.slice(0, 4));
-    expect(reverseIndex.addSymbolDependencies.mock.calls.map(([file]) => file)).toEqual(FILES.slice(0, 4));
+    // No ordering barrier: a file whose analysis ends first gets its symbol graph first (#541).
+    expect(symbolOrder.slice(0, 2)).toEqual(['/ws/c.ts', '/ws/b.ts']);
+    expect([...symbolOrder].sort()).toEqual(FILES.slice(0, 4));
+    expect(reverseIndex.addSymbolDependencies.mock.calls.map(([file]) => file).sort()).toEqual(FILES.slice(0, 4));
     expect(progress).toEqual([1, 2, 3, 4, 5]);
   });
 

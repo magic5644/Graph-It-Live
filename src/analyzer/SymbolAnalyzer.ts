@@ -79,6 +79,22 @@ export interface SymbolAnalyzerOptions {
   maxFiles?: number;
 }
 
+/**
+ * Exported names of a file whose declaration is in that file. `getExportedDeclarations()` also follows
+ * re-exports (`export *`, `export { x } from`, `import x; export { x }`) into the other files of the
+ * shared in-memory project, so it would list them only if those files were analyzed before (#541).
+ * A symbol belongs to the file that declares it; re-exports are followed by `reExports.ts`.
+ * An import alias (`import y = require()`) is local, yet ts-morph returns it only once its target is loaded.
+ */
+function localExportedDeclarations(sourceFile: SourceFile): Map<string, Node[]> {
+  const local = new Map<string, Node[]>();
+  for (const [name, declarations] of sourceFile.getExportedDeclarations()) {
+    const own = declarations.filter((decl) => decl.getSourceFile() === sourceFile && !Node.isImportEqualsDeclaration(decl));
+    if (own.length > 0) local.set(name, own);
+  }
+  return local;
+}
+
 export class SymbolAnalyzer implements ISymbolAnalyzer {
   private project: Project;
   private readonly maxFiles: number;
@@ -198,7 +214,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     filePath: string,
     symbols: SymbolInfo[],
   ): Set<string> {
-    const exportedDeclarations = sourceFile.getExportedDeclarations();
+    const exportedDeclarations = localExportedDeclarations(sourceFile);
     const exportedNames = new Set<string>(exportedDeclarations.keys());
 
     for (const [name, declarations] of exportedDeclarations) {
@@ -366,7 +382,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     this.maybeResetProject();
 
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
-    const exportedDeclarations = sourceFile.getExportedDeclarations();
+    const exportedDeclarations = localExportedDeclarations(sourceFile);
     const exportedNames = new Set<string>(exportedDeclarations.keys());
 
     const graph = new Map<string, Set<string>>();
@@ -912,7 +928,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     }
 
     const symbols: SymbolInfo[] = [];
-    const exportedDeclarations = sourceFile.getExportedDeclarations();
+    const exportedDeclarations = localExportedDeclarations(sourceFile);
 
     for (const [name, declarations] of exportedDeclarations) {
       // Use only the first declaration per name to avoid duplicates

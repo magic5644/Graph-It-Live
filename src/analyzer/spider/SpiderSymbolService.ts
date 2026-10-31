@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { setImmediate } from 'node:timers/promises';
+import { mapWithConcurrency } from '../../shared/concurrency';
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from '../../shared/constants';
 import { getLogger } from '../../shared/logger';
 import { AstWorkerHost } from '../ast/AstWorkerHost';
@@ -25,11 +26,8 @@ const SYMBOL_ANALYSIS_EXTENSIONS: ReadonlySet<string> = new Set(SUPPORTED_SYMBOL
 
 export type ReferencingFilesProvider = (targetPath: string) => Promise<Dependency[]>;
 
-/*
- * SEQUENTIAL_SYMBOL_ANALYSIS: symbol graphs are read one file at a time, in file order. The AST worker resolves
- * `export *` against the files it has already loaded, so concurrent reads (whose load order varies) give
- * run-to-run different symbols.
- */
+/** Files whose unused exports `scanDeadCode` computes at once. */
+const DEAD_CODE_SCAN_CONCURRENCY = 8;
 
 /** Per-file re-exports read once; shared by every target of a scan. */
 type ReExportMemo = Map<string, Promise<ModuleReExports>>;
@@ -252,14 +250,15 @@ export class SpiderSymbolService {
     // A consumer behind a barrel targets the barrel's id, so each re-export alias is searched too.
     const aliases = await this.collectReexportAliases(filePath, symbolName);
     const referencing = await Promise.all(aliases.map((alias) => this.findReferencingFiles(alias.filePath)));
+    const perAlias = await Promise.all(
+      aliases.map((alias, i) =>
+        // A file never references itself, yet its other symbols can call the target.
+        this.collectSymbolDependents([alias.filePath, ...referencing[i].map((ref) => ref.path)], alias.filePath, alias.name)
+      )
+    );
     const dependents = new Map<string, SymbolDependency>();
-    for (const [i, alias] of aliases.entries()) {
-      // A file never references itself, yet its other symbols can call the target.
-      const sourcePaths = [alias.filePath, ...referencing[i].map((ref) => ref.path)];
-      // eslint-disable-next-line no-await-in-loop -- see SEQUENTIAL_SYMBOL_ANALYSIS
-      for (const dep of await this.collectSymbolDependents(sourcePaths, alias.filePath, alias.name)) { // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
-        dependents.set(normalizePath(dep.sourceSymbolId), dep);
-      }
+    for (const dep of perAlias.flat()) {
+      dependents.set(normalizePath(dep.sourceSymbolId), dep);
     }
     return [...dependents.values()];
   }
@@ -583,21 +582,27 @@ export class SpiderSymbolService {
   }
 
   private async collectUsedSymbolIds(referencingFiles: Dependency[], targetFilePath: string): Promise<Set<string>> {
+    const perFile = await Promise.all(referencingFiles.map((ref) => this.edgesToFile(ref.path, targetFilePath)));
     const usedSymbolIds = new Set<string>();
-    for (const ref of referencingFiles) {
-      // eslint-disable-next-line no-await-in-loop -- see SEQUENTIAL_SYMBOL_ANALYSIS
-      const { dependencies } = await this.getSymbolGraph(ref.path); // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
-      // Path resolution only: these run together.
-      // eslint-disable-next-line no-await-in-loop -- awaited per file, after that file's symbol graph
-      const matches = await Promise.all( // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
-        dependencies.map((dep) => this.symbolDependencyHelper.doesDependencyTargetFile(dep, ref.path, targetFilePath))
-      );
-      for (const dep of dependencies.filter((_, i) => matches[i])) {
-        const symbolName = this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId);
-        usedSymbolIds.add(this.symbolDependencyHelper.buildUsedSymbolId(targetFilePath, symbolName));
-      }
+    for (const dep of perFile.flat()) {
+      const symbolName = this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId);
+      usedSymbolIds.add(this.symbolDependencyHelper.buildUsedSymbolId(targetFilePath, symbolName));
     }
     return usedSymbolIds;
+  }
+
+  /** Symbol edges of `sourcePath` that `keep` accepts and that resolve to `targetFilePath`. */
+  private async edgesToFile(
+    sourcePath: string,
+    targetFilePath: string,
+    keep: (dep: SymbolDependency) => boolean = () => true
+  ): Promise<SymbolDependency[]> {
+    const { dependencies } = await this.getSymbolGraph(sourcePath);
+    const candidates = dependencies.filter(keep);
+    const matches = await Promise.all(
+      candidates.map((dep) => this.symbolDependencyHelper.doesDependencyTargetFile(dep, sourcePath, targetFilePath))
+    );
+    return candidates.filter((_, i) => matches[i]);
   }
 
   private async collectSymbolDependents(
@@ -607,22 +612,11 @@ export class SpiderSymbolService {
   ): Promise<SymbolDependency[]> {
     const normalizedTarget = normalizePath(targetFilePath);
     const targetSymbolId = this.symbolDependencyHelper.buildUsedSymbolId(normalizedTarget, symbolName);
-    const perSource: SymbolDependency[][] = [];
-    for (const sourcePath of sourcePaths) {
-      // eslint-disable-next-line no-await-in-loop -- see SEQUENTIAL_SYMBOL_ANALYSIS
-      const { dependencies } = await this.getSymbolGraph(sourcePath); // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
-      // A recursive call does not make the symbol its own dependent.
-      const candidates = dependencies.filter(
-        (dep) =>
-          normalizePath(dep.sourceSymbolId) !== targetSymbolId &&
-          this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId) === symbolName
-      );
-      // eslint-disable-next-line no-await-in-loop -- path resolution of one file's edges, after its symbol graph
-      const matches = await Promise.all( // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
-        candidates.map((dep) => this.symbolDependencyHelper.doesDependencyTargetFile(dep, sourcePath, normalizedTarget))
-      );
-      perSource.push(candidates.filter((_, i) => matches[i]));
-    }
+    // A recursive call does not make the symbol its own dependent.
+    const keep = (dep: SymbolDependency): boolean =>
+      normalizePath(dep.sourceSymbolId) !== targetSymbolId &&
+      this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId) === symbolName;
+    const perSource = await Promise.all(sourcePaths.map((sourcePath) => this.edgesToFile(sourcePath, normalizedTarget, keep)));
     // Keyed by source symbol so each dependent is listed once (first edge in source order), whatever the edge source.
     const dependents = new Map<string, SymbolDependency>();
     for (const dep of perSource.flat()) {
@@ -853,30 +847,25 @@ export class SpiderSymbolService {
     const reExportMemo: ReExportMemo = new Map();
     let skippedFiles = 0;
 
-    const entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }> = [];
-    for (const filePath of filesToScan) {
+    const results = await mapWithConcurrency(filesToScan, DEAD_CODE_SCAN_CONCURRENCY, async (filePath) => {
       if (signal) {
         // Yield to the event loop so a pending cancel message can abort the signal.
-        // eslint-disable-next-line no-await-in-loop -- one yield per file is the cancellation point
-        await setImmediate(); // NOSONAR S9382: one yield per file is the cancellation point
+        await setImmediate();
         signal.throwIfAborted();
       }
       try {
-        // eslint-disable-next-line no-await-in-loop -- see SEQUENTIAL_SYMBOL_ANALYSIS
-        const unusedSymbols = await this.findUnusedSymbols(filePath, reExportMemo); // NOSONAR S9382 SEQUENTIAL_SYMBOL_ANALYSIS
-        if (unusedSymbols.length > 0) {
-          entries.push({ filePath, unusedSymbols });
-        }
+        return { filePath, unusedSymbols: await this.findUnusedSymbols(filePath, reExportMemo) };
       } catch (error) {
         // Per-file errors are silently skipped so the batch continues.
         const spiderError = SpiderError.fromError(error, filePath);
         log.warn('scanDeadCode: skipping file due to error:', filePath, spiderError.message);
         skippedFiles++;
+        return { filePath, unusedSymbols: [] };
       }
-    }
+    });
 
     return {
-      entries,
+      entries: results.filter((entry) => entry.unusedSymbols.length > 0),
       scannedFiles: filesToScan.length,
       skippedFiles,
       filesBeyondLimit: analysableFiles.length - filesToScan.length,

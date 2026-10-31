@@ -25,8 +25,7 @@ const DEFAULT_DEPTH = 2;
 const DEFAULT_MAX_NODES = 200;
 const MAX_SEARCH_SEEDS = 20;
 /** Dependents lookups in flight per BFS level; a lookup may scan the workspace when no reverse index exists. */
-// 1: the AST worker symbol results depend on which files it has loaded (`export *`), so symbol lookups stay one at a time, in order.
-const DEPENDENTS_CONCURRENCY = 1;
+const DEPENDENTS_CONCURRENCY = 4;
 const MAX_OVERVIEW_HUBS = 10;
 const MAX_OVERVIEW_COMMUNITIES = 10;
 

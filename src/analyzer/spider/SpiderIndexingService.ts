@@ -20,9 +20,6 @@ type GetSymbolGraph = (filePath: string) => Promise<{ symbols: SymbolInfo[]; dep
  * including status reporting and cancellation.
  */
 export class SpiderIndexingService {
-  /** Tail of the symbol-analysis chain: symbol graphs are built one at a time, in file order. */
-  private symbolQueue: Promise<void> = Promise.resolve();
-
   constructor(
     private readonly dependencyAnalyzer: SpiderDependencyAnalyzer,
     private readonly dependencyCache: Cache<Dependency[]>,
@@ -48,23 +45,18 @@ export class SpiderIndexingService {
   /**
    * Analyze a single file and update the reverse index.
    * Handles both file dependencies and symbol dependencies.
-   * Dependency analysis runs concurrently; symbol analysis runs one file at a time in call order,
-   * because the AST worker's symbols for a re-export cycle depend on which files it already loaded.
-   * Call it synchronously in file order: the symbol turn is reserved before the first await.
    * @param filePath - Path to the file to analyze
    * @param fileIndex - Position of the file in the indexing order (for symbol analysis limit)
    * @returns true if analysis succeeded, false otherwise
    */
-  private analyzeFileForIndex(filePath: string, fileIndex: number): Promise<boolean> {
+  private async analyzeFileForIndex(filePath: string, fileIndex: number): Promise<boolean> {
     // Skip failed files (malformed/binary/inaccessible)
-    const analyzed = this.dependencyAnalyzer.analyze(filePath).then(() => true, () => false);
+    const analyzed = await this.dependencyAnalyzer.analyze(filePath).then(() => true, () => false);
     const getSymbolGraph = this.getSymbolGraph;
-    if (!getSymbolGraph || fileIndex >= (this.getConfig().maxSymbolAnalyzerFiles ?? 100)) {
+    if (!analyzed || !getSymbolGraph || fileIndex >= (this.getConfig().maxSymbolAnalyzerFiles ?? 100)) {
       return analyzed;
     }
-    const step = this.symbolQueue.then(async () => (await analyzed) && this.addSymbolDependencies(filePath, getSymbolGraph));
-    this.symbolQueue = step.then(() => undefined);
-    return step;
+    return this.addSymbolDependencies(filePath, getSymbolGraph);
   }
 
   /** Adds the symbol dependencies of an analyzed file; never rejects. */

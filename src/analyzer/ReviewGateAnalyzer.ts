@@ -226,8 +226,7 @@ export class ReviewGateAnalyzer {
     const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map(), grep: new Map(), contents: new Map(), cycleFiles };
     // Each file gets its own limitations, merged in file order, so the report matches a sequential run.
     // The shared caches memoize promises, so files analyzed at the same time share one lookup.
-    // 1: per-file analysis reads symbol dependents, and the AST worker symbol results depend on which files it has loaded (`export *`), so symbol lookups stay one at a time, in order. Git reads above stay parallel.
-    const analyses = await mapWithConcurrency(changedFiles, 1, async (relativePath) => {
+    const analyses = await mapWithConcurrency(changedFiles, 4, async (relativePath) => {
       const fileLimitations: string[] = [];
       const fileSymbols = await this.analyzeChangedFile(relativePath, headRef, maxDepth, fileLimitations, analysisAvailability, changedFileSet, moves);
       return { fileSymbols, fileLimitations };
@@ -1057,8 +1056,7 @@ export class ReviewGateAnalyzer {
     state: DependentWalkState,
   ): Promise<Array<{ filePath: string; symbolName: string }>> {
     if (remainingDepth <= 0 || frontier.length === 0) return frontier;
-    // 1: the AST worker symbol results depend on which files it has loaded (`export *`), so symbol lookups stay one at a time, in order.
-    const dependents = await mapWithConcurrency(frontier, 1, (current) =>
+    const dependents = await mapWithConcurrency(frontier, 4, (current) =>
       this.dependents!.getSymbolDependents(current.filePath, current.symbolName));
     state.next = [];
     for (const [index, current] of frontier.entries()) {

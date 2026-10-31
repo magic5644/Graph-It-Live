@@ -136,4 +136,16 @@ export function mainFunction() {
     count = await workerHost.getFileCount();
     expect(count).toBe(0);
   });
+  it('returns the same symbols for a file whatever the worker analyzed before (#541)', async () => {
+    const x = 'export * from "./y";';
+    const y = 'export * from "./x";\nexport function yFn() {}';
+    const first = await workerHost.analyzeFile('/cyc541/x.ts', x);
+    await workerHost.analyzeFile('/cyc541/y.ts', y);
+    const again = await workerHost.analyzeFile('/cyc541/x.ts', x);
+    const ySymbols = await workerHost.analyzeFile('/cyc541/y.ts', y);
+
+    expect(first.symbols).toEqual([]);
+    expect(again).toEqual(first);
+    expect(ySymbols.symbols.map((s) => s.id)).toEqual(['/cyc541/y.ts:yFn']);
+  });
 });
