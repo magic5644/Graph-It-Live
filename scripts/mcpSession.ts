@@ -23,12 +23,17 @@ export async function closeSession(child: ReturnType<typeof spawn>): Promise<num
   return outcome;
 }
 
-/** Kill the session and wait for the process tree to exit: a server still shutting down may be writing the workspace cache. */
-export async function stopSession(child: ReturnType<typeof spawn>): Promise<void> {
+/** Kill the session and wait for the process tree to exit (SIGKILL after `graceMs`): a server still shutting down may be writing the workspace cache. */
+export async function stopSession(child: ReturnType<typeof spawn>, graceMs = 10_000): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = once(child, "exit");
   child.kill();
-  await exited;
+  const timer = setTimeout(() => child.kill("SIGKILL"), graceMs);
+  try {
+    await exited;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Start `graph-it serve --workspace <workspace>` from `cwd` and complete the MCP handshake. */

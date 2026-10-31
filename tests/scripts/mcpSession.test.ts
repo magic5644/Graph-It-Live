@@ -29,4 +29,18 @@ describe('stopSession', () => {
     await expect(stopSession(child)).resolves.toBeUndefined();
     expect(child.exitCode).toBe(0);
   });
+
+  // Windows has no catchable SIGTERM: kill() already terminates the process.
+  it.skipIf(process.platform === 'win32')('force-kills a process that ignores SIGTERM after the grace period', async () => {
+    const child = spawn(
+      process.execPath,
+      ['-e', 'process.on("SIGTERM", () => {}); process.stdout.write("ready"); setInterval(() => {}, 1000)'],
+      { stdio: ['ignore', 'pipe', 'ignore'] },
+    );
+    await once(child.stdout!, 'data');
+
+    await stopSession(child, 200);
+
+    expect(child.signalCode).toBe('SIGKILL');
+  });
 });
