@@ -9,6 +9,7 @@
  *   symbols/functions.ts  — call hierarchy: helperA, helperB, mainProcess, …
  *   symbols/recursion.ts  — mutual recursion: isEven ↔ isOdd, fibonacci
  *   python-project/main.py — Python smoke (skipped if fixture absent)
+ *   graphql-project/fragments/post.graphql — GraphQL fragments and spreads (#523)
  *   symbols/wide-hub.ts   — generated at runtime: one hub with 600 callers
  */
 
@@ -251,6 +252,22 @@ suite('Call Graph Test Suite', () => {
       await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
       await vscode.workspace.fs.delete(file);
     }
+  });
+
+  // ============================================================================
+  // B8b — GraphQL: fragment spreads become edges (#523)
+  // ============================================================================
+
+  test('Should open call graph for a GraphQL fragment with its spreads', async function () {
+    this.timeout(90000);
+    // No GraphQL language id without a GraphQL extension: the file extension selects the language.
+    await openCallGraphFor('graphql-project', 'fragments', 'post.graphql');
+
+    const nodeCount = await getContextKey<number>('graph-it-live.callGraphNodeCount');
+    const edgeCount = await getContextKey<number>('graph-it-live.callGraphEdgeCount');
+    // PostFields spreads UserFields and TimestampFields.
+    assert.ok((nodeCount ?? 0) >= 3, `Expected at least 3 GraphQL nodes, got ${nodeCount ?? 'undefined'}`);
+    assert.ok((edgeCount ?? 0) >= 2, `Expected at least 2 GraphQL edges, got ${edgeCount ?? 'undefined'}`);
   });
 
   // ============================================================================

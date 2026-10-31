@@ -27,7 +27,7 @@ export type SymbolType =
 export type RelationType = "CALLS" | "INHERITS" | "IMPLEMENTS" | "USES";
 
 /** Language keys aligned with LANGUAGE_COLORS in src/shared/constants.ts */
-export type SupportedLang = "typescript" | "javascript" | "python" | "rust" | "csharp" | "go" | "java";
+export type SupportedLang = "typescript" | "javascript" | "python" | "rust" | "csharp" | "go" | "java" | "graphql";
 
 // ---------------------------------------------------------------------------
 // Serialized graph payload (sent in showCallGraph message)
