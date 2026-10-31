@@ -147,6 +147,8 @@ interface ScanDeadCodeInput {
 interface LmToolsServiceOptions {
   provider: GraphProvider;
   logger: VsCodeLogger;
+  /** Locates the WASM parsers review_pr needs to read import cycles outside JS/TS. */
+  extensionPath?: string;
 }
 
 // ─── Local path helper (mirrors mcp/shared/helpers without importing MCP) ────
@@ -184,10 +186,12 @@ interface LmCallerInfo {
 export class LmToolsService {
   private readonly provider: GraphProvider;
   private readonly logger: VsCodeLogger;
+  private readonly extensionPath?: string;
 
   constructor(options: LmToolsServiceOptions) {
     this.provider = options.provider;
     this.logger = options.logger;
+    this.extensionPath = options.extensionPath;
   }
 
   /**
@@ -1602,7 +1606,7 @@ export class LmToolsService {
           try {
             const params = ReviewPrParamsSchema.parse(options.input);
             const { createSpiderDependentsProvider } = await import('../../mcp/tools/impact.js');
-            const result = await new ReviewGateAnalyzer(rootDir, createSpiderDependentsProvider(spider, rootDir)).analyze(params);
+            const result = await new ReviewGateAnalyzer(rootDir, createSpiderDependentsProvider(spider, rootDir, this.extensionPath)).analyze(params);
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);

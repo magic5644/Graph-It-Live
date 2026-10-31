@@ -105,7 +105,7 @@ const PY_FROM_IMPORT = /^[ \t]*from[ \t]+([\w.]+)[ \t]+import[ \t]*(\([^)]{0,400
 /** `import a.b, c as d`. */
 const PY_IMPORT = /^[ \t]*import[ \t]+([^\n]+)/gm;
 
-function pythonCode(content: string): string {
+export function pythonCode(content: string): string {
   return blankLiterals(content, pythonLiteralEnd).replaceAll(/\\\r?\n/g, ' ');
 }
 

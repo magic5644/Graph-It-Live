@@ -9,6 +9,7 @@ import { detectCycles } from "../shared/cycleUtils";
 import { SignatureAnalyzer, type BreakingChange, type ReexportedModule, type SignatureInfo } from "./SignatureAnalyzer";
 import type { SymbolDependency, SymbolInfo } from "./types";
 import { PathResolver } from "./utils/PathResolver";
+import { findRemovedNameImporters } from "./utils/removedNameImporters";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_MAX_FILES = 200;
@@ -17,7 +18,7 @@ const MAX_MAX_FILES = 1_000;
 const MAX_MAX_DEPTH = 10;
 /** Bound on the reverse-index walk used to decide whether a consumer is under test. */
 const MAX_COVERAGE_LOOKUP_FILES = 200;
-const SIGNATURE_ANALYSIS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue"]);
+const SIGNATURE_ANALYSIS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".py"]);
 
 export type ReviewRiskLevel = "low" | "medium" | "high" | "critical";
 
@@ -140,7 +141,7 @@ interface ReviewComparison {
   breakingChanges: BreakingChange[];
   /** Workspace-relative file now declaring the symbol; its dependents are walked there. */
   movedTo?: string;
-  /** Files that still import the moved symbol from its old module, so they break. */
+  /** Files that still import the moved or removed symbol from its old module, so they break. */
   staleImporters?: string[];
 }
 
@@ -405,7 +406,7 @@ export class ReviewGateAnalyzer {
         });
         return moved ? [{ target, moved }] : [];
       });
-    if (matches.length === 0) return removal;
+    if (matches.length === 0) return scope.deleted ? removal : this.withRemovalImporters(removal, scope);
     if (matches.length > 1) {
       addLimitation(scope.limitations, `${scope.relativePath}: '${exportedName}' is newly exported by ${matches.map((match) => match.target.relativePath).join(", ")}; its removal is kept because the move target is ambiguous.`);
       return removal;
@@ -414,6 +415,29 @@ export class ReviewGateAnalyzer {
     if (importers === null) return removal;
     const [{ target, moved }] = matches;
     return movedComparison(removal, moved.breakingChanges, target.relativePath, importers);
+  }
+
+  /**
+   * A removal that moved nowhere breaks every file still importing the name, whether or not it calls it:
+   * the dependent index links a file to a symbol through calls and references only, so an import-only
+   * consumer was missing (#524). Without a reference index the consumers are unknown anyway, so nothing is added.
+   */
+  private async withRemovalImporters(removal: ReviewComparison, scope: MoveScope): Promise<ReviewComparison> {
+    if (!this.dependents?.findReferencingFiles) return removal;
+    const name = exportedNameOf(removal.symbolName);
+    const importers = await findRemovedNameImporters(scope.relativePath, name, [...scope.changedFiles], {
+      referencingFiles: (file) => this.referencingFiles(this.toAbsolute(file)),
+      read: (file) => this.cachedConsumerContent(file, scope),
+      resolve: async (fromFile, specifier) => {
+        const target = await this.resolver.resolve(this.toAbsolute(fromFile), specifier);
+        return target ? this.toWorkspaceRelative(target) : null;
+      },
+    });
+    if (typeof importers === "string") {
+      addLimitation(scope.limitations, `${scope.relativePath}: files importing '${name}' could not all be listed (${importers}); its consumers may be incomplete.`);
+      return removal;
+    }
+    return importers.length > 0 ? { ...removal, staleImporters: importers } : removal;
   }
 
   /**
@@ -508,15 +532,20 @@ export class ReviewGateAnalyzer {
     }
   }
 
-  /** Whether `file` imports `exportedName` (any name when omitted) from the old module, or references that module in a form not followed. */
-  private async mayImportFromModule(file: string, exportedName: string | undefined, scope: MoveScope): Promise<boolean> {
-    if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(file).toLowerCase())) return false;
+  /** Head content of a candidate importer, read once per review; null when unreadable or not a language the review parses. */
+  private cachedConsumerContent(file: string, scope: MoveScope): Promise<string | null> {
+    if (!SIGNATURE_ANALYSIS_EXTENSIONS.has(path.extname(file).toLowerCase())) return Promise.resolve(null);
     let pending = scope.moves.contents.get(file);
     if (!pending) {
       pending = this.readConsumerContent(file, scope.headRef);
       scope.moves.contents.set(file, pending);
     }
-    const content = await pending;
+    return pending;
+  }
+
+  /** Whether `file` imports `exportedName` (any name when omitted) from the old module, or references that module in a form not followed. */
+  private async mayImportFromModule(file: string, exportedName: string | undefined, scope: MoveScope): Promise<boolean> {
+    const content = await this.cachedConsumerContent(file, scope);
     if (content === null) return false;
     const absolute = this.toAbsolute(file);
     const specifiers = this.signatures.specifiersThatMayImport(absolute, content, exportedName);
@@ -1077,7 +1106,7 @@ export class ReviewGateAnalyzer {
   // A test file that directly depends on the changed symbol will fail to compile/run
   // on a real incompatibility — that's live regression coverage, not just a naming hint.
   private isTestFilePath(filePath: string): boolean {
-    return /(^|\/)tests\//.test(filePath) || /\.(test|spec)\.[^/]+$/.test(filePath);
+    return /(^|\/)tests\//.test(filePath) || /\.(test|spec)\.[^/]+$/.test(filePath) || isPytestFile(filePath);
   }
 
 
@@ -1151,6 +1180,12 @@ export class ReviewGateAnalyzer {
       path.join("tests", sourceDir, `${baseName}.spec${extension}`),
       path.join("tests", mirroredDir, `${baseName}.test${extension}`),
       path.join("tests", mirroredDir, `${baseName}.spec${extension}`),
+      ...(extension === ".py" ? [
+        path.join(sourceDir, `test_${baseName}.py`),
+        `${stem}_test.py`,
+        path.join("tests", `test_${baseName}.py`),
+        path.join("tests", mirroredDir, `test_${baseName}.py`),
+      ] : []),
     ].map(normalizePath);
     const sorted = [...new Set(candidates)].sort((left, right) => left.localeCompare(right));
     const exists = await Promise.all(sorted.map(async (candidate) => {
@@ -1170,6 +1205,12 @@ export class ReviewGateAnalyzer {
     const separator = symbolId.lastIndexOf(":");
     return separator > 0 ? this.toSymbolId(symbolId.slice(0, separator), symbolId.slice(separator + 1)) : symbolId;
   }
+}
+
+/** `test_x.py` or `x_test.py`: the files pytest collects. */
+function isPytestFile(filePath: string): boolean {
+  const name = filePath.slice(filePath.lastIndexOf("/") + 1);
+  return name.endsWith(".py") && (name.startsWith("test_") || name.endsWith("_test.py"));
 }
 
 /** Every member of a moved class meets the same ambiguity: report it once. */
@@ -1227,12 +1268,15 @@ const MODULE_SYMBOL = "(module)";
 const DELETED_FILE_EVIDENCE: FileEvidence = { cycleSymbols: new Set(), unusedSymbols: new Set(), testCandidates: [], inFileCycle: false, functions: [] };
 
 // `.d.ts` first: a declaration file is imported as `./types`, not `./types.d`.
-const MODULE_EXTENSION_REGEX = /(?:\.d)?\.(?:[cm]?[jt]sx?|vue)$/i;
+const MODULE_EXTENSION_REGEX = /(?:\.d)?\.(?:[cm]?[jt]sx?|vue|py)$/i;
 
-/** Name a specifier uses for the module: its file name, or its folder's for an `index` file. */
+/** A folder's entry module, imported by the folder name: `index` in JS/TS, `__init__` in Python. */
+const isPackageEntry = (stem: string): boolean => ["index", "__init__"].includes(path.posix.basename(stem));
+
+/** Name a specifier uses for the module: its file name, or its folder's for an `index` or `__init__` file. */
 function moduleNameOf(absolutePath: string): string {
   const stem = absolutePath.replace(MODULE_EXTENSION_REGEX, "");
-  return path.posix.basename(path.posix.basename(stem) === "index" ? path.posix.dirname(stem) : stem);
+  return path.posix.basename(isPackageEntry(stem) ? path.posix.dirname(stem) : stem);
 }
 
 /**
@@ -1242,12 +1286,25 @@ function moduleNameOf(absolutePath: string): string {
  */
 function namesDeletedModule(fromFile: string, specifier: string, deleted: string): boolean {
   const stem = deleted.replace(MODULE_EXTENSION_REGEX, "");
-  const targets = new Set([stem, path.posix.basename(stem) === "index" ? path.posix.dirname(stem) : stem]);
+  const targets = new Set([stem, isPackageEntry(stem) ? path.posix.dirname(stem) : stem]);
+  if (path.extname(fromFile).toLowerCase() === ".py") return namesDeletedPythonModule(fromFile, specifier, targets);
   const target = specifier.replace(MODULE_EXTENSION_REGEX, "");
   if (specifier.startsWith(".")) return targets.has(normalizePath(path.resolve(path.dirname(fromFile), target)));
   // shortcut: a bare package named like the module (`react` vs src/react.ts) is kept as an importer; narrow to the tsconfig aliases when that noise shows up.
   const tail = `/${target.replace(/^[@~#]\//, "")}`;
   return [...targets].some((candidate) => candidate.endsWith(tail));
+}
+
+/**
+ * Python form of `namesDeletedModule`: `..pkg.mod` climbs one folder per dot after the first, then follows the
+ * dotted path; an absolute `pkg.mod` matches when it is the tail of the module's path.
+ */
+function namesDeletedPythonModule(fromFile: string, specifier: string, targets: ReadonlySet<string>): boolean {
+  const dots = specifier.length - specifier.replace(/^\.+/, "").length;
+  const dotted = specifier.slice(dots).split(".").filter(Boolean);
+  if (dots === 0) return [...targets].some((candidate) => candidate.endsWith(`/${dotted.join("/")}`));
+  const base = path.resolve(path.dirname(fromFile), ...Array<string>(dots - 1).fill(".."));
+  return targets.has(normalizePath(path.resolve(base, ...dotted)));
 }
 
 const EMPTY_IMPACT: SymbolImpact = {
