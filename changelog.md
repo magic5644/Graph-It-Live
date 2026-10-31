@@ -1,5 +1,53 @@
 # Changelog
 
+## v1.21.2
+
+Fixes only: no setting, VS Code command or CLI flag changes. This release stays a patch: every entry fixes a reported bug. The new inputs are optional, and the new output fields and values listed below only add what the fixes report.
+
+### Breaking / Behavior changes
+
+- **Call-graph cache rebuilt once on first launch**: the call-graph cache version is bumped (namespace imports, default exports, Python bindings, Rust impl owners). A `.graph-it/cache/` call graph written by v1.21.1 is discarded and rebuilt the first time the extension, CLI or MCP server opens the workspace. No action is needed.
+- **New values in JSON output**, for scripts that read it:
+  - `analyze_dependencies` reports a bare `import './x'` with the import type `side-effect` (#515, #531).
+  - `find_referencing_files` lists consumers behind re-export barrels after the direct importers, each with `via` set to the barrel (#521).
+  - `query_call_graph` returns `symbol: null` with `reason: "ambiguous"` and `candidates` when a bare name matches several symbols of the file, instead of the first one (#500).
+  - `review-pr` / `review_pr` add the change type `member-added`, the `exhaustiveConsumers` and `cycles` fields, and report deleted files (#518, #546, #516).
+
+### Changed
+
+- **Pick one of two same-name methods in `query_call_graph`** (#500, #504): pass `symbolId` or `startLine` (0-based) from a candidate to select it. An id from an older index returns `reason: "stale_selector"`. Example: `graph-it tool query_call_graph --filePath=$(pwd)/src/calc.ts --symbolName=compute --startLine=12`. With `--format markdown`, the CLI lists the candidates as a `symbolId | startLine` table.
+- **`graph-it-refactor` skill** (#487): the agent plugin now bundles five skills. The new one maps a refactor read-only with `graph-it context --mode refactor`, edits in a sealed scope with a test first, then verifies with `review-pr --base HEAD` and `check-architecture`.
+- **Community standards**: `CODE_OF_CONDUCT.md`, `SECURITY.md` (report vulnerabilities through a private advisory) and issue forms for bugs, features and performance.
+
+### Fixed
+
+- **Consumers behind re-export barrels** (#488, #513, #521): files that import a symbol through `export { x } from`, `export *` or chained barrels were missed. `get_impact_analysis`, `review-pr` and `query_call_graph --direction callers` now follow them; `scan_dead_code`, `find_unused_symbols` and `graph-it check` no longer report such symbols unused; `find_referencing_files` lists them with `via` = the barrel (also for Python packages and Rust `pub use`).
+- **Side-effect imports** (#515, #531): `import './polyfills'` is now a dependency edge, so the file keeps its importers in the graph and can close an import cycle. Comments, strings and template literals that contain `import` create no edge.
+- **`review-pr` misses** (#516, #517, #518, #524, #530, #546):
+  - Deleted and moved files: every export of a deleted file is a removal, and files still importing the old path are listed (found with `git grep` at the head ref).
+  - An export that leaves the module's export set (keyword dropped, `export { x }` entry removed, default ↔ named) is a breaking removal, also in `analyze_breaking_changes`.
+  - Import cycles the diff introduces or enlarges are listed in `cycles`, and in an *Import cycles* section of the Review Gate PR comment (#532).
+  - A removed export lists every file that still imports it, even without calling it (named, aliased, type-only, namespace, barrel). Python modules are now reviewed: renamed functions and new required parameters are breaking.
+  - A return-type change no longer claims its consumers need no update: they are listed under *Return type changed: consumers to re-check*.
+  - Compatible changes (an optional parameter added, a union or enum that gains members) list their consumers and tests under *Compatible change: consumers to re-check*. A consumer that handles every member (`Record<T, …>`, `satisfies`, `[K in T]`, `switch`) is in `exhaustiveConsumers`. Enum members are compared: a removed member is an error, a changed value a warning.
+  - Branch Watch in VS Code runs the same checks as `review-pr`. A file that cannot be read safely (symbolic link, binary, over 2 MiB, outside the workspace) is reported as `Could not compare <file>; <reason>` instead of being treated as absent.
+- **Call graph resolution** (#497, #498, #507, #508, #522, #523):
+  - TS/JS: `import * as ns from './mod'; ns.fn()` now gives an edge; `import { def }` no longer links to `export default function def`.
+  - Python: calls resolve through the file's imports (aliases, relative and package imports); a missing import gives no edge instead of a guess by name.
+  - Qualified calls (`pkg.F()` in Go, `mod::f()` and `Type::f()` in Rust, `Util.f()` in Java and C#) resolve inside the named package, module or class, not to the first same-named symbol. C# static calls now produce edges.
+  - Rust: `use a::f as g` aliases and `recv.method()` on a typed receiver resolve; two impls of the same method name in one file are told apart.
+  - GraphQL: operations, fragments and types are call-graph nodes. Fragment spreads are `CALLS`, type references are `USES`, so `query_call_graph` answers for `.graphql` / `.gql` files.
+- **Python and Rust module-level calls** (#514, #526): a function called only from module-level code (`if __name__ == "__main__":`, decorators, default values, `const` initialisers) is no longer reported unused. The Copilot callers tool keeps these module-level callers, like MCP `impact`.
+- **Symbols independent of analysis order** (#541): the symbols of a barrel no longer change with the files analysed before it.
+- **Resolver config changes** (#431, #432): a `tsconfig` `extends` target with any name (`./base.json`) is watched. After a resolver config change, the call graph and the extension's and MCP server's disk cache are refreshed instead of keeping old resolutions.
+- **Review Gate deep link** (#495): GitHub strips `vscode://` links from comments, so the PR comment prints the call-graph link as a code span to copy.
+
+### Tests
+
+- The post-build asset test gets a 15 s timeout on Windows (#485).
+- A VS Code E2E suite runs Branch Watch on a Git fixture workspace.
+- The E2E benchmark waits for the MCP server to stop before cleanup, so a timeout no longer hides its error; import resolution is faster on large workspaces.
+
 ## v1.21.1
 
 Fixes only: no setting, command, CLI flag or MCP tool changes.
