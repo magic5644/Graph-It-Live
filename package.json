@@ -1644,6 +1644,7 @@
     "ts-morph": "^27.0.2",
     "vis-network": "^10.1.4",
     "web-tree-sitter": "^0.26.13",
+    "wrap-ansi": "^10.0.2",
     "zod": "^4.6.7"
   },
   "devDependencies": {

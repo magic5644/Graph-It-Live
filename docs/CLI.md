@@ -304,11 +304,13 @@ Wrap a path that contains spaces in quotes (`/file "src/my file.ts"`) or escape 
 
 For `/trace`, `/callers` and `/impact`, type `#` after a workspace file (`/trace src/index.ts#`) and the palette lists that file's symbols, filtered by what follows the `#`. Typing `#` right after a completed file argument joins it to the file. The symbol list of each file is extracted once per session.
 
-#### History and next steps
+#### Results, history and next steps
 
-- `↑`/`↓` (on an empty line or while browsing) and `Ctrl+P`/`Ctrl+N` recall previous command lines.
+- On an empty command line, `↑`/`↓` scroll the results one row. Terminals that turn the mouse wheel into arrow keys in full-screen apps (iTerm2, Terminal.app, VS Code) scroll the results with the wheel too. `PgUp`/`PgDn` scroll a page, `Home`/`End` jump to the first or last row. When the last row is shown, the view stays on the last row when new output arrives or the window is resized.
+- Lines wider than the terminal wrap inside the results panel; the counter (`lines 12-40 / 87`) counts screen rows.
+- `Ctrl+P`/`Ctrl+N` recall previous command lines. `↑`/`↓` also recall them before the first result, while a recalled command is shown, and on a line with text but no palette suggestion. While the slash palette is open, `↑`/`↓` move in it.
 - After each result, the footer suggests next steps for the current context: callers, impact and trace for the current symbol; explain, dependencies and cycles for the current file; otherwise summary, architecture and dead-code check. `Tab` puts the next suggestion on the command line.
-- `Ctrl+F` searches the output, `Esc` clears the search.
+- `Ctrl+F` searches the output; `Enter` keeps the filter. `Esc` closes the slash palette (clears the command line), otherwise removes the applied filter.
 
 #### Session state
 
