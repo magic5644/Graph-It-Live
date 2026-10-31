@@ -1,4 +1,4 @@
-import { pythonCode } from './pyRsImports';
+import { lineEnd, pythonCode } from './pyRsImports';
 
 /*
  * Top-level declarations of a Python module, for review_pr signature comparison (#524). A linear scan of the
@@ -43,6 +43,8 @@ export interface PythonDeclarations {
 const PY_DEF = /^(async[ \t]+def|def|class)[ \t]+([A-Za-z_]\w*)/;
 /** `NAME = ...` or `NAME: T = ...` at column 0, not `==`. */
 const PY_ASSIGN = /^([A-Za-z_]\w*)[ \t]*(?::[^=\n]*)?=(?!=)/;
+/** Headers that `PY_ASSIGN` would read as an annotated name in a one-line block (`else: x = 1`). */
+const BLOCK_KEYWORDS = new Set(['else', 'try', 'finally']);
 
 /** Whether the module's importers are meant to use `name`: not `_private`, dunder names included. */
 export function isPublicPythonName(name: string): boolean {
@@ -50,36 +52,38 @@ export function isPublicPythonName(name: string): boolean {
 }
 
 export function pythonDeclarations(content: string): PythonDeclarations {
-  const code = pythonCode(content);
+  // Lines kept: the line of each declaration is reported.
+  const code = pythonCode(content, true);
   const functions: PythonFunction[] = [];
   const names: PythonDeclarations['names'] = new Map();
   let offset = 0;
   let line = 1;
   while (offset < code.length) {
-    const end = lineEndOf(code, offset);
-    const text = code.slice(offset, end);
-    const declared = PY_DEF.exec(text);
-    if (declared) {
-      const [header, keyword, name] = declared;
-      const kind = keyword === 'class' ? 'class' : 'function';
-      names.set(name, { kind, line });
-      if (kind === 'function') {
-        const fn = parseFunction(code, offset + header.length, { name, line, isAsync: keyword !== 'def' });
-        if (fn) functions.push(fn);
-      }
-    } else {
-      const assigned = PY_ASSIGN.exec(text);
-      if (assigned && !names.has(assigned[1])) names.set(assigned[1], { kind: 'variable', line });
-    }
+    const end = lineEnd(code, offset);
+    readStatement(code, offset, line, { functions, names });
     offset = end + 1;
     line++;
   }
   return { functions, names };
 }
 
-function lineEndOf(text: string, start: number): number {
-  const newline = text.indexOf('\n', start);
-  return newline < 0 ? text.length : newline;
+/** Records the declaration the column-0 line starting at `offset` makes, if any. */
+function readStatement(code: string, offset: number, line: number, into: PythonDeclarations): void {
+  const text = code.slice(offset, lineEnd(code, offset));
+  const declared = PY_DEF.exec(text);
+  if (!declared) {
+    const assigned = PY_ASSIGN.exec(text);
+    if (assigned && !BLOCK_KEYWORDS.has(assigned[1]) && !into.names.has(assigned[1])) into.names.set(assigned[1], { kind: 'variable', line });
+    return;
+  }
+  const [header, keyword, name] = declared;
+  if (keyword === 'class') {
+    into.names.set(name, { kind: 'class', line });
+    return;
+  }
+  into.names.set(name, { kind: 'function', line });
+  const fn = parseFunction(code, offset + header.length, { name, line, isAsync: keyword !== 'def' });
+  if (fn) into.functions.push(fn);
 }
 
 /** The function whose parameter list opens at the first `(` after `start`; undefined when the header is malformed. */
@@ -89,7 +93,7 @@ function parseFunction(code: string, start: number, header: { name: string; line
   const close = matchingParen(code, open);
   if (close < 0) return undefined;
   const colon = depthZeroIndex(code, close + 1, ':');
-  const tail = code.slice(close + 1, colon < 0 ? lineEndOf(code, close) : colon).trim();
+  const tail = code.slice(close + 1, colon < 0 ? lineEnd(code, close) : colon).trim();
   return {
     ...header,
     kind: 'function',
@@ -127,7 +131,7 @@ function depthZeroIndex(text: string, start: number, target: string): number {
 }
 
 /** `text` split on its depth-0 commas. */
-function splitTopLevel(text: string): string[] {
+function splitDepthZero(text: string): string[] {
   const parts: string[] = [];
   let depth = 0;
   let last = 0;
@@ -145,7 +149,7 @@ function splitTopLevel(text: string): string[] {
 /** Parameters in order; the bare `*` and `/` markers bind no name, so they are skipped. */
 function parseParameters(list: string): PythonParameter[] {
   const parameters: PythonParameter[] = [];
-  for (const part of splitTopLevel(list)) {
+  for (const part of splitDepthZero(list)) {
     if (part === '*' || part === '/') continue;
     const stars = part.startsWith('**') ? 2 : Number(part.startsWith('*'));
     const equals = depthZeroIndex(part, 0, '=');

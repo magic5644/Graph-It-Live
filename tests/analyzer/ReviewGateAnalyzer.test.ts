@@ -1943,14 +1943,27 @@ describe("ReviewGateAnalyzer - importers of a removed name (#524)", { timeout: G
         "pkg/lib.py": "def pfn(a):\n    return a\n",
         "pkg/rel.py": "from .lib import pfn\n",
         "pkg/sub/up.py": "from ..lib import pfn\n",
+        "pkg/sibling.py": "from . import lib\n",
         "top.py": "from pkg.lib import pfn\n",
         "other.py": "from pkg.library import pfn\n",
+        "app/main.py": "import lib\nimport json\n",
       },
       { "pkg/lib.py": null },
     );
     const result = await new ReviewGateAnalyzer(workspace, importIndex(workspace, {})).analyze({ baseRef: "main" });
 
-    expect(symbolNamed(result, "pfn")?.consumers.unverified).toEqual(["pkg/rel.py", "pkg/sub/up.py", "top.py"]);
+    expect(symbolNamed(result, "pfn")?.consumers.unverified).toEqual(["pkg/rel.py", "pkg/sibling.py", "pkg/sub/up.py", "top.py"]);
+  });
+
+  it("does not take an absolute import of the same name elsewhere for an importer of a deleted Python module", async () => {
+    const workspace = await workspaceWith(
+      { "lib/json.py": "def dumps(a):\n    return a\n", "app/main.py": "import json\n", "lib/user.py": "import json\njson.dumps(1)\n" },
+      { "lib/json.py": null },
+    );
+    const result = await new ReviewGateAnalyzer(workspace, importIndex(workspace, {})).analyze({ baseRef: "main" });
+
+    // `lib/user.py` resolves `import json` from its own folder first, as the index does; `app/main.py` cannot reach it.
+    expect(symbolNamed(result, "dumps")?.consumers.unverified).toEqual(["lib/user.py"]);
   });
 
   it("recognizes pytest files as tests and as test candidates", async () => {

@@ -26,6 +26,8 @@ describe('findRemovedNameImporters (#524)', () => {
     ['a namespace import naming it', 'import * as lib from "./lib";\nlib.fn();\n', true],
     ['a namespace import not naming it', 'import * as lib from "./lib";\nlib.other();\n', false],
     ['a default import not naming it', 'import lib from "./lib";\nlib();\n', false],
+    // Over-approximation: a default-imported object is not followed, so any mention counts, a local `fn` included.
+    ['a default import naming it', 'import lib from "./lib";\nconst fn = lib.fn;\n', true],
     ['an import of another name', 'import { other } from "./lib";\n', false],
     ['a named re-export, which breaks too', 'export { fn } from "./lib";\n', true],
     ['an `export *` barrel, which does not', 'export * from "./lib";\n', false],

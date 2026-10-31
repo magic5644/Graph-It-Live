@@ -84,7 +84,7 @@ function stringEnd(text: string, start: number, quote: string, multiline: boolea
   return text.length;
 }
 
-function lineEnd(text: string, start: number): number {
+export function lineEnd(text: string, start: number): number {
   const newline = text.indexOf('\n', start);
   return newline < 0 ? text.length : newline;
 }
@@ -105,8 +105,13 @@ const PY_FROM_IMPORT = /^[ \t]*from[ \t]+([\w.]+)[ \t]+import[ \t]*(\([^)]{0,400
 /** `import a.b, c as d`. */
 const PY_IMPORT = /^[ \t]*import[ \t]+([^\n]+)/gm;
 
-export function pythonCode(content: string): string {
-  return blankLiterals(content, pythonLiteralEnd).replaceAll(/\\\r?\n/g, ' ');
+/**
+ * Code with strings and comments blanked. Backslash continuations are joined into one line, or, with `keepLines`,
+ * only their backslash is blanked, so line numbers still match the file.
+ */
+export function pythonCode(content: string, keepLines = false): string {
+  const code = blankLiterals(content, pythonLiteralEnd);
+  return keepLines ? code.replaceAll(/\\(?=\r?\n)/g, ' ') : code.replaceAll(/\\\r?\n/g, ' ');
 }
 
 interface ImportedName {

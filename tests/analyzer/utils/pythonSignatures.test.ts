@@ -85,6 +85,18 @@ describe('pythonDeclarations (#524)', () => {
     expect(names.get('X')).toEqual({ kind: 'function', line: 3 });
   });
 
+  it('keeps line numbers after a backslash continuation, and reads a return annotation after one', () => {
+    const { functions, names } = pythonDeclarations('TOTAL = 1 + \\\n    2\ndef f(a) \\\r\n    -> int:\n    pass\nclass C: pass\n');
+    expect(names.get('TOTAL')?.line).toBe(1);
+    expect(functions[0]).toMatchObject({ name: 'f', line: 3, returnType: 'int' });
+    expect(names.get('C')?.line).toBe(6);
+  });
+
+  it('does not read a one-line block header as a variable', () => {
+    const { names } = pythonDeclarations('try: X = load()\nexcept ImportError: X = None\nelse: Y = 1\nfinally: Z = 2\n');
+    expect([...names.keys()]).toEqual([]);
+  });
+
   it('handles CRLF line endings', () => {
     const { functions } = pythonDeclarations('def f(a):\r\n    pass\r\ndef g(b=1):\r\n    pass\r\n');
     expect(functions.map((fn) => [fn.name, fn.line, fn.parameters.map((p) => p.name)])).toEqual([['f', 1, ['a']], ['g', 3, ['b']]]);

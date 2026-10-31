@@ -552,7 +552,7 @@ export class ReviewGateAnalyzer {
     const resolved = await Promise.all(specifiers.map((specifier) => this.resolver.resolve(absolute, specifier).catch(() => null)));
     return specifiers.some((specifier, index) => {
       const target = resolved[index];
-      return target ? normalizePath(target) === scope.absolutePath : scope.deleted === true && namesDeletedModule(absolute, specifier, scope.absolutePath);
+      return target ? normalizePath(target) === scope.absolutePath : scope.deleted === true && namesDeletedModule(absolute, specifier, scope.absolutePath, this.normalizedRoot);
     });
   }
 
@@ -1284,10 +1284,10 @@ function moduleNameOf(absolutePath: string): string {
  * the resolver cannot say: a relative specifier is resolved by hand; a non-relative one (an alias)
  * matches when it is the tail of the module's path, so unknown is kept rather than dropped.
  */
-function namesDeletedModule(fromFile: string, specifier: string, deleted: string): boolean {
+function namesDeletedModule(fromFile: string, specifier: string, deleted: string, root: string): boolean {
   const stem = deleted.replace(MODULE_EXTENSION_REGEX, "");
   const targets = new Set([stem, isPackageEntry(stem) ? path.posix.dirname(stem) : stem]);
-  if (path.extname(fromFile).toLowerCase() === ".py") return namesDeletedPythonModule(fromFile, specifier, targets);
+  if (path.extname(fromFile).toLowerCase() === ".py") return namesDeletedPythonModule(fromFile, specifier, targets, root);
   const target = specifier.replace(MODULE_EXTENSION_REGEX, "");
   if (specifier.startsWith(".")) return targets.has(normalizePath(path.resolve(path.dirname(fromFile), target)));
   // shortcut: a bare package named like the module (`react` vs src/react.ts) is kept as an importer; narrow to the tsconfig aliases when that noise shows up.
@@ -1297,14 +1297,24 @@ function namesDeletedModule(fromFile: string, specifier: string, deleted: string
 
 /**
  * Python form of `namesDeletedModule`: `..pkg.mod` climbs one folder per dot after the first, then follows the
- * dotted path; an absolute `pkg.mod` matches when it is the tail of the module's path.
+ * dotted path. An absolute `pkg.mod` is looked up from the importing file's folder up to the workspace root, as
+ * PathResolver resolves it, so `import json` names a deleted `json.py` only on that path, never one elsewhere.
  */
-function namesDeletedPythonModule(fromFile: string, specifier: string, targets: ReadonlySet<string>): boolean {
+function namesDeletedPythonModule(fromFile: string, specifier: string, targets: ReadonlySet<string>, root: string): boolean {
   const dots = specifier.length - specifier.replace(/^\.+/, "").length;
   const dotted = specifier.slice(dots).split(".").filter(Boolean);
-  if (dots === 0) return [...targets].some((candidate) => candidate.endsWith(`/${dotted.join("/")}`));
-  const base = path.resolve(path.dirname(fromFile), ...Array<string>(dots - 1).fill(".."));
-  return targets.has(normalizePath(path.resolve(base, ...dotted)));
+  if (dots > 0) {
+    const base = path.resolve(path.dirname(fromFile), ...Array<string>(dots - 1).fill(".."));
+    return targets.has(normalizePath(path.resolve(base, ...dotted)));
+  }
+  let folder = normalizePath(path.dirname(fromFile));
+  while (folder === root || folder.startsWith(`${root}/`)) {
+    if (targets.has(normalizePath(path.resolve(folder, ...dotted)))) return true;
+    const parent = normalizePath(path.dirname(folder));
+    if (parent === folder) return false; // a filesystem root: `dirname` no longer climbs
+    folder = parent;
+  }
+  return false;
 }
 
 const EMPTY_IMPACT: SymbolImpact = {
