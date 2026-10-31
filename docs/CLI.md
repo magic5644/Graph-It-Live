@@ -310,7 +310,37 @@ For `/trace`, `/callers` and `/impact`, type `#` after a workspace file (`/trace
 - Lines wider than the terminal wrap inside the results panel; the counter (`lines 12-40 / 87`) counts screen rows.
 - `Ctrl+P`/`Ctrl+N` recall previous command lines. `↑`/`↓` also recall them before the first result, while a recalled command is shown, and on a line with text but no palette suggestion. While the slash palette is open, `↑`/`↓` move in it.
 - After each result, the footer suggests next steps for the current context: callers, impact and trace for the current symbol; explain, dependencies and cycles for the current file; otherwise summary, architecture and dead-code check. `Tab` puts the next suggestion on the command line.
-- `Ctrl+F` searches the output; `Enter` keeps the filter. `Esc` closes the slash palette (clears the command line), otherwise removes the applied filter.
+- `Ctrl+F` searches the output (see [Results navigation](#results-navigation)). `Esc` closes the slash palette (clears the command line), otherwise removes the applied search, otherwise moves the focus to the results.
+- `Ctrl+Y` copies the whole output. `Ctrl+L` no longer copies a line: use `y` in results focus.
+
+#### Results navigation
+
+Each command result starts with a title row such as `● ▾ $ /check-dependencies src/a.ts --both (41 lines)`: a green `●` for a successful command, a red `●` when the output has an `Error:` line, `▾` when the result is expanded, `▸` when it is folded, and its line count. Markers are display-only: copies keep the raw output. When a new result arrives, results older than the last 3 fold automatically, except the ones you expanded yourself. The counter shows the current result and the screen rows: `block 2/5 · lines 12-40 / 87`.
+
+Press `Esc` on an empty command line (or `Shift+Tab` at any time) to move the focus to the results. A highlighted cursor row appears and the view follows it. `Esc`, `i` or `/` (which also starts a command) return to the command line.
+
+| Key (results focus) | Action |
+| --- | --- |
+| `↑`/`↓`, `k`/`j` | Move one line (the mouse wheel moves the cursor too) |
+| `PgUp`/`PgDn`, `Ctrl+U`/`Ctrl+D` | Move one page, half a page |
+| `g`/`G`, `Home`/`End` | First, last line |
+| `[`/`]` | Previous, next result title (shown as the first row) |
+| `Space`, `←`/`→` | Fold/unfold, fold, unfold the result under the cursor |
+| `z` | Fold every result, or unfold them all when all are folded (terminals do not report `Shift+Space`) |
+| `y`, `c`, `Y` or `Ctrl+Y` | Copy the cursor line, the current result, the whole output |
+| `n`/`N` | Next, previous search match |
+| `Enter` | Actions on the file or symbol of the cursor line |
+
+`Enter` on a line that names a workspace file opens an action menu (`↑`/`↓` select, `Enter` run, `Esc` close):
+
+- file: `/explain`, `/check-dependencies`, `/cycles`, `/file`, Open in editor;
+- `file#Symbol`: `/trace`, `/callers`, `/impact`, Open in editor.
+
+The first workspace file of the line wins, read from left to right: `relativePath: src/a.ts`, `path: /abs/path` (inside the workspace only), `src/a.ts#Symbol`, graph node ids (`/abs/src/a.ts:Symbol`), `src/a.ts:12`, Windows `src\a.ts` and bare paths. Only files of the indexed workspace qualify. `text` and `toon` output work, `json` too (`"relativePath": "src/a.ts"`); `markdown` and `mermaid` work only where a row contains a plain path. A line without a file shows `No file or symbol on line`.
+
+**Open in editor** starts `$VISUAL`, then `$EDITOR`, otherwise `code -g <file>:<line>` in the VS Code integrated terminal. The editor starts detached, without a shell, and only for a file inside the workspace. Terminal editors (`vim`, `nano`, `emacs`, …) are skipped because the REPL owns the terminal. On Windows, Node.js refuses to start `.cmd` launchers such as `code.cmd` without a shell, so set `VISUAL` or `EDITOR` to an `.exe` editor. Without a usable editor, the REPL shows a notice.
+
+**Search.** `Ctrl+F` then typing highlights every match (case-insensitive, colors ignored) and moves the cursor to the first match from the current line, unfolding its result. `Ctrl+N`/`Ctrl+P` jump to the next/previous match; the summary shows `match 3/12`. `Tab` switches between highlighting and the line filter (only matching lines are kept, folded results included). `Enter` keeps the search: a filter stays applied, highlights move the focus to the results, where `n`/`N` jump. `Esc` clears the search.
 
 #### Session state
 
