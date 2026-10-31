@@ -1,5 +1,6 @@
 import { FileReader } from "./FileReader";
 import type { Dependency, ILanguageAnalyzer, ImportResolution, ParsedImport } from "./types";
+import { maskNonCode } from "./utils/maskNonCode";
 import { extractFilePath } from "./utils/PathExtractor";
 import { PathResolver } from "./utils/PathResolver";
 
@@ -11,22 +12,6 @@ export class Parser implements ILanguageAnalyzer {
   private readonly fileReader: FileReader;
   private readonly pathResolver: PathResolver;
 
-  /**
-   * Compiled once at class definition time.
-   * Group 1 matches quoted strings (which must be kept as-is).
-   * Group 2 matches single-line and block comments (replaced with whitespace).
-   */
-  private static readonly STRIP_COMMENTS_RE: RegExp = (() => {
-    // A quoted string never spans a line and may hold escapes: a stray quote (`/'[^']*'/` in a
-    // regex literal) then only misreads its own line instead of swallowing the comments after it.
-    // shortcut: regex literals are not recognized, upgrade with a real tokenizer.
-    const stringPattern = /'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"/;
-    const commentPattern = /\/\/[^\n]*|\/\*[\s\S]*?\*\//;
-    return new RegExp(
-      `(${stringPattern.source})|(${commentPattern.source})`,
-      "g",
-    );
-  })();
   private readonly ignoreTypeImports: boolean;
   constructor(rootDir?: string, ignoreTypeImports?: boolean) {
     this.fileReader = new FileReader();
@@ -40,26 +25,25 @@ export class Parser implements ILanguageAnalyzer {
     // Simplified pattern: comments are stripped before parsing
     // Matches: import [whitespace] [anything except ; or ' or "] [whitespace] from [whitespace] [quote] [path] [quote]
     importFrom:
-      /import\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/g, //NOSONAR
+      /import\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/dg, //NOSONAR
 
     // export ... from '...'
     exportFrom:
-      /export\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/g, //NOSONAR
+      /export\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/dg, //NOSONAR
 
     // require('...')
-    require: /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    require: /require\s*\(\s*['"]([^'"]+)['"]\s*\)/dg,
 
     // import('...') - dynamic imports
-    dynamicImport: /import\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+    dynamicImport: /import\s*\(\s*['"]([^'"]+)['"]\s*\)/dg,
 
-    // import '...' - side-effect import, no binding. Only at a line start, so a
-    // string such as "a; import './x'" is not an import; template literals are blanked first.
-    // shortcut: `export {}; import './x'` on one line is missed, upgrade with a real tokenizer.
-    sideEffectImport: /^[ \t]*import\s*['"]([^'"]+)['"]/gm,
+    // import '...' - side-effect import, no binding. Only at a line start, so
+    // `export {}; import './x'` on one line is missed (shortcut: upgrade with a real tokenizer).
+    sideEffectImport: /^[ \t]*import\s*['"]([^'"]+)['"]/dgm,
 
     // GraphQL #import directive (used in .gql/.graphql files)
     // Matches: #import "./fragment.gql" or #import './fragment.graphql'
-    graphqlImport: /#import\s+['"]([^'"]+)['"]/g,
+    graphqlImport: /#import\s+['"]([^'"]+)['"]/dg,
   };
 
   /**
@@ -85,7 +69,7 @@ export class Parser implements ILanguageAnalyzer {
       filePath?.endsWith(".gql") || filePath?.endsWith(".graphql");
     if (isGraphQL) {
       this.extractImports(
-        content,
+        { scan: content, source: content },
         this.patterns.graphqlImport,
         "import",
         imports,
@@ -94,12 +78,13 @@ export class Parser implements ILanguageAnalyzer {
       return imports;
     }
 
-    // Strip comments to simplify parsing and fix bugs with commented imports
-    content = this.stripComments(content);
+    // Patterns run on code only: comments and the text of strings and templates are masked,
+    // so `"import a from './a'"` in a string or a commented import is not read as an import.
+    const text = { scan: maskNonCode(content), source: content };
 
     // Parse import ... from
     this.extractImports(
-      content,
+      text,
       this.patterns.importFrom,
       "import",
       imports,
@@ -108,7 +93,7 @@ export class Parser implements ILanguageAnalyzer {
 
     // Parse export ... from
     this.extractImports(
-      content,
+      text,
       this.patterns.exportFrom,
       "export",
       imports,
@@ -117,7 +102,7 @@ export class Parser implements ILanguageAnalyzer {
 
     // Parse require()
     this.extractImports(
-      content,
+      text,
       this.patterns.require,
       "require",
       imports,
@@ -126,7 +111,7 @@ export class Parser implements ILanguageAnalyzer {
 
     // Parse dynamic import()
     this.extractImports(
-      content,
+      text,
       this.patterns.dynamicImport,
       "dynamic",
       imports,
@@ -136,7 +121,7 @@ export class Parser implements ILanguageAnalyzer {
     // Parse bare import: own dedupe set, so `import './x'` next to `import {a} from './x'` stays visible;
     // the dependency resolver keeps the first (symbol-carrying) entry per target.
     this.extractImports(
-      Parser.blankTemplateLiterals(content),
+      text,
       this.patterns.sideEffectImport,
       "side-effect",
       imports,
@@ -144,11 +129,6 @@ export class Parser implements ILanguageAnalyzer {
     );
 
     return imports;
-  }
-
-  /** Replaces template literal text with spaces (newlines kept) so code-like text in one is not parsed. */
-  private static blankTemplateLiterals(content: string): string {
-    return content.replaceAll(/`[^`]*`/g, (literal) => literal.replaceAll(/[^\n]/g, " "));
   }
 
   /**
@@ -164,25 +144,8 @@ export class Parser implements ILanguageAnalyzer {
     return matches.map((match) => match[1]).join("\n");
   }
 
-  /**
-   * Strip comments from content while preserving line numbers/indices
-   * Replaces comments with spaces
-   */
-  private stripComments(content: string): string {
-    // Re-use the statically compiled pattern. Must reset lastIndex because
-    // the /g flag keeps state when the same RegExp object is reused.
-    Parser.STRIP_COMMENTS_RE.lastIndex = 0;
-    return content.replaceAll(Parser.STRIP_COMMENTS_RE, (_, str, comment) => {
-      if (str) {
-        return str; // Keep strings
-      }
-      // Replace comment with spaces/newlines to preserve line numbers
-      return comment.replaceAll(/[^\n]/g, " ");
-    });
-  }
-
   private extractImports(
-    content: string,
+    text: { scan: string; source: string },
     pattern: RegExp,
     type: ParsedImport["type"],
     imports: ParsedImport[],
@@ -193,8 +156,10 @@ export class Parser implements ILanguageAnalyzer {
     // Reset regex state
     pattern.lastIndex = 0;
 
-    while ((match = pattern.exec(content)) !== null) {
-      const module = match[1];
+    while ((match = pattern.exec(text.scan)) !== null) {
+      // Patterns carry the `d` flag: the specifier is read back from the unmasked source.
+      const [start, end] = match.indices?.[1] ?? [0, 0];
+      const module = text.source.slice(start, end);
 
       // Skip if already processed
       if (seen.has(module)) {
@@ -209,7 +174,7 @@ export class Parser implements ILanguageAnalyzer {
       seen.add(module);
 
       // Find line number
-      const line = this.getLineNumber(content, match.index);
+      const line = this.getLineNumber(text.scan, match.index);
 
       imports.push({
         module,
