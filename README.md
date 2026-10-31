@@ -300,8 +300,8 @@ codex mcp add graph-it-live --env WORKSPACE_ROOT=/path/to/project -- graph-it se
 ### Portable agent plugin
 
 The [`plugins/graph-it-live/`](plugins/graph-it-live/) directory is the portable Agent Plugin package.
-It bundles the MCP server and four skills: `graph-it-live`, `onboarding-express`, `dead-code-hunter`,
-and `pr-review`. Install it with the client you use:
+It bundles the MCP server and five skills: `graph-it-live`, `graph-it-refactor`, `onboarding-express`,
+`dead-code-hunter` and `pr-review`. Install it with the client you use:
 
 #### Claude Code
 
