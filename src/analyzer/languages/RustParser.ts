@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Node, Parser } from "web-tree-sitter";
+import { firstNonNull } from "../../shared/concurrency";
 import { normalizePath } from "../../shared/path";
 import { FileReader } from "../FileReader";
 import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
@@ -394,8 +395,7 @@ export class RustParser implements ILanguageAnalyzer {
    */
   private async resolveLongestModule(dir: string, segments: string[]): Promise<string | null> {
     const prefixes = segments.map((_, i) => segments.slice(0, segments.length - i).join("::")).filter(Boolean);
-    const resolved = await Promise.all(prefixes.map((prefix) => this.resolveModDeclaration(dir, prefix)));
-    return resolved.find((file) => file !== null) ?? null;
+    return firstNonNull(prefixes, (prefix) => this.resolveModDeclaration(dir, prefix));
   }
 
   /** Directory of the nearest `Cargo.toml` at or above `fromFile` inside the workspace, if any. */
@@ -406,8 +406,7 @@ export class RustParser implements ILanguageAnalyzer {
       ancestors.push(dir);
       if (dir === root) break;
     }
-    const hasManifest = await Promise.all(ancestors.map((dir) => this.fileExists(path.join(dir, "Cargo.toml"))));
-    return ancestors[hasManifest.indexOf(true)];
+    return (await firstNonNull(ancestors, async (dir) => ((await this.fileExists(path.join(dir, "Cargo.toml"))) ? dir : null))) ?? undefined;
   }
 
   /** `src/` of the file's crate when the file is under it; otherwise the workspace root, as before crates were located. */
@@ -445,11 +444,7 @@ export class RustParser implements ILanguageAnalyzer {
       path.join(fromDir, modulePath, "mod.rs"),
     ];
 
-    const exists = await Promise.all(candidates.map((candidate) => this.fileExists(candidate)));
-    const found = candidates.find((_, i) => exists[i]);
-    if (found) return normalizePath(found);
-
-    return null;
+    return firstNonNull(candidates, async (candidate) => ((await this.fileExists(candidate)) ? normalizePath(candidate) : null));
   }
 
   /** One dependency per module string; resolution keeps the longest module prefix of the path. */

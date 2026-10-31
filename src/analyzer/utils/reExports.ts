@@ -92,6 +92,7 @@ export function parseNamespaceReExports(filePath: string, content: string): Arra
 
 /** `export * ...` or `export { ... }`, with or without `from` (the local form re-exports imports). */
 const REEXPORT_FROM = /\bexport\s*(?:type\s+)?[*{]/;
+const EXPORT_DEFAULT = /\bexport\s+default\s/;
 
 /** What a module re-exports: names (`export ... from`, import-then-export) and `export * as ns from`. */
 export interface ModuleReExports {
@@ -143,6 +144,8 @@ export function declaresExport(filePath: string, content: string, name: string):
  * so `import { name }` and `ns.name` reach nothing. A regex pre-check keeps other modules unparsed.
  */
 export function exportsOnlyAsDefault(filePath: string, content: string, name: string): boolean {
+  // Called for every named import: most modules have no default export, so skip compiling a regex per name.
+  if (!EXPORT_DEFAULT.test(content)) return false;
   const escaped = name.replaceAll('$', String.raw`\$`);
   const defaultDeclaration = new RegExp(String.raw`\bexport\s+default\s+(?:abstract\s+)?(?:async\s+)?(?:function\s*\*?\s*|class\s+)${escaped}(?![\w$])`);
   return defaultDeclaration.test(content) && !declaresExport(filePath, content, name);

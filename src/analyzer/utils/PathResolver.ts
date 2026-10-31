@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { PYTHON_EXTENSIONS, SUPPORTED_FILE_EXTENSIONS } from "../../shared/constants";
+import { firstNonNull, firstNonNullConcurrent } from "../../shared/concurrency";
 import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
 import { normalizePath, type ImportResolution } from "../types";
 import { parseTsConfig, resolveExtendsTargets, type TsConfigJson } from "./tsconfig";
@@ -581,11 +582,12 @@ export class PathResolver {
     );
   }
 
-  /** First candidate that is a file, in candidate order (normalized); probes run concurrently. */
-  private async firstExistingFile(candidates: readonly string[]): Promise<string | null> {
-    const exists = await Promise.all(candidates.map((candidate) => this.fileExists(candidate)));
-    const index = exists.indexOf(true);
-    return index === -1 ? null : normalizePath(candidates[index]);
+  /**
+   * First candidate that is a file, in candidate order (normalized). By default, probes stop at the first
+   * hit: most imports match their first candidate, and a missed stat throws, which is costly.
+   */
+  private firstExistingFile(candidates: readonly string[], find = firstNonNull): Promise<string | null> {
+    return find(candidates, async (candidate) => ((await this.fileExists(candidate)) ? normalizePath(candidate) : null));
   }
 
   /**
@@ -764,7 +766,7 @@ export class PathResolver {
     const workspaceRoot = this.workspaceRoot || currentDir;
 
     // Walk up from current directory to workspace root: module.py then module/__init__.py per level,
-    // nearest level first. Probes are cheap stats, so they run concurrently.
+    // nearest level first. Absolute imports mostly miss (stdlib, site-packages): probe every level at once.
     const candidates: string[] = [];
     let searchDir = currentDir;
     while (true) {
@@ -787,7 +789,7 @@ export class PathResolver {
       searchDir = parentDir;
     }
 
-    return this.firstExistingFile(candidates);
+    return this.firstExistingFile(candidates, firstNonNullConcurrent);
   }
 
   /**
@@ -1230,10 +1232,8 @@ export class PathResolver {
     const locations = ["packages", "libs", "modules"];
 
     const packageDirs = locations.map((loc) => path.join(workspaceRoot, loc, packageName));
-    const exists = await Promise.all(
-      packageDirs.map((packageDir) => this.fileExists(path.join(packageDir, "package.json"))),
-    );
-    return packageDirs[exists.indexOf(true)] ?? null;
+    return firstNonNull(packageDirs, async (packageDir) =>
+      (await this.fileExists(path.join(packageDir, "package.json"))) ? packageDir : null);
   }
 
   /**

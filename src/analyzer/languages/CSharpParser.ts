@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Node, Parser } from "web-tree-sitter";
+import { firstNonNull } from "../../shared/concurrency";
 import { normalizePath } from "../../shared/path";
 import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
 import { FileReader } from "../FileReader";
@@ -153,9 +154,8 @@ export class CSharpParser implements ILanguageAnalyzer {
             const targetDir = path.resolve(this.rootDir, segments.slice(i).join(path.sep));
             if (this.isWithinRoot(targetDir)) targetDirs.push(targetDir);
         }
-        // One non-recursive readdir per suffix: list them concurrently, keep the first hit in suffix order.
-        const csFiles = await Promise.all(targetDirs.map(dir => this.findFirstCsFile(dir)));
-        const csFile = csFiles.find(file => file !== null);
+        // One non-recursive readdir per suffix, in suffix order; stop at the first hit.
+        const csFile = await firstNonNull(targetDirs, dir => this.findFirstCsFile(dir));
         return csFile ? normalizePath(csFile) : null;
     }
 
