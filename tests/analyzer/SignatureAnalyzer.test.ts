@@ -1076,12 +1076,13 @@ describe('SignatureAnalyzer - Python modules (#524)', () => {
   });
 
   it.each([
-    ['a named import of the name', 'from .lib import pfn\n', 'pfn', ['.lib']],
-    ['an aliased import', 'from .lib import pfn as p\n', 'pfn', ['.lib']],
+    ['a named import of the name (or of a submodule so named)', 'from .lib import pfn\n', 'pfn', ['.lib', '.lib.pfn']],
+    ['an aliased import', 'from .lib import pfn as p\n', 'pfn', ['.lib', '.lib.pfn']],
     ['a module import, whose use is not followed', 'import pkg.lib\n', 'pfn', ['pkg.lib']],
     ['a star import', 'from .lib import *\n', 'pfn', ['.lib']],
-    ['an import of another name', 'from .lib import other\n', 'pfn', []],
-    ['any import when no name is given', 'from .lib import other\nimport os\n', undefined, ['.lib', 'os']],
+    ['an import of another name, which may still be a submodule', 'from .lib import other\n', 'pfn', ['.lib.other']],
+    ['a submodule import from the package', 'from . import lib\n', 'pfn', ['.lib']],
+    ['any import when no name is given', 'from .lib import other\nimport os\n', undefined, ['.lib', 'os', '.lib.other']],
   ])('lists the specifiers that may import a Python name: %s', (_label, content, name, expected) => {
     expect(analyzer.specifiersThatMayImport(path.join('/repo', 'pkg', 'use.py'), content, name)).toEqual(expected);
   });
@@ -1103,6 +1104,13 @@ describe('SignatureAnalyzer - Python modules (#524)', () => {
       const { results, limitations } = await resolve('from .missing import *\n');
       expect(results.map((result) => result.symbolName).sort((a, b) => a.localeCompare(b))).toEqual(['Box', 'pfn']);
       expect(limitations).toEqual(["Re-exports from '.missing' could not be resolved; removals behind them are unverified."]);
+    });
+
+    it('keeps a removal behind a star import whose target leaves the name out of `__all__`', async () => {
+      const results = analyzer.analyzeBreakingChanges(file, 'def pfn(a): return a\n', 'from .impl import *\n');
+      const hidden = { filePath: impl.filePath, content: '__all__ = ["other"]\ndef pfn(a): return a\n' };
+      const resolved = await analyzer.resolveReexportedRemovals(file, 'def pfn(a): return a\n', 'from .impl import *\n', results, async () => hidden);
+      expect(resolved.results.map((result) => result.breakingChanges[0].type)).toEqual(['member-removed']);
     });
 
     it('keeps a removal re-imported under another name', async () => {

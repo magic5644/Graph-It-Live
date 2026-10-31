@@ -687,10 +687,12 @@ export class SignatureAnalyzer {
    */
   public specifiersThatMayImport(filePath: string, content: string, name?: string): string[] {
     if (isPythonFile(filePath)) {
-      // `import m` and `from m import *` bind the whole module: whether `name` is used through it is not followed.
-      return pythonImportBindings(content)
+      // `import m` and `from m import *` bind the whole module, and `from . import m` may bind a submodule:
+      // whether `name` is used through them is not followed.
+      const bindings = pythonImportBindings(content)
         .filter((binding) => name === undefined || binding.imported === name || binding.imported === '*')
         .map((binding) => binding.specifier);
+      return [...new Set([...bindings, ...pythonReExports(content).namespaces.map((namespace) => namespace.specifier)])];
     }
     const sourceFile = this.getOrCreateSourceFile(filePath, content);
     const imports = sourceFile.getImportDeclarations()
@@ -742,7 +744,7 @@ export class SignatureAnalyzer {
       const key = normalizePath(target.filePath);
       if (visited.has(key)) continue;
       visited.add(key);
-      if (this.declaresTopLevel(target, importedName)) return { ...target, importedName };
+      if (this.declaresReachable(target, importedName, wildcard)) return { ...target, importedName };
       // eslint-disable-next-line no-await-in-loop -- depth-first walk: the shared visited set and the first match decide the result
       const moved = await this.findMovedDeclaration(target.filePath, target.content, importedName, loadModule, limitations, visited);
       if (moved) return moved;
@@ -782,6 +784,11 @@ export class SignatureAnalyzer {
       if (imported) return { specifier: declaration.getModuleSpecifierValue(), importedName: imported.getName() };
     }
     return undefined;
+  }
+
+  /** Whether `module` declares `name` where the re-export reaches it: a Python star import skips names left out of `__all__`. */
+  private declaresReachable(module: ReexportedModule, name: string, wildcard: boolean | undefined): boolean {
+    return !(wildcard && hiddenFromPythonStar(module, name)) && this.declaresTopLevel(module, name);
   }
 
   private declaresTopLevel(module: ReexportedModule, name: string): boolean {
@@ -1509,6 +1516,11 @@ function pythonReexportsOf(content: string, name: string): Array<{ specifier: st
     const exported = names.find((pair) => pair.exported === name);
     return exported ? [{ specifier, importedName: exported.imported }] : [];
   });
+}
+
+/** Whether `from target import *` leaves `name` out: a Python target whose `__all__` does not list it. */
+function hiddenFromPythonStar(target: ReexportedModule, name: string): boolean {
+  return isPythonFile(target.filePath) && !pythonStarExports(name, pythonReExports(target.content).starNames);
 }
 
 /** Specifiers of `import()` calls and types, `require()` calls and `import x = require()`. */
