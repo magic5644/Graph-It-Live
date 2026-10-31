@@ -37,7 +37,8 @@ async function createGitWorkspaceWithDiff(oldContent: string, newContent: string
 }
 
 afterEach(async () => {
-  await Promise.all(temporaryDirectories.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true })));
+  // Retries: on Windows, removing a folder holding a symbolic link can briefly fail with EBUSY.
+  await Promise.all(temporaryDirectories.splice(0).map((directory) => fs.rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })));
 });
 
 // Each test spawns several git processes; slow on Windows runners.
