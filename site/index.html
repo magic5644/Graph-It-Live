@@ -76,10 +76,10 @@ header.scrolled{border-bottom-color:var(--line-strong);background:rgba(10,12,16,
 .btn:hover{transform:translateY(-1px);border-color:rgba(255,255,255,.3);background:rgba(255,255,255,.07)}
 .btn-primary{
   border-color:#72a8ff;color:#fff;
-  background:linear-gradient(180deg,#337bea,#2460c6);
+  background:linear-gradient(180deg,#2563eb,#1d4ed8);
   box-shadow:0 1px 0 rgba(255,255,255,.18) inset,0 4px 16px rgba(25,80,170,.2);
 }
-.btn-primary:hover{border-color:#a5c8ff;box-shadow:0 6px 24px rgba(25,80,170,.3);background:#347cec}
+.btn-primary:hover{border-color:#a5c8ff;box-shadow:0 6px 24px rgba(25,80,170,.3);background:#2b6cf0}
 .btn svg{width:17px;height:17px;flex:none}
 .btn-sm{padding:8px 14px;font-size:13.5px}
 
@@ -94,10 +94,10 @@ header.scrolled{border-bottom-color:var(--line-strong);background:rgba(10,12,16,
 .hero .wrap{position:relative;z-index:2;text-align:center}
 .pill{
   display:inline-flex;align-items:center;gap:10px;padding:6px 14px 6px 7px;border-radius:100px;
-  border:1px solid rgba(147,197,253,.2);background:rgba(59,130,246,.05);font-size:12px;color:#bccbe1;margin-bottom:28px;font-weight:500;
+  border:1px solid rgba(147,197,253,.2);background:#0c1016;font-size:12px;color:#bccbe1;margin-bottom:28px;font-weight:500;
 }
 .pill b{
-  background:rgba(96,165,250,.13);
+  background:#172334;
   padding:3px 9px;border-radius:100px;color:#a9ceff;font-size:10px;font-weight:700;letter-spacing:.06em;
 }
 h1{
@@ -187,7 +187,7 @@ summary{cursor:pointer;font-size:19px;font-weight:700}
 .code-head .file{font-family:var(--mono);font-size:12.5px;color:var(--muted)}
 .copy{
   border:1px solid var(--line);background:transparent;color:var(--muted);border-radius:8px;
-  padding:5px 11px;font-size:12px;font-family:var(--font);font-weight:600;cursor:pointer;transition:.18s;
+  padding:5px 11px;font-size:12px;font-family:var(--font);font-weight:600;cursor:pointer;transition:color .18s,border-color .18s,background .18s;
 }
 .copy:hover{color:var(--fg);border-color:var(--line-strong);background:rgba(255,255,255,.05)}
 .copy.done{color:#4ade80;border-color:rgba(74,222,128,.45)}
@@ -199,10 +199,10 @@ code{font-family:var(--mono)}
 .tabs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:18px;justify-content:flex-start}
 .tab{
   padding:8px 16px;border-radius:10px;border:1px solid var(--line);background:var(--panel);
-  font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;transition:.18s;font-family:var(--font);
+  font-size:13.5px;font-weight:600;color:var(--muted);cursor:pointer;transition:color .18s,border-color .18s,background .18s;font-family:var(--font);
 }
 .tab:hover{color:var(--fg)}
-.tab[aria-selected="true"]{color:#fff;border-color:rgba(59,130,246,.5);background:rgba(59,130,246,.15)}
+.tab[aria-selected="true"]{color:#fff;border-color:rgba(59,130,246,.5);background:#111e32}
 .panel-hidden{display:none}
 
 /* ---------- table ---------- */
@@ -315,7 +315,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 
 <!-- ============ HERO ============ -->
 <div class="hero">
-  <canvas id="graph-bg" aria-hidden="true"></canvas>
+  <div aria-hidden="true"><canvas id="graph-bg"></canvas></div>
   <div class="wrap">
     <div class="pill"><b>MCP</b> 24 graph tools for your AI assistant</div>
     <h1>See your codebase<br><span class="grad">as a graph</span></h1>
@@ -373,17 +373,17 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     </div>
     <div class="grid g3">
       <div class="card rv">
-        <div class="ico"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></div>
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></div>
         <h3>File graph</h3>
         <p>Which files import this file? What depends on this module? Regex and AST parsing across the whole workspace, with cycle detection.</p>
       </div>
       <div class="card rv">
-        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="12" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8.3 7.2 15.7 11M15.7 13 8.3 16.8"/></svg></div>
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="12" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8.3 7.2 15.7 11M15.7 13 8.3 16.8"/></svg></div>
         <h3>Symbol view</h3>
         <p>Drill into a file to see functions, classes, outgoing calls, incoming callers and recursion. Click a symbol to jump to its definition.</p>
       </div>
       <div class="card rv">
-        <div class="ico"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="17" r="2.2"/><circle cx="19" cy="17" r="2.2"/><path d="M10.6 6.8 6.4 15.2M13.4 6.8l4.2 8.4M7.2 17h9.6"/></svg></div>
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="17" r="2.2"/><circle cx="19" cy="17" r="2.2"/><path d="M10.6 6.8 6.4 15.2M13.4 6.8l4.2 8.4M7.2 17h9.6"/></svg></div>
         <h3>Live call graph</h3>
         <p>Cross-file symbol relationships in a Cytoscape.js panel. Expand callers and callees up to depth 5, group by folder, highlight recursion.</p>
       </div>
@@ -537,7 +537,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 
     <div class="grid g2 rv" style="margin-bottom:34px">
       <div class="card">
-        <div class="ico"><svg viewBox="0 0 24 24"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.4"/></svg></div>
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/><circle cx="12" cy="12" r="3.4"/></svg></div>
         <h3>Native Copilot tools</h3>
         <p>Install the extension and use them in Agent mode with no MCP setup:</p>
         <ul>
@@ -548,7 +548,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
         </ul>
       </div>
       <div class="card">
-        <div class="ico"><svg viewBox="0 0 24 24"><path d="M4 7h16M4 12h16M4 17h9"/><circle cx="19" cy="17" r="2"/></svg></div>
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h9"/><circle cx="19" cy="17" r="2"/></svg></div>
         <h3>Portable agent plugin</h3>
         <p>One package bundling the MCP server plus four skills: <code>graph-it-live</code>, <code>onboarding-express</code>, <code>dead-code-hunter</code> and <code>pr-review</code>.</p>
         <p style="margin-top:12px">Plugin manifests pin a published CLI version and use <code>npx --prefer-offline</code>. Skills discover the installed capabilities, prefer the CLI, and fall back to MCP equivalents.</p>
@@ -887,26 +887,37 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     });
   }
 
+  function move(a){
+    a.x += a.vx; a.y += a.vy;
+    if(a.x < 0 || a.x > w) a.vx *= -1;
+    if(a.y < 0 || a.y > h) a.vy *= -1;
+  }
+
+  function drawLinks(i, link){
+    var a = nodes[i];
+    for(var j = i + 1; j < nodes.length; j++){
+      var b = nodes[j], d = Math.hypot(a.x - b.x, a.y - b.y);
+      if(d >= link) continue;
+      var o = (1 - d / link) * .32;
+      ctx.strokeStyle = (a.hot && b.hot) ? 'rgba(249,115,22,' + o + ')' : 'rgba(96,165,250,' + o + ')';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+  }
+
+  function drawNode(a){
+    ctx.fillStyle = a.hot ? 'rgba(249,115,22,.75)' : 'rgba(96,165,250,.7)';
+    if(a.sq){ ctx.fillRect(a.x - a.r, a.y - a.r, a.r * 2, a.r * 2); }
+    else { ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2); ctx.fill(); }
+  }
+
   function frame(){
     ctx.clearRect(0, 0, w, h);
     var link = Math.min(190, w / 7);
     for(var i = 0; i < nodes.length; i++){
-      var a = nodes[i];
-      a.x += a.vx; a.y += a.vy;
-      if(a.x < 0 || a.x > w) a.vx *= -1;
-      if(a.y < 0 || a.y > h) a.vy *= -1;
-      for(var j = i + 1; j < nodes.length; j++){
-        var b = nodes[j], dx = a.x - b.x, dy = a.y - b.y, d = Math.hypot(dx, dy);
-        if(d < link){
-          var o = (1 - d / link) * .32;
-          ctx.strokeStyle = (a.hot && b.hot) ? 'rgba(249,115,22,' + o + ')' : 'rgba(96,165,250,' + o + ')';
-          ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-        }
-      }
-      ctx.fillStyle = a.hot ? 'rgba(249,115,22,.75)' : 'rgba(96,165,250,.7)';
-      if(a.sq){ ctx.fillRect(a.x - a.r, a.y - a.r, a.r * 2, a.r * 2); }
-      else { ctx.beginPath(); ctx.arc(a.x, a.y, a.r, 0, Math.PI * 2); ctx.fill(); }
+      move(nodes[i]);
+      drawLinks(i, link);
+      drawNode(nodes[i]);
     }
     requestAnimationFrame(frame);
   }
