@@ -12,7 +12,11 @@ import {
   findSymbolCompletionFile,
   getNextStepHints,
   getSlashCommandHelpLines,
+  nextScrollTop,
+  resolveArrowTarget,
   stepHistory,
+  toLines,
+  wrapLines,
 } from '../../src/cli/repl/ink/ReplInkApp';
 
 const HIDDEN_ALIASES = ['/path', '/deps', '/dependencies', '/deps-in', '/deps-out', '/path-in', '/path-out', '/cycle'];
@@ -211,5 +215,126 @@ describe('Ink next-step hints', () => {
     expect(cycleNextStepHint(hints, '/check')).toBe('/summary');
     expect(cycleNextStepHint(hints, '/sum')).toBeUndefined();
     expect(cycleNextStepHint([], '')).toBeUndefined();
+  });
+});
+
+describe('Ink arrow key routing', () => {
+  const idle = {
+    commandLine: '',
+    historyIndex: null,
+    hasSuggestions: false,
+    hasOutput: true,
+    isSearchMode: false,
+    isPickerOpen: false,
+  };
+
+  it('scrolls the results from an empty prompt once there is output', () => {
+    expect(resolveArrowTarget(idle)).toBe('scroll');
+  });
+
+  it('recalls history from an empty prompt before any output', () => {
+    expect(resolveArrowTarget({ ...idle, hasOutput: false })).toBe('history');
+  });
+
+  it('keeps browsing history once a command was recalled, even a slash command', () => {
+    expect(resolveArrowTarget({ ...idle, historyIndex: 0, commandLine: '/summary', hasSuggestions: true })).toBe('history');
+  });
+
+  it('moves in the slash palette while typing', () => {
+    expect(resolveArrowTarget({ ...idle, commandLine: '/ch', hasSuggestions: true })).toBe('suggestions');
+  });
+
+  it('recalls history on a line with text but no suggestion', () => {
+    expect(resolveArrowTarget({ ...idle, commandLine: 'hello' })).toBe('history');
+  });
+
+  it('scrolls the results in search mode', () => {
+    expect(resolveArrowTarget({ ...idle, isSearchMode: true, historyIndex: 0 })).toBe('scroll');
+  });
+
+  it('leaves arrows to an open picker', () => {
+    expect(resolveArrowTarget({ ...idle, isPickerOpen: true, isSearchMode: true, hasSuggestions: true })).toBe('picker');
+  });
+});
+
+describe('Ink results scrolling', () => {
+  const tail = Number.MAX_SAFE_INTEGER;
+
+  it('moves one row with the arrows and a page with PgUp/PgDn', () => {
+    expect(nextScrollTop({ upArrow: true }, 5, 10, 20)).toBe(4);
+    expect(nextScrollTop({ downArrow: true }, 5, 10, 20)).toBe(6);
+    expect(nextScrollTop({ pageUp: true }, 15, 10, 20)).toBe(5);
+    expect(nextScrollTop({ pageDown: true }, 5, 10, 20)).toBe(15);
+    expect(nextScrollTop({ home: true }, 5, 10, 20)).toBe(0);
+  });
+
+  it('sticks to the last row when reaching the end', () => {
+    expect(nextScrollTop({ end: true }, 5, 10, 20)).toBe(tail);
+    expect(nextScrollTop({ downArrow: true }, 19, 10, 20)).toBe(tail);
+    expect(nextScrollTop({ pageDown: true }, 15, 10, 20)).toBe(tail);
+  });
+
+  it('steps up from the end instead of from the follow-tail marker', () => {
+    expect(nextScrollTop({ upArrow: true }, tail, 10, 20)).toBe(19);
+    expect(nextScrollTop({ pageUp: true }, tail, 10, 20)).toBe(10);
+  });
+
+  it('never goes above the first row', () => {
+    expect(nextScrollTop({ upArrow: true }, 0, 10, 20)).toBe(0);
+    expect(nextScrollTop({ pageUp: true }, 3, 10, 20)).toBe(0);
+  });
+
+  it('follows the tail when everything fits', () => {
+    expect(nextScrollTop({ downArrow: true }, 0, 10, 0)).toBe(tail);
+  });
+
+  it('ignores keys that do not scroll', () => {
+    expect(nextScrollTop({}, 5, 10, 20)).toBeUndefined();
+  });
+});
+
+describe('Ink result rows', () => {
+  const line = (text: string) => ({ text, blockIndex: 0, lineIndex: 1 });
+  const rows = (text: string, width: number) => wrapLines([line(text)], width).map((row) => row.row);
+
+  it('numbers lines per block from the command title', () => {
+    expect(toLines([{ title: '/summary', body: 'a\r\nb' }, { title: '/check', body: '' }])).toEqual([
+      { text: '$ /summary', blockIndex: 0, lineIndex: 0 },
+      { text: 'a', blockIndex: 0, lineIndex: 1 },
+      { text: 'b', blockIndex: 0, lineIndex: 2 },
+      { text: '', blockIndex: 0, lineIndex: 3 },
+      { text: '$ /check', blockIndex: 1, lineIndex: 0 },
+      { text: '(no output)', blockIndex: 1, lineIndex: 1 },
+      { text: '', blockIndex: 1, lineIndex: 2 },
+    ]);
+  });
+
+  it('hard-wraps a long line and keeps its source on every row', () => {
+    expect(wrapLines([line('abcdef')], 4)).toEqual([
+      { text: 'abcdef', blockIndex: 0, lineIndex: 1, row: 'abcd' },
+      { text: 'abcdef', blockIndex: 0, lineIndex: 1, row: 'ef' },
+    ]);
+  });
+
+  it('keeps a line of exactly the width on one row', () => {
+    expect(rows('abcd', 4)).toEqual(['abcd']);
+  });
+
+  it('keeps an empty line as one empty row', () => {
+    expect(rows('', 4)).toEqual(['']);
+  });
+
+  it('wraps ANSI-colored text by visible width and recolors each row', () => {
+    expect(rows('\u001b[31mabcdef\u001b[39m', 4)).toEqual(['\u001b[31mabcd\u001b[39m', '\u001b[31mef\u001b[39m']);
+  });
+
+  it('counts wide characters and emoji as two cells', () => {
+    expect(rows('日本語x', 4)).toEqual(['日本', '語x']);
+    expect(rows('ab😀cd', 4)).toEqual(['ab😀', 'cd']);
+  });
+
+  it('puts one character per row at width 1, and clamps smaller widths to 1', () => {
+    expect(rows('abc', 1)).toEqual(['a', 'b', 'c']);
+    expect(rows('abc', 0)).toEqual(['a', 'b', 'c']);
   });
 });

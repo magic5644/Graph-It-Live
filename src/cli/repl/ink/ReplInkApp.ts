@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import wrapAnsi from 'wrap-ansi';
 import { normalizePath } from '../../../shared/path';
 
 const h = React.createElement;
@@ -29,6 +30,8 @@ interface RunInkReplSessionOptions {
   onSubmitCommand: (commandLine: string) => Promise<InkReplCommandResponse>;
   /** Symbol names of a workspace file, for `file#Symbol` completion. */
   listFileSymbols?: (absoluteFile: string) => Promise<string[]>;
+  /** Extra Ink render options; tests pass fake streams here. */
+  renderOptions?: import('ink').RenderOptions;
 }
 
 interface OutputBlock {
@@ -663,19 +666,78 @@ export function cycleNextStepHint(hints: string[], commandLine: string): string 
   return hints[(hints.indexOf(commandLine) + 1) % hints.length];
 }
 
-function toLines(blocks: OutputBlock[]): string[] {
-  const lines: string[] = [];
-  for (const block of blocks) {
-    lines.push(`$ ${block.title}`);
-    if (block.body.length === 0) {
-      lines.push('(no output)', '');
-      continue;
-    }
+/** One logical output line; `lineIndex` counts from the block's `$ command` title line (0). */
+export interface OutputLine {
+  text: string;
+  blockIndex: number;
+  lineIndex: number;
+}
 
-    lines.push(...block.body.replaceAll('\r\n', '\n').split('\n'), '');
-  }
+/** One terminal row of the results panel: a slice of a wrapped logical line. */
+export interface OutputRow extends OutputLine {
+  row: string;
+}
 
+export function toLines(blocks: OutputBlock[]): OutputLine[] {
+  const lines: OutputLine[] = [];
+  blocks.forEach((block, blockIndex) => {
+    const body = block.body.length === 0 ? ['(no output)'] : block.body.replaceAll('\r\n', '\n').split('\n');
+    [`$ ${block.title}`, ...body, ''].forEach((text, lineIndex) => lines.push({ text, blockIndex, lineIndex }));
+  });
   return lines;
+}
+
+/** Split lines into rows at most `width` cells wide (ANSI-aware), so the panel height matches the rows sliced. */
+export function wrapLines(lines: OutputLine[], width: number): OutputRow[] {
+  const columns = Math.max(1, width);
+  return lines.flatMap((line) => wrapAnsi(line.text, columns, { hard: true, trim: false })
+    .split('\n')
+    .map((row) => ({ ...line, row })));
+}
+
+export type ArrowTarget = 'picker' | 'history' | 'suggestions' | 'scroll';
+
+/**
+ * Where ↑/↓ go. Terminals turn the mouse wheel into ↑/↓ in the alternate screen, so an
+ * empty prompt scrolls the results; history stays on ↑/↓ while browsing, on a line without
+ * suggestions, and before any output (shell habit). Ctrl+P/Ctrl+N always browse history.
+ */
+export function resolveArrowTarget(state: {
+  commandLine: string;
+  historyIndex: number | null;
+  hasSuggestions: boolean;
+  hasOutput: boolean;
+  isSearchMode: boolean;
+  isPickerOpen: boolean;
+}): ArrowTarget {
+  if (state.isPickerOpen) return 'picker';
+  if (state.isSearchMode) return 'scroll';
+  if (state.historyIndex !== null) return 'history';
+  if (state.hasSuggestions) return 'suggestions';
+  if (state.commandLine.length > 0 || !state.hasOutput) return 'history';
+  return 'scroll';
+}
+
+/** Scroll position meaning "stick to the last row", kept across resizes and footer changes. */
+const FOLLOW_TAIL = Number.MAX_SAFE_INTEGER;
+
+/** Next scroll position for a navigation key, or `undefined` when the key does not scroll. */
+export function nextScrollTop(
+  key: { pageUp?: boolean; pageDown?: boolean; home?: boolean; end?: boolean; upArrow?: boolean; downArrow?: boolean },
+  scrollTop: number,
+  pageSize: number,
+  maxScrollTop: number,
+): number | undefined {
+  const top = Math.min(scrollTop, maxScrollTop);
+  let next: number | undefined;
+  if (key.pageUp) next = top - pageSize;
+  else if (key.pageDown) next = top + pageSize;
+  else if (key.home) next = 0;
+  else if (key.end) next = FOLLOW_TAIL;
+  else if (key.upArrow) next = top - 1;
+  else if (key.downArrow) next = top + 1;
+  if (next === undefined) return undefined;
+  return next >= maxScrollTop ? FOLLOW_TAIL : Math.max(0, next);
 }
 
 function toErrorMessage(error: unknown): string {
@@ -722,56 +784,24 @@ function copyToClipboard(rawText: string): boolean {
 }
 
 function handleNavigationKey(
-  key: {
-    pageUp?: boolean;
-    pageDown?: boolean;
-    home?: boolean;
-    end?: boolean;
-    upArrow?: boolean;
-    downArrow?: boolean;
-  },
+  key: Parameters<typeof nextScrollTop>[0],
   panelHeight: number,
   maxScrollTop: number,
   setScrollTop: React.Dispatch<React.SetStateAction<number>>,
 ): boolean {
-  if (key.pageUp) {
-    setScrollTop(previous => Math.max(0, previous - panelHeight));
-    return true;
+  if (nextScrollTop(key, 0, panelHeight, maxScrollTop) === undefined) {
+    return false;
   }
-
-  if (key.pageDown) {
-    setScrollTop(previous => Math.min(maxScrollTop, previous + panelHeight));
-    return true;
-  }
-
-  if (key.home) {
-    setScrollTop(0);
-    return true;
-  }
-
-  if (key.end) {
-    setScrollTop(maxScrollTop);
-    return true;
-  }
-
-  if (key.upArrow) {
-    setScrollTop(previous => Math.max(0, previous - 1));
-    return true;
-  }
-
-  if (key.downArrow) {
-    setScrollTop(previous => Math.min(maxScrollTop, previous + 1));
-    return true;
-  }
-
-  return false;
+  // Updater form: a wheel burst delivers several arrows before the next render.
+  setScrollTop(previous => nextScrollTop(key, previous, panelHeight, maxScrollTop) ?? previous);
+  return true;
 }
 
 function handleClipboardInput(
   input: string,
   key: { ctrl?: boolean },
-  visibleLines: string[],
-  filteredLines: string[],
+  visibleRows: OutputRow[],
+  filteredLines: OutputLine[],
   setNotice: React.Dispatch<React.SetStateAction<string>>,
 ): boolean {
   if (!(key.ctrl && input === 'y')) {
@@ -779,13 +809,13 @@ function handleClipboardInput(
       return false;
     }
 
-    const line = visibleLines[0] ?? '';
+    const line = visibleRows[0]?.text ?? '';
     const copiedLine = copyToClipboard(line);
     setNotice(copiedLine ? 'Copied selected line to clipboard' : 'Clipboard copy failed');
     return true;
   }
 
-  const fullText = filteredLines.join('\n');
+  const fullText = filteredLines.map((line) => line.text).join('\n');
   const copied = copyToClipboard(fullText);
   setNotice(copied ? 'Copied full output to clipboard' : 'Clipboard copy failed');
   return true;
@@ -1122,7 +1152,7 @@ function tryHandleSelectedCommandEnter(
 }
 
 interface HistoryInputContext {
-  commandLine: string;
+  arrowTarget: ArrowTarget;
   commandHistory: string[];
   historyIndex: number | null;
   setHistoryIndex: React.Dispatch<React.SetStateAction<number | null>>;
@@ -1130,16 +1160,13 @@ interface HistoryInputContext {
   setNotice: React.Dispatch<React.SetStateAction<string>>;
 }
 
-/**
- * Ctrl+P/Ctrl+N always browse history; Up/Down only on an empty line or while browsing,
- * so they still move through suggestions while typing.
- */
+/** Ctrl+P/Ctrl+N always browse history; Up/Down only when `resolveArrowTarget` routes them here. */
 function handleHistoryInputEvent(
   input: string,
   key: { ctrl?: boolean; upArrow?: boolean; downArrow?: boolean },
   ctx: HistoryInputContext,
 ): boolean {
-  const browsing = ctx.commandLine.length === 0 || ctx.historyIndex !== null;
+  const browsing = ctx.arrowTarget === 'history';
   let direction: 'older' | 'newer' | undefined;
   if ((key.ctrl && input === 'p') || (key.upArrow && browsing)) direction = 'older';
   if ((key.ctrl && input === 'n') || (key.downArrow && browsing)) direction = 'newer';
@@ -1152,6 +1179,34 @@ function handleHistoryInputEvent(
     ctx.setNotice(step.index === null ? 'History cleared' : `History ${step.index + 1}/${ctx.commandHistory.length}`);
   }
   return true;
+}
+
+interface EscapeInputContext {
+  hasSlashSuggestions: boolean;
+  searchQuery: string;
+  setCommandLine: React.Dispatch<React.SetStateAction<string>>;
+  setSelectedCommandIndex: React.Dispatch<React.SetStateAction<number>>;
+  setHistoryIndex: React.Dispatch<React.SetStateAction<number | null>>;
+  setSearchQuery: React.Dispatch<React.SetStateAction<string>>;
+  setNotice: React.Dispatch<React.SetStateAction<string>>;
+}
+
+/** Esc outside search mode: close the slash palette first, else remove an applied filter. */
+function handleEscapeInputEvent(key: { escape?: boolean }, ctx: EscapeInputContext): boolean {
+  if (!key.escape) return false;
+  if (ctx.hasSlashSuggestions) {
+    ctx.setCommandLine('');
+    ctx.setSelectedCommandIndex(0);
+    ctx.setHistoryIndex(null);
+    ctx.setNotice('Command cleared');
+    return true;
+  }
+  if (ctx.searchQuery.length > 0) {
+    ctx.setSearchQuery('');
+    ctx.setNotice('Search cleared');
+    return true;
+  }
+  return false;
 }
 
 function handleCommandInputEvent(
@@ -1298,7 +1353,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       } else if (entry.isDir) {
         color = 'cyan';
       }
-      return h(Text, { key: `picker-${entry.relPath}`, color, bold: isSelected },
+      return h(Text, { key: `picker-${entry.relPath}`, color, bold: isSelected, wrap: 'truncate' },
         `${isSelected ? '❯' : ' '} ${icon} ${label}`,
       );
     });
@@ -1309,8 +1364,8 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
     return h(
       Box,
       { height: panelHeight, flexDirection: 'column', paddingLeft: 1 },
-      h(Text, { key: 'picker-title', color: borderColor }, title),
-      h(Text, { key: 'picker-breadcrumb', dimColor: true }, `  📍 ${breadcrumb}`),
+      h(Text, { key: 'picker-title', color: borderColor, wrap: 'truncate' }, title),
+      h(Text, { key: 'picker-breadcrumb', dimColor: true, wrap: 'truncate' }, `  📍 ${breadcrumb}`),
       countNote,
       h(Box, { key: 'picker-entries', flexDirection: 'column', marginTop: 1 },
         ...(entryNodes.length > 0 ? entryNodes : [emptyNode]),
@@ -1320,7 +1375,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
 
   function ReplInkApp(): React.ReactElement {
     const { exit } = useApp();
-    const { rows } = useWindowSize();
+    const { rows, columns } = useWindowSize();
     const [commandLine, setCommandLine] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearchMode, setIsSearchMode] = useState(false);
@@ -1421,7 +1476,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       }
 
       const needle = searchQuery.toLowerCase();
-      return lines.filter((line) => line.toLowerCase().includes(needle));
+      return lines.filter((line) => line.text.toLowerCase().includes(needle));
     }, [lines, searchQuery]);
     const nextStepHints = useMemo(
       () => (blocks.length > 0 ? getNextStepHints(displayLastFile, displayLastSymbol) : []),
@@ -1442,9 +1497,19 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       + (hasSlashSuggestions ? visibleSlashSuggestions.length : 0);
     const panelHeight = Math.max(1, rows - HEADER_ROWS - computedFooterRows);
     const panelContentHeight = Math.max(1, panelHeight - 2);
-    const maxScrollTop = Math.max(0, filteredLines.length - panelContentHeight);
+    // Panel content starts after paddingLeft: 1.
+    const outputRows = useMemo(() => wrapLines(filteredLines, columns - 1), [filteredLines, columns]);
+    const maxScrollTop = Math.max(0, outputRows.length - panelContentHeight);
     const clampedScrollTop = Math.max(0, Math.min(scrollTop, maxScrollTop));
-    const visibleLines = filteredLines.slice(clampedScrollTop, clampedScrollTop + panelContentHeight);
+    const visibleRows = outputRows.slice(clampedScrollTop, clampedScrollTop + panelContentHeight);
+    const arrowTarget = resolveArrowTarget({
+      commandLine,
+      historyIndex,
+      hasSuggestions: hasSlashSuggestions,
+      hasOutput: blocks.length > 0,
+      isSearchMode,
+      isPickerOpen: pickerMode !== 'none',
+    });
 
     const pickerEntries = useMemo(
       () => (pickerMode === 'none' ? [] : buildPickerEntries(currentAllFiles, displayWorkspace, pickerDir)),
@@ -1495,7 +1560,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
           const body = response.output ?? '';
           appendBlock(trimmed, body);
           setCommandLine('');
-          setScrollTop(Number.MAX_SAFE_INTEGER);
+          setScrollTop(FOLLOW_TAIL);
           setNotice(`Executed ${response.command}`);
           // Apply updated context from server-side state changes
           const ctx = response.updatedContext;
@@ -1527,7 +1592,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
           const message = toErrorMessage(error);
           appendBlock(trimmed, `Error: ${message}`);
           setCommandLine('');
-          setScrollTop(Number.MAX_SAFE_INTEGER);
+          setScrollTop(FOLLOW_TAIL);
           setNotice('Command failed');
         })
         .finally(() => {
@@ -1555,8 +1620,17 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       }
       if (dispatchGlobalInputEvent(input, key, exit, setIsSearchMode, setNotice, [
         () => handleSearchModeInputEvent(isSearchMode, input, key, setIsSearchMode, setNotice, setSearchQuery, setScrollTop),
+        () => handleEscapeInputEvent(key, {
+          hasSlashSuggestions,
+          searchQuery,
+          setCommandLine,
+          setSelectedCommandIndex,
+          setHistoryIndex,
+          setSearchQuery,
+          setNotice,
+        }),
         () => handleHistoryInputEvent(input, key, {
-          commandLine,
+          arrowTarget,
           commandHistory,
           historyIndex,
           setHistoryIndex,
@@ -1581,7 +1655,7 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
           setNotice,
         ),
         () => handleNavigationKey(key, panelContentHeight, maxScrollTop, setScrollTop),
-        () => handleClipboardInput(input, key, visibleLines, filteredLines, setNotice),
+        () => handleClipboardInput(input, key, visibleRows, filteredLines, setNotice),
         () => handleCommandInputEvent(
           input,
           key,
@@ -1617,24 +1691,29 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
         });
       }
 
-      const resultNodes = visibleLines.length > 0
-        ? visibleLines.map((line, index) => h(Text, { key: `${clampedScrollTop + index}-${line}` }, line))
+      // Rows already fit the panel width; ' ' keeps an empty row one row tall.
+      const resultNodes = visibleRows.length > 0
+        ? visibleRows.map((row, index) => h(Text, { key: `row-${clampedScrollTop + index}`, wrap: 'truncate' }, row.row || ' '))
         : [h(Text, { dimColor: true, key: 'empty' }, 'No results yet')];
       const filterSuffix = searchQuery ? ` ${SPARK}filter:${RESET} ${searchQuery}` : '';
-      const resultsSummary = `${BOLD}Results${RESET} ${DIM}(lines ${clampedScrollTop + 1}-${Math.min(filteredLines.length, clampedScrollTop + panelContentHeight)} / ${Math.max(1, filteredLines.length)})${RESET}${filterSuffix}`;
+      const range = outputRows.length === 0
+        ? ''
+        : ` ${DIM}(lines ${clampedScrollTop + 1}-${clampedScrollTop + visibleRows.length} / ${outputRows.length})${RESET}`;
+      const resultsSummary = `${BOLD}Results${RESET}${range}${filterSuffix}`;
 
       return h(
         Box,
         { height: panelHeight, flexDirection: 'column', paddingLeft: 1 },
-        h(Text, { color: 'cyan' }, resultsSummary),
+        h(Text, { color: 'cyan', wrap: 'truncate' }, resultsSummary),
         h(Box, { flexDirection: 'column', marginTop: 1 }, ...resultNodes),
       );
     }
 
     function buildFooterItems(): React.ReactElement[] {
       const footerItems: React.ReactElement[] = [
-        h(Text, {}, `${DIM}${notice}${RESET}`),
-        h(Text, {}, `${getPromptGlyph(isSearchMode, isRunning)} ${isSearchMode ? searchQuery : commandLine}${isRunning ? ' …' : ''}`),
+        h(Text, { wrap: 'truncate' }, `${DIM}${notice}${RESET}`),
+        // The glyph stays outside the truncated text, so a long command keeps its prompt marker.
+        h(Box, {}, h(Box, { marginRight: 1, flexShrink: 0 }, h(Text, {}, getPromptGlyph(isSearchMode, isRunning))), h(Text, { wrap: 'truncate-start' }, `${isSearchMode ? searchQuery : commandLine}${isRunning ? ' …' : ''}`)),
       ];
 
       if (showNextStepHints) {
@@ -1646,19 +1725,19 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
 
       if (hasSlashSuggestions) {
         footerItems.push(
-          h(Text, { key: 'slash-help' }, `${DIM}Suggestions ${boundedSelectedCommandIndex + 1}/${slashSuggestions.length}: ↑/↓ select · Tab complete · Enter apply/run · type space for files/options${RESET}`),
+          h(Text, { key: 'slash-help', wrap: 'truncate' }, `${DIM}Suggestions ${boundedSelectedCommandIndex + 1}/${slashSuggestions.length}: ↑/↓ select · Tab complete · Enter apply/run · type space for files/options${RESET}`),
         );
         if (completionPreview.length > 0) {
           footerItems.push(
-            h(Text, { key: 'slash-completion' }, `${DIM}Completion: ${isSearchMode ? searchQuery : commandLine}${completionPreview}${RESET}`),
+            h(Text, { key: 'slash-completion', wrap: 'truncate' }, `${DIM}Completion: ${isSearchMode ? searchQuery : commandLine}${completionPreview}${RESET}`),
           );
         }
         if (argsHintLine) {
-          footerItems.push(h(Text, { key: 'slash-args' }, argsHintLine));
+          footerItems.push(h(Text, { key: 'slash-args', wrap: 'truncate' }, argsHintLine));
         }
         if (slashWindowIndicator) {
           footerItems.push(
-            h(Text, { key: 'slash-window' }, `${DIM}Showing ${visibleSlashStart + 1}-${visibleSlashStart + visibleSlashSuggestions.length}${RESET}`),
+            h(Text, { key: 'slash-window', wrap: 'truncate' }, `${DIM}Showing ${visibleSlashStart + 1}-${visibleSlashStart + visibleSlashSuggestions.length}${RESET}`),
           );
         }
         const suggestionNodes = visibleSlashSuggestions.map((entry, index) => {
@@ -1666,10 +1745,11 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
           const isSelected = absoluteIndex === boundedSelectedCommandIndex;
           const prefix = isSelected ? '›' : ' ';
           const color = isSelected ? SPARK : DIM;
+          const group = entry.group ? ` ${DIM}· ${entry.group}${RESET}` : '';
           return h(
             Text,
-            { key: `slash-${absoluteIndex}-${entry.command}` },
-            `${color}${prefix} ${entry.command.padEnd(20)}${RESET} ${entry.description}${entry.group ? ` ${DIM}· ${entry.group}${RESET}` : ''}`,
+            { key: `slash-${absoluteIndex}-${entry.command}`, wrap: 'truncate' },
+            `${color}${prefix} ${entry.command.padEnd(20)}${RESET} ${entry.description}${group}`,
           );
         });
         footerItems.push(...suggestionNodes);
@@ -1684,9 +1764,9 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       h(
         Box,
         { flexDirection: 'column', marginBottom: 1 },
-        h(Text, {}, `${BLUE}●${RESET}${DIM}─${RESET}${BLUE}■${RESET}   ${BOLD}Graph-It-Live${RESET} ${DIM}v${options.version}${RESET} ${SPARK}✦${RESET}`),
-        h(Text, {}, `${BLUE}│${RESET} ${DIM}╲${RESET}   ${DIM}Ctrl+C quit · PgUp/PgDn scroll · Ctrl+Y copy all · Ctrl+L copy line${RESET}`),
-        h(Text, {}, `${BLUE}●${RESET}${DIM}─${RESET}${ORANGE}■${RESET}   ${DIM}Ctrl+F search output · Esc clear search · ↑/↓ history · Tab next step${RESET}`),
+        h(Text, { wrap: 'truncate' }, `${BLUE}●${RESET}${DIM}─${RESET}${BLUE}■${RESET}   ${BOLD}Graph-It-Live${RESET} ${DIM}v${options.version}${RESET} ${SPARK}✦${RESET}`),
+        h(Text, { wrap: 'truncate' }, `${BLUE}│${RESET} ${DIM}╲${RESET}   ${DIM}↑/↓ PgUp/PgDn wheel scroll · Ctrl+P/Ctrl+N history · Ctrl+Y copy all · Ctrl+L copy line${RESET}`),
+        h(Text, { wrap: 'truncate' }, `${BLUE}●${RESET}${DIM}─${RESET}${ORANGE}■${RESET}   ${DIM}Ctrl+F search · Esc clear filter/palette · Tab next step · Ctrl+C quit${RESET}`),
       ),
       h(
         Box,
@@ -1702,6 +1782,6 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
     );
   }
 
-  const instance = render(h(ReplInkApp), { alternateScreen: true });
+  const instance = render(h(ReplInkApp), { alternateScreen: true, ...options.renderOptions });
   await instance.waitUntilExit();
 }
