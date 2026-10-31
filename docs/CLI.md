@@ -286,6 +286,7 @@ The palette lists canonical commands only, grouped by intent. Aliases still work
 | Output | `/export` | Export dependency graph as standalone HTML (vis.js). Optional `--output <path>` / `-o <path>`. Scope: active file context → workspace scope (set via `/scope`) → full workspace |
 | Output | `/wiki` | Generate a navigable markdown wiki from the call graph |
 | Session | `/help` | Show REPL command help |
+| Session | `/mouse on\|off` | Turn mouse tracking on or off (off by default, see [Results navigation](#results-navigation)) |
 | Session | `/quit` | Exit interactive mode |
 
 Hidden aliases (accepted when typed, not listed in the palette):
@@ -325,7 +326,7 @@ Press `Esc` on an empty command line (or `Shift+Tab` at any time) to move the fo
 
 | Key (results focus) | Action |
 | --- | --- |
-| `↑`/`↓`, `k`/`j` | Move one line (the mouse wheel moves the cursor too) |
+| `↑`/`↓`, `k`/`j` | Move one line (the mouse wheel moves the cursor too, unless `/mouse on` is set) |
 | `PgUp`/`PgDn`, `Ctrl+U`/`Ctrl+D` | Move one page, half a page |
 | `g`/`G`, `Home`/`End` | First, last line |
 | `[`/`]` | Previous, next result title (shown as the first row) |
@@ -341,6 +342,10 @@ Press `Esc` on an empty command line (or `Shift+Tab` at any time) to move the fo
 - `file#Symbol`: `/trace`, `/callers`, `/impact`, Open in editor.
 
 The first workspace file of the line wins, read from left to right: `relativePath: src/a.ts`, `path: /abs/path` (inside the workspace only), `src/a.ts#Symbol`, graph node ids (`/abs/src/a.ts:Symbol`), `src/a.ts:12`, Windows `src\a.ts` and bare paths. Only files of the indexed workspace qualify. `text` and `toon` output work, `json` too (`"relativePath": "src/a.ts"`); `markdown` and `mermaid` work only where a row contains a plain path. A line without a file shows `No file or symbol on line`.
+
+**Clickable links.** In terminals that support OSC 8 links (iTerm2, VS Code, WezTerm, Ghostty, Windows Terminal, kitty, GNOME Terminal and other VTE 0.50+ terminals), the file of each result row is a link to its `file://` URI: `Cmd+click` (macOS) or `Ctrl+click` opens it. The link opens the file, not a line. Links are off in Terminal.app, with `NO_COLOR`, with `TERM=dumb` and when the output is not a terminal. `FORCE_HYPERLINK=0` turns them off, `FORCE_HYPERLINK=1` forces them on. Native text selection is unchanged.
+
+**Mouse.** `/mouse on` turns mouse tracking on for the session (`/mouse off` turns it off; it is off by default). Then the wheel scrolls the results 3 rows (or the file picker selection), a click on a result row moves the cursor to it in results focus, a double click opens its action menu, a click on a palette or picker entry selects it, and a click on a next-step suggestion puts it on the command line. While tracking is on, select text with `Option`+drag (macOS iTerm2 and Terminal.app) or `Shift`+drag (most Linux terminals, Windows Terminal). The REPL turns tracking off on `/mouse off`, `/quit`, `Ctrl+C`, `SIGTERM` and on an uncaught error, so the terminal never stays in mouse mode.
 
 **Open in editor** starts `$VISUAL`, then `$EDITOR`, otherwise `code -g <file>:<line>` in the VS Code integrated terminal. The editor starts detached, without a shell, and only for a file inside the workspace. Terminal editors (`vim`, `nano`, `emacs`, …) are skipped because the REPL owns the terminal. On Windows, Node.js refuses to start `.cmd` launchers such as `code.cmd` without a shell, so set `VISUAL` or `EDITOR` to an `.exe` editor. Without a usable editor, the REPL shows a notice.
 

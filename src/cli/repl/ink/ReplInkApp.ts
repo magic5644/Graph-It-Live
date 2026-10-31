@@ -1,25 +1,36 @@
 import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { stripVTControlCharacters } from 'node:util';
 import wrapAnsi from 'wrap-ansi';
 import { normalizePath } from '../../../shared/path';
 import {
   buildResultActions,
   countBlockLines,
   cursorIndexOf,
+  enableMouseTracking,
   extractResultTarget,
   findMatches,
   findWorkspaceFile,
   focusTargetIndex,
   foldedBlocks,
   highlightMatches,
+  hintAt,
+  hitMouseRegion,
+  isDoubleClick,
+  linkResultTarget,
   openInEditor,
+  parseSgrMouse,
+  resolveMouseCommand,
   sameLine,
   stepMatch,
   selectPanelLines,
+  stripStylesKeepLinks,
+  supportsHyperlinks,
   toWorkspaceRelativePath,
+  type ClickStamp,
   type FocusMove,
+  type MouseRegion,
+  type MouseReport,
   type LineKey,
   type OutputLine,
   type ResultAction,
@@ -34,6 +45,8 @@ export interface InkReplCommandResponse {
   command: string;
   output?: string;
   shouldQuit?: boolean;
+  /** New mouse tracking state, set by `/mouse on|off`. */
+  mouse?: boolean;
   /** Updated REPL context to reflect session state changes (workspace, file, etc.) */
   updatedContext?: {
     workspaceRoot?: string;
@@ -121,6 +134,7 @@ const SLASH_COMMANDS: SlashCommandEntry[] = [
   { group: 'Output', command: '/export', description: 'Export graph as standalone HTML (vis.js)', argsHint: '/export [path] [--output <file>|-o <file>]' },
   { group: 'Output', command: '/wiki', description: 'Generate a markdown wiki from the call graph', argsHint: '/wiki [--output <dir>] [--top N] [--format markdown|json|toon]' },
   { group: 'Session', command: '/help', description: 'Show REPL help' },
+  { group: 'Session', command: '/mouse', description: 'Mouse wheel and clicks (off by default)', argsHint: '/mouse on|off' },
   { group: 'Session', command: '/quit', description: 'Exit REPL' },
 ];
 
@@ -176,6 +190,7 @@ const COMMANDS_REQUIRING_ARGS = new Set([
   '/cycles',
   '/cycle',
   '/format',
+  '/mouse',
 ]);
 
 const FILE_ARGUMENT_COMMANDS = new Set([
@@ -242,6 +257,10 @@ const ARG_COMPLETIONS: Record<string, Array<{ value: string; description: string
     { value: 'toon', description: 'TOON output' },
     { value: 'markdown', description: 'Markdown output' },
     { value: 'mermaid', description: 'Mermaid output' },
+  ],
+  '/mouse': [
+    { value: 'on', description: 'Wheel scrolls, clicks move the cursor' },
+    { value: 'off', description: 'Restore native selection' },
   ],
 };
 
@@ -1378,7 +1397,10 @@ function toggleAllBlocks(ctx: ResultsFocusContext, line: OutputLine): void {
   ctx.setNotice(fold ? 'All results folded' : 'All results expanded');
 }
 
-function openActionMenu(ctx: ResultsFocusContext, line: OutputLine): void {
+function openActionMenu(
+  ctx: Pick<ResultsFocusContext, 'workspaceRoot' | 'allFiles' | 'setActionMenu' | 'setNotice'>,
+  line: OutputLine,
+): void {
   const target = extractResultTarget(line.text, ctx.workspaceRoot, ctx.allFiles);
   if (!target) {
     ctx.setNotice('No file or symbol on line');
@@ -1531,10 +1553,14 @@ interface LineDecoration {
   folded: ReadonlySet<number>;
   failed: ReadonlySet<number>;
   counts: ReadonlyMap<number, number>;
+  /** Wraps the result target of a row in an OSC 8 link; absent when the terminal has no links. */
+  link?: (text: string) => string;
 }
 
 function decorateLine(line: OutputLine, decoration: LineDecoration): string {
-  const text = decoration.highlight ? highlightMatches(line.text, decoration.highlight) : line.text;
+  const highlighted = decoration.highlight ? highlightMatches(line.text, decoration.highlight) : line.text;
+  // Linked after highlighting: highlightMatches drops escape codes, links included.
+  const text = decoration.link ? decoration.link(highlighted) : highlighted;
   if (line.lineIndex !== 0) return text;
   const { blockIndex } = line;
   return decorateTitle(text, decoration.failed.has(blockIndex), decoration.folded.has(blockIndex), decoration.counts.get(blockIndex) ?? 0);
@@ -1667,10 +1693,10 @@ function useCursorScroll(args: {
   }, [cursorScroll, target, outputRows]);
 }
 
-/** Rendered text of a panel row: the cursor row in inverse video, without its own colors (embedded resets would cut it). */
+/** Rendered text of a panel row: the cursor row in inverse video, without its own colors (embedded resets would cut it) but with its links. */
 function renderRowText(row: OutputRow, cursorLine: OutputLine | undefined): string {
   if (!cursorLine || !sameLine(row, cursorLine)) return row.row || ' ';
-  return `${INVERSE}${stripVTControlCharacters(row.row) || ' '}${NO_INVERSE}`;
+  return `${INVERSE}${stripStylesKeepLinks(row.row) || ' '}${NO_INVERSE}`;
 }
 
 function getPromptText(state: { isFocused: boolean; isSearchMode: boolean; isRunning: boolean; searchQuery: string; commandLine: string }): string {
@@ -1697,6 +1723,9 @@ function buildLineDecoration(state: {
   folded: ReadonlySet<number>;
   searchQuery: string;
   searchFilter: boolean;
+  hyperlinks: boolean;
+  workspaceRoot: string;
+  allFiles: string[];
 }): LineDecoration {
   const failed = new Set<number>();
   state.blocks.forEach((block, index) => {
@@ -1707,7 +1736,150 @@ function buildLineDecoration(state: {
     folded: state.folded,
     failed,
     counts: countBlockLines(state.lines),
+    link: state.hyperlinks ? (text) => linkResultTarget(text, state.workspaceRoot, state.allFiles) : undefined,
   };
+}
+
+/** First screen row of the panel: logo (3 rows), gap, workspace line, gap; `HEADER_ROWS` adds the footer gap. */
+const PANEL_TOP = HEADER_ROWS - 1;
+/** Rows the mouse wheel scrolls. */
+const WHEEL_ROWS = 3;
+
+/** What the screen shows, for mouse hit tests (same layout as `buildMainPanel` and `buildFooterItems`). */
+export interface MouseLayout {
+  panelHeight: number;
+  resultRows: number;
+  pickerOpen: boolean;
+  pickerRows: number;
+  /** The picker shows its `1-20 / 45` line. */
+  pickerCountLine: boolean;
+  actionMenuRows: number;
+  showHints: boolean;
+  /** Visible palette entries; 0 hides the palette and its header lines. */
+  paletteRows: number;
+  /** Palette header lines shown besides its help line. */
+  paletteCompletion: boolean;
+  paletteArgsHint: boolean;
+  paletteWindow: boolean;
+}
+
+/** Clickable screen regions: result rows or picker entries in the panel, then next-step hints and palette entries in the footer. */
+export function buildMouseRegions(layout: MouseLayout): MouseRegion[] {
+  const panel: MouseRegion = layout.pickerOpen
+    ? { kind: 'picker', top: PANEL_TOP + 3 + Number(layout.pickerCountLine), count: layout.pickerRows }
+    : { kind: 'results', top: PANEL_TOP + 2, count: layout.resultRows };
+  // Footer: gap, notice, prompt, action menu, hints, palette help and header lines, palette entries.
+  const hintsTop = PANEL_TOP + layout.panelHeight + 3 + layout.actionMenuRows;
+  const hintRows = Number(layout.showHints);
+  const paletteHeader = 1 + Number(layout.paletteCompletion) + Number(layout.paletteArgsHint) + Number(layout.paletteWindow);
+  return [
+    panel,
+    { kind: 'hints', top: hintsTop, count: hintRows },
+    { kind: 'palette', top: hintsTop + hintRows + paletteHeader, count: layout.paletteRows },
+  ];
+}
+
+export interface MouseContext {
+  regions: MouseRegion[];
+  visibleRows: OutputRow[];
+  scrollTop: number;
+  maxScrollTop: number;
+  pickerOpen: boolean;
+  pickerScrollStart: number;
+  pickerEntryCount: number;
+  visibleSlashStart: number;
+  hints: string[];
+  workspaceRoot: string;
+  allFiles: string[];
+  placeCursor: (key: LineKey, scroll: CursorScroll) => void;
+  setScrollTop: React.Dispatch<React.SetStateAction<number>>;
+  setPickerIndex: React.Dispatch<React.SetStateAction<number>>;
+  setSelectedCommandIndex: React.Dispatch<React.SetStateAction<number>>;
+  setCommandLine: React.Dispatch<React.SetStateAction<string>>;
+  setIsFocused: React.Dispatch<React.SetStateAction<boolean>>;
+  setActionMenu: React.Dispatch<React.SetStateAction<ActionMenu | null>>;
+  setNotice: React.Dispatch<React.SetStateAction<string>>;
+}
+
+/** Wheel: scroll the picker selection when it is open, else the results. */
+function scrollByWheel(wheel: 'up' | 'down', ctx: MouseContext): void {
+  const step = wheel === 'up' ? -WHEEL_ROWS : WHEEL_ROWS;
+  if (ctx.pickerOpen) {
+    ctx.setPickerIndex((index) => Math.max(0, Math.min(ctx.pickerEntryCount - 1, index + step)));
+    return;
+  }
+  handleNavigationKey({ pageUp: wheel === 'up', pageDown: wheel === 'down' }, WHEEL_ROWS, ctx.maxScrollTop, ctx.setScrollTop);
+}
+
+/** Click on a result row: focus the results on its line; a second click on the same row opens its actions. */
+function clickResultRow(index: number, ctx: MouseContext, lastClick: ClickStamp | undefined, now: number): ClickStamp | undefined {
+  const row = ctx.visibleRows[index];
+  const stamp = { row: ctx.scrollTop + index, time: now };
+  ctx.setIsFocused(true);
+  ctx.placeCursor(row, 'follow');
+  if (isDoubleClick(lastClick, stamp)) {
+    openActionMenu(ctx, row);
+    return undefined;
+  }
+  ctx.setActionMenu(null);
+  ctx.setNotice('Results: double click or Enter for actions · Esc/i prompt');
+  return stamp;
+}
+
+/**
+ * Apply one mouse report: wheel scrolls, a left click on a result row moves the cursor (double click
+ * opens the actions), on a picker or palette entry selects it, on a next-step hint puts it on the prompt.
+ * Returns the click a double click is measured from.
+ */
+export function handleMouseEvent(
+  event: MouseReport,
+  ctx: MouseContext,
+  lastClick: ClickStamp | undefined,
+  now = Date.now(),
+): ClickStamp | undefined {
+  if (event.wheel) {
+    scrollByWheel(event.wheel, ctx);
+    return lastClick;
+  }
+  if (event.button !== 0 || !event.pressed || event.motion) return lastClick;
+  const hit = hitMouseRegion(event.y, ctx.regions);
+  if (hit?.kind === 'results') return clickResultRow(hit.index, ctx, lastClick, now);
+  if (hit?.kind === 'picker') ctx.setPickerIndex(ctx.pickerScrollStart + hit.index);
+  else if (hit?.kind === 'palette') ctx.setSelectedCommandIndex(ctx.visibleSlashStart + hit.index);
+  else if (hit?.kind === 'hints') {
+    const hint = hintAt(ctx.hints, event.x);
+    if (hint) ctx.setCommandLine(hint);
+  }
+  return undefined;
+}
+
+/**
+ * Mouse tracking while `enabled`: reports come from a `data` listener on Ink's stdin (Ink reads it
+ * with `readable`/`read()`, which still emits `data`, and drops mouse reports before `useInput`).
+ * Turning it off or unmounting removes the listener and restores the terminal.
+ */
+function useMouseTracking(
+  enabled: boolean,
+  streams: { stdin: NodeJS.ReadableStream; stdout: NodeJS.WritableStream },
+  ctx: MouseContext,
+): void {
+  const ctxRef = useRef(ctx);
+  useEffect(() => {
+    ctxRef.current = ctx;
+  });
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const disable = enableMouseTracking((data) => streams.stdout.write(data));
+    let lastClick: ClickStamp | undefined;
+    const onData = (chunk: Buffer | string): void => {
+      for (const event of parseSgrMouse(chunk.toString())) lastClick = handleMouseEvent(event, ctxRef.current, lastClick);
+    };
+    streams.stdin.on('data', onData);
+    return () => {
+      streams.stdin.off('data', onData);
+      disable();
+    };
+  }, [enabled]);
 }
 
 function handleCommandInputEvent(
@@ -1813,6 +1985,15 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
   const useApp = ink.useApp;
   const useInput = ink.useInput;
   const useWindowSize = ink.useWindowSize;
+  const useStdin = ink.useStdin;
+  const useStdout = ink.useStdout;
+  const outputStream = options.renderOptions?.stdout ?? process.stdout;
+  const hyperlinks = supportsHyperlinks(process.env, 'isTTY' in outputStream && outputStream.isTTY === true);
+  // `/mouse` only changes the UI: answered here, before the command runner.
+  const submitCommand = (commandLine: string): Promise<InkReplCommandResponse> => {
+    const mouse = resolveMouseCommand(commandLine);
+    return mouse ? Promise.resolve(mouse) : options.onSubmitCommand(commandLine);
+  };
 
   interface PickerPanelProps {
     pickerMode: PickerMode;
@@ -1877,6 +2058,9 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
   function ReplInkApp(): React.ReactElement {
     const { exit } = useApp();
     const { rows, columns } = useWindowSize();
+    const { stdin } = useStdin();
+    const { stdout } = useStdout();
+    const [mouseEnabled, setMouseEnabled] = useState(false);
     const [commandLine, setCommandLine] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [isSearchMode, setIsSearchMode] = useState(false);
@@ -1984,9 +2168,11 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       [lines, folded, matches, searchFilter, searchQuery],
     );
     const displayLines = useMemo(() => {
-      const decoration = buildLineDecoration({ blocks, lines, folded, searchQuery, searchFilter });
+      const decoration = buildLineDecoration({
+        blocks, lines, folded, searchQuery, searchFilter, hyperlinks, workspaceRoot: displayWorkspace, allFiles: currentAllFiles,
+      });
       return visibleLines.map((line) => ({ ...line, text: decorateLine(line, decoration) }));
-    }, [visibleLines, searchFilter, searchQuery, folded, blocks, lines]);
+    }, [visibleLines, searchFilter, searchQuery, folded, blocks, lines, displayWorkspace, currentAllFiles]);
     const actionMenuLines = buildActionMenuLines(actionMenu);
     const nextStepHints = useMemo(
       () => (blocks.length > 0 ? getNextStepHints(displayLastFile, displayLastSymbol) : []),
@@ -2068,10 +2254,11 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       });
       setHistoryIndex(null);
       setIsRunning(true);
-      void options.onSubmitCommand(trimmed)
+      void submitCommand(trimmed)
         .then(response => {
           const body = response.output ?? '';
           appendBlock(trimmed, body);
+          setMouseEnabled((enabled) => response.mouse ?? enabled);
           setCommandLine('');
           setScrollTop(FOLLOW_TAIL);
           setNotice(`Executed ${response.command}`);
@@ -2135,6 +2322,40 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       maxScrollTop,
       setCursorScroll,
       setScrollTop,
+    });
+
+    useMouseTracking(mouseEnabled, { stdin, stdout }, {
+      regions: buildMouseRegions({
+        panelHeight,
+        resultRows: visibleRows.length,
+        pickerOpen: pickerMode !== 'none',
+        pickerRows: visiblePickerEntries.length,
+        pickerCountLine: pickerEntries.length > visiblePickerEntries.length,
+        actionMenuRows: actionMenuLines.length,
+        showHints: showNextStepHints,
+        paletteRows: visibleSlashSuggestions.length,
+        paletteCompletion: completionPreview.length > 0,
+        paletteArgsHint: argsHintLine !== undefined,
+        paletteWindow: slashWindowIndicator,
+      }),
+      visibleRows,
+      scrollTop: clampedScrollTop,
+      maxScrollTop,
+      pickerOpen: pickerMode !== 'none',
+      pickerScrollStart,
+      pickerEntryCount: pickerEntries.length,
+      visibleSlashStart,
+      hints: nextStepHints,
+      workspaceRoot: displayWorkspace,
+      allFiles: currentAllFiles,
+      placeCursor,
+      setScrollTop,
+      setPickerIndex,
+      setSelectedCommandIndex,
+      setCommandLine,
+      setIsFocused,
+      setActionMenu,
+      setNotice,
     });
 
     useInput((input, key) => {
