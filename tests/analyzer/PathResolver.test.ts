@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Parser } from "@/analyzer/Parser";
 import { normalizePath } from "@/analyzer/types";
 import { PathResolver } from "@/analyzer/utils/PathResolver";
@@ -359,5 +359,61 @@ describe("PathResolver - readResolverInputs", () => {
     expect(await inputs("missing/tsconfig.json")).toBeNull();
     expect(JSON.parse((await inputs("package.json"))!)).toEqual({ imports: [], entry: [null, null, null, null], fileDependencies: [] });
     expect(await inputs("tsconfig.json")).toBe("[]");
+  });
+});
+
+/** Candidates are probed in order and probing stops at the first file: a missed stat throws, which is costly. */
+describe("PathResolver - candidate probing", () => {
+  let root: string;
+  const write = (relative: string) => {
+    const file = path.join(root, relative);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, "");
+    return normalizePath(file);
+  };
+  const probes = (resolver: PathResolver) =>
+    vi.spyOn(resolver as unknown as { fileExists: (file: string) => Promise<boolean> }, "fileExists");
+
+  beforeEach(() => {
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-probe-")));
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("stops at the first existing candidate", async () => {
+    const main = write("src/main.ts");
+    const target = write("src/a.ts");
+    const resolver = new PathResolver(undefined, true, root);
+    const spy = probes(resolver);
+    expect(await resolver.resolve(main, "./a")).toBe(target);
+    const base = normalizePath(path.join(root, "src", "a"));
+    // The bare path, then the first extension: no other candidate is statted.
+    expect(spy.mock.calls.map(([file]) => normalizePath(file)).filter((file) => file.startsWith(base))).toEqual([base, target]);
+  });
+
+  it("keeps candidate order: an earlier extension wins, a later one is found when alone", async () => {
+    const main = write("src/main.ts");
+    const ts = write("src/a.ts");
+    write("src/a.js");
+    const js = write("src/b.js");
+    const index = write("src/c/index.ts");
+    const resolver = new PathResolver(undefined, true, root);
+    expect(await resolver.resolve(main, "./a")).toBe(ts);
+    expect(await resolver.resolve(main, "./b")).toBe(js);
+    expect(await resolver.resolve(main, "./c")).toBe(index);
+  });
+
+  it("returns null once every candidate misses", async () => {
+    const main = write("src/main.ts");
+    expect(await new PathResolver(undefined, true, root).resolve(main, "./missing")).toBeNull();
+  });
+
+  it("resolves a Python module from the nearest directory first", async () => {
+    const main = write("pkg/sub/main.py");
+    const near = write("pkg/sub/utils/db.py");
+    write("utils/db.py");
+    expect(await new PathResolver(undefined, true, root).resolve(main, "utils.db")).toBe(near);
   });
 });

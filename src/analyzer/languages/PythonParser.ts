@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Node, Parser } from "web-tree-sitter";
+import { firstNonNull, firstNonNullConcurrent } from "../../shared/concurrency";
 import { normalizePath } from "../../shared/path";
 import { FileReader } from "../FileReader";
 import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
@@ -239,11 +240,9 @@ export class PythonParser implements ILanguageAnalyzer {
     return this.firstExistingFile(moduleCandidates(currentDir, modulePath));
   }
 
-  /** First existing candidate in candidate order (normalized); the cheap probes run concurrently. */
-  private async firstExistingFile(candidates: readonly string[]): Promise<string | null> {
-    const exists = await Promise.all(candidates.map((candidate) => this.fileExists(candidate)));
-    const index = exists.indexOf(true);
-    return index === -1 ? null : normalizePath(candidates[index]);
+  /** First existing candidate in candidate order (normalized); by default, probes stop at the first hit. */
+  private firstExistingFile(candidates: readonly string[], find = firstNonNull): Promise<string | null> {
+    return find(candidates, async (candidate) => ((await this.fileExists(candidate)) ? normalizePath(candidate) : null));
   }
 
   /**
@@ -283,8 +282,8 @@ export class PythonParser implements ILanguageAnalyzer {
     }
     addDir(this.rootDir);
 
-    // Only stats: probe every level concurrently, keep the nearest hit.
-    return this.firstExistingFile([...dirs.values()].flatMap((dir) => moduleCandidates(dir, modulePath)));
+    // Absolute imports mostly miss (stdlib, site-packages): probe every level at once, keep the nearest hit.
+    return this.firstExistingFile([...dirs.values()].flatMap((dir) => moduleCandidates(dir, modulePath)), firstNonNullConcurrent);
   }
 
   /**

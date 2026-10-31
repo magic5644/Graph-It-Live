@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapWithConcurrency } from '@/shared/concurrency';
+import { firstNonNull, firstNonNullConcurrent, mapWithConcurrency } from '@/shared/concurrency';
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 1));
 
@@ -57,5 +57,62 @@ describe('mapWithConcurrency', () => {
         throw new Error(`failed ${item}`);
       })
     ).rejects.toThrow('failed 1');
+  });
+});
+
+describe('firstNonNull', () => {
+  it('returns the first non-null result in item order and stops there', async () => {
+    const calls: number[] = [];
+    const result = await firstNonNull([1, 2, 3, 4], async (item) => {
+      calls.push(item);
+      return item >= 2 ? `hit ${item}` : null;
+    });
+    expect(result).toBe('hit 2');
+    expect(calls).toEqual([1, 2]);
+  });
+
+  it('keeps falsy non-null results', async () => {
+    expect(await firstNonNull([0, 1], async (item) => item)).toBe(0);
+    expect(await firstNonNull(['', 'a'], async (item) => item)).toBe('');
+  });
+
+  it('returns null for no items or no hit', async () => {
+    expect(await firstNonNull([], async () => 'x')).toBeNull();
+    expect(await firstNonNull([1, 2], async () => null)).toBeNull();
+  });
+
+  it('propagates a rejection and stops', async () => {
+    const calls: number[] = [];
+    await expect(firstNonNull([1, 2], async (item) => {
+      calls.push(item);
+      throw new Error(`boom ${item}`);
+    })).rejects.toThrow('boom 1');
+    expect(calls).toEqual([1]);
+  });
+});
+
+describe('firstNonNullConcurrent', () => {
+  it('starts every call and returns the first non-null result in item order', async () => {
+    const calls: number[] = [];
+    const result = await firstNonNullConcurrent([3, 1, 2], async (item) => {
+      calls.push(item);
+      await new Promise((resolve) => setTimeout(resolve, item));
+      return item < 3 ? `hit ${item}` : null;
+    });
+    expect(result).toBe('hit 1');
+    expect(calls).toEqual([3, 1, 2]);
+  });
+
+  it('keeps falsy non-null results and returns null without a hit', async () => {
+    expect(await firstNonNullConcurrent([0, 1], async (item) => item)).toBe(0);
+    expect(await firstNonNullConcurrent([], async () => 'x')).toBeNull();
+    expect(await firstNonNullConcurrent([1, 2], async () => null)).toBeNull();
+  });
+
+  it('rejects when a call rejects', async () => {
+    await expect(firstNonNullConcurrent([1, 2], async (item) => {
+      if (item === 2) throw new Error('boom');
+      return null;
+    })).rejects.toThrow('boom');
   });
 });

@@ -69,6 +69,7 @@ describe('exportsOnlyAsDefault', () => {
     'export default function* a() {}',
     'export default class a {}',
     'export default abstract class a {}',
+    'export\n  default\tfunction a() {}',
   ])('is true for %s', (source) => {
     expect(exportsOnlyAsDefault('/x/m.ts', source, 'a')).toBe(true);
   });

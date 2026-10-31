@@ -28,3 +28,29 @@ export async function mapWithConcurrency<T, R>(
   if (failure) throw failure.error;
   return results;
 }
+
+/**
+ * First non-null result of `fn` over `items`, in item order. Calls run one at a time and stop at the
+ * first hit: for lookups (file probes, nearest-first walks) where the first candidates usually match.
+ */
+export async function firstNonNull<T, R>(
+  items: readonly T[],
+  fn: (item: T) => Promise<R | null>,
+  index = 0,
+): Promise<R | null> {
+  if (index >= items.length) return null;
+  const result = await fn(items[index]);
+  return result ?? firstNonNull(items, fn, index + 1);
+}
+
+/**
+ * `firstNonNull`, but every call starts at once: for lookups that usually miss (all candidates get
+ * probed anyway), where waiting on each call in turn only adds latency.
+ */
+export async function firstNonNullConcurrent<T, R>(
+  items: readonly T[],
+  fn: (item: T) => Promise<R | null>,
+): Promise<R | null> {
+  const results = await Promise.all(items.map(fn));
+  return results.find((result) => result !== null) ?? null;
+}

@@ -2,7 +2,7 @@ import { CSharpParser } from '@/analyzer/languages/CSharpParser';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock WasmParserFactory to avoid WASM initialization in unit tests
 vi.mock('@/analyzer/languages/WasmParserFactory', () => {
@@ -215,5 +215,55 @@ describe('CSharpParser', () => {
             fs.rmSync(root, { recursive: true, force: true });
             fs.rmSync(outside, { recursive: true, force: true });
           });
+
+      describe('namespace lookup in a workspace', () => {
+          let root: string;
+          let scoped: CSharpParser;
+          const write = (relative: string) => {
+              const file = path.join(root, relative);
+              fs.mkdirSync(path.dirname(file), { recursive: true });
+              fs.writeFileSync(file, '');
+              return file.replaceAll('\\', '/');
+          };
+          const resolve = (namespace: string) => scoped.resolvePath(path.join(root, 'Program.cs'), namespace);
+
+          beforeEach(() => {
+              root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-csharp-ns-')));
+              scoped = new CSharpParser(root, process.cwd());
+          });
+          afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+          it('tries the shortest suffix first and picks the first .cs file alphabetically', async () => {
+              const first = write('Services/A.cs');
+              write('Services/B.cs');
+              write('App/Services/C.cs');
+              expect(await resolve('Company.App.Services')).toBe(first);
+          });
+
+          it('moves to a longer suffix when a shorter one has no .cs file', async () => {
+              write('Services/readme.md');
+              const nested = write('App/Services/C.cs');
+              expect(await resolve('Company.App.Services')).toBe(nested);
+          });
+
+          it('falls back to a directory named after the last segment, up to three levels deep', async () => {
+              const found = write('src/Lib/Widgets/W.cs');
+              expect(await resolve('Acme.Widgets')).toBe(found);
+          });
+
+          it('does not search past three levels, hidden directories or node_modules', async () => {
+              write('a/b/c/Deep/D.cs');
+              write('.hidden/Hidden/H.cs');
+              write('node_modules/Pkg/P.cs');
+              expect(await resolve('Acme.Deep')).toBeNull();
+              expect(await resolve('Acme.Hidden')).toBeNull();
+              expect(await resolve('Acme.Pkg')).toBeNull();
+          });
+
+          it('returns null when the matching directory holds no .cs file', async () => {
+              write('src/Empty/notes.txt');
+              expect(await resolve('Acme.Empty')).toBeNull();
+          });
+      });
   });
 });
