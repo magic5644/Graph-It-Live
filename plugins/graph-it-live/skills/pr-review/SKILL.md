@@ -99,7 +99,7 @@ The report includes a top-level `risk`, `score`, `changedFiles`, `symbols`, `lim
 | `critical` | Highest static risk | Block; require explicit mitigation and targeted verification |
 
 Never call a review complete when `isPartial` is `true` or `limitations` is non-empty. Limitations can
-mean unsupported file types, added/deleted/unreadable files, parser failures, unavailable cycle/unused
+mean unsupported file types, unreadable files (symbolic links, binaries, files over 2 MiB), parser failures, unavailable cycle/unused
 analysis, configured file limits, or an impact traversal that reached its depth limit.
 
 No reported breaking signature does **not** establish behavioral safety. Static evidence supplements;

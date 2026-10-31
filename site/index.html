@@ -550,7 +550,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       <div class="card">
         <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h9"/><circle cx="19" cy="17" r="2"/></svg></div>
         <h3>Portable agent plugin</h3>
-        <p>One package bundling the MCP server plus four skills: <code>graph-it-live</code>, <code>onboarding-express</code>, <code>dead-code-hunter</code> and <code>pr-review</code>.</p>
+        <p>One package bundling the MCP server plus five skills: <code>graph-it-live</code>, <code>graph-it-refactor</code>, <code>onboarding-express</code>, <code>dead-code-hunter</code> and <code>pr-review</code>.</p>
         <p style="margin-top:12px">Plugin manifests pin a published CLI version and use <code>npx --prefer-offline</code>. Skills discover the installed capabilities, prefer the CLI, and fall back to MCP equivalents.</p>
         <ul>
           <li>Claude Code &amp; GitHub Copilot CLI marketplaces</li>
@@ -742,7 +742,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       <h3>CI review gate</h3>
       <p>
         <code>graph-it review-pr</code> runs a deterministic local diff review before CI: exported signature changes,
-        bounded dependent-symbol impact, cycle evidence, unused exports, test candidates and consumer standing.
+        bounded dependent-symbol impact, deleted and moved modules, import cycles the diff introduces, unused exports, test candidates and consumer standing.
         The reusable GitHub Action is informational by default — set <code>fail-on-risk: high</code> to gate a pull request.
       </p>
     </div>
