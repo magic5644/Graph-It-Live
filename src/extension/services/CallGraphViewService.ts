@@ -378,9 +378,9 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    */
   forceReindex(): Promise<void> {
     if (this.disposed) return Promise.resolve();
-    if (this.reindexPromise) return this.reindexPromise;
+    if (this.reindexPromise !== null) return this.reindexPromise;
     this.reindexing = true;
-    const operation = Promise.allSettled([...this.activeOperations]).then(async () => {
+    const operation = Promise.allSettled(this.activeOperations).then(async () => {
       if (!this.disposed) await this.doForceReindex();
     });
     const tracked = this.trackOperation(operation).finally(() => {
@@ -396,7 +396,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    * configuration that changed (#432). The next `show()` re-indexes the workspace.
    */
   invalidateIndex(): Promise<void> {
-    if (this.disposed || this.reindexPromise) return this.reindexPromise ?? Promise.resolve();
+    if (this.disposed || this.reindexPromise !== null) return this.reindexPromise ?? Promise.resolve();
     const operation = Promise.allSettled(this.activeOperations).then(() => this.dropIndex());
     return this.trackOperation(operation);
   }
@@ -472,7 +472,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   private async waitForActiveOperations(): Promise<void> {
     while (this.activeOperations.size > 0) {
       // eslint-disable-next-line no-await-in-loop -- drain: operations can start while we wait, so re-check the set after each settle
-      await Promise.allSettled([...this.activeOperations]);
+      await Promise.allSettled(this.activeOperations);
     }
   }
 

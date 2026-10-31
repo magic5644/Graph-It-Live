@@ -202,26 +202,8 @@ export class Parser implements ILanguageAnalyzer {
       }
 
       // Skip type-only imports if configured to ignore them
-      if (this.ignoreTypeImports) {
-        const fullMatch = match[0].trim();
-
-        // `import type ...` / `export type ...`
-        if (/^(import|export)\s+type\b/.test(fullMatch)) {
-          continue;
-        }
-
-        // TS 5+ type-only named imports/exports: `import { type Foo } from '...'`
-        const braceMatch = fullMatch.match(/^(import|export)\s+\{([\s\S]*?)\}\s+from\b/);
-        if (braceMatch) {
-          const specifiers = braceMatch[2]
-            .split(',')
-            .map((s) => s.trim())
-            .filter(Boolean);
-
-          if (specifiers.length > 0 && specifiers.every((s) => /^type\b/.test(s))) {
-            continue;
-          }
-        }
+      if (this.ignoreTypeImports && Parser.isTypeOnlyImport(match[0].trim())) {
+        continue;
       }
 
       seen.add(module);
@@ -235,6 +217,25 @@ export class Parser implements ILanguageAnalyzer {
         line,
       });
     }
+  }
+
+  /** `import type ...`, or TS 5+ named imports/exports whose specifiers are all `type`. */
+  private static isTypeOnlyImport(fullMatch: string): boolean {
+    // `import type ...` / `export type ...`
+    if (/^(import|export)\s+type\b/.test(fullMatch)) {
+      return true;
+    }
+
+    // TS 5+ type-only named imports/exports: `import { type Foo } from '...'`
+    const braceMatch = /^(import|export)\s+\{([\s\S]*?)\}\s+from\b/.exec(fullMatch);
+    if (!braceMatch) {
+      return false;
+    }
+    const specifiers = braceMatch[2]
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+    return specifiers.length > 0 && specifiers.every((s) => /^type\b/.test(s));
   }
 
   private getLineNumber(content: string, index: number): number {
@@ -262,7 +263,7 @@ export class Parser implements ILanguageAnalyzer {
   /**
    * ILanguageAnalyzer implementation: Resolve module path
    */
-  async resolvePath(
+  resolvePath(
     fromFile: string,
     moduleSpecifier: string,
   ): Promise<string | null> {
@@ -275,7 +276,7 @@ export class Parser implements ILanguageAnalyzer {
    * ILanguageAnalyzer implementation: Resolve module path, reporting a target
    * outside the workspace root
    */
-  async resolveImport(
+  resolveImport(
     fromFile: string,
     moduleSpecifier: string,
   ): Promise<ImportResolution> {
