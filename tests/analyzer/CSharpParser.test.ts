@@ -1,4 +1,5 @@
 import { CSharpParser } from '@/analyzer/languages/CSharpParser';
+import { normalizePath } from '@/shared/path';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -223,7 +224,7 @@ describe('CSharpParser', () => {
               const file = path.join(root, relative);
               fs.mkdirSync(path.dirname(file), { recursive: true });
               fs.writeFileSync(file, '');
-              return file.replaceAll('\\', '/');
+              return normalizePath(file);
           };
           const resolve = (namespace: string) => scoped.resolvePath(path.join(root, 'Program.cs'), namespace);
 
