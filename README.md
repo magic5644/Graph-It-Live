@@ -178,10 +178,10 @@ Declare your intended architecture in `graphit.architecture.json` at the workspa
 *Write `graphit.architecture.json` at the workspace root, then click *Refresh*: click a rule to list the file pairs that break it, then a file to open it.*
 
 <div align="center">
-<img src="media/cli-check-architecture.png" alt="Terminal running graph-it check-architecture on Graph-It-Live: passed true, 8 rules, 0 violations, exit code 0" width="800"/>
+<img src="media/cli-check-architecture-report.png" alt="Terminal running graph-it check-architecture on the rules test fixture: FAILED with 3 new error violations, a rules table, new violations grouped by rule with the importing line, one unmatched file, exit code 1" width="800"/>
 </div>
 
-*`graph-it check-architecture` on this repository: 8 rules, no violation, exit code 0.*
+*`graph-it check-architecture` on the rules test fixture: verdict, totals, rules table, then each new violation as `importing/file.ts:line → target`. Add `--verbose` to list baselined violations, `--format markdown` for a PR comment.*
 
 ### Unused dependencies and impact analysis
 
@@ -233,6 +233,14 @@ graph-it --help                       Show all commands and options
 Analysis commands support `--format json|toon|markdown`. `trace`, `path` and `architecture` also support `--format mermaid`, `architecture --matrix` supports `--format csv`, and `check-architecture` supports `--format sarif`. Use `--workspace <path>` or `-w` to analyze a project other than the current directory.
 
 See the [complete CLI reference](docs/CLI.md), including installation troubleshooting, REPL commands, output formats, and tool details.
+
+Run `graph-it` without arguments for the interactive REPL. Press `Esc` on an empty line to move into the results: `j`/`k` move a cursor, `[`/`]` jump between results, `Space` folds one, `z` folds all, and `Enter` on a file or symbol line opens its actions (`/explain`, `/check-dependencies`, `/trace`, Open in editor). File rows are clickable links in terminals that support OSC 8; `/mouse on` adds wheel and click support.
+
+<div align="center">
+<img src="media/repl-results-navigation.gif" alt="graph-it REPL on this repository: two commands run, Esc moves focus into the results, the cursor jumps between result titles, the first result folds, Enter on a file line opens the actions menu, z folds and unfolds every result" width="800"/>
+</div>
+
+*The REPL on this repository: results focus, jumps between results, folding and the actions menu ([key reference](docs/CLI.md#results-navigation)).*
 
 ### Unified graph context
 
