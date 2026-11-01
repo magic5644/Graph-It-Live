@@ -251,7 +251,7 @@ commands/architecture.ts
 
 ```
 commands/checkArchitecture.ts
-├─→ Args: [--config <file>] [--baseline <file>] [--update-baseline] [--format text|json|toon|markdown|sarif]
+├─→ Args: [--config <file>] [--baseline <file>] [--update-baseline] [--verbose] [--format text|json|toon|markdown|sarif]
 ├─→ Checks every static import against graphit.architecture.json rules and the baseline
 └─→ Exits 1 on a new error-severity violation (report still printed); --update-baseline rewrites the baseline
 ```
