@@ -4,8 +4,9 @@
  * NO vscode import — pure Node.js analyzer layer.
  *
  * Flow:
- *   1. extractKeywords(question) — LLM or heuristic
- *   2. scoreSeedNodes(keywords) — FTS5 SQL query
+ *   1. extractKeywords(question) — LLM or multilingual heuristic (query/keywords)
+ *   2. scoreSeedNodes(keywords) — FTS5 or LIKE match, weighted by keyword
+ *      specificity, plus a file-path bonus; filler-only matches are dropped
  *   3. bfsFromSeeds(db, seeds, depth) — multi-seed BFS traversal
  *   4. fetchEdges between visited nodes
  *   5. toCompactJson(nodes, edges, budget) — compact serialization
@@ -14,24 +15,22 @@
 import { normalizePath } from '@/shared/path';
 import type { QueryRequest, QueryResult, QueryResultEdge, QueryResultNode } from '@/shared/query-types';
 import { estimateTokens } from '@/shared/toon';
-import type { Database } from 'sql.js';
+import type { Database, SqlValue } from 'sql.js';
 import { bfsFromSeeds, splitIdentifier } from './callgraph/CallGraphQuery';
 import {
   compileFileScope,
   type CompiledFileScope,
 } from './graph-context/FileScopeMatcher';
 import type { LlmClient } from './llm/LlmClient';
+import { extractQueryKeywords, foldAccents } from './query/keywords';
 
-// ---------------------------------------------------------------------------
-// Stop words (EN + FR + code noise)
-// ---------------------------------------------------------------------------
-
-const STOPWORDS = new Set([
-  'the','and','for','with','from','that','this','have','not','how','does','what','where','why','when',
-  'les','des','une','dans','pour','avec','sur','par','qui','comment','est','sont','fait',
-  'src','dist','index','utils','types','test','spec','impl',
-  'function','class','method','interface','export','import','default','const','return','async','await',
-]);
+const MATCH_LIMIT = 50;
+// A keyword matching MATCH_LIMIT names weighs 1; rarer keywords weigh more (up to ~5.7),
+// filler words matching more names weigh less than 1.
+const SPECIFICITY_SCALE = MATCH_LIMIT;
+const FILLER_WEIGHT = 1;
+// A keyword found in the file path counts half as much as one found in the name.
+const PATH_MATCH_RATIO = 0.5;
 
 const UNSCOPED_FILE_MATCHER: CompiledFileScope = {
   sqlGlob: '*',
@@ -156,7 +155,7 @@ export class QueryEngine {
             {
               role: 'system',
               content:
-                'You are a code search assistant. Extract technical keywords from the user\'s question. Return a JSON array of strings only, no explanation.',
+                'You are a code search assistant. Extract technical keywords from the user\'s question, in English (translate non-English words), as identifier stems likely to appear in code names (e.g. "reference", "compute", "parse"). Return a JSON array of strings only, no explanation.',
             },
             {
               role: 'user',
@@ -180,8 +179,7 @@ export class QueryEngine {
       }
     }
 
-    // Heuristic fallback: split identifiers, remove stopwords
-    return splitIdentifier(question).filter(t => !STOPWORDS.has(t));
+    return extractQueryKeywords(question);
   }
 
   // -------------------------------------------------------------------------
@@ -209,82 +207,106 @@ export class QueryEngine {
     keywords: string[],
     fileScope: CompiledFileScope = UNSCOPED_FILE_MATCHER,
   ): QueryResultNode[] {
-    if (keywords.length === 0) return [];
-
+    // Dedupe: LLM keywords bypass extractQueryKeywords (`Reference`, `reference`).
+    const tokenLists = [...new Map(
+      keywords
+        .map(keyword => splitIdentifier(foldAccents(keyword)))
+        .filter(tokens => tokens.length > 0)
+        .map(tokens => [tokens.join(' '), tokens]),
+    ).values()];
+    // The first token is the most specific: it drives the LIKE match and the path bonus.
+    const pathTerms = tokenLists.map(tokens => tokens[0]);
     const results = new Map<string, QueryResultNode>();
+    const nameTerms = new Map<string, Set<string>>();
+    const termWeights: Array<[term: string, weight: number]> = [];
 
-    for (const keyword of keywords) {
-      const tokens = splitIdentifier(keyword);
-      if (tokens.length === 0) continue;
-
-      if (this.hasFts5()) {
-        // FTS5 prefix search
-        const ftsQuery = tokens.map(t => `${t}*`).join(' ');
-        try {
-          const rows = this.db.exec(
-            `SELECT n.id, n.name, n.type, n.path, n.start_line
-             FROM nodes n
-             JOIN nodes_fts f ON n.rowid = f.rowid
-             WHERE nodes_fts MATCH ?
-               AND n.path GLOB ?
-             LIMIT 50`,
-            [ftsQuery, fileScope.sqlGlob],
-          );
-          for (const row of rows[0]?.values ?? []) {
-            this._accumulateNode(results, row, fileScope);
-          }
-        } catch {
-          // Unexpected error — fall back to LIKE for this keyword
-          this._scoreBySingleLike(results, keyword, fileScope);
-        }
-      } else {
-        // LIKE fallback — case-insensitive prefix match on each token
-        this._scoreBySingleLike(results, keyword, fileScope);
+    for (const tokens of tokenLists) {
+      const { rows, hits } = this.matchKeyword(tokens, pathTerms, fileScope);
+      const weight = Math.log2(1 + SPECIFICITY_SCALE / Math.max(hits, 1));
+      termWeights.push([tokens[0], weight]);
+      for (const row of rows) {
+        const id = this._accumulateNode(results, row, fileScope, weight);
+        if (id !== undefined) nameTerms.set(id, (nameTerms.get(id) ?? new Set()).add(tokens[0]));
       }
     }
 
-    return [...results.values()].sort((a, b) => b.relevanceScore - a.relevanceScore);
+    const weights = new Map(termWeights);
+    const scored = [...results.values()].map(node => {
+      const covered = addPathAndCoverage(node, nameTerms.get(node.id) ?? new Set(), termWeights);
+      return { node, specific: covered.some(term => (weights.get(term) ?? 0) >= FILLER_WEIGHT) };
+    });
+    // Drop nodes that only match filler keywords (`ou` in countFiles, round, group)
+    // when nodes matching a specific keyword exist.
+    const hasSpecific = scored.some(candidate => candidate.specific);
+    return scored
+      .filter(candidate => candidate.specific || !hasSpecific)
+      .map(candidate => candidate.node)
+      .sort((a, b) => b.relevanceScore - a.relevanceScore);
   }
 
-  private _scoreBySingleLike(
-    results: Map<string, QueryResultNode>,
-    keyword: string,
+  /** Rows whose name matches one keyword, and how many names match it in total. */
+  private matchKeyword(
+    tokens: string[],
+    pathTerms: string[],
     fileScope: CompiledFileScope,
-  ): void {
-    const tokens = splitIdentifier(keyword);
-    if (tokens.length === 0) return;
-    // Use the first token (most specific) for LIKE match to keep result set small
-    const pattern = `%${tokens[0]}%`;
+  ): { rows: SqlValue[][]; hits: number } {
+    if (this.hasFts5()) {
+      try {
+        const rows = this.db.exec(
+          `SELECT n.id, n.name, n.type, n.path, n.start_line
+           FROM nodes n
+           JOIN nodes_fts f ON n.rowid = f.rowid
+           WHERE nodes_fts MATCH ?
+             AND n.path GLOB ?
+           LIMIT ${MATCH_LIMIT}`,
+          [tokens.map(t => `${t}*`).join(' '), fileScope.sqlGlob],
+        );
+        const values = rows[0]?.values ?? [];
+        return { rows: values, hits: values.length };
+      } catch {
+        // Unexpected FTS error — fall back to LIKE for this keyword
+      }
+    }
+    return this.matchKeywordByLike(tokens[0], pathTerms, fileScope);
+  }
+
+  private matchKeywordByLike(
+    term: string,
+    pathTerms: string[],
+    fileScope: CompiledFileScope,
+  ): { rows: SqlValue[][]; hits: number } {
+    // Keep the LIMIT window on names whose path also holds other keywords
+    // (`reference` names under `…/python/…` before unrelated ones).
+    const pathRank = pathTerms.map(() => '(path LIKE ?)').join(' + ');
     try {
       const rows = this.db.exec(
-        `SELECT id, name, type, path, start_line
+        `SELECT id, name, type, path, start_line, COUNT(*) OVER () AS hits
          FROM nodes
          WHERE name LIKE ? COLLATE NOCASE
            AND path GLOB ?
-         LIMIT 50`,
-        [pattern, fileScope.sqlGlob],
+         ORDER BY ${pathRank} DESC, rowid
+         LIMIT ${MATCH_LIMIT}`,
+        [`%${term}%`, fileScope.sqlGlob, ...pathTerms.map(pathTerm => `%${pathTerm}%`)],
       );
-      for (const row of rows[0]?.values ?? []) {
-        this._accumulateNode(results, row, fileScope);
-      }
+      const values = rows[0]?.values ?? [];
+      return { rows: values, hits: Number(values[0]?.[5] ?? 0) };
     } catch {
-      // DB error — skip
+      return { rows: [], hits: 0 }; // DB error — skip this keyword
     }
   }
 
   private _accumulateNode(
     results: Map<string, QueryResultNode>,
-    // sql.js SqlValue = string | number | null | Uint8Array — we only use string/number cols
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    row: any[],
+    row: SqlValue[],
     fileScope: CompiledFileScope,
-  ): void {
+    weight: number,
+  ): string | undefined {
     const nodePath = normalizePath(row[3] as string);
-    if (!fileScope.matches(nodePath)) return;
+    if (!fileScope.matches(nodePath)) return undefined;
 
     const id = row[0] as string;
     const existing = results.get(id);
-    const score = (existing?.relevanceScore ?? 0) + 1;
+    const score = (existing?.relevanceScore ?? 0) + weight;
     results.set(id, {
       id,
       name: row[1] as string,
@@ -293,6 +315,7 @@ export class QueryEngine {
       startLine: (row[4] as number | null) ?? undefined,
       relevanceScore: score,
     });
+    return id;
   }
 
   // -------------------------------------------------------------------------
@@ -480,6 +503,29 @@ function fitNodesToBudget<N extends { id: string }, E extends QueryResultEdge | 
     }
   }
   return build(lo);
+}
+
+/**
+ * Adds the path bonus for keywords found in the file path but not in the name, then
+ * multiplies the score by the number of distinct keywords covered, so a node matching
+ * `reference` under `…/python/…` outranks one matching a single rare keyword.
+ * Returns the covered keywords.
+ */
+function addPathAndCoverage(
+  node: QueryResultNode,
+  nameTerms: Set<string>,
+  termWeights: Array<[term: string, weight: number]>,
+): string[] {
+  const path = foldAccents(node.path);
+  const covered = new Set(nameTerms);
+  let score = node.relevanceScore;
+  for (const [term, weight] of termWeights) {
+    if (covered.has(term) || !path.includes(term)) continue;
+    score += weight * PATH_MATCH_RATIO;
+    covered.add(term);
+  }
+  node.relevanceScore = Math.round(score * covered.size * 100) / 100;
+  return [...covered];
 }
 
 interface CompactEdge {

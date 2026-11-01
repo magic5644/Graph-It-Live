@@ -1,5 +1,11 @@
 import type { QueryEngine } from '@/analyzer/QueryEngine';
 import { splitIdentifier } from '@/analyzer/callgraph/CallGraphQuery';
+import {
+  extractQueryKeywords,
+  foldAccents,
+  isQueryStopword,
+  questionTerms,
+} from '@/analyzer/query/keywords';
 import { normalizePath } from '@/shared/path';
 import type {
   GraphContextMode,
@@ -7,14 +13,6 @@ import type {
   GraphContextRelation,
 } from '@/shared/graph-context-types';
 import { compileFileScope } from './FileScopeMatcher';
-
-const STOPWORDS = new Set([
-  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'have', 'not', 'how', 'does', 'what',
-  'where', 'why', 'when', 'les', 'des', 'une', 'dans', 'pour', 'avec', 'sur', 'par', 'qui',
-  'comment', 'est', 'sont', 'fait', 'src', 'dist', 'index', 'utils', 'types', 'test', 'spec',
-  'impl', 'function', 'class', 'method', 'interface', 'export', 'import', 'default', 'const',
-  'return', 'async', 'await',
-]);
 
 const WINDOWS_ABSOLUTE_PATH = /^[a-zA-Z]:\//;
 // Outweighs every per-keyword score so a name equal to a whole question word ranks
@@ -35,6 +33,9 @@ export interface GraphContextScorerOptions {
 export class GraphContextScorer {
   private readonly queryEngine: Pick<QueryEngine, 'scoreSeedNodes'> | undefined;
   private readonly workspaceRoot: string;
+  // scoreRelation runs once per traversed edge with the same question: tokenize once.
+  private lastQuestion: string | undefined;
+  private lastQuestionTokens = new Set<string>();
 
   constructor(options: GraphContextScorerOptions) {
     this.queryEngine = options.queryEngine;
@@ -42,7 +43,7 @@ export class GraphContextScorer {
   }
 
   extractKeywords(question: string): string[] {
-    return [...new Set(splitIdentifier(question).filter(token => !STOPWORDS.has(token)))];
+    return extractQueryKeywords(question);
   }
 
   scoreSearchNodes(
@@ -54,9 +55,9 @@ export class GraphContextScorer {
     if (keywords.length === 0) return [];
 
     const ftsScores = this.getFtsScores(keywords, scope);
-    const questionTokens = new Set(splitIdentifier(question));
+    const questionTokens = this.questionTokens(question);
     const questionIdentifiers = new Set(
-      question.toLowerCase().split(/[^\w$]+/).filter(word => !STOPWORDS.has(word)),
+      question.toLowerCase().split(/[^\p{L}\p{N}_$]+/u).filter(word => word && !isQueryStopword(word)),
     );
 
     return nodes
@@ -74,7 +75,7 @@ export class GraphContextScorer {
     question: string,
     node: GraphContextNode,
   ): number {
-    const questionTokens = new Set(splitIdentifier(question));
+    const questionTokens = this.questionTokens(question);
     let score = relationPriority(mode, relation);
 
     if (hasIntentStem(questionTokens, ['call', 'flow'])) {
@@ -89,6 +90,15 @@ export class GraphContextScorer {
     if (node.kind === 'test') score += mode === 'refactor' ? -60 : 10;
 
     return score;
+  }
+
+  /** Raw question tokens plus glossary terms, so intents work in every language (`appel` → call). */
+  private questionTokens(question: string): Set<string> {
+    if (question !== this.lastQuestion) {
+      this.lastQuestion = question;
+      this.lastQuestionTokens = new Set([...splitIdentifier(question), ...questionTerms(question)]);
+    }
+    return this.lastQuestionTokens;
   }
 
   private getFtsScores(keywords: string[], scope: string | undefined): Map<string, number> {
@@ -124,11 +134,13 @@ export class GraphContextScorer {
         ?? 0;
     let score = ftsScore * 20 + keywordScore(node, keywords);
     if (questionIdentifiers.has(node.name.toLowerCase())) score += EXACT_IDENTIFIER_SCORE;
+    // Kind and intent bonuses rank nodes the question matches; alone they would seed every file.
+    if (score === 0) return 0;
 
     if (questionTokens.has(node.kind)) score += 8;
     if (questionTokens.has('file') && node.kind === 'file') score += 8;
     if (questionTokens.has('caller') && node.kind === 'symbol') score += 4;
-    if (score > 0 && node.kind === 'symbol') score += 1;
+    if (node.kind === 'symbol') score += 1;
     // A test named after the feature (`dispatchedCommands`) otherwise outranks the
     // code the question is about; keep tests first only when the question asks for them.
     if (node.kind === 'test' && !hasIntentStem(questionTokens, ['test', 'spec'])) score /= 4;
@@ -138,9 +150,11 @@ export class GraphContextScorer {
 }
 
 function keywordScore(node: GraphContextNode, keywords: string[]): number {
-  const normalizedName = node.name.toLowerCase();
-  const nameTokens = new Set(splitIdentifier(node.name));
-  const pathTokens = new Set(splitIdentifier(node.path ?? ''));
+  const normalizedName = foldAccents(node.name);
+  const normalizedPath = foldAccents(node.path ?? '');
+  // Split before folding: folding lowercases and would hide camelCase boundaries.
+  const nameTokens = new Set(splitIdentifier(node.name).map(foldAccents));
+  const pathTokens = new Set(splitIdentifier(node.path ?? '').map(foldAccents));
   let score = 0;
 
   for (const keyword of keywords) {
@@ -148,7 +162,7 @@ function keywordScore(node: GraphContextNode, keywords: string[]): number {
     else if (normalizedName.startsWith(keyword)) score += 10;
     if (nameTokens.has(keyword)) score += 8;
     if (pathTokens.has(keyword)) score += 4;
-    else if (node.path?.toLowerCase().includes(keyword)) score += 2;
+    else if (normalizedPath.includes(keyword)) score += 2;
   }
 
   return score;
