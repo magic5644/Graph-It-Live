@@ -16,11 +16,21 @@
 
 Graph-It-Live analyzes imports, symbols, calls, cycles, unused exports, and change impact. Use it as a VS Code extension, a standalone CLI, or an MCP/native tool provider for GitHub Copilot and other AI clients. Analysis runs locally and returns evidence from your codebase.
 
-### ▶ Watch the 75-second tour
+### ▶ Watch the videos
+
+Click an image to play its video (sound on).
+
+**The 75-second tour**
 
 [![Graph-It-Live 75-second tour: the dependency graph in VS Code, coloured by import clusters](media/graph-it-live-promo-poster.png)](media/graph-it-live-promo.mp4)
 
-Click the image to play the video (sound on). It walks through the file graph with Louvain import clusters, the Dependency Structure Matrix, boundary rules declared in `graphit.architecture.json`, and an AI agent fixing a rule violation through the Graph-It-Live MCP server.
+It walks through the file graph with Louvain import clusters, the Dependency Structure Matrix, boundary rules declared in `graphit.architecture.json`, and an AI agent fixing a rule violation through the Graph-It-Live MCP server.
+
+**A real architecture fix in 120 seconds**
+
+[![Graph-It-Live 120-second architecture fix: before and after diagram where src/shared stops importing src/analyzer and the analyzer depends on interfaces in src/shared](media/graph-it-live-architecture-fix-poster.png)](media/graph-it-live-architecture-fix.mp4)
+
+It replays how this repository fixed issue #434, with real outputs. You see a circular import in the live dependency graph (ReactFlow) and units in layers with their cycle in the Architecture view, both on `tests/fixtures/workspaces-project`. Then come the call graph, the matrix cycle between `analyzer` and `shared`, and `graph-it check-architecture` failing on 12 violations. Next, the REPL walks the importers, an AI agent extracts interfaces into `src/shared` through the MCP server to invert the dependency, and the review gate scores the pull request. The check ends green.
 
 ## Table of Contents
 
