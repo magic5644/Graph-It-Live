@@ -281,7 +281,7 @@ Change the rule only when the architecture itself changed. Baseline a violation 
 
 ### Unmatched files
 
-The Rules panel shows *N files in no element*; `graph-it check-architecture` lists them under `unmatchedFiles`.
+The Rules panel shows *N files in no element*; `graph-it check-architecture` lists them under *Unmatched files* (`unmatchedFiles` in `json` and `toon`).
 
 1. Run `graph-it check-architecture` to list the files.
 2. Add an element that selects them, or widen the `path`, `unit` or `role` of an existing one.
@@ -328,9 +328,9 @@ Violating edges are dashed red; violating matrix cells are framed red. To fix th
 
 Each new violation is then annotated on the importing line. Other exit codes are listed in [`docs/CLI.md`](CLI.md#check-architecture).
 
-![Terminal running graph-it check-architecture on Graph-It-Live: passed true, 8 rules, 0 violations, exit code 0](../media/cli-check-architecture.png)
+![Terminal running graph-it check-architecture on the rules test fixture: FAILED with 3 new error violations, a rules table, new violations grouped by rule with the importing line, one unmatched file, exit code 1](../media/cli-check-architecture-report.png)
 
-*`graph-it check-architecture` on this repository: 8 rules, every file in an element, no violation, exit code 0.*
+*`graph-it check-architecture` on the rules test fixture: three new `error` violations fail the check (exit code 1), the `warning` is reported without failing, and `scripts/seed.ts` is in no element.*
 
 ### Adopt rules on existing code
 

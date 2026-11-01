@@ -425,6 +425,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
           <li><code>forbid</code>, <code>allowOnly</code> and <code>noCycles</code> rules</li>
           <li>Elements by path, package name or unit role</li>
           <li>Baseline to adopt rules on an existing codebase</li>
+          <li>Terminal report grouped by rule, <code>--format markdown</code> for PR comments</li>
           <li><code>check_architecture</code> MCP tool for your assistant</li>
         </ul>
       </div>
@@ -730,11 +731,15 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
             <tr><td>Relations</td><td><code>/check-dependencies</code>, <code>/cycles</code>, <code>/callers</code>, <code>/impact</code></td></tr>
             <tr><td>Workspace</td><td><code>/summary</code>, <code>/architecture</code>, <code>/check-architecture</code>, <code>/check</code>, <code>/review-pr</code>, <code>/scan</code></td></tr>
             <tr><td>Output</td><td><code>/format</code>, <code>/export</code>, <code>/wiki</code></td></tr>
-            <tr><td>Session</td><td><code>/help</code>, <code>/quit</code></td></tr>
+            <tr><td>Session</td><td><code>/help</code>, <code>/mouse</code>, <code>/quit</code></td></tr>
           </tbody>
         </table>
       </div>
-      <p style="margin-top:16px">Type <code>file#Symbol</code> with <code>/trace</code>, <code>/callers</code> or <code>/impact</code> for symbol completion. Up/Down recall history; Tab inserts a suggested follow-up command. <code>/scope</code> replaces <code>/path</code> in the palette; the old alias still works.</p>
+      <p style="margin-top:16px">Type <code>file#Symbol</code> with <code>/trace</code>, <code>/callers</code> or <code>/impact</code> for symbol completion. Up/Down scroll the results and Ctrl+P/Ctrl+N recall history; Tab inserts a suggested follow-up command. Press <code>Esc</code> on an empty line to move into the results: <code>[</code>/<code>]</code> jump between results, <code>Space</code> folds one, and <code>Enter</code> on a file or symbol line opens its actions. File rows are clickable OSC 8 links; <code>/mouse on</code> adds wheel and click support. <code>/scope</code> replaces <code>/path</code> in the palette; the old alias still works.</p>
+      <div class="frame" style="margin-top:16px">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>graph-it REPL</span></div>
+        <img src="media/repl-results-navigation.gif" alt="graph-it REPL on this repository: Esc moves focus into the results, the cursor jumps between result titles, a result folds, Enter on a file line opens the actions menu" loading="lazy">
+      </div>
       <p style="margin-top:16px"><code>/review-pr --base origin/main</code> reviews the working tree; add <code>--head feature/my-change</code> to compare committed refs.</p>
     </details>
 
