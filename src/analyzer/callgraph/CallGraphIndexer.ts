@@ -38,7 +38,10 @@ export interface CallGraphNode {
   endLine: number;
   startCol: number;
   isExported: boolean;
-  /** Comma-separated type and trait an impl method belongs to (Rust `impl Tr for Foo { fn f() }` -> `Foo,Tr`); absent elsewhere. */
+  /**
+   * Rust: comma-separated type and trait an impl method belongs to (`impl Tr for Foo { fn f() }` -> `Foo,Tr`).
+   * C#: dotted namespaces and types enclosing the declaration (`namespace A { class B { void F() {} } }` -> `A.B` for `F`). Absent elsewhere.
+   */
   owner?: string;
 }
 
@@ -140,8 +143,9 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v8: Python calls retain their import binding; unimported bare names link nowhere (#497).
  * v9: qualified Go/Rust/Java/C# calls retain their package, module or type (#507).
  * v10: Rust impl methods retain their type (`nodes.owner`); aliased `use` and typed receivers link (#522).
+ * v11: C# declarations retain their enclosing namespaces and types (`nodes.owner`); a `using` alias links in its namespace only (#537).
  */
-const CURRENT_SCHEMA_VERSION = 10;
+const CURRENT_SCHEMA_VERSION = 11;
 
 /**
  * Optional FTS5 schema for fast symbol name search.
@@ -556,7 +560,7 @@ export class CallGraphIndexer {
       "SELECT id, path, folder, start_line, end_line, is_exported, owner FROM nodes WHERE name = ? AND lang = ? AND type IN ('function','method','variable') ORDER BY id",
     );
     const typeStmt = db.prepare(
-      "SELECT path, start_line, end_line FROM nodes WHERE name = ? AND lang = ? AND type IN ('class','interface','type')",
+      "SELECT path, start_line, end_line, owner FROM nodes WHERE name = ? AND lang = ? AND type IN ('class','interface','type')",
     );
     const update = db.prepare("UPDATE OR IGNORE edges SET target_id = ? WHERE rowid = ?");
     // `nodes.name` is not indexed: read each (statement, name, language) once.
@@ -583,8 +587,8 @@ export class CallGraphIndexer {
           target,
           (name) => all(memberStmt, name, lang).map(([id, path, folder, startLine, endLine, isExported, owner]) =>
             ({ id: String(id), path: String(path), folder: String(folder), startLine: Number(startLine), endLine: Number(endLine), isExported: Number(isExported), owner: String(owner) })),
-          (name) => all(typeStmt, name, lang).map(([path, startLine, endLine]) =>
-            ({ path: String(path), startLine: Number(startLine), endLine: Number(endLine) })),
+          (name) => all(typeStmt, name, lang).map(([path, startLine, endLine, owner]) =>
+            ({ path: String(path), startLine: Number(startLine), endLine: Number(endLine), owner: String(owner) })),
         );
         known.set(key, found);
       }

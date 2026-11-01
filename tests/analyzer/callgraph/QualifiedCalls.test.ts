@@ -329,6 +329,76 @@ describe("qualified calls (#507)", () => {
     ]);
   });
 
+  describe("C# using alias namespaces (#537)", () => {
+    const target = "namespace Bench { public static class MathUtil { public static int Add(int a, int b) { return a + b; } } }\n";
+    const decoy = "namespace Other { public static class MathUtil { public static int Add(int a, int b) { return a - b; } } }\n";
+    const use = (usings: string, body = "return M.Add(1, 2);") =>
+      `${usings}\nnamespace Bench { public static class AliasUse { public static int Run() { ${body} } } }\n`;
+
+    check([
+      ["links the alias to the type of the declared namespace, never a homonym of another or the global namespace", {
+        "MathUtil.cs": target, "Other.cs": decoy, "Global.cs": "public static class MathUtil { public static int Add(int a, int b) { return a * b; } }\n",
+        "AliasUse.cs": use("using M = Bench.MathUtil;"),
+      }, ["AliasUse.cs#Run -> MathUtil.cs#Add"]],
+      ["reads file-scoped namespaces and global::", {
+        "MathUtil.cs": "namespace Bench;\npublic static class MathUtil { public static int Add(int a, int b) { return a + b; } }\n",
+        "Other.cs": "namespace Other;\npublic static class MathUtil { public static int Add(int a, int b) { return a - b; } }\n",
+        "AliasUse.cs": use("using M = global::Bench.MathUtil;"),
+      }, ["AliasUse.cs#Run -> MathUtil.cs#Add"]],
+      ["reads an alias declared in a namespace from that namespace too, unless global:: pins it", {
+        "Inner.cs": "namespace Bench.Tools { public static class MathUtil { public static int Add(int a) { return a; } } }\n",
+        "Top.cs": "namespace Tools { public static class MathUtil { public static int Sub(int a) { return a; } } }\n",
+        "Other.cs": "namespace Other.Tools { public static class MathUtil { public static int Add(int a) { return -a; } public static int Sub(int a) { return -a; } } }\n",
+        "AliasUse.cs": "namespace Bench { using M = Tools.MathUtil; using G = global::Tools.MathUtil;\n  public static class AliasUse { public static int Run() { return M.Add(1) + G.Sub(1) + G.Add(1); } } }\n",
+      }, ["AliasUse.cs#Run -> Inner.cs#Add", "AliasUse.cs#Run -> Top.cs#Sub"]],
+      ["binds the qualifier in the innermost namespace declaring it, never an outer one too", {
+        "Inner.cs": "namespace Bench.Tools { public static class MathUtil { public static int Add(int a) { return a; } } }\n",
+        "Top.cs": "namespace Tools { public static class MathUtil { public static int Add(int a) { return -a; } } }\n",
+        "AliasUse.cs": "namespace Bench { using M = Tools.MathUtil;\n  public static class AliasUse { public static int Run() { return M.Add(1); } } }\n",
+      }, ["AliasUse.cs#Run -> Inner.cs#Add"]],
+      ["links global::Type to the global namespace", {
+        "Global.cs": "public static class MathUtil { public static int Add(int a) { return a; } }\n", "MathUtil.cs": target,
+        "AliasUse.cs": use("using M = global::MathUtil;", "return M.Add(1);"),
+      }, ["AliasUse.cs#Run -> Global.cs#Add"]],
+      ["links a type nested in a record struct", {
+        "R.cs": "public record struct R { public static class In { public static int Add(int a) { return a; } } }\n",
+        "Other.cs": "namespace Other { public record struct R { public static class In { public static int Add(int a) { return -a; } } } }\n",
+        "AliasUse.cs": use("using I = R.In;", "return I.Add(1);"),
+      }, ["AliasUse.cs#Run -> R.cs#Add"]],
+      ["links an alias of a nested type to the method of that nested type", {
+        "Outer.cs": "namespace Bench { public static class Outer { public static class Inner { public static int Add(int a) { return a; } } } }\n",
+        "Flat.cs": "namespace Bench { public static class Inner { public static int Add(int a) { return -a; } } }\n",
+        "AliasUse.cs": use("using M = Bench.Outer.Inner;", "return M.Add(1);"),
+      }, ["AliasUse.cs#Run -> Outer.cs#Add"]],
+      ["creates no edge when no type of that name is declared in the aliased namespace", {
+        "MathUtil.cs": target, "Other.cs": decoy,
+        "AliasUse.cs": use("using M = Missing.MathUtil;"),
+      }, []],
+      ["keeps the direct static call linked", { "MathUtil.cs": target, "AliasUse.cs": use("", "return MathUtil.Add(1, 2);") },
+        ["AliasUse.cs#Run -> MathUtil.cs#Add"]],
+    ]);
+
+    it("answers callers and callees with the same edge", async () => {
+      const { indexer } = await index({ "MathUtil.cs": target, "Other.cs": decoy, "AliasUse.cs": use("using M = Bench.MathUtil;") });
+      const { nodes, edges } = indexer.getIndexSnapshot();
+      indexer.dispose();
+      const run = nodes.find(n => n.name === "Run");
+      const adds = nodes.filter(n => n.name === "Add");
+      const calls = edges.filter(e => e.typeRelation === "CALLS");
+      expect(calls.filter(e => e.sourceId === run?.id).map(e => e.targetId)).toEqual([adds.find(n => n.path.endsWith("/MathUtil.cs"))?.id]);
+      expect(adds.map(add => calls.filter(e => e.targetId === add.id).length).sort()).toEqual([0, 1]);
+    });
+
+    it("records the enclosing namespaces and types of C# declarations as their owner", async () => {
+      const extractor = new GraphExtractor({ extensionPath: root, workspaceRoot: root });
+      const owners = async (source: string) => Object.fromEntries((await extractor.extractSource(normalizePath(path.join(root, "O.cs")), "csharp", source))
+        .nodes.map(n => [n.name, n.owner ?? null]));
+      expect(await owners("namespace A.B { class C { class D { void F() {} } } }\nclass G {}\n")).toEqual({ C: "A.B", D: "A.B.C", F: "A.B.C.D", G: null });
+      expect(await owners("namespace A;\nclass C { void F() {} }\n")).toEqual({ C: "A", F: "A.C" });
+      extractor.dispose();
+    });
+  });
+
   it("keeps every edge after saving the index and loading it in a new indexer (cache round trip), TS and Python included", async () => {
     const { dir, indexer } = await index({
       "go.mod": "module example.com/probe\n",
@@ -366,7 +436,16 @@ describe("qualified calls (#507)", () => {
 
     it("matches a type only by the members it encloses", () => {
       const members = [member({ id: "in", startLine: 3, endLine: 4 }), member({ id: "out", startLine: 20, endLine: 21 }), member({ id: "elsewhere", path: "/w/b.rs", startLine: 3, endLine: 4 })];
-      expect(ids(qualifiedCandidates(stub("type", "T"), () => members, () => [{ path: "/w/a.rs", startLine: 0, endLine: 10 }]))).toEqual(["in"]);
+      expect(ids(qualifiedCandidates(stub("type", "T"), () => members, () => [{ path: "/w/a.rs", startLine: 0, endLine: 10, owner: "" }]))).toEqual(["in"]);
+    });
+
+    it("keeps only the types an owner list allows, Windows paths included", () => {
+      const members = [member({ id: "bench", path: "c:/w/Bench.cs", startLine: 1, endLine: 2 }), member({ id: "other", path: "c:/w/Other.cs", startLine: 1, endLine: 2 })];
+      const types = () => [{ path: "c:/w/Bench.cs", startLine: 0, endLine: 3, owner: "Bench" }, { path: "c:/w/Other.cs", startLine: 0, endLine: 3, owner: "Other" }];
+      const typed = (owners: string[]) => `${QUALIFIED_PREFIX}${JSON.stringify(["type", "T", "f", owners])}`;
+      expect(ids(qualifiedCandidates(typed(["Bench"]), () => members, types))).toEqual(["bench"]);
+      expect(ids(qualifiedCandidates(typed(["", "Missing"]), () => members, types))).toEqual([]);
+      expect(ids(qualifiedCandidates(stub("type", "T"), () => members, types))).toEqual(["bench", "other"]);
     });
 
     it("matches a Rust module by file name or mod.rs directory, and a type by the impl of its methods", () => {

@@ -38,7 +38,7 @@ import type { CallGraphEdge, CallGraphNode } from "./CallGraphIndexer";
 import { resolveNamedImportCalls } from "./importBindings";
 import { LOCAL_ONLY, resolvePythonImportCalls } from "./pythonImportBindings";
 import { extractGraphQL } from "./graphqlExtractor";
-import { QUALIFIED_PREFIX, resolveQualifiedCalls, rustImplOwner } from "./qualifiedCalls";
+import { definitionOwner, QUALIFIED_PREFIX, resolveQualifiedCalls } from "./qualifiedCalls";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -346,7 +346,7 @@ export class GraphExtractor {
         startCol,
         isExported: this.detectIsExported(node, source),
       };
-      const owner = lang === "rust" ? rustImplOwner(node) : null;
+      const owner = definitionOwner(lang, node);
       if (owner) cgNode.owner = owner;
       nodeMap.set(nodeId, cgNode);
       // Store the containing DECLARATION node's position for AST ancestor walking.

@@ -13,8 +13,9 @@ export const QUALIFIED_PREFIX = "@@qualified:";
 /** `folder`: Go package directory; `type`: enclosing class (Java, C#); `module`: Rust module file or impl type. */
 type Mode = "folder" | "type" | "module";
 
-function stub(mode: Mode, key: string, name: string): string {
-  return `${QUALIFIED_PREFIX}${JSON.stringify([mode, key, name])}`;
+/** `owners`: dotted containers (C# namespaces and types), innermost first; the first one declaring the `type` key wins. */
+function stub(mode: Mode, key: string, name: string, owners?: string[]): string {
+  return `${QUALIFIED_PREFIX}${JSON.stringify(owners ? [mode, key, name, owners] : [mode, key, name])}`;
 }
 
 /** Name of the `call` node when it is the `field` of a member node and the member's receiver node. */
@@ -54,14 +55,46 @@ function declaredNames(root: TreeNode, types: string[], fields: string[]): Set<s
 
 const TYPE_NAME = /^[A-Z]/;
 
-/** `using C = N.Calc;` -> `C` = `Calc`. */
-function csharpUsingAliases(root: TreeNode): Map<string, string> {
-  const aliases = new Map<string, string>();
+const CSHARP_NAMESPACES = new Set(["namespace_declaration", "file_scoped_namespace_declaration"]);
+const CSHARP_CONTAINERS = new Set([...CSHARP_NAMESPACES, "class_declaration", "struct_declaration", "record_declaration", "record_struct_declaration", "interface_declaration"]);
+
+/**
+ * Dotted namespaces and types enclosing a C# declaration: `D` in `namespace A.B { class C { class D {} } }` -> `A.B.C`.
+ * A file-scoped `namespace A;` encloses its whole file, whether the grammar nests the declarations in it or not.
+ */
+export function csharpContainer(declaration: TreeNode): string {
+  const names: string[] = [];
+  let fileScoped = false;
+  for (let up = declaration.parent; up; up = up.parent) {
+    let container: TreeNode | undefined = CSHARP_CONTAINERS.has(up.type) ? up : undefined;
+    if (!up.parent && !fileScoped) container = up.namedChildren.find(child => child.type === "file_scoped_namespace_declaration");
+    fileScoped ||= container?.type === "file_scoped_namespace_declaration";
+    const name = container?.childForFieldName("name")?.text.replaceAll(/\s/g, "");
+    if (name) names.unshift(name);
+  }
+  return names.join(".");
+}
+
+/** What a C# `using` alias binds: the type name and the containers that may declare it. */
+interface CsharpAlias { name: string; owners: string[] }
+
+/**
+ * `using M = Bench.MathUtil;` -> `M` = `MathUtil` declared in `Bench`. Inside `namespace X.Y`, the written
+ * namespace is read from `X.Y`, then `X`, then the global namespace (`global::` pins it to the global one).
+ */
+function csharpUsingAliases(root: TreeNode): Map<string, CsharpAlias> {
+  const aliases = new Map<string, CsharpAlias>();
   for (const using of root.descendantsOfType("using_directive")) {
     const [equals, type] = using.namedChildren;
-    const original = lastSegment(type ?? null, "qualified_name", "name");
+    // The C# grammar names no field of `qualified_name` / `global::T`: their last child is the type.
+    const original = type?.type === "qualified_name" || type?.type === "alias_qualified_name" ? type.lastNamedChild : type;
     const alias = equals?.type === "name_equals" ? equals.namedChildren[0] : null;
-    if (alias && original) aliases.set(alias.text, original.text);
+    if (!alias || original?.type !== "identifier" || !type) continue;
+    const written = type.text.replaceAll(/\s/g, "");
+    const qualifier = written.replace(/^global::/, "").slice(0, -original.text.length).replace(/\.$/, "");
+    const enclosing = written.startsWith("global::") ? [] : csharpContainer(using).split(".").filter(Boolean);
+    const scopes = [...enclosing.map((_, i) => enclosing.slice(0, enclosing.length - i).join(".")), ""];
+    aliases.set(alias.text, { name: original.text, owners: scopes.map(scope => [scope, qualifier].filter(Boolean).join(".")) });
   }
   return aliases;
 }
@@ -81,7 +114,7 @@ function typeTargets(root: TreeNode, calls: TreeNode[], lang: "java" | "csharp")
       : ["variable_declarator", "parameter", "property_declaration", "foreach_statement"],
     ["name", "left"],
   );
-  const aliases = java ? new Map<string, string>() : csharpUsingAliases(root);
+  const aliases = java ? new Map<string, CsharpAlias>() : csharpUsingAliases(root);
   const targets = new Map<number, string | null>();
   for (const call of calls) {
     const receiver = java
@@ -91,7 +124,8 @@ function typeTargets(root: TreeNode, calls: TreeNode[], lang: "java" | "csharp")
       ? lastSegment(receiver, "field_access", "field")
       : lastSegment(receiver, "member_access_expression", "name");
     if (!qualifier || !TYPE_NAME.test(qualifier.text)) continue;
-    targets.set(call.id, declared.has(qualifier.text) ? null : stub("type", aliases.get(qualifier.text) ?? qualifier.text, call.text));
+    const alias = aliases.get(qualifier.text);
+    targets.set(call.id, declared.has(qualifier.text) ? null : stub("type", alias?.name ?? qualifier.text, call.text, alias?.owners));
   }
   return targets;
 }
@@ -123,6 +157,12 @@ export function rustImplOwner(methodName: TreeNode): string | null {
   if (container?.type === "trait_item") return container.childForFieldName("name")?.text ?? null;
   if (container?.type !== "impl_item") return null;
   return [container.childForFieldName("type"), container.childForFieldName("trait")].map(rustTypeName).filter(Boolean).join(",") || null;
+}
+
+/** `nodes.owner` of a definition (its name node): Rust impl type and trait, C# enclosing namespaces and types. */
+export function definitionOwner(lang: string, name: TreeNode): string | null {
+  if (lang === "rust") return rustImplOwner(name);
+  return lang === "csharp" && name.parent ? csharpContainer(name.parent) || null : null;
 }
 
 /** What a `use` clause binds: the original name and the module it is read from (null when `crate`, `self`, `super` or bare). */
@@ -282,7 +322,7 @@ export async function resolveQualifiedCalls(
 // ---------------------------------------------------------------------------
 
 export interface QualifiedMember { id: string; path: string; folder: string; startLine: number; endLine: number; isExported: number; owner: string }
-export interface QualifiedType { path: string; startLine: number; endLine: number }
+export interface QualifiedType { path: string; startLine: number; endLine: number; owner: string }
 
 /** File stem a Rust module is declared in: `a.rs` and `a/mod.rs` both declare module `a`. */
 function rustModuleName(filePath: string): string {
@@ -296,12 +336,15 @@ export function qualifiedCandidates(
   members: (name: string) => QualifiedMember[],
   types: (name: string) => QualifiedType[],
 ): QualifiedMember[] {
-  const [mode, key, name] = JSON.parse(target.slice(QUALIFIED_PREFIX.length)) as [Mode, string, string];
+  const [mode, key, name, owners] = JSON.parse(target.slice(QUALIFIED_PREFIX.length)) as [Mode, string, string, string[]?];
   const candidates = members(name);
   if (mode === "folder") return candidates.filter(member => member.folder === key);
   // A Rust method belongs to the type of its `impl` block, wherever that block is; a function, to its file's module.
   if (mode === "module") return candidates.filter(member => member.owner ? member.owner.split(",").includes(key) : rustModuleName(member.path) === key);
-  const declaring = types(key);
+  const named = types(key);
+  // C# binds the qualifier in the innermost scope that declares it, never in an outer one too.
+  const owner = owners?.find(scope => named.some(type => type.owner === scope));
+  const declaring = owners ? named.filter(type => type.owner === owner) : named;
   return candidates.filter(member => declaring.some(type => type.path === member.path &&
     type.startLine <= member.startLine && member.endLine <= type.endLine));
 }
