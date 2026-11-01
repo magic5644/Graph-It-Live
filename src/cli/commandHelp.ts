@@ -204,14 +204,17 @@ Options:
   --baseline FILE    Accepted violations (default: graphit.architecture.baseline.json
                      when it exists); only violations absent from it count
   --update-baseline  Write every current violation to the baseline file and exit 0
+  --verbose          text/markdown: also list accepted violations and the analysis context
   --workspace, -w    Workspace root directory (default: auto-detected)
   --format, -f       Output format: text|json|toon|markdown|sarif (default: text);
-                     sarif lists the new violations on their importing line
+                     text and markdown are reports (markdown for a PR
+                     comment); sarif lists the new violations on their importing line
   --help, -h         Show this help
 
 Examples:
   graph-it check-architecture
   graph-it check-architecture --format sarif > architecture.sarif
+  graph-it check-architecture --format markdown > architecture-report.md
   graph-it check-architecture --update-baseline
   graph-it check-architecture --config config/architecture.json --format json
 `,

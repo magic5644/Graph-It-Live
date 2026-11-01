@@ -1,0 +1,34 @@
+## Architecture check: FAILED
+
+1 new error violation (config graphit.architecture.json, baseline graphit.architecture.baseline.json).
+
+11 files, 1 unmatched; 6 violations (1 new, 5 accepted): 5 errors, 1 warning; 1 resolved.
+
+| Rule | Kind | Severity | Violations | New |
+| --- | --- | --- | ---: | ---: |
+| `functions-only-shared` | allowOnly | error | 2 | 0 |
+| `frontend-not-backend` | forbid | error | 1 | 1 |
+| `mfe-isolated` | forbid | warning | 1 | 0 |
+| `no-unit-cycles` | noCycles | error | 2 | 0 |
+
+### New violations
+
+#### `frontend-not-backend` (error)
+
+- `frontend/src/app.ts:2` → `backend/src/api.ts`
+
+### Accepted violations
+
+5 violations in the baseline (--verbose lists them).
+
+### Resolved violations
+
+In the baseline but no longer found: run --update-baseline to drop them.
+
+- `a.ts` → `b.ts` (`gone`)
+
+### Unmatched files
+
+No element selects them: no rule checks them.
+
+- `scripts/seed.ts`

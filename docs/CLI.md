@@ -279,7 +279,7 @@ The palette lists canonical commands only, grouped by intent. Aliases still work
 | Workspace | `/summary` | Summarize current file context or workspace |
 | Workspace | `/architecture` | Build workspace architecture graph |
 | Workspace | `/check` | Find unused exports |
-| Workspace | `/check-architecture` | Check imports against `graphit.architecture.json` (`--config`, `--baseline`, `--update-baseline`); a failing check shows its report, then the error |
+| Workspace | `/check-architecture` | Check imports against `graphit.architecture.json` (`--config`, `--baseline`, `--update-baseline`, `--verbose`); a failing check shows its report, then the error |
 | Workspace | `/review-pr` | Review the Git diff against `--base <ref>` (optional `--head <ref>`) |
 | Workspace | `/scan` | Force a workspace indexing scan |
 | Output | `/format` | Set preferred output format for the session |
@@ -840,7 +840,7 @@ Rows and columns share one order: layer 0 first (depends on no other row), the r
 Checks every static import of the workspace against the **architecture rules** declared in `graphit.architecture.json` at the workspace root. Rules are human annotation: the command only compares import pairs with them. For a step-by-step guide (local check, CI gate, baseline adoption), see the [architecture guide](architecture.md#by-task).
 
 ```bash
-graph-it check-architecture [--config <file>] [--baseline <file>] [--update-baseline] [--format text|json|toon|markdown|sarif]
+graph-it check-architecture [--config <file>] [--baseline <file>] [--update-baseline] [--verbose] [--format text|json|toon|markdown|sarif]
 ```
 
 #### Architecture rules
@@ -887,6 +887,57 @@ How the rules read:
 - Only `graphit.architecture.json` and `graphit.architecture.baseline.json` at the workspace root are read by the view; `--config` and `--baseline` name others for the CLI and MCP.
 
 The config is validated before anything runs: unknown keys, rules naming unknown elements, empty patterns, a missing kind or duplicate rule names are rejected with the JSON path of each error (`graphit.architecture.json: $.rules[0].from[1]: unknown element "web"`). Files larger than 256 KB (32 MB for a baseline) are refused, and `--config` / `--baseline` must stay inside the workspace. The published schema, [`schemas/architecture.schema.json`](../schemas/architecture.schema.json), gives completion in editors through `$schema`.
+
+**Output** (`text`, the default): a report to read in a terminal. The verdict line (passed or failed, config, baseline), the totals, a rules table, then the new violations grouped by rule (`importing/file.ts:line → target/file.ts`, with the rule's `reason`), the accepted ones counted, the resolved ones listed, and at the end the unmatched files and config warnings. `--verbose` also lists the accepted violations and the analysis `context`; `json` and `toon` carry every field. Paths always use `/`.
+
+```text
+FAILED: 1 new error violation (config graphit.architecture.json, baseline graphit.architecture.baseline.json)
+11 files, 1 unmatched; 6 violations (1 new, 5 accepted): 5 errors, 1 warning; 1 resolved
+
+Rules
+  Rule                   Kind       Severity  Violations  New
+  functions-only-shared  allowOnly  error     2           0
+  frontend-not-backend   forbid     error     1           1
+  mfe-isolated           forbid     warning   1           0
+  no-unit-cycles         noCycles   error     2           0
+
+New violations
+  frontend-not-backend (error)
+    frontend/src/app.ts:2 → backend/src/api.ts
+
+Accepted violations
+  5 violations in the baseline (--verbose lists them).
+
+Resolved violations
+  In the baseline but no longer found: run --update-baseline to drop them.
+  a.ts → b.ts (gone)
+
+Unmatched files
+  No element selects them: no rule checks them.
+  scripts/seed.ts
+```
+
+**Output** (`markdown`): the same report for a PR comment, as headings, a GitHub table and lists, without diagram; rule names and paths are code spans, so config text never renders as markdown (excerpt):
+
+```markdown
+## Architecture check: FAILED
+
+1 new error violation (config graphit.architecture.json, baseline graphit.architecture.baseline.json).
+
+11 files, 1 unmatched; 6 violations (1 new, 5 accepted): 5 errors, 1 warning; 1 resolved.
+
+| Rule | Kind | Severity | Violations | New |
+| --- | --- | --- | ---: | ---: |
+| `frontend-not-backend` | forbid | error | 1 | 1 |
+
+### New violations
+
+#### `frontend-not-backend` (error)
+
+- `frontend/src/app.ts:2` → `backend/src/api.ts`
+```
+
+`--update-baseline` prints one line in `text` and `markdown` (`Baseline graphit.architecture.baseline.json written: 6 violation(s) accepted.`).
 
 **Output** (`json`): `configFile`, `baselineFile`, `context` (with `revision`), `passed`, `totals` (`violations`, `newViolations`, `errors`, `newErrors`, `warnings`, `brokenRules`, `unmatchedFiles`, `resolved`), `rules` (each with `kind`, `severity`, `reason`, `violations`, `newViolations` and its `elementPairs`), `violations` (`rule`, `severity`, `source`, `target`, import `line`, element instances `from` / `to`, `new`), sorted by rule then file, `resolved`, `unmatchedFiles` (files no element selects: no rule checks them) and `configWarnings` (patterns matching nothing).
 

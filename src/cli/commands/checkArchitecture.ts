@@ -28,6 +28,7 @@ import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import type { CliRuntime } from "../runtime";
+import { renderCheckArchitectureMarkdown, renderCheckArchitectureText } from "./checkArchitectureReport";
 
 /** `<flag> <workspace file>`, or undefined when the flag is absent. */
 function readFile(args: string[], flag: string): string | undefined {
@@ -38,6 +39,14 @@ function readFile(args: string[], flag: string): string | undefined {
     throw new CliError(`${flag} must be a file of the workspace`, ExitCode.GENERAL_ERROR);
   }
   return file;
+}
+
+/** The report in the requested format: text and markdown read as a report, the others carry every field. */
+function renderCheck(check: WorkspaceArchitectureCheck, format: CliOutputFormat, verbose: boolean): string {
+  if (format === "sarif") return toSarif(check);
+  if (format === "text") return renderCheckArchitectureText(check, verbose);
+  if (format === "markdown") return renderCheckArchitectureMarkdown(check, verbose);
+  return formatOutput(check, format, "check-architecture");
 }
 
 const SARIF_LEVEL = { error: "error", warning: "warning", off: "none" } as const;
@@ -96,6 +105,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   const config = readFile(args, "--config");
   const baseline = readFile(args, "--baseline");
   const updateBaseline = args.includes("--update-baseline");
+  const verbose = args.includes("--verbose");
   if (format === "csv") {
     throw new CliError('Format "csv" is only produced by graph-it architecture --matrix.', ExitCode.UNSUPPORTED_FORMAT);
   }
@@ -115,11 +125,14 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     const off = new Set(check.rules.filter((rule) => rule.severity === "off").map((rule) => rule.name));
     const kept = previousText === undefined ? [] : parseBaseline(previousText, file).filter((entry) => off.has(entry.rule));
     await fs.promises.writeFile(validateWorkspacePath(path.resolve(workspaceRoot, file), workspaceRoot), formatBaseline([...check.violations, ...kept]));
+    if (format === "text" || format === "markdown") {
+      return `Baseline ${file} written: ${check.violations.length} violation(s) accepted.`;
+    }
     return formatOutput({ baselineFile: file, violations: check.violations.length, rules: check.rules.map(({ name, violations }) => ({ name, violations })) }, format === "sarif" ? "json" : format, "check-architecture");
   }
 
   const check = await checkWorkspaceArchitecture(graph, workspaceRoot, { config, baseline });
-  const output = format === "sarif" ? toSarif(check) : formatOutput(check, format, "check-architecture");
+  const output = renderCheck(check, format, verbose);
   if (!check.passed) {
     throw new CliError(
       `${check.totals.newErrors} error violation(s) of the architecture rules not in the baseline`,

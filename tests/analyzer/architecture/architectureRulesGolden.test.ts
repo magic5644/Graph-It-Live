@@ -20,7 +20,7 @@ let rootDir: string;
 const runtime = () => ({ workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null }) as never;
 
 /** The command's output and exit code, as the CLI entry point prints them. */
-async function cli(args: string[], format: "json" | "sarif" | "toon" | "csv" = "json") {
+async function cli(args: string[], format: "json" | "sarif" | "toon" | "csv" | "text" | "markdown" = "json") {
   try {
     return { exitCode: ExitCode.SUCCESS, output: await runCheckArchitecture(args, runtime(), format) };
   } catch (error) {
@@ -100,6 +100,8 @@ describe("architecture rules golden output: generated workspace", () => {
 
     const accepted = await cli([]);
     expect(accepted.exitCode).toBe(0);
+    expect((await cli([], "text")).output).toMatch(/^PASSED: 0 new error violations \(config graphit\.architecture\.json, baseline graphit\.architecture\.baseline\.json\)\n/);
+    expect((await cli(["--update-baseline"], "markdown")).output).toBe("Baseline graphit.architecture.baseline.json written: 6 violation(s) accepted.");
     expect(JSON.parse(accepted.output)).toMatchObject({ passed: true, baselineFile: "graphit.architecture.baseline.json", totals: { newViolations: 0 } });
     expect(JSON.parse((await cli([], "sarif")).output).runs[0].results).toEqual([]);
 
@@ -111,6 +113,14 @@ describe("architecture rules golden output: generated workspace", () => {
     const report = JSON.parse(partial.output);
     expect(report.violations.filter((violation: { new: boolean }) => violation.new).map((violation: { rule: string }) => violation.rule)).toEqual(["frontend-not-backend"]);
     expect(report.resolved).toEqual([{ rule: "gone", source: "a.ts", target: "b.ts" }]);
+
+    // Text and markdown reports: new, accepted and resolved violations, unmatched files.
+    const reports = await Promise.all((["text", "markdown"] as const).flatMap((format) => [cli([], format), cli(["--verbose"], format)]));
+    const [text, textVerbose, markdown, markdownVerbose] = reports.map(({ output }) => output.replace(/(revision|indexedAt): .*/g, "$1: <stable>") + "\n");
+    await expect(text).toMatchFileSnapshot("__snapshots__/rules-project.check.baseline.txt");
+    await expect(textVerbose).toMatchFileSnapshot("__snapshots__/rules-project.check.baseline.verbose.txt");
+    await expect(markdown).toMatchFileSnapshot("__snapshots__/rules-project.check.baseline.md");
+    await expect(markdownVerbose).toMatchFileSnapshot("__snapshots__/rules-project.check.baseline.verbose.md");
 
     // Rewriting it drops the resolved entry, whatever the previous baseline held.
     await cli(["--update-baseline"]);
@@ -140,6 +150,16 @@ describe("architecture rules golden output: generated workspace", () => {
     await expect(runCheckArchitecture([], runtime(), "csv")).rejects.toThrow('Format "csv"');
     fs.writeFileSync(path.join(rootDir, "bad.json"), JSON.stringify({ elements: {}, rules: [{ name: "r", from: "x", forbid: "y" }] }));
     await expect(runCheckArchitecture(["--config", "bad.json"], runtime(), "json")).rejects.toThrow('bad.json: $.rules[0].from: unknown element "x"');
+  });
+
+  it("prints text and markdown reports without a baseline: verdict, rules table, new violations by rule", async () => {
+    const text = await cli([], "text");
+    expect(text.exitCode).toBe(1);
+    await expect(text.output + "\n").toMatchFileSnapshot("__snapshots__/rules-project.check.txt");
+    const markdown = await cli([], "markdown");
+    expect(markdown.exitCode).toBe(1);
+    expect(markdown.output).not.toContain("graph TD");
+    await expect(markdown.output + "\n").toMatchFileSnapshot("__snapshots__/rules-project.check.md");
   });
 
   it("prints toon output too", async () => {
