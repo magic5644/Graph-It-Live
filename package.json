@@ -1475,7 +1475,7 @@
             "type": "string",
             "default": "",
             "scope": "resource",
-            "description": "Git branch reference used as the head. Empty uses the current branch and saved workspace changes."
+            "description": "Git branch reference used as the head. Empty or the checked-out branch uses the current branch and its final on-disk state, untracked files included."
           },
           "graph-it-live.branchWatch.maxFiles": {
             "type": "integer",

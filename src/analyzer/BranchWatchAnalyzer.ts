@@ -515,13 +515,14 @@ export class BranchWatchAnalyzer {
     const headSha = await this.git(['rev-parse', '--verify', 'HEAD^{commit}']).catch(error => {
       throw new BranchWatchError('unborn-head', 'This Git repository has no readable HEAD commit.', { cause: error });
     });
-    const branch = await this.git(['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(error => {
+    // Full ref, not --short: --short prints "heads/x" when a tag or remote shares the branch name.
+    const branch = await this.git(['symbolic-ref', '--quiet', 'HEAD']).catch(error => {
       throw new BranchWatchError('detached-head', 'HEAD is detached. Select a branch before enabling branch watch.', { cause: error });
     });
     if (await this.git(['ls-files', '--unmerged', '-z'])) {
       throw new BranchWatchError('conflicts', 'Resolve conflicts before refreshing branch watch.');
     }
-    return { branch: branch.trim(), headSha: headSha.trim() };
+    return { branch: branch.trim().replace(/^refs\/heads\//, ''), headSha: headSha.trim() };
   }
 
   async listReferences(): Promise<string[]> {
@@ -534,8 +535,8 @@ export class BranchWatchAnalyzer {
   async capture(reference: string, headReference?: string): Promise<BranchWatchSnapshot> {
     this.validateReference(reference);
     const { branch, headSha: currentHeadSha } = await this.detectRepository();
-    const explicitHead = Boolean(headReference?.trim());
     const selectedHead = headReference?.trim() || branch;
+    const explicitHead = !await this.isCheckedOut(selectedHead, branch);
     const headSha = explicitHead ? await this.resolveCommit(selectedHead, 'The selected head branch is unavailable.') : currentHeadSha;
     const referenceSha = await this.resolveCommit(reference, 'The selected base branch reference is unavailable.');
     const bases = (await this.git(['merge-base', '--all', referenceSha, headSha]).catch(() => '')).trim().split('\n').filter(Boolean);
@@ -552,6 +553,14 @@ export class BranchWatchAnalyzer {
     if (!reference.trim() || reference.startsWith('-') || reference.includes('\0')) {
       throw new BranchWatchError('invalid-reference', 'Select a valid Git branch reference.');
     }
+  }
+
+  /** The checked-out branch is the workspace itself: its head keeps uncommitted and untracked changes. */
+  private async isCheckedOut(head: string, branch: string): Promise<boolean> {
+    if (head === branch) return true;
+    // Spellings such as HEAD, heads/x or refs/heads/x name the same branch; an unknown ref fails later in resolveCommit.
+    const ref = await this.git(['rev-parse', '--verify', '--quiet', '--symbolic-full-name', '--end-of-options', head]).catch(() => '');
+    return ref.trim() === `refs/heads/${branch}`;
   }
 
   private async resolveCommit(reference: string, message: string): Promise<string> {

@@ -68,12 +68,70 @@ describe('BranchWatchAnalyzer capture', { timeout: GIT_TEST_TIMEOUT }, () => {
     git(root, 'switch', '-c', 'feature');
     await fs.writeFile(path.join(root, 'api.ts'), 'export function value(n: number, required: boolean) { return n; }\n');
     git(root, 'commit', '-am', 'feature');
+    git(root, 'switch', 'main');
     await fs.writeFile(path.join(root, 'working-only.ts'), 'export {};\n');
     const snapshot = await new BranchWatchAnalyzer(root).capture('main', 'feature');
     expect(snapshot.referenceSha).toBe(base);
     expect(snapshot.headReference).toBe('feature');
+    expect(snapshot.branch).toBe('feature');
     expect(snapshot.changes).toEqual([{ path: 'api.ts', kind: 'modified' }]);
     expect(snapshot.limitations.join(' ')).toContain('committed reference');
+  });
+
+  it('treats the checked-out branch as head like the default mode, before its first commit', async () => {
+    const root = await workspace();
+    git(root, 'switch', '-c', 'feature');
+    await fs.writeFile(path.join(root, 'api.ts'), 'export function value(n: number, required: boolean) { return n; }\n');
+    await fs.mkdir(path.join(root, 'src'));
+    await fs.writeFile(path.join(root, 'src', 'staged.ts'), 'export {};\n');
+    git(root, 'add', 'src/staged.ts');
+    await fs.unlink(path.join(root, 'removed.ts'));
+    await fs.writeFile(path.join(root, 'src', 'untracked.ts'), 'export {};\n');
+    const analyzer = new BranchWatchAnalyzer(root);
+    const selected = await analyzer.capture('main', ' feature ');
+    const workspaceMode = await analyzer.capture('main');
+    expect(selected.changes).toEqual([
+      { path: 'api.ts', kind: 'modified' }, { path: 'removed.ts', kind: 'deleted' },
+      { path: 'src/staged.ts', kind: 'added' }, { path: 'src/untracked.ts', kind: 'untracked' },
+    ]);
+    expect(selected.headReference).toBeUndefined();
+    expect(selected.branch).toBe('feature');
+    expect(selected.limitations.join(' ')).not.toContain('committed reference');
+    expect(selected).toEqual(workspaceMode);
+    const spellings = await Promise.all(['HEAD', 'heads/feature', 'refs/heads/feature', '   '].map(head => analyzer.capture('main', head)));
+    for (const snapshot of spellings) expect(snapshot).toEqual(workspaceMode);
+  });
+
+  it('keeps a remote or tag named like the checked-out branch apart from the workspace', async () => {
+    const root = await workspace();
+    git(root, 'switch', '-c', 'feature');
+    await fs.writeFile(path.join(root, 'committed.ts'), 'export {};\n');
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'feature');
+    git(root, 'update-ref', 'refs/remotes/origin/feature', 'HEAD');
+    git(root, 'tag', 'feature');
+    await fs.writeFile(path.join(root, 'untracked.ts'), 'export {};\n');
+    const analyzer = new BranchWatchAnalyzer(root);
+    expect((await analyzer.detectRepository()).branch).toBe('feature');
+    const remote = await analyzer.capture('main', 'origin/feature');
+    expect(remote.headReference).toBe('origin/feature');
+    expect(remote.changes).toEqual([{ path: 'committed.ts', kind: 'added' }]);
+    expect(remote.limitations.join(' ')).toContain('committed reference');
+    await expect(analyzer.capture('main', 'missing')).rejects.toMatchObject({ code: 'invalid-reference' });
+  });
+
+  it('keeps commits and working-tree changes when the checked-out branch has commits', async () => {
+    const root = await workspace();
+    git(root, 'switch', '-c', 'feature');
+    await fs.writeFile(path.join(root, 'committed.ts'), 'export {};\n');
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'feature');
+    await fs.writeFile(path.join(root, 'api.ts'), 'export function value(n: number) { return n + 1; }\n');
+    await fs.writeFile(path.join(root, 'untracked.ts'), 'export {};\n');
+    const snapshot = await new BranchWatchAnalyzer(root).capture('main', 'feature');
+    expect(snapshot.headSha).toBe(git(root, 'rev-parse', 'HEAD'));
+    expect(snapshot.changes).toEqual([
+      { path: 'api.ts', kind: 'modified' }, { path: 'committed.ts', kind: 'added' }, { path: 'untracked.ts', kind: 'untracked' },
+    ]);
+    expect(snapshot.limitations.join(' ')).not.toContain('committed reference');
   });
 
   it('fingerprints contents, including unsupported files, and inventories renames as delete plus add', async () => {
