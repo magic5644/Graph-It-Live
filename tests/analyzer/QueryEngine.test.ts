@@ -421,7 +421,7 @@ describe('QueryEngine.scoreSeedNodes', () => {
     const results = new QueryEngine(fakeDb, null).scoreSeedNodes(['resolve'], scope);
 
     expect(results.map(node => node.id)).toEqual(['a']);
-    expect(calls[1].params).toEqual(['%resolve%', '/workspace/src/analyzer/*']);
+    expect(calls[1].params).toEqual(['%resolve%', '/workspace/src/analyzer/*', '%resolve%']);
   });
 });
 
@@ -822,5 +822,130 @@ describe('QueryEngine.toBudgetedJson', () => {
     const fitted = engine.toBudgetedJson(nodes, [], 5);
     expect(fitted.truncated).toBe(true);
     expect(fitted.nodes).toEqual([]);
+  });
+});
+
+describe('QueryEngine multilingual seed ranking', () => {
+  let db: Database;
+
+  const REFERENCE_NODES = ['py-refs', 'go-refs', 'rs-refs', 'java-refs', 'cs-refs'];
+  const NOISE_NODES = new Set(['count-files', 'count-cycles', 'round', 'group', 'stdout', 'calc-width']);
+
+  beforeEach(async () => {
+    db = await createTestDb();
+    // One reference-computing symbol per supported language, each in its own idiom.
+    insertNode(db, 'py-refs', 'compute_references', 'function', '/workspace/pkg/python/references.py');
+    insertNode(db, 'go-refs', 'ComputeReferences', 'function', '/workspace/go/refs/references.go');
+    insertNode(db, 'rs-refs', 'compute_references', 'function', '/workspace/rust/src/references.rs');
+    insertNode(db, 'java-refs', 'computeReferences', 'method', '/workspace/java/src/References.java');
+    insertNode(db, 'cs-refs', 'ComputeReferences', 'method', '/workspace/csharp/References.cs');
+    // Noise from the issue report: short words used to flood the seeds with these.
+    insertNode(db, 'count-files', 'countFiles', 'function', '/workspace/src/stats.ts');
+    insertNode(db, 'count-cycles', 'countCycleComponents', 'function', '/workspace/src/stats.ts');
+    insertNode(db, 'round', 'round', 'function', '/workspace/src/math.ts');
+    insertNode(db, 'group', 'group', 'function', '/workspace/src/math.ts');
+    insertNode(db, 'stdout', 'stdout', 'variable', '/workspace/src/io.ts');
+    insertNode(db, 'calc-width', 'calcWidth', 'function', '/workspace/src/ui/layout.ts');
+  });
+
+  afterEach(() => db.close());
+
+  it.each([
+    ['en', 'where are python references computed?'],
+    ['fr', 'ou est fait le calcul des références python ?'],
+    ['de', 'wo werden die Python-Referenzen berechnet?'],
+    ['es', '¿dónde se calculan las referencias de python?'],
+    ['zh', '在哪里计算Python引用的地方'],
+    ['ru', 'где вычисляются ссылки python?'],
+  ])('ranks python reference code first and noise last (%s)', async (_lang, question) => {
+    const engine = new QueryEngine(db, null);
+    const ranked = engine.scoreSeedNodes(await engine.extractKeywords(question)).map(node => node.id);
+
+    expect(ranked[0]).toBe('py-refs');
+    const lastReference = Math.max(...REFERENCE_NODES.map(id => ranked.indexOf(id)));
+    expect(REFERENCE_NODES.every(id => ranked.includes(id))).toBe(true);
+    // calcWidth matches `calc` (a translation of "compute"): it must rank after them all.
+    expect(ranked.indexOf('calc-width')).toBeGreaterThan(lastReference);
+    // Short words (`ou`, `le`, `de`) no longer match countFiles, round, group, stdout.
+    expect(ranked.filter(id => NOISE_NODES.has(id) && id !== 'calc-width')).toEqual([]);
+  });
+
+  it('applies the path bonus to Windows paths', () => {
+    insertNode(db, 'win-load', 'loadModule', 'function', String.raw`C:\repo\Python\loader.py`);
+    insertNode(db, 'unix-load', 'loadModule', 'function', '/repo/go/loader.go');
+
+    const ranked = new QueryEngine(db, null).scoreSeedNodes(['load', 'python']);
+
+    expect(ranked[0].id).toBe('win-load');
+    expect(ranked[0].path).toBe('c:/repo/Python/loader.py');
+  });
+
+  it('counts a keyword repeated by the LLM once', () => {
+    const engine = new QueryEngine(db, null);
+
+    expect(engine.scoreSeedNodes(['Reference', 'reference', 'python']))
+      .toEqual(engine.scoreSeedNodes(['reference', 'python']));
+  });
+
+  it('falls back to LIKE when FTS fails and skips a keyword on DB errors', () => {
+    const calls: string[] = [];
+    const fakeDb = {
+      exec(sql: string) {
+        calls.push(sql);
+        if (sql.includes('nodes_fts MATCH')) throw new Error('fts: syntax error');
+        if (sql.includes('LIKE')) throw new Error('database is locked');
+        return [];
+      },
+    } as unknown as Database;
+
+    expect(new QueryEngine(fakeDb, null).scoreSeedNodes(['reference'])).toEqual([]);
+    expect(calls.some(sql => sql.includes('nodes_fts MATCH'))).toBe(true);
+    expect(calls.some(sql => sql.includes('COUNT(*) OVER ()'))).toBe(true);
+  });
+
+  it('weighs a rare keyword above a common one', () => {
+    for (let i = 0; i < 10; i++) insertNode(db, `handler-${i}`, `handler${i}`, 'function', `/workspace/src/h${i}.ts`);
+    insertNode(db, 'tokenizer', 'tokenizer', 'function', '/workspace/src/tokenizer.ts');
+
+    const ranked = new QueryEngine(db, null).scoreSeedNodes(['handler', 'tokenizer']);
+
+    expect(ranked[0].id).toBe('tokenizer');
+    expect(ranked[0].relevanceScore).toBeGreaterThan(ranked[1].relevanceScore);
+  });
+
+  it('adds a path bonus only for keywords missing from the name', () => {
+    insertNode(db, 'py-load', 'loadModule', 'function', '/workspace/python/loader.py');
+    insertNode(db, 'go-load', 'loadModule', 'function', '/workspace/go/loader.go');
+    insertNode(db, 'load-load', 'loadModule', 'function', '/workspace/load/loader.ts');
+
+    const ranked = new QueryEngine(db, null).scoreSeedNodes(['load', 'python']);
+    const score = (id: string) => ranked.find(node => node.id === id)?.relevanceScore ?? 0;
+
+    expect(ranked[0].id).toBe('py-load');
+    expect(score('load-load')).toBe(score('go-load'));
+  });
+
+  it('drops nodes matching only filler keywords when specific matches exist', () => {
+    for (let i = 0; i < 60; i++) insertNode(db, `filler-${i}`, `groupItem${i}`, 'function', `/workspace/src/g${i}.ts`);
+    const engine = new QueryEngine(db, null);
+
+    expect(engine.scoreSeedNodes(['group', 'tokenize']).some(node => node.id.startsWith('filler-'))).toBe(true);
+    insertNode(db, 'tokenizer', 'tokenizer', 'function', '/workspace/src/tokenizer.ts');
+    const ranked = engine.scoreSeedNodes(['group', 'tokenize']);
+
+    expect(ranked.map(node => node.id)).toEqual(['tokenizer']);
+  });
+
+  it('folds accents in keywords passed by callers', () => {
+    const ranked = new QueryEngine(db, null).scoreSeedNodes(['Références']);
+
+    expect(ranked.map(node => node.id)).toEqual(expect.arrayContaining(REFERENCE_NODES));
+  });
+
+  it('asks the LLM for English identifier keywords', async () => {
+    const llm = new MockLlmClient('["reference"]');
+    await new QueryEngine(db, llm).extractKeywords('où sont les références ?');
+
+    expect(llm.calls[0].messages[0].content).toContain('in English (translate non-English words)');
   });
 });

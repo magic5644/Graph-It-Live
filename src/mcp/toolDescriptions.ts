@@ -329,7 +329,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "Returns the subgraph relevant to a plain-language question, for you to turn into an answer.",
     lines: [
       "WHEN: exploring a codebase from a concept rather than a known file or symbol name.",
-      "WHY: extracts keywords, scores seed nodes with full-text search over the call graph index, then traverses outward from them.",
+      "WHY: extracts keywords (English, French, German, Spanish, Chinese or Russian questions, mapped to English identifier stems), scores seed nodes by keyword specificity and file path over the call graph index, then traverses outward from them. English identifier-like keywords in the question (\"reference compute python\") give the most precise seeds.",
       "RETURNS: the question, the extracted keywords, the subgraph, and timing and truncation metadata.",
       {
         mcp: "LIMITS: returns graph data, not prose - you write the answer from it. The first call indexes the workspace (3-8s).",

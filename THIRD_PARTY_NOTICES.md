@@ -10,3 +10,10 @@ the following third-party software, which keeps its own license.
 - License: Eclipse Public License 2.0 (elkjs is offered under `EPL-2.0 OR GPL-3.0-or-later`; Graph-It-Live uses it under EPL-2.0). These files are not covered by the MIT License of Graph-It-Live.
 - License text: https://www.eclipse.org/legal/epl-2.0/
 - Source code: https://github.com/kieler/elkjs/tree/0.12.0
+
+## stopwords-iso 1.1.0
+
+- Author: Gene Diaz and stopwords-iso contributors.
+- Use: subset of the EN, FR, DE, ES, ZH and RU stopword lists (accent-folded, filtered) vendored in `src/analyzer/query/stopwords.ts` for natural-language query keyword extraction.
+- License: MIT.
+- Source code: https://github.com/stopwords-iso/stopwords-iso

@@ -1232,6 +1232,8 @@ Pin the Action to a release tag, such as `magic5644/Graph-It-Live/.github/action
 
 Answer a natural language question about the codebase using the call graph. When an LLM API key is configured the answer is synthesised by the model; otherwise a heuristic fallback is used and a warning is printed to stderr.
 
+**Question languages.** Without an LLM, keywords come from a built-in multilingual heuristic shared with [`context`](#context): questions in English, French, German, Spanish, Chinese and Russian are segmented (`Intl.Segmenter`, so Chinese needs no spaces), accent-folded, stripped of stopwords and of Latin or Cyrillic words under 3 characters, and mapped to English identifier stems by a small code glossary (`références` → `reference`, `berechnet` → `compute`, `调用` → `call`). Unknown words are kept as typed. Seeds are ranked by keyword specificity (rare words weigh more), a file-path bonus and the number of keywords a symbol covers. With an LLM, the model is asked for English identifier keywords. For the most precise results in any language, include English identifier-like words (`reference compute python`).
+
 ```
 graph-it query "<question>" [options]
 ```
