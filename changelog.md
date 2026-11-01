@@ -1,5 +1,43 @@
 # Changelog
 
+## v1.21.3
+
+Patch release. The REPL changes fix results navigation that did not work in 1.21.x (arrows and the mouse wheel recalled history, long lines broke the layout) and finish it; the `check-architecture` text report replaces an unreadable field dump. No VS Code setting, VS Code command or MCP tool is added or removed; the CLI gains one flag (`check-architecture --verbose`) and one REPL command (`/mouse`).
+
+### Breaking / Behavior changes
+
+- **Call-graph cache rebuilt once on first launch**: the call-graph cache schema moves to version 11 (C# declarations record their enclosing namespaces and types, #537). A `.graph-it/cache/` call graph written by v1.21.2 is discarded and rebuilt the first time the extension, CLI or MCP server opens the workspace. No action is needed.
+- **`graph-it check-architecture` text output changed** (#453): the default `text` format is now a report for people, not a field dump. Scripts that parse it should use `--format json` or `--format toon`, which are unchanged (as is `sarif`).
+- **REPL keys** (#551, #552): on an empty command line with results, `↑`/`↓` scroll the results; `Ctrl+P`/`Ctrl+N` recall history. `Esc` closes the slash palette, then removes a search filter, then moves focus to the results. `Ctrl+L` no longer copies a line: use `y` in results focus.
+
+### Changed
+
+- **Readable `check-architecture` reports** (#453): a verdict line, totals, a rules table, then each new violation grouped by rule as `importing/file.ts:line → target`, with the rule's `reason`; accepted violations are counted, resolved ones and unmatched files are listed. `--verbose` also lists the baselined violations and the analysis context. `--format markdown` prints the same report as headings, a GitHub table and lists, ready for a PR comment:
+
+  ```bash
+  graph-it check-architecture --format markdown > architecture-report.md
+  ```
+
+  ![Terminal running graph-it check-architecture on the rules test fixture: FAILED with 3 new error violations, a rules table, new violations grouped by rule with the importing line, one unmatched file, exit code 1](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/cli-check-architecture-report.png)
+
+- **Navigate REPL results** (#551, #552): run `graph-it`, then press `Esc` on an empty line (or `Shift+Tab`) to move a cursor through the results. `j`/`k` move, `[`/`]` jump between results, `Space` folds one, `z` folds them all, `y`/`c`/`Y` copy the line, the result or everything. Each result starts with a title row (`● ▾ $ /check-dependencies src/a.ts --both (41 lines)`, red `●` on error); results older than the last three fold automatically. `Enter` on a line naming a workspace file or `file#Symbol` opens its actions: `/explain`, `/check-dependencies`, `/cycles`, `/file`, or `/trace`, `/callers`, `/impact`, and *Open in editor* (`$VISUAL`, `$EDITOR`, or `code -g` in the VS Code terminal). `Ctrl+F` highlights matches and `n`/`N` jump between them; `Tab` switches to a line filter. Long lines wrap inside the panel. Key reference: [Results navigation](https://github.com/magic5644/Graph-It-Live/blob/main/docs/CLI.md#results-navigation).
+
+  ![graph-it REPL on this repository: Esc moves focus into the results, the cursor jumps between result titles, a result folds, Enter on a file line opens the actions menu](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/repl-results-navigation.gif)
+
+- **Clickable links and mouse in the REPL** (#553): file rows are OSC 8 `file://` links in iTerm2, VS Code, WezTerm, Ghostty, Windows Terminal, kitty and VTE terminals (`Cmd+click` / `Ctrl+click`); off in Terminal.app, with `NO_COLOR`, `TERM=dumb` or when output is not a terminal, and `FORCE_HYPERLINK=0|1` overrides. `/mouse on` turns mouse tracking on for the session: the wheel scrolls, a click moves the cursor, a double click opens the actions menu. Select text with `Option`+drag (macOS) or `Shift`+drag while it is on; `/mouse off`, `/quit`, `Ctrl+C` and errors turn it off.
+- **REPL file picker** (#552): `/explain`, `/check-dependencies`, `/cycles` and `/file` without a file reopen the picker in the current file's folder with that file selected, so `Enter` reruns the command on it. The slash palette lists commands named like the input before description matches (`/expl` selects `/explain`, not `/trace`).
+- **Questions in six languages** (#557): without an LLM key, `graph-it query`, `/query`, `graph-it context` and the `query_natural_language` MCP tool extract keywords from questions in English, French, German, Spanish, Chinese and Russian (no spaces needed in Chinese), drop stopwords, fold accents and map common words to English identifier stems (`références` → `reference`, `berechnet` → `compute`, `调用` → `call`). Rare keywords weigh more when ranking seed symbols. Example: `graph-it query "qui appelle le calcul des références ?"`. English identifier-like words still give the most precise seeds.
+- Dependencies updated to their latest versions.
+
+### Fixed
+
+- **Branch Watch with the checked-out branch as head** (#554): selecting the current branch as head hid uncommitted changes. It now reviews the working tree (modified, staged, deleted and untracked files), like an empty head; another head branch still compares committed refs.
+- **C# calls through a `using` alias** (#537): `using M = Bench.MathUtil; M.Add()` produced no call edge. Qualified aliases now resolve, inside `namespace X.Y` the aliased namespace is looked up from `X.Y` outwards, `global::` pins the global namespace, and a same-named type of another namespace is never picked.
+
+### Tests
+
+- The REPL is rendered in unit tests with fake input and output streams, covering scrolling, wrapping, results focus, folding, search, actions, links and mouse events.
+
 ## v1.21.2
 
 Fixes only: no setting, VS Code command or CLI flag changes. This release stays a patch: every entry fixes a reported bug. The new inputs are optional, and the new output fields and values listed below only add what the fixes report.
