@@ -48,8 +48,24 @@ describe("JSX usages in the call graph", () => {
     await fs.rm(root, { recursive: true, force: true });
   });
 
-  /** Index `files` (relative path → source) in a fresh index and return `file#name` nodes and edges. */
-  async function index(files: Record<string, string>) {
+  /** `file#name` nodes and edges of an index. */
+  function describeIndex(indexer: CallGraphIndexer) {
+    const snapshot = indexer.getIndexSnapshot();
+    const key = (id: string) => {
+      const node = snapshot.nodes.find(n => n.id === id);
+      return node ? `${path.relative(root, node.path).replaceAll("\\", "/")}#${node.name}` : id;
+    };
+    return {
+      nodes: snapshot.nodes.map(n => ({ key: key(n.id), lang: n.lang, startLine: n.startLine, endLine: n.endLine })),
+      edges: snapshot.edges.map(e => `${key(e.sourceId)} -${e.typeRelation}@${e.sourceLine}-> ${key(e.targetId)}`),
+    };
+  }
+
+  /**
+   * Index `files` (relative path → source) in a fresh index and return `file#name` nodes and edges.
+   * With `savePath`, also save the index there.
+   */
+  async function index(files: Record<string, string>, savePath?: string) {
     const indexer = new CallGraphIndexer(path.resolve("node_modules/sql.js/dist/sql-wasm.wasm"));
     await indexer.init();
     try {
@@ -64,15 +80,8 @@ describe("JSX usages in the call graph", () => {
         indexer.indexFile(result.nodes, result.edges, file, lang, 1);
       }
       indexer.resolveExternalEdges();
-      const snapshot = indexer.getIndexSnapshot();
-      const key = (id: string) => {
-        const node = snapshot.nodes.find(n => n.id === id);
-        return node ? `${path.relative(root, node.path).replaceAll("\\", "/")}#${node.name}` : id;
-      };
-      return {
-        nodes: snapshot.nodes.map(n => ({ key: key(n.id), lang: n.lang, startLine: n.startLine, endLine: n.endLine })),
-        edges: snapshot.edges.map(e => `${key(e.sourceId)} -${e.typeRelation}@${e.sourceLine}-> ${key(e.targetId)}`),
-      };
+      if (savePath) await indexer.saveToFile(savePath);
+      return describeIndex(indexer);
     } finally {
       indexer.dispose();
     }
@@ -120,6 +129,22 @@ describe("JSX usages in the call graph", () => {
     ]);
     expect(edges).toContain("src/Old.jsx#Old -USES@1-> src/ui/Card.tsx#Card");
     expect(edges).toContain("src/Page.tsx#Later -CALLS@13-> src/hooks.ts#useCounter");
+  });
+
+  it("returns the same components and JSX edges from a reloaded (warm) index as from the cold run", async () => {
+    const dbPath = path.join(root, "callgraph.db");
+    const cold = await index(ISSUE_FIXTURE, dbPath);
+    const warm = new CallGraphIndexer(path.resolve("node_modules/sql.js/dist/sql-wasm.wasm"));
+    try {
+      await expect(warm.loadFromFile(dbPath)).resolves.toBe(true);
+      const reloaded = describeIndex(warm);
+
+      expect(reloaded.nodes).toEqual(cold.nodes);
+      expect(reloaded.edges.sort()).toEqual([...cold.edges].sort());
+      expect(reloaded.edges).toContain("src/Page.tsx#Page -USES@7-> src/ui/Card.tsx#Card");
+    } finally {
+      warm.dispose();
+    }
   });
 
   it("keeps intrinsic, namespaced and custom elements, fragments and unresolved members out of the graph", async () => {
