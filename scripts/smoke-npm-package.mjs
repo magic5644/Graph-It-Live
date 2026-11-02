@@ -5,13 +5,14 @@
 // Usage: node scripts/smoke-npm-package.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { closeSession, startMcpSession } from './mcpSession.ts';
 import { NPM_FILES, NPM_PACKAGE_NAME, npmManifest } from './npm-package.mjs';
+import { requiredAssets } from './verify-package.mjs';
 
 const root = path.resolve(import.meta.dirname, '..');
 // Python files go through web-tree-sitter and its WASM grammar.
@@ -80,7 +81,10 @@ try {
   const workspace = path.join(work, 'workspace');
   cpSync(fixture, workspace, { recursive: true });
   const bin = path.join(install, 'node_modules', '.bin', isWindows ? 'graph-it.cmd' : 'graph-it');
-  const entry = path.join(install, 'node_modules', ...NPM_PACKAGE_NAME.split('/'), 'dist', 'graph-it.js');
+  const packageRoot = path.join(install, 'node_modules', ...NPM_PACKAGE_NAME.split('/'));
+  const entry = path.join(packageRoot, 'dist', 'graph-it.js');
+  assert.deepEqual(requiredAssets(root).filter((asset) => !existsSync(path.join(packageRoot, asset))), [], 'WASM and query assets missing');
+  pass('WASM grammars and queries in the package');
 
   assert.equal(run(bin, ['--version'], workspace).trim(), `graph-it-live v${version}`);
   pass('graph-it --version');

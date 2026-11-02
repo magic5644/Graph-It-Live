@@ -9,7 +9,7 @@ const root = process.cwd();
 const wasmSources = {
   'tree-sitter.wasm': 'web-tree-sitter/web-tree-sitter.wasm',
   'sqljs.wasm': 'sql.js/dist/sql-wasm.wasm',
-  ...Object.fromEntries(['typescript', 'python', 'rust', 'c_sharp', 'go', 'java'].map(language => [
+  ...Object.fromEntries(['typescript', 'tsx', 'python', 'rust', 'c_sharp', 'go', 'java'].map(language => [
     `tree-sitter-${language}.wasm`, `tree-sitter-wasms/out/tree-sitter-${language}.wasm`,
   ])),
 };

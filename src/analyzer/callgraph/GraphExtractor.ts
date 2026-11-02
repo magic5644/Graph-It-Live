@@ -81,7 +81,34 @@ const RELATION_CAPTURE_MAP: Record<string, RelationType> = {
   inherit: "INHERITS",
   impl: "IMPLEMENTS",
   uses: "USES",
+  jsx: "USES",
 };
+
+/** Captures whose target goes through import resolution (`@@import:` / `@@qualified:` stubs). */
+const IMPORT_RESOLVED_CAPTURES = new Set(["call", "jsx"]);
+
+/**
+ * A tree-sitter grammar: one per SupportedLang, plus `tsx` for `.tsx` and `.jsx`.
+ * The node language stays typescript/javascript so cross-file names resolve as before.
+ */
+type Grammar = SupportedLang | "tsx";
+
+/** Query files per grammar: tsx is the TypeScript rules plus the JSX captures. */
+const GRAMMAR_QUERY_FILES: Partial<Record<Grammar, string[]>> = {
+  javascript: ["typescript.scm"],
+  tsx: ["typescript.scm", "tsx.scm"],
+};
+
+function queryFilesOf(grammar: Grammar): string[] {
+  return GRAMMAR_QUERY_FILES[grammar] ?? [`${grammar}.scm`];
+}
+
+/** The grammar that parses `filePath`: JSX is not valid TypeScript, so `.tsx`/`.jsx` use tsx. */
+export function grammarOf(lang: SupportedLang, filePath: string): Grammar {
+  if (lang !== "typescript" && lang !== "javascript") return lang;
+  const ext = path.extname(filePath).toLowerCase();
+  return ext === ".tsx" || ext === ".jsx" ? "tsx" : lang;
+}
 
 function captureNameToSymbolType(captureName: string): SymbolType {
   const part = captureName.replace(/^def\./, "");
@@ -127,11 +154,11 @@ function isMemberAccessCapture(node: TreeNode): boolean {
 
 function resolveEdgeTarget(
   node: TreeNode,
-  relationType: RelationType,
   targetNodeIds: string[] | undefined,
   importTargets: Map<number, string | null>,
 ): string | null {
-  if (relationType === "CALLS" && importTargets.has(node.id)) {
+  // Only `IMPORT_RESOLVED_CAPTURES` nodes are keys of importTargets.
+  if (importTargets.has(node.id)) {
     const target = importTargets.get(node.id);
     if (!target) return null;
     if (target === LOCAL_ONLY) return targetNodeIds?.[0] ?? null;
@@ -211,7 +238,8 @@ export class GraphExtractor {
       "tree-sitter.wasm",
     );
 
-    const wasmFileName = this.langToWasmFileName(lang);
+    const grammar = grammarOf(lang, normalizedPath);
+    const wasmFileName = this.langToWasmFileName(grammar);
     const langWasmPath = path.join(
       this.config.extensionPath,
       "dist",
@@ -219,8 +247,8 @@ export class GraphExtractor {
       wasmFileName,
     );
 
-    // Load query source for this language
-    const querySrc = await this.loadQuerySource(lang);
+    // Load query source for this grammar
+    const querySrc = await this.loadQuerySource(grammar);
     if (!querySrc.trim()) {
       // Empty query file — return empty result
       return { nodes: [], edges: [] };
@@ -230,10 +258,10 @@ export class GraphExtractor {
     const factory = WasmParserFactory.getInstance();
     await factory.init(treeSitterWasmPath);
 
-    const parser = await factory.getParser(lang, langWasmPath);
+    const parser = await factory.getParser(grammar, langWasmPath);
     const language = parser.language;
     if (!language) {
-      throw new Error(`Language not loaded for ${lang}`);
+      throw new Error(`Language not loaded for ${grammar}`);
     }
 
     // Parse the source
@@ -243,9 +271,9 @@ export class GraphExtractor {
     }
     try {
       // Run query (compiled Query is cached per language — safe to reuse across files)
-      const query = this.getOrCompileQuery(language, querySrc, lang);
+      const query = this.getOrCompileQuery(language, querySrc, grammar);
       const captures = query.captures(tree.rootNode);
-      const calls = captures.filter(c => c.name === "call").map(c => c.node);
+      const calls = captures.filter(c => IMPORT_RESOLVED_CAPTURES.has(c.name)).map(c => c.node);
       const resolver = new PathResolver(undefined, true, this.config.workspaceRoot);
       let importTargets: Map<number, string | null>;
       if (lang === "typescript" || lang === "javascript") {
@@ -269,8 +297,9 @@ export class GraphExtractor {
    * Return a cached compiled Query for the given language, compiling on first use.
    * The Query object is safe to reuse across multiple tree parses — `.captures()` is stateless.
    */
-  private getOrCompileQuery(language: ConstructorParameters<typeof Query>[0], querySrc: string, lang: SupportedLang): Query {
-    const key = this.normalizeQueryLang(lang);
+  private getOrCompileQuery(language: ConstructorParameters<typeof Query>[0], querySrc: string, grammar: Grammar): Query {
+    // Keyed by grammar: a query compiled for one grammar's Language does not run on another's tree.
+    const key = queryFilesOf(grammar).join("+");
     const cached = this.compiledQueryCache.get(key);
     if (cached) return cached;
 
@@ -279,7 +308,7 @@ export class GraphExtractor {
       query = new Query(language, querySrc);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Failed to parse Tree-sitter query for ${lang}: ${msg}`, { cause: err });
+      throw new Error(`Failed to parse Tree-sitter query for ${grammar}: ${msg}`, { cause: err });
     }
     this.compiledQueryCache.set(key, query);
     return query;
@@ -388,15 +417,16 @@ export class GraphExtractor {
       );
       if (!sourceNodeId) continue;
       const targetNodeIds = nameToNodeIds.get(targetName);
-      const targetId = resolveEdgeTarget(capture.node, relationType, targetNodeIds, importTargets);
+      const targetId = resolveEdgeTarget(capture.node, targetNodeIds, importTargets);
       if (!targetId) continue;
 
       // Skip cross-file edges from member/method access calls (e.g. obj.method()).
       // Without type information, name-only resolution creates false positives:
       // Object.keys() → user's `keys`, Math.round() → user's `round`, etc.
       // Intra-file member calls (this.method()) are kept — targetNodeIds is set.
+      // Same for JSX `<Tabs.Panel />` outside a resolved namespace import.
       if (
-        relationType === "CALLS" &&
+        IMPORT_RESOLVED_CAPTURES.has(capture.name) &&
         targetId.startsWith("@@external:") &&
         isMemberAccessCapture(capture.node)
       ) {
@@ -479,52 +509,38 @@ export class GraphExtractor {
   }
 
   /**
-   * Load the Tree-sitter query source for the given language.
-   * Empty string if the file is not found or is empty.
+   * Load the Tree-sitter query source for the given grammar (its query files, concatenated).
+   * Empty string if a file is not found or the files are empty.
    */
-  private async loadQuerySource(lang: SupportedLang): Promise<string> {
-    const normalizedLang = this.normalizeQueryLang(lang);
-    const cached = this.querySourceCache.get(normalizedLang);
+  private async loadQuerySource(grammar: Grammar): Promise<string> {
+    const files = queryFilesOf(grammar);
+    const key = files.join("+");
+    const cached = this.querySourceCache.get(key);
     if (cached !== undefined) return cached;
 
-    const queryFileName = `${normalizedLang}.scm`;
-    const queryPath = path.join(
-      this.config.extensionPath,
-      "dist",
-      "queries",
-      queryFileName,
-    );
+    const queryPaths = files.map(file => path.join(this.config.extensionPath, "dist", "queries", file));
     try {
-      const src = await fs.readFile(queryPath, "utf8");
-      this.querySourceCache.set(normalizedLang, src);
+      const src = (await Promise.all(queryPaths.map(queryPath => fs.readFile(queryPath, "utf8")))).join("\n");
+      this.querySourceCache.set(key, src);
       return src;
     } catch (err) {
-      getLogger('GraphExtractor').error(`Query file not found: ${queryPath}`, err);
-      this.querySourceCache.set(normalizedLang, "");
+      getLogger('GraphExtractor').error(`Query file not found: ${queryPaths.join(", ")}`, err);
+      this.querySourceCache.set(key, "");
       return "";
     }
   }
 
   /**
-   * Map SupportedLang to the .scm file base name.
-   * JavaScript reuses the typescript query file.
+   * Map a grammar to its WASM file name in dist/wasm.
    */
-  private normalizeQueryLang(lang: SupportedLang): string {
-    if (lang === "javascript") return "typescript";
-    return lang;
-  }
-
-  /**
-   * Map SupportedLang to the language WASM file name in dist/wasm.
-   */
-  private langToWasmFileName(lang: SupportedLang): string {
-    switch (lang) {
+  private langToWasmFileName(grammar: Grammar): string {
+    switch (grammar) {
       case "typescript":
       case "javascript":
-        // The web-tree-sitter TypeScript WASM handles both TS and JS
-        // Note: for JS-only files you'd use tree-sitter-javascript.wasm,
-        // but we currently only have TS WASM; fall through to ts for now.
+        // The TypeScript grammar parses JS too; JSX files use the tsx grammar.
         return "tree-sitter-typescript.wasm";
+      case "tsx":
+        return "tree-sitter-tsx.wasm";
       case "python":
         return "tree-sitter-python.wasm";
       case "rust":
@@ -547,7 +563,8 @@ export class GraphExtractor {
 
 /**
  * Returns the SupportedLang for a given normalized file path, or null if not
- * supported by the GraphExtractor.
+ * supported by the GraphExtractor. `.tsx`/`.jsx` keep the typescript/javascript
+ * language; `grammarOf()` picks their tsx grammar.
  */
 export function fileExtToLang(filePath: string): SupportedLang | null {
   const ext = path.extname(filePath).toLowerCase();
@@ -619,28 +636,20 @@ export async function getQueryFreshnessCutoffs(
   extensionPath: string,
 ): Promise<Record<SupportedLang, number>> {
   const queryDir = path.join(extensionPath, "dist", "queries");
-  const queryFiles: Record<Exclude<SupportedLang, "graphql">, string> = {
-    typescript: path.join(queryDir, "typescript.scm"),
-    javascript: path.join(queryDir, "typescript.scm"),
-    python: path.join(queryDir, "python.scm"),
-    rust: path.join(queryDir, "rust.scm"),
-    csharp: path.join(queryDir, "csharp.scm"),
-    go: path.join(queryDir, "go.scm"),
-    java: path.join(queryDir, "java.scm"),
-  };
+  // .tsx/.jsx files keep the typescript/javascript language but also run tsx.scm.
+  const langs: Array<Exclude<SupportedLang, "graphql">> = ["typescript", "javascript", "python", "rust", "csharp", "go", "java"];
+  const queryFiles = langs.map((lang) => [lang, queryFilesOf(lang === "typescript" || lang === "javascript" ? "tsx" : lang)] as const);
 
+  const mtimeOf = async (file: string): Promise<number> => {
+    try {
+      return Math.floor((await fs.stat(path.join(queryDir, file))).mtimeMs);
+    } catch {
+      // A missing query file must not block indexing.
+      return 0;
+    }
+  };
   const entries = await Promise.all(
-    (Object.entries(queryFiles) as Array<[SupportedLang, string]>).map(
-      async ([lang, queryPath]) => {
-        try {
-          const stat = await fs.stat(queryPath);
-          return [lang, Math.floor(stat.mtimeMs)] as const;
-        } catch {
-          // A missing query file must not block indexing.
-          return [lang, 0] as const;
-        }
-      },
-    ),
+    queryFiles.map(async ([lang, files]) => [lang, Math.max(...(await Promise.all(files.map(mtimeOf))))] as const),
   );
 
   // GraphQL has no query file: its rules live in graphqlExtractor.ts.
