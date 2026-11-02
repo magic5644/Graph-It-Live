@@ -8,21 +8,16 @@ import type { SupportedLang } from "@/shared/callgraph-types";
 import { normalizePath } from "@/shared/path";
 
 describe("grammarOf", () => {
-  it.each([
-    ["typescript", "src/Page.tsx", "tsx"],
-    ["javascript", "src/Old.jsx", "tsx"],
-    ["typescript", String.raw`C:\repo\src\PAGE.TSX`, "tsx"],
-    ["typescript", "src/a.ts", "typescript"],
-    ["typescript", "src/a.mts", "typescript"],
-    ["typescript", "src/a.cts", "typescript"],
-    ["javascript", "src/a.js", "javascript"],
-    ["javascript", "src/a.mjs", "javascript"],
-    ["javascript", "src/a.cjs", "javascript"],
-    ["typescript", "src/App.vue", "typescript"],
-    ["typescript", "src/App.svelte", "typescript"],
-    ["python", "src/a.tsx", "python"],
-  ] as const)("%s %s → %s", (lang, file, grammar) => {
-    expect(grammarOf(lang, file)).toBe(grammar);
+  it("parses .tsx and .jsx, in any case, with the tsx grammar", () => {
+    expect(grammarOf("typescript", "src/Page.tsx")).toBe("tsx");
+    expect(grammarOf("javascript", "src/Old.jsx")).toBe("tsx");
+    expect(grammarOf("typescript", String.raw`C:\repo\src\PAGE.TSX`)).toBe("tsx");
+  });
+
+  it("keeps other TS/JS files, Vue, Svelte and other languages on their own grammar", () => {
+    for (const file of ["a.ts", "a.mts", "a.cts", "App.vue", "App.svelte"]) expect(grammarOf("typescript", file)).toBe("typescript");
+    for (const file of ["a.js", "a.mjs", "a.cjs"]) expect(grammarOf("javascript", file)).toBe("javascript");
+    expect(grammarOf("python", "a.tsx")).toBe("python");
   });
 });
 
@@ -91,23 +86,21 @@ describe("JSX usages in the call graph", () => {
     "src/ui/Card.tsx": "export function Card() { return <section />; }\nexport default function Panel() { return <aside />; }\n",
     "src/ui/index.ts": "export * from './Card';\n",
     "src/hooks.ts": "export function useCounter() { return 1; }\nexport function track(_e: string) {}\n",
-    "src/Page.tsx": [
-      "import * as UI from './ui';",
-      "import Panel from './ui/Card';",
-      "import { useCounter, track } from './hooks';",
-      "export function Page({ show }: { show: boolean }) {",
-      "  const n = useCounter();",
-      "  return (",
-      "    <main>",
-      "      {show && <UI.Card />}",
-      "      <Panel />",
-      "      <button onClick={() => track('x')}>{n}</button>",
-      "    </main>",
-      "  );",
-      "}",
-      "export function Later() { return useCounter(); }",
-      "",
-    ].join("\n"),
+    "src/Page.tsx": `import * as UI from './ui';
+import Panel from './ui/Card';
+import { useCounter, track } from './hooks';
+export function Page({ show }: { show: boolean }) {
+  const n = useCounter();
+  return (
+    <main>
+      {show && <UI.Card />}
+      <Panel />
+      <button onClick={() => track('x')}>{n}</button>
+    </main>
+  );
+}
+export function Later() { return useCounter(); }
+`,
     "src/Old.jsx": "import { Card } from './ui/Card';\nexport function Old() { return <div><Card /></div>; }\n",
   };
 
@@ -147,87 +140,71 @@ describe("JSX usages in the call graph", () => {
     }
   });
 
-  it("keeps intrinsic, namespaced and custom elements, fragments and unresolved members out of the graph", async () => {
-    const { edges } = await index({
-      "src/Tags.tsx": [
-        "export function Tags() {",
-        "  return (<>",
-        "    <div><span /></div>",
-        "    <svg:rect />",
-        "    <my-element />",
-        "    <Tabs.Panel />",
-        "    <A.B.C />",
-        "  </>);",
-        "}",
-        "export function Panel() { return null; }",
-        "export function C() { return null; }",
-        "",
-      ].join("\n"),
-      "src/Other.tsx": "export function Panel() { return null; }\nexport function C() { return null; }\n",
-    });
+  const NULL_COMPONENTS = "export const Card = () => null;\nexport function Panel() { return null; }\nexport function C() { return null; }\n";
 
-    // `<Tabs.Panel />` resolves in its own file, like `this.method()`; a cross-file member never resolves by name.
-    expect(edges.filter(e => e.startsWith("src/Tags.tsx#Tags ")).sort()).toEqual([
-      "src/Tags.tsx#Tags -USES@5-> src/Tags.tsx#Panel",
-      "src/Tags.tsx#Tags -USES@6-> src/Tags.tsx#C",
-    ]);
-  });
+  it.each([
+    {
+      // `<Tabs.Panel />` resolves in its own file, like `this.method()`; a cross-file member never resolves by name.
+      title: "keeps intrinsic, namespaced and custom elements, fragments and unresolved members out of the graph",
+      file: "src/Tags.tsx",
+      source: `export function Tags() {
+  return (<>
+    <div><span /></div>
+    <svg:rect />
+    <my-element />
+    <Tabs.Panel />
+    <A.B.C />
+  </>);
+}
+export function Panel() { return null; }
+export function C() { return null; }
+`,
+      expected: ["src/Tags.tsx#Tags -USES@5-> src/Tags.tsx#Panel", "src/Tags.tsx#Tags -USES@6-> src/Tags.tsx#C"],
+    },
+    {
+      title: "links paired, self-closing, nested, conditional and ternary JSX once per target",
+      file: "src/Shell.tsx",
+      source: `import { Card, Panel } from './parts';
+export function Shell({ a }: { a: boolean }) {
+  return (
+    <Card title="t">
+      {a ? <Panel /> : null}
+      <Card><Panel></Panel></Card>
+    </Card>
+  );
+}
+`,
+      expected: ["src/Shell.tsx#Shell -USES@3-> src/parts.tsx#Card", "src/Shell.tsx#Shell -USES@4-> src/parts.tsx#Panel"],
+    },
+    {
+      title: "follows a component's local binding: a parameter shadowing an import or a type-only import links nowhere",
+      file: "src/Wrap.tsx",
+      source: `import type { Card } from './parts';
+import { Panel } from './parts';
+export function Wrap() { return <Card />; }
+export function Pass({ Panel }: { Panel: () => null }) { return <Panel />; }
+export function Uses() { return <Panel />; }
+`,
+      expected: ["src/Wrap.tsx#Uses -USES@4-> src/parts.tsx#Panel"],
+    },
+    {
+      title: "links a .jsx component to a same-file component without an import",
+      file: "src/Local.jsx",
+      source: "function Item() { return <li />; }\nexport function List() { return <ul><Item /></ul>; }\n",
+      expected: ["src/Local.jsx#List -USES@1-> src/Local.jsx#Item"],
+    },
+  ])("$title", async ({ file, source, expected }) => {
+    const { edges } = await index({ [file]: source, "src/parts.tsx": NULL_COMPONENTS });
 
-  it("links paired, self-closing, nested, conditional and ternary JSX once per target", async () => {
-    const { edges } = await index({
-      "src/Shell.tsx": [
-        "import { Card, Panel } from './parts';",
-        "export function Shell({ a }: { a: boolean }) {",
-        "  return (",
-        "    <Card title=\"t\">",
-        "      {a ? <Panel /> : null}",
-        "      <Card><Panel></Panel></Card>",
-        "    </Card>",
-        "  );",
-        "}",
-        "",
-      ].join("\n"),
-      "src/parts.tsx": "export const Card = () => null;\nexport function Panel() { return null; }\n",
-    });
-
-    expect(edges.filter(e => e.startsWith("src/Shell.tsx#Shell ")).sort()).toEqual([
-      "src/Shell.tsx#Shell -USES@3-> src/parts.tsx#Card",
-      "src/Shell.tsx#Shell -USES@4-> src/parts.tsx#Panel",
-    ]);
-  });
-
-  it("follows a component's local binding: a parameter shadowing an import or a type-only import links nowhere", async () => {
-    const { edges } = await index({
-      "src/Wrap.tsx": [
-        "import type { Card } from './Card';",
-        "import { Panel } from './Card';",
-        "export function Wrap() { return <Card />; }",
-        "export function Pass({ Panel }: { Panel: () => null }) { return <Panel />; }",
-        "export function Uses() { return <Panel />; }",
-        "",
-      ].join("\n"),
-      "src/Card.tsx": "export function Card() { return null; }\nexport function Panel() { return null; }\n",
-    });
-
-    expect(edges.filter(e => e.startsWith("src/Wrap.tsx#"))).toEqual(["src/Wrap.tsx#Uses -USES@4-> src/Card.tsx#Panel"]);
-  });
-
-  it("links a .jsx component to a same-file component without an import", async () => {
-    const { edges } = await index({
-      "src/Local.jsx": "function Item() { return <li />; }\nexport function List() { return <ul><Item /></ul>; }\n",
-    });
-
-    expect(edges).toEqual(["src/Local.jsx#List -USES@1-> src/Local.jsx#Item"]);
+    expect(edges.filter(e => e.startsWith(`${file}#`)).sort()).toEqual(expected);
   });
 
   it("keeps .ts files on the TypeScript grammar, where `<T>x` is a type assertion, not JSX", async () => {
     const { nodes, edges } = await index({
-      "src/cast.ts": [
-        "function wrap<T>(x: T) { return x; }",
-        "export function cast(v: unknown) { return <string>wrap(v); }",
-        "export const ident = <T,>(x: T) => wrap(x);",
-        "",
-      ].join("\n"),
+      "src/cast.ts": `function wrap<T>(x: T) { return x; }
+export function cast(v: unknown) { return <string>wrap(v); }
+export const ident = <T,>(x: T) => wrap(x);
+`,
     });
 
     expect(nodes.map(n => n.key).sort()).toEqual(["src/cast.ts#cast", "src/cast.ts#ident", "src/cast.ts#wrap"]);
