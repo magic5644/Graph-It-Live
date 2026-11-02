@@ -43,6 +43,22 @@ describe("getQueryFreshnessCutoffs", () => {
     });
   });
 
+  it("dates TypeScript and JavaScript files by the newer of typescript.scm and tsx.scm", async () => {
+    const queryDir = path.join(tmpDir, "dist", "queries");
+    fs.mkdirSync(queryDir, { recursive: true });
+    fs.writeFileSync(path.join(queryDir, "typescript.scm"), "(x)");
+    fs.writeFileSync(path.join(queryDir, "tsx.scm"), "(x)");
+    fs.utimesSync(path.join(queryDir, "typescript.scm"), 1_000, 1_000);
+    fs.utimesSync(path.join(queryDir, "tsx.scm"), 2_000, 2_000);
+
+    const cutoffs = await getQueryFreshnessCutoffs(tmpDir);
+
+    // A tsx.scm edit must re-extract .tsx/.jsx files, which keep the typescript/javascript language.
+    expect(cutoffs.typescript).toBe(2_000_000);
+    expect(cutoffs.javascript).toBe(2_000_000);
+    expect(cutoffs.python).toBe(0);
+  });
+
   it("falls back to 0 for a missing query file instead of throwing", async () => {
     const cutoffs = await getQueryFreshnessCutoffs(tmpDir);
 

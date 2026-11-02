@@ -98,6 +98,11 @@ function copyWasmFiles() {
       fileName: 'tree-sitter-typescript.wasm',
     },
     {
+      // .tsx and .jsx: the TypeScript grammar rejects JSX.
+      src: 'node_modules/tree-sitter-wasms/out/tree-sitter-tsx.wasm',
+      fileName: 'tree-sitter-tsx.wasm',
+    },
+    {
       src: 'node_modules/tree-sitter-wasms/out/tree-sitter-python.wasm',
       fileName: 'tree-sitter-python.wasm',
     },

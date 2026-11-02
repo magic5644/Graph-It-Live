@@ -144,8 +144,9 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v9: qualified Go/Rust/Java/C# calls retain their package, module or type (#507).
  * v10: Rust impl methods retain their type (`nodes.owner`); aliased `use` and typed receivers link (#522).
  * v11: C# declarations retain their enclosing namespaces and types (`nodes.owner`); a `using` alias links in its namespace only (#537).
+ * v12: .tsx/.jsx parse with the tsx grammar; JSX components are USES edges (#574).
  */
-const CURRENT_SCHEMA_VERSION = 11;
+const CURRENT_SCHEMA_VERSION = 12;
 
 /**
  * Optional FTS5 schema for fast symbol name search.

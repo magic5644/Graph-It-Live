@@ -15,7 +15,7 @@ fi
 
 # Check WASM files
 echo "Checking WASM files..."
-WASM_FILES=(tree-sitter.wasm tree-sitter-typescript.wasm tree-sitter-python.wasm
+WASM_FILES=(tree-sitter.wasm tree-sitter-typescript.wasm tree-sitter-tsx.wasm tree-sitter-python.wasm
   tree-sitter-rust.wasm tree-sitter-c_sharp.wasm tree-sitter-go.wasm tree-sitter-java.wasm sqljs.wasm)
 for file in "${WASM_FILES[@]}"; do
   if [ ! -s "dist/wasm/$file" ]; then
