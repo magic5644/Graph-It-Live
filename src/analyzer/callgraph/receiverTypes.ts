@@ -27,7 +27,29 @@ const VARIABLE_DECLARATIONS = [
   "assignment", "typed_parameter", "typed_default_parameter", // Python
   "short_var_declaration", "var_spec", "parameter_declaration", // Go
   "let_declaration", // Rust
+  "arrow_function", "catch_clause", "for_in_statement", // TS/JS bindings without a value
+  "lambda_expression", // Java, C#
+  "for_statement", "for_in_clause", "parameters", "lambda_parameters", "default_parameter", // Python
+  "enhanced_for_statement", "catch_formal_parameter", "inferred_parameters", // Java
+  "foreach_statement", "catch_declaration", // C#
+  "range_clause", // Go
+  "for_expression", "closure_parameters", // Rust
 ];
+
+/** Bindings whose value is not the variable's own (`for (b of items)`, `catch (e)`): only a declared type types them. */
+const NO_VALUE = new Set([
+  "for_in_statement", "catch_clause", "for_statement", "for_in_clause", "enhanced_for_statement", "catch_formal_parameter",
+  "foreach_statement", "catch_declaration", "range_clause", "for_expression",
+]);
+
+/** Single-parameter lambdas (`b => ...`, `b -> ...`): their parameter has no type. */
+const UNTYPED_BINDINGS = new Set(["arrow_function", "lambda_expression"]);
+
+/** Untyped parameter lists: every identifier they hold is bound, with no type. */
+const UNTYPED_PARAMETERS = new Set(["parameters", "lambda_parameters", "inferred_parameters", "closure_parameters"]);
+
+/** Where `this` stops naming the enclosing class: an object literal or a TS/JS `function` (an arrow keeps it). */
+const THIS_BOUNDARIES = new Set(["object", "function_expression", "function_declaration", "generator_function_declaration", "function"]);
 
 /** Nodes holding a type or a value whose type is the one inside: `: B`, `*B`, `&B`, `B<T>`, `B?`, `(new B())`, `= new B()`. */
 const WRAPPERS = new Set([
@@ -69,6 +91,7 @@ function scopeName(scope: TreeNode): string | null {
 export function enclosingType(node: TreeNode): string | null {
   for (let up = node.parent; up; up = up.parent) {
     if (TYPE_SCOPES.has(up.type)) return scopeName(up);
+    if (THIS_BOUNDARIES.has(up.type)) return null;
   }
   return null;
 }
@@ -91,17 +114,22 @@ function itemsOf(node: TreeNode | null | undefined): TreeNode[] {
   return node.type === "expression_list" ? node.namedChildren.filter(item => item !== null) : [node];
 }
 
-/** Types a declaration gives `name`: its declared type, else (`var`, none) the type its value constructs. */
+/** Types a declaration gives `name`: its declared type, else (`var`, none) the type its value constructs; null when untyped. */
 function declaredTypes(declaration: TreeNode, name: string): (string | null)[] {
-  const names = ["name", "pattern", "left"].flatMap(field => declaration.childrenForFieldName(field)).flatMap(itemsOf);
+  if (UNTYPED_PARAMETERS.has(declaration.type)) {
+    return declaration.namedChildren.some(child => child?.type === "identifier" && child.text === name) ? [null] : [];
+  }
+  const names = ["name", "pattern", "left", "parameter", "parameters"].flatMap(field => declaration.childrenForFieldName(field)).flatMap(itemsOf);
   // C# variable_declarator and Python typed_parameter name no field: their first child is the identifier.
   const first = declaration.firstNamedChild;
   if (names.length === 0 && first?.type === "identifier") names.push(first);
   const index = names.findIndex(node => node.text.replace(/^mut\s+/, "") === name);
   if (index < 0) return [];
+  if (UNTYPED_BINDINGS.has(declaration.type)) return [null];
   // Java and C# declare the type once for every declarator: `B a = x, b = y;`.
   const declared = typeNameOf(declaration.childForFieldName("type") ?? declaration.parent?.childForFieldName("type"));
   if (declared && declared !== "var") return [declared];
+  if (NO_VALUE.has(declaration.type)) return [null];
   const values = itemsOf(declaration.childForFieldName("value") ?? declaration.childForFieldName("right")
     ?? declaration.namedChildren.find(child => child?.type === "equals_value_clause"));
   return [typeNameOf(values.length === names.length ? values[index] : values[0])];
@@ -110,14 +138,20 @@ function declaredTypes(declaration: TreeNode, name: string): (string | null)[] {
 /**
  * Type of the variable `receiver` names, from the declarations of its enclosing functions, innermost
  * first, then of the file; the name itself when nothing declares it (a type: `B.m()`, a Rust unit struct).
- * shortcut: a scope's nested functions count as the scope, so one name declared with two types in them is
- * unresolved; fields (`this.b.m()`) and inferred values (`make().m()`) are not typed; upgrade with #499.
+ * A binding with no readable type (untyped parameter, loop or catch variable) leaves it unresolved.
+ * `declarations` caches each scope's declaration nodes, by scope node id, for one file.
+ * shortcut: a scope's nested functions and blocks count as the scope, so one name declared with two types
+ * in them is unresolved; fields (`this.b.m()`) and inferred values (`make().m()`) are not typed; upgrade with #499.
  */
-export function variableType(receiver: TreeNode): string | null {
+export function variableType(receiver: TreeNode, declarations: Map<number, TreeNode[]>): string | null {
   for (let scope = receiver.parent; scope; scope = scope.parent) {
     if (scope.parent && !FUNCTION_SCOPES.has(scope.type)) continue;
-    const types = new Set(scope.descendantsOfType(VARIABLE_DECLARATIONS)
-      .flatMap(declaration => (declaration ? declaredTypes(declaration, receiver.text) : [])));
+    let nodes = declarations.get(scope.id);
+    if (!nodes) {
+      nodes = scope.descendantsOfType(VARIABLE_DECLARATIONS).filter(node => node !== null);
+      declarations.set(scope.id, nodes);
+    }
+    const types = new Set(nodes.flatMap(declaration => declaredTypes(declaration, receiver.text)));
     if (types.size > 0) return types.size === 1 ? [...types][0] : null;
   }
   return receiver.text;

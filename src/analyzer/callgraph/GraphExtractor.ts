@@ -234,28 +234,33 @@ function ownMembers(node: TreeNode, candidates: string[] | undefined): string[] 
 /** Bare calls that reach a method of the enclosing type, as `this.m()` does: Java and C# invocations. */
 const IMPLICIT_THIS_CALLS = new Set(["method_invocation", "invocation_expression"]);
 
+/** One file's same-file definitions by node id, and the declarations of each scope read so far (by scope node id). */
+interface HomonymContext { definitions: Map<string, TreeNode>; declarations: Map<number, TreeNode[]> }
+
 /** Type of the receiver of a member call: `this`/`self`, a variable, a type (`B.m()`) or a construction (`new B()`). */
-function receiverType(node: TreeNode, object: TreeNode): string | null {
+function receiverType(node: TreeNode, object: TreeNode, declarations: Map<number, TreeNode[]>): string | null {
   if (isSelfObject(node.parent?.type, object)) return enclosingType(object);
-  return object.type === "identifier" ? variableType(object) : typeNameOf(object);
+  return object.type === "identifier" ? variableType(object, declarations) : typeNameOf(object);
 }
 
 /**
  * Same-file homonyms a call can reach (#505): the method of its receiver's type, a function (or, in Java and
  * C#, a method of the enclosing type) for a bare call. Null, so no edge, unless exactly one matches: a call is
  * never linked to an arbitrary homonym. A single candidate is kept as is.
- * shortcut: a method inherited from a same-file base type is not followed; upgrade with the INHERITS edges.
+ * shortcut: a method inherited from a same-file base type, `super.m()`/`base.m()`, a call on a returned value
+ * (`B::new().m()`) and a Rust trait default method calling `self.m()` link nowhere; upgrade with INHERITS edges
+ * and receiver types (#499).
  */
-function homonymTargets(node: TreeNode, candidates: string[] | undefined, definitions: Map<string, TreeNode>): string[] | null | undefined {
+function homonymTargets(node: TreeNode, candidates: string[] | undefined, context: HomonymContext): string[] | null | undefined {
   if (!candidates || candidates.length < 2) return candidates;
   // A Java bare invocation has no `object` field: null, like no member at all.
   const object = memberObject(node) ?? undefined;
   let owner: string | null = null;
-  if (object) owner = receiverType(node, object);
+  if (object) owner = receiverType(node, object, context.declarations);
   else if (IMPLICIT_THIS_CALLS.has(node.parent?.type ?? "")) owner = enclosingType(node);
   if (object && owner === null) return null;
   const matching = candidates.filter((id) => {
-    const definition = definitions.get(id);
+    const definition = context.definitions.get(id);
     return definition !== undefined && methodOwner(definition) === owner;
   });
   return matching.length === 1 ? matching : null;
@@ -265,11 +270,11 @@ function homonymTargets(node: TreeNode, candidates: string[] | undefined, defini
 function callTargets(
   capture: ReturnType<Query["captures"]>[number],
   candidates: string[] | undefined,
-  definitions: Map<string, TreeNode>,
+  context: HomonymContext,
   importTargets: Map<number, string | null>,
 ): string[] | null | undefined {
   const bound = importTargets.has(capture.node.id) && importTargets.get(capture.node.id) !== LOCAL_ONLY;
-  return capture.name === "call" && !bound ? homonymTargets(capture.node, candidates, definitions) : candidates;
+  return capture.name === "call" && !bound ? homonymTargets(capture.node, candidates, context) : candidates;
 }
 
 /**
@@ -590,6 +595,7 @@ export class GraphExtractor {
   ): CallGraphEdge[] {
     const edges: CallGraphEdge[] = [];
     const seenEdges = new Map<string, CallGraphEdge>();
+    const homonyms: HomonymContext = { definitions, declarations: new Map() };
 
     for (const capture of captures) {
       const relationType = captureNameToRelationType(capture.name);
@@ -597,7 +603,7 @@ export class GraphExtractor {
       const targetName = capture.node.text.trim();
       if (!targetName || (capture.name === "call" && isFactoryCallee(capture.node, targetName))) continue;
       const named = nameToNodeIds.get(targetName);
-      const targetNodeIds = REFERENCE_CAPTURES.has(capture.name) ? ownMembers(capture.node, named) : callTargets(capture, named, definitions, importTargets);
+      const targetNodeIds = REFERENCE_CAPTURES.has(capture.name) ? ownMembers(capture.node, named) : callTargets(capture, named, homonyms, importTargets);
       if (targetNodeIds === null) continue;
       const targetId = resolveEdgeTarget(capture.node, targetNodeIds, importTargets);
       // Target first: most passed values are variables that link nowhere, and the ancestor walk below is costly.
