@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { analyzeReactIdentity, collectReactReferencingPaths, enrichReactFramework, enrichReactSymbols, readReactJsxImportSource } from '@/analyzer/ReactIdentity';
 import type { GraphData } from '@/shared/graph-types';
+import { normalizePath } from '@/shared/path';
 
 describe('React identity evidence', () => {
   it.each([
@@ -70,15 +71,15 @@ describe('file graph React enrichment', () => {
     };
     await Promise.all(Object.entries(files).map(([name, source]) => fs.writeFile(path.join(root!, name), source)));
     const nodes = Object.keys(files).map(name => path.join(root!, name));
-    const graph: GraphData = { nodes, edges: [], nodeMetadata: Object.fromEntries(nodes.map(node => [node, { hubScore: 0 }])) };
+    const graph: GraphData = { nodes, edges: [], nodeMetadata: Object.fromEntries(nodes.map(node => [normalizePath(node), { hubScore: 0 }])) };
     await enrichReactFramework(graph, root);
-    expect(nodes.filter(node => graph.nodeMetadata?.[node]?.framework === 'react').map(node => path.basename(node)).sort()).toEqual(['App.tsx', 'Card.ts']);
+    expect(nodes.filter(node => graph.nodeMetadata?.[normalizePath(node)]?.framework === 'react').map(node => path.basename(node)).sort()).toEqual(['App.tsx', 'Card.ts']);
     const symbols: Array<{ name: string; line: number; framework?: 'react' }> = [{ name: 'Card', line: 1 }, { name: 'save', line: 1 }];
     await enrichReactSymbols(symbols, path.join(root, 'Card.ts'), [path.join(root, 'App.tsx')], root);
     expect(symbols.filter(symbol => symbol.framework).map(symbol => symbol.name)).toEqual(['Card']);
     await fs.writeFile(path.join(root, 'App.tsx'), `export const count = 1;`);
     await enrichReactFramework(graph, root);
-    expect(nodes.some(node => graph.nodeMetadata?.[node]?.framework)).toBe(false);
+    expect(nodes.some(node => graph.nodeMetadata?.[normalizePath(node)]?.framework)).toBe(false);
     await enrichReactSymbols(symbols, path.join(root, 'Card.ts'), [path.join(root, 'App.tsx')], root);
     expect(symbols.some(symbol => symbol.framework)).toBe(false);
   });
@@ -112,16 +113,18 @@ describe('React runtime configuration and evidence safety', () => {
     await fs.writeFile(card, `import React from 'react'; export const Card = () => <i />;`);
     const mtime = new Date(1_700_000_000_000);
     await fs.utimes(card, mtime, mtime);
-    const graph: GraphData = { nodes: [card], edges: [], nodeMetadata: { [card]: { hubScore: 0 } } };
+    // Metadata keys are normalized in production (computeNodeMetadata): `c:/...` on Windows.
+    const key = normalizePath(card);
+    const graph: GraphData = { nodes: [card], edges: [], nodeMetadata: { [key]: { hubScore: 0 } } };
     await enrichReactFramework(graph, dir);
-    expect(graph.nodeMetadata?.[card]?.framework).toBe('react');
+    expect(graph.nodeMetadata?.[key]?.framework).toBe('react');
     await fs.writeFile(card, `import React from 'react'; export const card = () => <i />;`);
     await fs.utimes(card, mtime, mtime);
     await enrichReactFramework(graph, dir);
-    expect(graph.nodeMetadata?.[card]?.framework).toBe('react');
+    expect(graph.nodeMetadata?.[key]?.framework).toBe('react');
     await fs.utimes(card, mtime, new Date(mtime.getTime() + 5000));
     await enrichReactFramework(graph, dir);
-    expect(graph.nodeMetadata?.[card]?.framework).toBeUndefined();
+    expect(graph.nodeMetadata?.[key]?.framework).toBeUndefined();
   });
 
   it('never follows a JSX import that resolves outside the workspace root', async () => {
