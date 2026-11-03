@@ -30,6 +30,7 @@ import { resolveReviewCallGraphPath, REVIEW_CALL_GRAPH_MAX_DEPTH, validateReview
 import crypto from "node:crypto";
 import path from "node:path";
 import * as vscode from "vscode";
+import type { EventType } from "./FileChangeScheduler";
 import type { ExternalCallerResult, ICallGraphQueryService } from "./ICallGraphQueryService";
 
 // ---------------------------------------------------------------------------
@@ -110,6 +111,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   private saveListener: vscode.Disposable | null = null;
   /** Workspace root for which the DB has been fully indexed (null = not indexed yet). */
   private workspaceIndexedRoot: string | null = null;
+  /** Files created, changed or deleted on disk since the workspace pass; applied by the next show(). */
+  private readonly changedFiles = new Map<string, EventType>();
   private cacheTask: { root: string; cache: Promise<IndexCache> } | null = null;
   /** De-duplication guard: promise for an in-flight workspace index pass. */
   private indexWorkspacePromise: Promise<void> | null = null;
@@ -437,6 +440,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     // Drop the current DB and persisted file
     this.workspaceIndexedRoot = null;
     this.indexWorkspacePromise = null;
+    this.changedFiles.clear();
     if (this.indexer) {
       this.indexer.dispose();
       this.indexer = null;
@@ -635,10 +639,19 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     skipPath?: string,
     silent = false,
   ): Promise<void> {
-    // If we already completed a full workspace pass this session, skip the walk.
-    // The sql.js DB persists across show() calls until the panel is disposed.
+    // If we already completed a full workspace pass this session, skip the walk and apply only the
+    // file events since then. The sql.js DB persists across show() calls until the panel is disposed.
     if (this.workspaceIndexedRoot === workspaceRoot) {
-      return;
+      if (this.changedFiles.size === 0) {
+        // Nothing new: wait for an apply in flight, if any.
+        await this.indexWorkspacePromise;
+        return;
+      }
+      // One apply at a time: extraction batches share the indexer's transaction, and a joining show() waits for it.
+      this.indexWorkspacePromise ??= this.applyChangedFiles(indexer, extractor, skipPath).finally(() => {
+        this.indexWorkspacePromise = null;
+      });
+      return this.indexWorkspacePromise;
     }
 
     if (this.indexWorkspacePromise !== null) {
@@ -665,6 +678,39 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       });
 
     return this.indexWorkspacePromise;
+  }
+
+  /**
+   * Records a file event for the next show(). It runs on every file event, so it only notes the path.
+   * Before any workspace pass there is nothing to note: the first pass reads every file.
+   */
+  public markFileChanged(filePath: string, eventType: EventType): void {
+    if (this.workspaceIndexedRoot === null && this.indexWorkspacePromise === null) return;
+    const normalized = normalizePath(filePath);
+    // Only files a workspace pass would index: a call graph language, inside the indexed root.
+    const root = this.workspaceIndexedRoot;
+    if (!langFromPath(normalized) || (root !== null && !normalized.startsWith(`${root}/`))) return;
+    this.changedFiles.set(normalized, eventType);
+  }
+
+  /** Re-extract the files changed since the workspace pass and their importers, and drop the deleted files. */
+  private async applyChangedFiles(indexer: CallGraphIndexer, extractor: GraphExtractor, skipPath?: string): Promise<void> {
+    const changed = [...this.changedFiles];
+    this.changedFiles.clear();
+    const mtime = Date.now();
+    const jobs: Array<{ filePath: string; lang: SupportedLang; mtime: number }> = [];
+    for (const [filePath, eventType] of changed) {
+      const lang = langFromPath(filePath);
+      // show() has just extracted the active file.
+      if (!lang || filePath === skipPath) continue;
+      if (eventType === "delete") indexer.invalidateFile(filePath);
+      else jobs.push({ filePath, lang, mtime });
+    }
+    await this.extractAndIndexBatches(jobs, indexer, extractor, { done: 0, total: jobs.length });
+    // Importers resolved before the file existed or changed lost their edges to it: link them again. An importer
+    // shared by two files is extracted twice; each indexFile replaces the file atomically, so the last one wins.
+    // A deleted file needs no importer pass: invalidateFile already dropped the edges to it.
+    await Promise.all(jobs.map((job) => this.reindexImporters(job.filePath, indexer, extractor)));
   }
 
   /** Extract files in parallel batches and insert them into the DB serially. */

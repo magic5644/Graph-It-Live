@@ -38,9 +38,13 @@ function rootEdges(graph: ShownGraph | null): string[] {
 
 /** Wait until the displayed root edges equal `expected`; a save refresh is debounced and re-extracts importers. */
 async function waitForRootEdges(expected: string[], timeoutMs = 20000, deadline = Date.now() + timeoutMs): Promise<void> {
-  const actual = rootEdges(await shownGraph());
+  const graph = await shownGraph();
+  const actual = rootEdges(graph);
   if (JSON.stringify(actual) === JSON.stringify(expected)) return;
-  if (Date.now() >= deadline) assert.deepStrictEqual(actual, expected, 'Displayed call graph edges did not refresh');
+  if (Date.now() >= deadline) {
+    const shown = graph ? `root ${graph.rootSymbolId}, nodes ${graph.nodes.map(node => node.name).join(', ')}` : 'no graph';
+    assert.deepStrictEqual(actual, expected, `Displayed call graph edges did not refresh (${shown})`);
+  }
   await sleep(250);
   return waitForRootEdges(expected, timeoutMs, deadline);
 }
