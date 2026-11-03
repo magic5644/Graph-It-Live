@@ -12,6 +12,7 @@
  */
 
 import { detectCycleEdges } from "@/shared/cycleUtils";
+import { REACT_FRAMEWORK_SQL } from './CallGraphIndexer';
 import type {
   RelationType,
   SerializedCallEdge,
@@ -62,6 +63,7 @@ interface RawNode {
   end_line: number;
   start_col: number;
   is_exported: number;
+  framework?: 'react';
 }
 
 interface RawEdge {
@@ -254,7 +256,7 @@ function fetchNodes(db: Database, ids: Set<string>): RawNode[] {
   const placeholders = [...ids].map(() => "?").join(", ");
   const result = db.exec(
     `SELECT id, name, type, lang, path, folder,
-            start_line, end_line, start_col, is_exported
+            start_line, end_line, start_col, is_exported, ${REACT_FRAMEWORK_SQL} AS framework
      FROM nodes
      WHERE id IN (${placeholders})`,
     [...ids],
@@ -273,6 +275,7 @@ function fetchNodes(db: Database, ids: Set<string>): RawNode[] {
     end_line: row[7] as number,
     start_col: row[8] as number,
     is_exported: row[9] as number,
+    ...(row[10] === 'react' ? { framework: 'react' as const } : {}),
   }));
 }
 
@@ -316,6 +319,7 @@ function serializeNode(raw: RawNode, isRoot: boolean): SerializedCallNode {
     endLine: raw.end_line,
     startCol: raw.start_col,
     isExported: raw.is_exported === 1,
+    ...(raw.framework ? { framework: raw.framework } : {}),
     isRoot,
   };
 }

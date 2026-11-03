@@ -43,7 +43,8 @@ vi.mock("reactflow", () => ({
 
 vi.mock(
   "../../../../src/webview/components/reactflow/LanguageIcon",
-  () => ({
+  async (importOriginal) => ({
+    ...(await importOriginal<typeof import("../../../../src/webview/components/reactflow/LanguageIcon")>()),
     LanguageIcon: () => null,
   }),
 );

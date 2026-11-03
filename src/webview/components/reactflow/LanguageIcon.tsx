@@ -1,5 +1,5 @@
 import React from 'react';
-import { LANGUAGE_COLORS } from '../../../shared/constants';
+import { LANGUAGE_COLORS, REACT_IDENTITY } from '../../../shared/constants';
 
 /**
  * Language icon component for file nodes
@@ -10,6 +10,7 @@ import { LANGUAGE_COLORS } from '../../../shared/constants';
 interface LanguageIconProps {
   filePath: string;
   label: string;
+  framework?: 'react';
 }
 
 interface LanguageConfig {
@@ -107,8 +108,28 @@ function getLanguageConfig(filePath: string, label: string): LanguageConfig {
   return DEFAULT_CONFIG;
 }
 
-export const LanguageIcon: React.FC<LanguageIconProps> = ({ filePath, label }) => {
-  const config = getLanguageConfig(filePath, label);
+/** Accessible name carrying the framework, so color is never the only cue. */
+export function frameworkName(name: string, framework?: 'react'): string | undefined {
+  return framework === 'react' ? `${REACT_IDENTITY.label}: ${name}` : undefined;
+}
+
+/** React cyan sits close to the selection blue: an outline keeps selection visible in every theme. */
+export function frameworkSelectionOutline(selected: boolean, framework?: 'react'): React.CSSProperties {
+  return selected && framework === 'react'
+    ? { outlineStyle: 'solid', outlineColor: 'var(--vscode-contrastActiveBorder, var(--vscode-editor-foreground))', outlineWidth: 2, outlineOffset: 2 }
+    : {};
+}
+
+export function ReactIcon(): React.JSX.Element {
+  return <img alt={REACT_IDENTITY.label} width={16} height={16}
+    src={`data:image/svg+xml,${encodeURIComponent(REACT_IDENTITY.svg)}`}
+    style={{ background: REACT_IDENTITY.color, borderRadius: 2, flexShrink: 0 }} />;
+}
+
+export const LanguageIcon: React.FC<LanguageIconProps> = ({ filePath, label, framework }) => {
+  const config = framework === 'react'
+    ? { id: REACT_IDENTITY.label, color: REACT_IDENTITY.color, svg: REACT_IDENTITY.svg }
+    : getLanguageConfig(filePath, label);
 
   return (
     <div
@@ -119,7 +140,7 @@ export const LanguageIcon: React.FC<LanguageIconProps> = ({ filePath, label }) =
         width: 8,
         height: 8,
         borderRadius: 2,
-        background: 'white',
+        background: framework === 'react' ? REACT_IDENTITY.color : 'white',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

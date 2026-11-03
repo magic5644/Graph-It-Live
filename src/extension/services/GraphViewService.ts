@@ -1,5 +1,6 @@
 import { Spider } from '../../analyzer/Spider';
 import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
+import { collectReactReferencingPaths, enrichReactFramework } from '../../analyzer/ReactIdentity';
 import { normalizePath } from '../../shared/path';
 import { mapWithConcurrency } from '../../shared/concurrency';
 import type { UnusedAnalysisCache } from './UnusedAnalysisCache';
@@ -89,6 +90,8 @@ export class GraphViewService {
     // Compute per-node metadata (hubScore, fileExtension) from parentCounts.
     // computeNodeMetadata is pure — no FS reads, no vscode imports.
     computeNodeMetadata(enrichedData, this.spider.workspaceRoot, this.getCommunityMode());
+    const frameworkSources = await collectReactReferencingPaths(enrichedData.nodes, file => this.spider.findReferencingFilesThroughBarrels?.(file) ?? Promise.resolve([]));
+    await enrichReactFramework(enrichedData, this.spider.workspaceRoot, frameworkSources);
 
     return enrichedData;
   }

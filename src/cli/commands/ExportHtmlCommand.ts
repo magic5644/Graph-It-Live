@@ -3,6 +3,8 @@ import * as path from 'node:path';
 import { getRelativePath, normalizePath } from '../../shared/path';
 import { exportHtml } from '../../analyzer/export/HtmlExporter';
 import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
+import { collectReactReferencingPaths, enrichReactFramework } from '../../analyzer/ReactIdentity';
+import { workerState } from '../../mcp/shared/state';
 import { readCommunityMode } from '../options';
 import type { CliRuntime } from '../runtime';
 import type { GraphData } from '../../shared/graph-types';
@@ -130,6 +132,8 @@ export async function runExportHtml(
 
   // Scope filter: positional arg or state.lastFile narrows the graph
   filterGraphByScope(graphData, resolvedScope);
+  const frameworkSources = await collectReactReferencingPaths(graphData.nodes, file => workerState.spider?.findReferencingFilesThroughBarrels(file) ?? Promise.resolve([]));
+  await enrichReactFramework(graphData, runtime.workspaceRoot, frameworkSources);
 
   exportHtml({
     graphData,

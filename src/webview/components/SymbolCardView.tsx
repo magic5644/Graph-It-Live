@@ -1,6 +1,8 @@
 import React from "react";
 import { SymbolDependency, SymbolInfo } from "../../shared/types";
 import { getFileName } from "../utils/nodeUtils";
+import { REACT_IDENTITY } from '../../shared/constants';
+import { frameworkName, ReactIcon } from './reactflow/LanguageIcon';
 
 interface SymbolCardViewProps {
   filePath: string;
@@ -36,6 +38,12 @@ const CATEGORY_ICONS: Record<string, string> = {
   type: "T",
   other: "?",
 };
+
+function cardColors(symbol: SymbolInfo): { bg: string; text: string } {
+  return symbol.framework === 'react'
+    ? { bg: REACT_IDENTITY.color, text: REACT_IDENTITY.foreground }
+    : CATEGORY_COLORS[symbol.category] || CATEGORY_COLORS.other;
+}
 
 const SymbolCardView: React.FC<SymbolCardViewProps> = ({
   filePath,
@@ -480,7 +488,7 @@ const SymbolCard: React.FC<SymbolCardProps> = ({
   onSymbolClick,
   onNavigateToFile,
 }) => {
-  const colors = CATEGORY_COLORS[symbol.category] || CATEGORY_COLORS.other;
+  const colors = cardColors(symbol);
   const icon = CATEGORY_ICONS[symbol.category] || "?";
 
   const handleKeyDown = (e: React.KeyboardEvent, action: () => void) => {
@@ -502,6 +510,7 @@ const SymbolCard: React.FC<SymbolCardProps> = ({
       {/* Card Header */}
       <div //NOSONAR
         role="button"
+        aria-label={frameworkName(symbol.name, symbol.framework)}
         tabIndex={0}
         onClick={() => onSymbolClick(symbol.id, symbol.line)}
         onKeyDown={(e) =>
@@ -531,7 +540,7 @@ const SymbolCard: React.FC<SymbolCardProps> = ({
             color: colors.text,
           }}
         >
-          {icon}
+          {symbol.framework === 'react' ? <ReactIcon /> : icon}
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -582,8 +591,7 @@ const SymbolCard: React.FC<SymbolCardProps> = ({
             Members ({members.length})
           </div>
           {members.map((member) => {
-            const memberColors =
-              CATEGORY_COLORS[member.category] || CATEGORY_COLORS.other;
+            const memberColors = cardColors(member);
             const memberIcon = CATEGORY_ICONS[member.category] || "?";
             const memberName = member.name.split(".").pop() || member.name;
 
@@ -591,6 +599,7 @@ const SymbolCard: React.FC<SymbolCardProps> = ({
               <div //NOSONAR
                 key={member.id}
                 role="button"
+                aria-label={frameworkName(member.name, member.framework)}
                 tabIndex={0}
                 onClick={() => onSymbolClick(member.id, member.line)}
                 onKeyDown={(e) =>
@@ -618,7 +627,7 @@ const SymbolCard: React.FC<SymbolCardProps> = ({
                     color: memberColors.text,
                   }}
                 >
-                  {memberIcon}
+                  {member.framework === 'react' ? <ReactIcon /> : memberIcon}
                 </span>
                 <span
                   style={{ fontSize: 12, color: "var(--vscode-foreground)" }}

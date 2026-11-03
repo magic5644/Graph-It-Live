@@ -469,6 +469,7 @@ export function buildReactFlowGraph(params: {
         return {
           label: symbol.name,
           fullPath: symbol.id,
+          framework: symbol.framework,
           kind: symbol.kind,
           category: symbol.category,
           line: symbol.line,
@@ -571,6 +572,7 @@ export function buildReactFlowGraph(params: {
         return computedFallback[path] ?? 0;
       })(),
       communityId: data.nodeMetadata?.[normalizePath(path)]?.communityId,
+      framework: data.nodeMetadata?.[normalizePath(path)]?.framework,
       showCommunities,
     } as FileNodeData;
   };

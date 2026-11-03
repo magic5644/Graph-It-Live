@@ -14,6 +14,7 @@
 
 import React from "react";
 import type { CallGraphFilterChangedCommand, SymbolType } from "../../../shared/callgraph-types";
+import { ReactIcon } from '../reactflow/LanguageIcon';
 
 // ---------------------------------------------------------------------------
 // VS Code webview API (same lazy-acquire pattern as CytoscapeGraph)
@@ -38,6 +39,7 @@ function getVsCodeApi(): VsCodeApi {
 // ---------------------------------------------------------------------------
 
 export interface GraphLegendProps {
+  hasReact?: boolean;
   /** Symbol types present in the current graph */
   nodeTypes: SymbolType[];
   /** Workspace-relative folder paths present in the current graph */
@@ -153,6 +155,7 @@ export function GraphLegend({
   hiddenFilters,
   onToggle,
   postMessage: postMessageProp,
+  hasReact = false,
 }: Readonly<GraphLegendProps>): React.ReactElement {
 
   function handleToggle(filterType: "nodeType" | "folder" | "edgeType", value: string): void {
@@ -177,6 +180,7 @@ export function GraphLegend({
 
   return (
     <div style={legendStyle} data-testid="graph-legend">
+      {hasReact && <div style={rowStyle}><ReactIcon /><span>React</span></div>}
       {/* Edge colour legend with toggles */}
       <div>
         <div style={sectionHeaderStyle}>Edges</div>

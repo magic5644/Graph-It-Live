@@ -809,6 +809,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         incomingDependencies: symbolGraph.incomingDependencies,
         referencingFiles: symbolGraph.referencingFiles,
         parentCounts: symbolGraph.parentCounts,
+        nodeMetadata: symbolGraph.nodeMetadata,
       },
     };
 

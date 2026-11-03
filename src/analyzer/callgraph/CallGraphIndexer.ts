@@ -25,6 +25,9 @@ import { QUALIFIED_PREFIX, qualifiedCandidates, type QualifiedMember } from "./q
 // ---------------------------------------------------------------------------
 
 export interface CallGraphNode {
+  framework?: 'react';
+  /** False for a non-JS/TS file or an explicit competing JSX runtime. */
+  reactEligible?: boolean;
   /** Stable ID: normalizedFilePath:symbolName:startLine */
   id: string;
   name: string;
@@ -46,6 +49,8 @@ export interface CallGraphNode {
 }
 
 export interface CallGraphEdge {
+  /** JSX element in a proven React context, unlike a generic REFERENCES edge. */
+  reactComponent?: boolean;
   sourceId: string;
   targetId: string;
   typeRelation: RelationType;
@@ -70,6 +75,12 @@ export interface CallGraphIndexSnapshot {
 // ---------------------------------------------------------------------------
 // SQLite schema (inlined — matches contracts/db-schema.sql)
 // ---------------------------------------------------------------------------
+
+/** JSX target evidence is derived at read time so removing an importer removes its badge too. */
+export const REACT_FRAMEWORK_SQL = `CASE WHEN framework = 'react' OR
+  (react_eligible = 1 AND EXISTS (SELECT 1 FROM edges AS react_edges
+    WHERE react_edges.target_id = nodes.id AND react_edges.react_component = 1))
+  THEN 'react' ELSE NULL END`;
 
 const SCHEMA_SQL = `
 PRAGMA journal_mode = MEMORY;
@@ -97,6 +108,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     start_col   INTEGER  NOT NULL,
     is_exported INTEGER  NOT NULL DEFAULT 0,
     owner       TEXT     NOT NULL DEFAULT '',
+    framework   TEXT     CHECK (framework IS NULL OR framework = 'react'),
+    react_eligible INTEGER NOT NULL DEFAULT 1,
     indexed_at  INTEGER  NOT NULL,
     PRIMARY KEY (id),
     FOREIGN KEY (path) REFERENCES file_index(path) ON DELETE CASCADE
@@ -112,6 +125,7 @@ CREATE TABLE IF NOT EXISTS edges (
     type_relation TEXT     NOT NULL
                            CHECK (type_relation IN ('CALLS','INHERITS','IMPLEMENTS','USES','REFERENCES')),
     is_cyclic     INTEGER  NOT NULL DEFAULT 0,
+    react_component INTEGER NOT NULL DEFAULT 0,
     source_line   INTEGER  NOT NULL,
     indexed_at    INTEGER  NOT NULL,
     PRIMARY KEY (source_id, target_id, type_relation)
@@ -146,8 +160,9 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v11: C# declarations retain their enclosing namespaces and types (`nodes.owner`); a `using` alias links in its namespace only (#537).
  * v12: .tsx/.jsx parse with the tsx grammar; JSX components are USES edges (#574).
  * v13: JSX components, attribute values and functions passed as arguments are REFERENCES edges (every language); default imports and memo/forwardRef/lazy resolve (#575).
+ * v14: persist local React identity, competing-runtime exclusion and JSX-specific target evidence (#577).
  */
-const CURRENT_SCHEMA_VERSION = 13;
+const CURRENT_SCHEMA_VERSION = 14;
 
 /**
  * Optional FTS5 schema for fast symbol name search.
@@ -329,8 +344,8 @@ export class CallGraphIndexer {
       // Insert all nodes (old nodes were cascade-deleted by file_index upsert)
       const nodeStmt = db.prepare(
         `INSERT OR REPLACE INTO nodes
-           (id, name, type, lang, path, folder, start_line, end_line, start_col, is_exported, owner, indexed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, name, type, lang, path, folder, start_line, end_line, start_col, is_exported, owner, indexed_at, framework, react_eligible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const n of nodes) {
         nodeStmt.run([
@@ -346,6 +361,8 @@ export class CallGraphIndexer {
           n.isExported ? 1 : 0,
           n.owner ?? "",
           now,
+          n.framework ?? null,
+          Number(n.reactEligible !== false),
         ]);
       }
       nodeStmt.free();
@@ -354,13 +371,13 @@ export class CallGraphIndexer {
       // @@external: targets are resolved to real node IDs later by resolveExternalEdges().
       const edgeStmt = db.prepare(
         `INSERT OR REPLACE INTO edges
-           (source_id, target_id, type_relation, is_cyclic, source_line, indexed_at)
-         VALUES (?, ?, ?, 0, ?, ?)`,
+           (source_id, target_id, type_relation, is_cyclic, source_line, indexed_at, react_component)
+         VALUES (?, ?, ?, 0, ?, ?, ?)`,
       );
       for (const e of edges) {
         // Skip edges from an external stub source (should not occur, but defensive)
         if (e.sourceId.startsWith("@@external:")) continue;
-        edgeStmt.run([e.sourceId, e.targetId, e.typeRelation, e.sourceLine, now]);
+        edgeStmt.run([e.sourceId, e.targetId, e.typeRelation, e.sourceLine, now, Number(e.reactComponent === true)]);
       }
       edgeStmt.free();
 
@@ -689,7 +706,8 @@ export class CallGraphIndexer {
       'SELECT path, lang, last_modified, indexed_at FROM file_index ORDER BY path ASC',
     );
     const nodeRows = db.exec(
-      `SELECT id, name, type, lang, path, folder, start_line, end_line, start_col, is_exported, indexed_at
+      `SELECT id, name, type, lang, path, folder, start_line, end_line, start_col, is_exported, indexed_at,
+         ${REACT_FRAMEWORK_SQL} AS framework
        FROM nodes
        ORDER BY path ASC, start_line ASC, id ASC`,
     );
@@ -718,6 +736,7 @@ export class CallGraphIndexer {
         startCol: row[8] as number,
         isExported: row[9] === 1,
         indexedAt: row[10] as number,
+        ...(row[11] === 'react' ? { framework: 'react' as const } : {}),
       })),
       edges: (edgeRows[0]?.values ?? []).map((row) => ({
         sourceId: row[0] as string,

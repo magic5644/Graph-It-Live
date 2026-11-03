@@ -2,7 +2,8 @@ import { LspCallHierarchyAnalyzer } from "../../analyzer/LspCallHierarchyAnalyze
 import { Spider } from "../../analyzer/Spider";
 import { convertSpiderToLspFormat } from "../../shared/converters";
 import { normalizePath } from "../../shared/path";
-import type { IntraFileGraph, SymbolDependency, SymbolInfo } from "../../shared/types";
+import { enrichReactSymbols } from "../../analyzer/ReactIdentity";
+import type { GraphNodeMetadata, IntraFileGraph, SymbolDependency, SymbolInfo } from "../../shared/types";
 import type { ICallGraphQueryService } from "./ICallGraphQueryService";
 
 type Logger = {
@@ -26,6 +27,7 @@ interface SymbolGraphResult {
   referencingFiles: string[];
   parentCounts?: Record<string, number>;
   intraFileGraph?: IntraFileGraph;
+  nodeMetadata?: Record<string, GraphNodeMetadata>;
 }
 
 /**
@@ -68,6 +70,8 @@ export class SymbolViewService {
     const referencingDependency =
       await this.spider.findReferencingFiles(resolvedFilePath);
     const referencingFiles = referencingDependency.map((d) => d.path);
+    const frameworkSources = await this.spider.findReferencingFilesThroughBarrels?.(resolvedFilePath) ?? referencingDependency;
+    await enrichReactSymbols(symbolData.symbols, resolvedFilePath, frameworkSources.map(source => source.path), this.spider.workspaceRoot);
 
     this.logger.debug(
       `AST analysis complete: ${symbolData.symbols.length} symbols, ${symbolData.dependencies.length} dependencies`,
@@ -79,6 +83,11 @@ export class SymbolViewService {
       const lspData = convertSpiderToLspFormat(symbolData, resolvedFilePath);
       const analyzer = new LspCallHierarchyAnalyzer();
       intraFileGraph = analyzer.buildIntraFileGraph(resolvedFilePath, lspData);
+      const frameworks = new Map(symbolData.symbols.map(symbol => [normalizePath(symbol.id), symbol.framework]));
+      for (const node of intraFileGraph.nodes) {
+        const framework = frameworks.get(normalizePath(node.id));
+        if (framework) node.framework = framework;
+      }
       this.logger.debug(
         `Intra-file graph: ${intraFileGraph.nodes.length} nodes, ${intraFileGraph.edges.length} edges, hasCycle=${intraFileGraph.hasCycle}`,
       );
@@ -115,6 +124,9 @@ export class SymbolViewService {
           ? { [rootNodeId]: referencingFiles.length }
           : undefined,
       intraFileGraph,
+      nodeMetadata: symbolData.symbols.some(symbol => symbol.framework === 'react')
+        ? { [normalizePath(rootNodeId)]: { hubScore: 0, framework: 'react' } }
+        : undefined,
     };
   }
 

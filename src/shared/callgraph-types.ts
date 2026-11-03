@@ -37,6 +37,8 @@ export type SupportedLang = "typescript" | "javascript" | "python" | "rust" | "c
 // ---------------------------------------------------------------------------
 
 export interface SerializedCallNode {
+  /** Proven component identity; lang remains JavaScript/TypeScript. */
+  framework?: 'react';
   /** Stable ID: normalizedFilePath:symbolName:startLine */
   id: string;
   /** Symbol's bare display name */
