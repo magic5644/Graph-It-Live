@@ -128,7 +128,7 @@ function typeTargets(root: TreeNode, calls: TreeNode[], lang: "java" | "csharp")
     root,
     java
       ? ["variable_declarator", "formal_parameter", "spread_parameter", "catch_formal_parameter", "enhanced_for_statement"]
-      : ["variable_declarator", "parameter", "property_declaration", "foreach_statement"],
+      : ["variable_declarator", "parameter", "property_declaration", "for_each_statement"],
     ["name", "left"],
   );
   const aliases = java ? new Map<string, CsharpAlias>() : csharpUsingAliases(root);

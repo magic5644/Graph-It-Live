@@ -15,7 +15,7 @@ export const TYPE_SCOPES = new Set([
 
 /** Function bodies: a function declared inside one is local to it, owned by no type. */
 const FUNCTION_SCOPES = new Set([
-  "function_declaration", "generator_function_declaration", "function_expression", "function", "arrow_function",
+  "function_declaration", "generator_function_declaration", "function_expression", "arrow_function",
   "method_definition", "function_definition", "lambda", "method_declaration", "constructor_declaration",
   "local_function_statement", "function_item", "closure_expression", "func_literal",
 ]);
@@ -31,7 +31,7 @@ const VARIABLE_DECLARATIONS = [
   "lambda_expression", // Java, C#
   "for_statement", "for_in_clause", "parameters", "lambda_parameters", "default_parameter", // Python
   "enhanced_for_statement", "catch_formal_parameter", "inferred_parameters", // Java
-  "foreach_statement", "catch_declaration", // C#
+  "for_each_statement", "catch_declaration", // C#
   "range_clause", // Go
   "for_expression", "closure_parameters", // Rust
 ];
@@ -39,7 +39,7 @@ const VARIABLE_DECLARATIONS = [
 /** Bindings whose value is not the variable's own (`for (b of items)`, `catch (e)`): only a declared type types them. */
 const NO_VALUE = new Set([
   "for_in_statement", "catch_clause", "for_statement", "for_in_clause", "enhanced_for_statement", "catch_formal_parameter",
-  "foreach_statement", "catch_declaration", "range_clause", "for_expression",
+  "for_each_statement", "catch_declaration", "range_clause", "for_expression",
 ]);
 
 /** Single-parameter lambdas (`b => ...`, `b -> ...`): their parameter has no type. */
@@ -48,8 +48,8 @@ const UNTYPED_BINDINGS = new Set(["arrow_function", "lambda_expression"]);
 /** Untyped parameter lists: every identifier they hold is bound, with no type. */
 const UNTYPED_PARAMETERS = new Set(["parameters", "lambda_parameters", "inferred_parameters", "closure_parameters"]);
 
-/** Where `this` stops naming the enclosing class: an object literal or a TS/JS `function` (an arrow keeps it). */
-const THIS_BOUNDARIES = new Set(["object", "function_expression", "function_declaration", "generator_function_declaration", "function"]);
+/** Where `this` stops naming the enclosing class: a TS/JS `function` (an arrow keeps it); see also object methods. */
+const THIS_BOUNDARIES = new Set(["function_expression", "function_declaration", "generator_function_declaration"]);
 
 /** Nodes holding a type or a value whose type is the one inside: `: B`, `*B`, `&B`, `B<T>`, `B?`, `(new B())`, `= new B()`. */
 const WRAPPERS = new Set([
@@ -91,7 +91,8 @@ function scopeName(scope: TreeNode): string | null {
 export function enclosingType(node: TreeNode): string | null {
   for (let up = node.parent; up; up = up.parent) {
     if (TYPE_SCOPES.has(up.type)) return scopeName(up);
-    if (THIS_BOUNDARIES.has(up.type)) return null;
+    // A method of an object literal binds `this` to the object; a property value (`{ k: this.m() }`) does not.
+    if (THIS_BOUNDARIES.has(up.type) || (up.type === "method_definition" && up.parent?.type === "object")) return null;
   }
   return null;
 }
@@ -119,7 +120,7 @@ function declaredTypes(declaration: TreeNode, name: string): (string | null)[] {
   if (UNTYPED_PARAMETERS.has(declaration.type)) {
     return declaration.namedChildren.some(child => child?.type === "identifier" && child.text === name) ? [null] : [];
   }
-  const names = ["name", "pattern", "left", "parameter", "parameters"].flatMap(field => declaration.childrenForFieldName(field)).flatMap(itemsOf);
+  const names = ["name", "pattern", "left"].flatMap(field => declaration.childrenForFieldName(field)).flatMap(itemsOf);
   // C# variable_declarator and Python typed_parameter name no field: their first child is the identifier.
   const first = declaration.firstNamedChild;
   if (names.length === 0 && first?.type === "identifier") names.push(first);

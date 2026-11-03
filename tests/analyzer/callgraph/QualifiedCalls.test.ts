@@ -278,6 +278,10 @@ describe("qualified calls (#507)", () => {
         "Other.cs": "class Other { public static int Compute(int x) { return -x; } }\n",
         "Forms.cs": "using C = N.Calc;\nusing D = Calc;\nusing static N.Calc;\nusing N;\nclass Forms { int Method() { return C.Compute(1) + D.Compute(2); } }\n",
       }, ["Forms.cs#Method -> Calc.cs#Compute"]],
+      ["C#: a foreach variable named like a type links nowhere (#505)", {
+        "Calc.cs": "class Calc { public static int Compute(int x) { return x; } }\n",
+        "Forms.cs": "class Forms { void Method(System.Collections.Generic.List<Other> xs) { foreach (var Calc in xs) Calc.Compute(1); } }\n",
+      }, []],
       ["C#: a using alias of a generic type, or shadowed by a variable, links nowhere", {
         "Calc.cs": "class Calc { public static int Compute(int x) { return x; } }\n",
         "Forms.cs": "using L = System.Collections.Generic.List<int>;\nusing C = Calc;\nclass Forms { int Method(int C) { return L.Compute(1) + C.Compute(1); } }\n",
