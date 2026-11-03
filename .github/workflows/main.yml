@@ -17,7 +17,7 @@ on:
       - 'esbuild.js'
       - 'scripts/npm-package.mjs'
       - 'scripts/smoke-npm-package.mjs'
-      - 'scripts/mcpSession.ts'
+      - 'scripts/mcpSession.mts'
       - 'eslint.config.mjs'
       - '.github/workflows/**'
 

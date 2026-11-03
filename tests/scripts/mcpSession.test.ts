@@ -5,12 +5,22 @@
  * delete the workspace without racing a server still writing its cache.
  */
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { once } from 'node:events';
 import { describe, expect, it } from 'vitest';
-import { stopSession } from '../../scripts/mcpSession';
+import { stopSession } from '../../scripts/mcpSession.mts';
 
 const longRunning = () => spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+
+it('loads the helper in Node without a module-type warning', () => {
+  const result = spawnSync(process.execPath, [
+    '--input-type=module', '-e',
+    `await import(${JSON.stringify(new URL('../../scripts/mcpSession.mts', import.meta.url).href)})`,
+  ], { encoding: 'utf8' });
+
+  expect(result.status).toBe(0);
+  expect(result.stderr).not.toContain('MODULE_TYPELESS_PACKAGE_JSON');
+});
 
 describe('stopSession', () => {
   it('kills a running process and resolves after it exited', async () => {
