@@ -90,7 +90,7 @@ export class GraphViewService {
     // Compute per-node metadata (hubScore, fileExtension) from parentCounts.
     // computeNodeMetadata is pure — no FS reads, no vscode imports.
     computeNodeMetadata(enrichedData, this.spider.workspaceRoot, this.getCommunityMode());
-    const frameworkSources = await collectReactReferencingPaths(enrichedData.nodes, file => this.spider.findReferencingFilesThroughBarrels?.(file) ?? Promise.resolve([]));
+    const frameworkSources = collectReactReferencingPaths(enrichedData.nodes, file => this.spider.getIndexedReferencingFiles?.(file) ?? []);
     await enrichReactFramework(enrichedData, this.spider.workspaceRoot, frameworkSources);
 
     return enrichedData;

@@ -46,13 +46,14 @@ describe('React identity evidence', () => {
     expect(analyzeReactIdentity('/repo/Card.tsx', source, runtime)).toMatchObject(expected);
   });
 
-  it('collects normalized JSX evidence paths once, skips other languages and tolerates a failed lookup', async () => {
-    const paths = await collectReactReferencingPaths(['/repo/Card.ts', '/repo/missing.tsx', '/repo/view.vue'], async filePath => {
-      if (filePath.includes('missing')) throw new Error('missing');
-      expect(filePath).toBe('/repo/Card.ts');
-      return [{ path: '/repo/App.tsx' }, { path: String.raw`\repo\App.tsx` }];
+  it('collects normalized JSX evidence paths once, skips other languages and files without importers', () => {
+    const looked: string[] = [];
+    const paths = collectReactReferencingPaths(['/repo/Card.ts', String.raw`\repo\Card.ts`, '/repo/lonely.tsx', '/repo/view.vue'], filePath => {
+      looked.push(filePath);
+      return filePath.endsWith('Card.ts') ? [{ path: '/repo/App.tsx' }, { path: String.raw`\repo\App.tsx` }] : [];
     });
     expect(paths).toEqual(['/repo/App.tsx']);
+    expect(looked).toEqual(['/repo/Card.ts', '/repo/lonely.tsx']);
   });
 });
 

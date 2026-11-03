@@ -778,6 +778,11 @@ export class Spider {
     return this.referenceLookup.findReferencingFiles(targetPath);
   }
 
+  /** Indexed importers only: no fallback scan and no file read, for paths that run on every file event. */
+  getIndexedReferencingFiles(targetPath: string): Dependency[] {
+    return this.reverseIndexManager.getReferencingFiles(normalizePath(targetPath));
+  }
+
   /** Direct referencers, then consumers behind re-export barrels with the barrel as `via`. */
   async findReferencingFilesThroughBarrels(targetPath: string): Promise<import('./types').ReferencingFile[]> {
     return this.symbolService.findReferencingFilesThroughBarrels(targetPath);

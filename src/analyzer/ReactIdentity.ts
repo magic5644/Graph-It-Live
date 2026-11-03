@@ -265,12 +265,16 @@ export async function enrichReactSymbols(
   }
 }
 
-/** Reuse indexed reverse references without making per-view inference rules. */
-export async function collectReactReferencingPaths(
+/**
+ * Importers of the graph's JS/TS files, read from the reverse index: file graphs rebuild on every file event,
+ * so a fallback workspace scan or barrel resolution here delays event processing (#584).
+ * shortcut: a consumer behind a barrel that is not in the graph is missed unless the component has local proof;
+ * add one indexed hop through barrels if users report missing badges.
+ */
+export function collectReactReferencingPaths(
   nodes: readonly string[],
-  lookup: (filePath: string) => Promise<readonly { path: string }[]>,
-): Promise<string[]> {
-  const files = [...new Set(nodes.filter(filePath => JS_TS_FILE.test(filePath)).map(filePath => normalizePath(filePath)))];
-  const references = await mapWithConcurrency(files, 8, filePath => lookup(filePath).catch(() => []));
-  return [...new Set(references.flatMap(entries => entries.map(entry => normalizePath(entry.path))))];
+  lookup: (filePath: string) => readonly { path: string }[],
+): string[] {
+  const files = new Set(nodes.filter(filePath => JS_TS_FILE.test(filePath)).map(filePath => normalizePath(filePath)));
+  return [...new Set([...files].flatMap(filePath => lookup(filePath).map(entry => normalizePath(entry.path))))];
 }

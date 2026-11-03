@@ -169,7 +169,7 @@ export class NodeInteractionService {
       parentCounts: Object.keys(parentCounts).length > 0 ? parentCounts : undefined,
     };
     computeNodeMetadata(tempData, this.spider.workspaceRoot, communityMode);
-    const frameworkSources = await collectReactReferencingPaths(nodes, file => this.spider.findReferencingFilesThroughBarrels?.(file) ?? Promise.resolve([]));
+    const frameworkSources = collectReactReferencingPaths(nodes, file => this.spider.getIndexedReferencingFiles?.(file) ?? []);
     await enrichReactFramework(tempData, this.spider.workspaceRoot, frameworkSources);
     return tempData.nodeMetadata;
   }
