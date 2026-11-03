@@ -49,8 +49,11 @@ suite('React identity in real VS Code webviews', () => {
     test(`preserves identity, fallback, Vue and state highlights (${name})`, async function () {
       this.timeout(60000);
       await vscode.commands.executeCommand('workbench.action.closeAllEditors');
-      await vscode.commands.executeCommand('workbench.action.closeSidebar');
-      await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+      // Local screenshots only: suites share one workbench, and a hidden sidebar breaks later layout tests.
+      if (process.env.E2E_SCREENSHOT_DIR) {
+        await vscode.commands.executeCommand('workbench.action.closeSidebar');
+        await vscode.commands.executeCommand('workbench.action.closeAuxiliaryBar');
+      }
       await vscode.commands.executeCommand('notifications.clearAll');
       const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-react-identity-'));
       const config = vscode.workspace.getConfiguration('workbench');
