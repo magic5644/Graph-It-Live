@@ -18,6 +18,12 @@ function symbolKey(root: string, symbolId: string): string | null {
   return `${path.relative(root, file).replaceAll("\\", "/")}#${symbolId.slice(colon + 1)}`;
 }
 
+/** Workspace target of a trace entry; an unresolved one keeps the imported module as file, so it reads `?Name`. */
+function traceTarget(root: string, entry: { calledSymbolId: string; resolvedFilePath: string | null }): string | null {
+  const key = symbolKey(root, entry.calledSymbolId);
+  return key && !entry.resolvedFilePath ? `?${key.split("#")[1]}` : key;
+}
+
 /** Corpus edges as the ts-morph pipeline (trace) reports them, one hop from every top-level symbol. */
 async function tsMorphEdges(spider: Spider, root: string, files: Record<string, string> = REACT_CORPUS): Promise<string[]> {
   const edges: string[] = [];
@@ -27,9 +33,7 @@ async function tsMorphEdges(spider: Spider, root: string, files: Record<string, 
     for (const symbol of symbols.filter((s) => !s.parentSymbolId)) {
       const { callChain } = await spider.traceFunctionExecution(filePath, symbol.name, 1);
       for (const entry of callChain) {
-        // An unresolved entry keeps the imported module as file: it names no declaration, so it reads `?Name`.
-        const key = symbolKey(root, entry.calledSymbolId);
-        const target = key && !entry.resolvedFilePath ? `?${key.split("#")[1]}` : key;
+        const target = traceTarget(root, entry);
         if (target) edges.push(`${symbolKey(root, entry.callerSymbolId)} -${entry.relation ?? "CALLS"}@${entry.line}-> ${target}`);
       }
     }
