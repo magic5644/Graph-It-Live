@@ -29,6 +29,8 @@ export async function executeGetSymbolGraph(
       targetSymbolId: dep.targetSymbolId,
       targetFilePath: dep.targetFilePath,
       targetRelativePath: getRelativePath(dep.targetFilePath, config.rootDir),
+      ...(dep.line !== undefined && { line: dep.line }),
+      ...(dep.relation && { relation: dep.relation }),
     }),
   );
 

@@ -39,6 +39,9 @@ export type DescribedToolName = McpToolName | "get_session_stats" | LmOnlyToolNa
 
 const OPEN_ENDED_HINT =
   "For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.";
+/** Supported React baseline (#575), shared by every tool that reports call or reference edges. */
+const REACT_BASELINE =
+  "REFERENCES: a function passed as an argument (register(save), items.map(format), Python cb=save, Java this::save, C# Register(Save)), and in .jsx/.tsx files a JSX component (<Card />, <UI.Card />) or an attribute value (onClick={save}, render={Row}), is a REFERENCES edge: rendered or passed, never reported as a call; register(save()) and onClick={() => save()} are CALLS edges at their line. REACT: Imports resolve through aliases, barrels and default exports to the declaration (a default export keeps its declared name), and memo(), forwardRef() and lazy(() => import('./literal')) to the wrapped component. Lowercase intrinsic tags, parameters or locals named like a function, members of objects other than this/self, non-literal or unknown wrappers, and unimported or ambiguous names stay unresolved, never guessed; props contracts are not analysed.";
 const TOKEN_BUDGET_LIMIT =
   "output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.";
 const LM_CALL_GRAPH_INDEX =
@@ -219,7 +222,8 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       "WHEN: tracing a request through controller, service and repository, or mapping what a feature actually reaches.",
       "WHY: follows calls through multiple files instead of stopping at direct dependencies; stops at external modules, at maxDepth, or on a cycle.",
-      "RETURNS: root symbol, call chain entries (depth, caller, callee, resolved path), visited symbols, and whether maxDepth was hit.",
+      "RETURNS: root symbol, call chain entries (depth, caller, callee, resolved path, 1-based line, relation=REFERENCES for a reference that is not a call), visited symbols, and whether maxDepth was hit. A name the imported module does not export has a null resolved path.",
+      REACT_BASELINE,
       OPEN_ENDED_HINT,
     ],
   },
@@ -227,8 +231,8 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     summary: "Lists the call sites of one given symbol - one hop, from the call graph index.",
     lines: [
       `WHEN: the plain question "who calls X"; finding call sites before a rename; spotting a symbol with no callers.`,
-      "WHY: reads CALLS edges from the indexed call graph, so it returns only symbols that call X. File-level imports and other references are not callers; use graphitlive_get_symbol_dependents for those.",
-      "RETURNS: one entry per caller symbol with workspace-relative path, line of the first call and a type-only flag, plus runtime and type-only counts. Type-only references are added only with includeTypeOnly. The source field says whether the call graph or the symbol dependents fallback answered (the call graph is used once indexed; line is null in the fallback).",
+      "WHY: reads CALLS and REFERENCES edges from the indexed call graph, so it returns the symbols that call or render X, each labelled. File-level imports are not callers; use graphitlive_get_symbol_dependents for those.",
+      "RETURNS: one entry per caller symbol with workspace-relative path, line of its first edge, relation (CALLS, REFERENCES or USES; a call wins over a reference, a reference over a type use) and a type-only flag, plus runtime, reference and type-only counts. Type-only references are added only with includeTypeOnly. The source field says whether the call graph or the symbol dependents fallback answered (the call graph is used once indexed; line is null in the fallback).",
       "PICKING BETWEEN THE THREE: this one for call sites; graphitlive_get_symbol_dependents for every reference (imports included) computed fresh from source; graphitlive_query_call_graph when you need more than one hop, callees as well as callers, or relation types such as INHERITS and IMPLEMENTS.",
     ],
   },
@@ -266,6 +270,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
         mcp: "RETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct), affected files, and a written summary. An unknown symbol returns an error listing close name matches.",
         lm: "RETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct) and affected files. Transitive impact only with includeTransitive. An unknown symbol returns an error listing close name matches.",
       },
+      "An item that renders or passes the symbol without calling it (<Card />, onClick={save}) is a runtime impact with relation=REFERENCES.",
       OPEN_ENDED_HINT,
     ],
   },
@@ -297,9 +302,10 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       `WHEN: "who calls X" (direction=callers, depth=1), "what does X call" (direction=callees), multi-hop traversal ("three levels deep"), or cycle detection across modules.`,
       {
-        mcp: "WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) rather than import edges. Type-only references (USES) are added with includeTypeOnly.",
-        lm: "WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and type-only references (USES) rather than import edges. Every relation type is returned unless relationTypes narrows it.",
+        mcp: "WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and runtime references (REFERENCES) rather than import edges. Type-only references (USES) are added with includeTypeOnly.",
+        lm: "WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS), runtime references (REFERENCES) and type-only references (USES) rather than import edges. Every relation type is returned unless relationTypes narrows it.",
       },
+      REACT_BASELINE,
       {
         mcp: "RETURNS: the matched symbol, its callers and callees with file and line, relation type, and a cyclic flag per edge.",
         lm: "RETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2.",

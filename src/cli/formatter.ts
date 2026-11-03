@@ -275,7 +275,9 @@ function formatTextObject(obj: Record<string, unknown>, indent: number): string 
 
 function formatTrace(data: Record<string, unknown>): string {
   const root = data["rootSymbol"] as { relativePath?: string; symbolName?: string } | undefined;
-  type ChainEntry = { depth: number; callerSymbolId: string; calledSymbolId: string; resolvedRelativePath: string | null };
+  type ChainEntry = {
+    depth: number; callerSymbolId: string; calledSymbolId: string; resolvedRelativePath: string | null; line?: number; relation?: string;
+  };
   const callChain = (data["callChain"] as ChainEntry[] | undefined) ?? [];
   const visitedSymbols = (data["visitedSymbols"] as string[] | undefined) ?? [];
 
@@ -289,7 +291,10 @@ function formatTrace(data: Record<string, unknown>): string {
     const callerSymbol = entry.callerSymbolId.split(":").pop() ?? entry.callerSymbolId;
     const calledSymbol = entry.calledSymbolId.split(":").pop() ?? entry.calledSymbolId;
     const where = entry.resolvedRelativePath ? `  (${entry.resolvedRelativePath})` : "";
-    return `  depth ${entry.depth}  ${callerSymbol} → ${calledSymbol}${where}`;
+    const at = entry.line === undefined ? "" : `  line ${entry.line}`;
+    // A reference (`<Card />`, `onClick={save}`) is not a call: say so.
+    const kind = entry.relation === "REFERENCES" ? "  [references]" : "";
+    return `  depth ${entry.depth}  ${callerSymbol} → ${calledSymbol}${where}${at}${kind}`;
   });
 
   const visitedLines = visitedSymbols.map((sym) => {

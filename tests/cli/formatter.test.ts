@@ -115,6 +115,23 @@ describe("formatOutput - text", () => {
     expect(out).toContain("- main");
   });
 
+  it("labels a traced reference and shows each line, never as a call", () => {
+    const entry = (called: string, line?: number, relation?: string) => ({
+      depth: 1, callerSymbolId: "/abs/src/Page.tsx:Page", calledSymbolId: `/abs/src/ui/Card.tsx:${called}`,
+      calledFilePath: "./ui", resolvedFilePath: "/abs/src/ui/Card.tsx", resolvedRelativePath: "src/ui/Card.tsx",
+      ...(line === undefined ? {} : { line }), ...(relation ? { relation } : {}),
+    });
+    const out = formatOutput({
+      rootSymbol: { relativePath: "src/Page.tsx", symbolName: "Page" },
+      callChain: [entry("Card", 14, "REFERENCES"), entry("useCounter", 11), entry("legacy")],
+      visitedSymbols: [],
+    }, "text", "trace");
+
+    expect(out).toContain("Page \u2192 Card  (src/ui/Card.tsx)  line 14  [references]");
+    expect(out).toContain("Page \u2192 useCounter  (src/ui/Card.tsx)  line 11\n");
+    expect(out).toMatch(/Page \u2192 legacy {2}\(src\/ui\/Card\.tsx\)$/m);
+  });
+
   it("renders architecture summary without dumping failure details", () => {
     const architectureData = {
       workspaceRoot: "/workspace",

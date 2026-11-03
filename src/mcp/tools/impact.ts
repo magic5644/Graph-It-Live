@@ -136,6 +136,7 @@ function createImpactedItem(
     filePath: callerFilePath,
     relativePath: getRelativePath(callerFilePath, rootDir),
     usageType: dep.isTypeOnly ? "type-only" : "runtime",
+    ...(dep.relation && { relation: dep.relation }),
     depth,
   };
 }

@@ -4,6 +4,7 @@ import { Node, Parser } from "web-tree-sitter";
 import { normalizePath } from '../../shared/path';
 import { FileReader } from '../FileReader';
 import { ISymbolAnalyzer, SpiderError, SymbolDependency, SymbolInfo } from '../types';
+import { addPassedReferences, addReferenceDependency, type ReferenceTarget } from './referenceDependency';
 import { WasmParserFactory } from './WasmParserFactory';
 
 /** Import-map key prefix for names that may be modules: `used.f()` needs the module `used`, not the function. */
@@ -444,9 +445,14 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     currentScope?: string,
     importMap?: Map<string, string>
   ): void {
-    const newScope = this.getScopeForNode(node, filePath, content, currentScope);
-    this.addCallDependencyIfAny(node, filePath, content, dependencies, symbols, newScope, importMap);
-    this.addValueReferenceIfAny(node, content, dependencies, newScope, importMap);
+    // One `type` read per node (a WASM call): each handler only runs on its own node type.
+    const type = node.type;
+    const newScope = this.getScopeForNode(node, type, filePath, content, currentScope);
+    if (type === 'call') this.addCallDependencyIfAny(node, filePath, content, dependencies, symbols, newScope, importMap);
+    else if (type === 'identifier') this.addValueReferenceIfAny(node, content, dependencies, newScope, importMap);
+    else if (type === 'argument_list' && newScope) {
+      addPassedReferences(dependencies, newScope, node.namedChildren.map((child) => (child?.type === 'keyword_argument' ? child.childForFieldName('value') : child)), PASSED_PYTHON_VALUES, (value) => this.passedTarget(value, filePath, content, symbols, importMap));
+    }
 
     for (const child of node.children) {
       this.extractDependencies(child, filePath, content, dependencies, symbols, newScope, importMap);
@@ -455,11 +461,12 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
 
   private getScopeForNode(
     node: Node,
+    type: string,
     filePath: string,
     content: string,
     currentScope?: string
   ): string | undefined {
-    if (node.type !== 'function_definition' && node.type !== 'class_definition') {
+    if (type !== 'function_definition' && type !== 'class_definition') {
       return currentScope;
     }
 
@@ -544,13 +551,43 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     if (!moduleSpecifier || !this.isValueReference(node)) {
       return;
     }
+    const target = { symbolId: `${moduleSpecifier}:${name}`, filePath: moduleSpecifier };
+    // Passed as an argument, the name is a reference, recorded once per target like every other pipeline does.
+    if (isArgumentValue(node)) {
+      addReferenceDependency(dependencies, scope, target, node.startPosition.row + 1);
+      return;
+    }
     dependencies.push({
       sourceSymbolId: scope,
-      targetSymbolId: `${moduleSpecifier}:${name}`,
+      targetSymbolId: target.symbolId,
       targetFilePath: moduleSpecifier,
       line: node.startPosition.row + 1,
       isTypeOnly: false,
     });
+  }
+
+  private passedTarget(
+    node: Node,
+    filePath: string,
+    content: string,
+    symbols: Map<string, SymbolInfo>,
+    importMap?: Map<string, string>
+  ): ReferenceTarget | null {
+    if (node.type === 'identifier') {
+      const name = this.getNodeText(node, content);
+      const local = `${filePath}:${name}`;
+      return !importMap?.has(name) && symbols.has(local) && !isBoundLocally(node, name) ? { symbolId: local, filePath } : null;
+    }
+    const object = node.type === 'attribute' ? node.childForFieldName('object') : null;
+    const attribute = node.childForFieldName('attribute');
+    if (object?.type !== 'identifier' || !attribute) return null;
+    const objectName = this.getNodeText(object, content);
+    const name = this.getNodeText(attribute, content);
+    if (objectName === 'self' || objectName === 'cls') {
+      return symbols.has(`${filePath}:${name}`) ? { symbolId: `${filePath}:${name}`, filePath } : null;
+    }
+    const moduleSpecifier = importMap?.get(MODULE_ALIAS_PREFIX + objectName);
+    return moduleSpecifier ? { symbolId: `${moduleSpecifier}:${name}`, filePath: moduleSpecifier } : null;
   }
 
   /** False for identifiers that are not a read of a variable: import clauses, call targets, attribute parts, `kw=`. */
@@ -649,5 +686,46 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
    */
   private getNodeText(node: Node, content: string): string {
     return content.slice(node.startIndex, node.endIndex);
+  }
+}
+
+/** Passed values a function reference can be: `register(save)`, `register(self.save)`, `register(cb=mod.save)`. */
+const PASSED_PYTHON_VALUES: ReadonlySet<string> = new Set(['identifier', 'attribute']);
+
+/** `save` or `self.save` in `register(save)` / `register(cb=save)`: a value passed as an argument. */
+function isArgumentValue(node: Node): boolean {
+  const parent = node.parent;
+  if ((node.type !== 'identifier' && node.type !== 'attribute') || !parent) return false;
+  return parent.type === 'argument_list' || (parent.type === 'keyword_argument' && parent.childForFieldName('value')?.id === node.id);
+}
+
+/** Whether an enclosing function binds `name` (a parameter or an assignment), hiding the module-level definition. */
+function isBoundLocally(node: Node, name: string): boolean {
+  for (let scope = node.parent; scope; scope = scope.parent) {
+    if (scope.type !== 'function_definition' && scope.type !== 'lambda') continue;
+    const params = scope.childForFieldName('parameters');
+    if (params?.descendantsOfType('identifier').some((id) => id?.text === name && isParameterName(id))) return true;
+    const assigned = scope.descendantsOfType('assignment').some((a) => a?.childForFieldName('left')?.text === name);
+    if (assigned) return true;
+  }
+  return false;
+}
+
+/** `a` in `def f(a, b=1, *c, d: int, **e)`, not a default value or an annotation. */
+function isParameterName(id: Node): boolean {
+  const parent = id.parent;
+  switch (parent?.type) {
+    case 'parameters':
+    case 'lambda_parameters':
+    case 'list_splat_pattern':
+    case 'dictionary_splat_pattern':
+      return true;
+    case 'default_parameter':
+    case 'typed_default_parameter':
+      return parent.childForFieldName('name')?.id === id.id;
+    case 'typed_parameter':
+      return parent.namedChildren[0]?.id === id.id;
+    default:
+      return false;
   }
 }
