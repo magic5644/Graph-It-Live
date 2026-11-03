@@ -843,18 +843,7 @@ export class Spider {
     filePath: string,
     symbolName: string,
     maxDepth: number = 10
-  ): Promise<{
-    rootSymbol: { id: string; filePath: string; symbolName: string };
-    callChain: Array<{
-      depth: number;
-      callerSymbolId: string;
-      calledSymbolId: string;
-      calledFilePath: string;
-      resolvedFilePath: string | null;
-    }>;
-    visitedSymbols: string[];
-    maxDepthReached: boolean;
-  }> {
+  ): ReturnType<SpiderSymbolService['traceFunctionExecution']> {
     return this.symbolService.traceFunctionExecution(filePath, symbolName, maxDepth);
   }
 

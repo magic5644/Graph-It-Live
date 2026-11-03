@@ -1991,7 +1991,7 @@ is the internal worker name exposed by the CLI analysis-tool bridge.
 
 #### `query_call_graph`
 
-**What it returns:** BFS neighbourhood of callers and callees from a symbol, using the SQLite call graph index built by the Live Call Graph engine. This is the one tool for "who calls X" and "what does X call". Type-only references (`USES` edges) are left out unless you pass `--includeTypeOnly=true`; `--relationTypes` overrides both.
+**What it returns:** BFS neighbourhood of callers and callees from a symbol, using the SQLite call graph index built by the Live Call Graph engine. This is the one tool for "who calls X" and "what does X call". Runtime references that are not calls (`REFERENCES` edges: a function passed as an argument such as `register(save)`, a JSX component such as `<Card />`, or a handler passed as `onClick={save}`) are returned by default. Type-only references (`USES` edges) are left out unless you pass `--includeTypeOnly=true`; `--relationTypes` overrides both.
 
 ```bash
 graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=crawl --depth=3

@@ -9,6 +9,7 @@ import {
 } from "ts-morph";
 import { FileReader } from "./FileReader";
 import { ISymbolAnalyzer, SymbolDependency, SymbolInfo } from "./types";
+import { defaultExportNameOf, isComponentFactory } from "./utils/declarations";
 
 /** A symbol referenced from a declaration, with the line where it is used */
 type UsedSymbol = {
@@ -16,7 +17,120 @@ type UsedSymbol = {
   filePath: string;
   isTypeOnly: boolean;
   line?: number;
+  relation?: SymbolDependency["relation"];
 };
+
+/** Files whose JSX ts-morph parses, as the call graph does (`.js` keeps the TypeScript grammar there). */
+const JSX_FILE = /\.[jt]sx$/i;
+/** Identifiers that can name a component wrapper: `memo`, `forwardRef`, `lazy`, or the `React` of `React.memo`. */
+const FACTORY_IDENTIFIER = /^(?:memo|forwardRef|lazy|React)$/;
+
+/** `memo(...)`, `forwardRef(...)` or `lazy(...)`: a component value, not a plain variable. */
+function isFactoryCall(node: Node | undefined): boolean {
+  return Node.isCallExpression(node) && isComponentFactory(node.getExpression().getText());
+}
+
+/**
+ * Whether `identifier` (or the namespace in `ns.Name`) is passed, not called, there: an argument (`register(save)`,
+ * `new Worker(run)`) or, in a JSX file, a tag name (`<Card />`, `<UI.Card />`) or an attribute value (`onClick={save}`).
+ */
+function isRuntimeReference(identifier: Node, jsx: boolean): boolean {
+  let node: Node = identifier;
+  let parent = node.getParent();
+  while (Node.isPropertyAccessExpression(parent) && parent.getExpression() === node) {
+    node = parent;
+    parent = node.getParent();
+  }
+  if ((Node.isCallExpression(parent) || Node.isNewExpression(parent)) && parent.getArguments().includes(node)) return true;
+  if (!jsx) return false;
+  if (Node.isJsxOpeningElement(parent) || Node.isJsxSelfClosingElement(parent) || Node.isJsxClosingElement(parent)) {
+    return parent.getTagNameNode() === node;
+  }
+  return Node.isJsxExpression(parent) && Node.isJsxAttribute(parent.getParent());
+}
+
+/** Names a binding declares: `a`, `{ a, b: c }`, `[a, ...rest]`. */
+function boundNames(name: Node | undefined): string[] {
+  if (!name) return [];
+  if (Node.isIdentifier(name)) return [name.getText()];
+  return name.getDescendantsOfKind(SyntaxKind.BindingElement).map((element) => element.getNameNode())
+    .filter(Node.isIdentifier).map((id) => id.getText());
+}
+
+/** Names one statement of a block declares: `const a`, `let { b }`, `function c`, `class D`. */
+function statementNames(statement: Node): string[] {
+  const list = Node.isVariableStatement(statement) ? statement.getDeclarationList() : statement;
+  if (Node.isVariableDeclarationList(list)) return list.getDeclarations().flatMap((decl) => boundNames(decl.getNameNode()));
+  if (Node.isFunctionDeclaration(statement) || Node.isClassDeclaration(statement)) return [statement.getName() ?? ""];
+  return [];
+}
+
+/** Names a block or function declares for its own scope: variables, functions, classes, parameters, catch. */
+function scopeNames(scope: Node): string[] {
+  if (Node.isFunctionLikeDeclaration(scope)) return scope.getParameters().flatMap((param) => boundNames(param.getNameNode()));
+  if (Node.isCatchClause(scope)) return boundNames(scope.getVariableDeclaration()?.getNameNode());
+  const isBlock = Node.isBlock(scope) || Node.isForOfStatement(scope) || Node.isForInStatement(scope) || Node.isForStatement(scope);
+  return isBlock ? (scope.getChildSyntaxList()?.getChildren() ?? scope.getChildren()).flatMap(statementNames) : [];
+}
+
+/** Whether a declaration inside the top-level one (a parameter, a local) binds `name` where `identifier` is. */
+function isShadowed(identifier: Node, name: string): boolean {
+  for (let scope = identifier.getParent(); scope && !Node.isSourceFile(scope); scope = scope.getParent()) {
+    // The top-level declaration's own parameters shadow too; its own name is not one of its scope names.
+    if (scopeNames(scope).includes(name)) return true;
+    if (Node.isSourceFile(scope.getParent())) return false;
+  }
+  return false;
+}
+
+/** `<main />`, `<my-element />`: a lowercase tag name is an intrinsic element, as in React. */
+function isIntrinsicTag(identifier: Node): boolean {
+  const parent = identifier.getParent();
+  const isTag = Node.isJsxOpeningElement(parent) || Node.isJsxSelfClosingElement(parent) || Node.isJsxClosingElement(parent);
+  return isTag && /^[a-z]/.test(identifier.getText());
+}
+
+/**
+ * Whether `identifier` names the wrapper of `const Card = memo(...)` or `export default memo(Card)`: the
+ * component is what it wraps, so the wrapper is no dependency of it.
+ */
+function isFactoryCallee(identifier: Node): boolean {
+  const parent = identifier.getParent();
+  const callee = Node.isPropertyAccessExpression(parent) && parent.getExpression() === identifier ? parent : identifier;
+  const call = callee.getParent();
+  if (!Node.isCallExpression(call) || call.getExpression() !== callee || !isFactoryCall(call)) return false;
+  const owner = call.getParent();
+  return Node.isVariableDeclaration(owner) || Node.isExportAssignment(owner);
+}
+
+/** Top-level names a local reference can name: `register(save)`, `<Row />`, `render={Row}` (imports excluded). */
+function localReferenceNames(declarations: Array<{ getName(): string | undefined }>, imports: Map<string, unknown>): Set<string> {
+  const names = new Set<string>();
+  for (const decl of declarations) {
+    const name = decl.getName();
+    if (name && !imports.has(name)) names.add(name);
+  }
+  return names;
+}
+
+/** A JSX tag or attribute value naming a top-level declaration of this file: one REFERENCES dependency per target. */
+function addLocalReference(identifier: Node, name: string, dependencies: UsedSymbol[]): void {
+  // `<Ext.Card />` references whatever `Ext` holds, not a declaration of this file.
+  if (Node.isPropertyAccessExpression(identifier.getParent())) return;
+  const jsx = JSX_FILE.test(identifier.getSourceFile().getFilePath());
+  if (!isRuntimeReference(identifier, jsx) || (jsx && isIntrinsicTag(identifier)) || isShadowed(identifier, name)) return;
+  const filePath = identifier.getSourceFile().getFilePath();
+  const symbolId = `${filePath}:${name}`;
+  if (dependencies.some((d) => d.symbolId === symbolId && d.relation === "REFERENCES")) return;
+  dependencies.push({ symbolId, filePath, isTypeOnly: false, line: identifier.getStartLineNumber(), relation: "REFERENCES" });
+}
+
+/** `import('./m')` written as the body of `lazy(() => import('./m'))`: the component is loaded, not called. */
+function isLazyImport(importCall: Node): boolean {
+  const loader = importCall.getParent();
+  const lazy = Node.isArrowFunction(loader) ? loader.getParent() : undefined;
+  return Node.isCallExpression(lazy) && /^(?:React\.)?lazy$/.test(lazy.getExpression().getText());
+}
 
 /**
  * Unwrap `(x)`, `x as T`, `<T>x`, `x satisfies T` and `x!` around an initializer.
@@ -44,9 +158,9 @@ function getCategory(
 ): "function" | "class" | "variable" | "interface" | "type" | "other" {
   if (Node.isVariableDeclaration(node) || Node.isPropertyDeclaration(node)) {
     // The kind name never says whether the value is a function: look at it.
-    // ponytail: syntactic only, `wrap(() => 1)` stays variable; type-based detection if needed
+    // ponytail: syntactic only, `wrap(() => 1)` stays variable (React `memo`/`forwardRef`/`lazy` excepted); type-based detection if needed
     const value = unwrapInitializer(node.getInitializer());
-    return Node.isArrowFunction(value) || Node.isFunctionExpression(value)
+    return Node.isArrowFunction(value) || Node.isFunctionExpression(value) || isFactoryCall(value)
       ? "function"
       : "variable";
   }
@@ -91,7 +205,18 @@ function localExportedDeclarations(sourceFile: SourceFile): Map<string, Node[]> 
     const own = declarations.filter((decl) => decl.getSourceFile() === sourceFile && !isForeignAlias(decl, sourceFile));
     if (own.length > 0) local.set(name, own);
   }
+  // A default export with a declared name is listed under it, as the call graph and its importers name it.
+  const declared = defaultExportNameOf(sourceFile.compilerNode);
+  if (declared && local.delete("default") && !local.has(declared)) {
+    const decl = sourceFile.getFunction(declared) ?? sourceFile.getClass(declared) ?? sourceFile.getVariableDeclaration(declared);
+    if (decl) local.set(declared, [decl]);
+  }
   return local;
+}
+
+/** Name the default export is listed under: its declared name, or `default` when it has none. */
+function defaultExportListedName(sourceFile: SourceFile): string {
+  return defaultExportNameOf(sourceFile.compilerNode) ?? "default";
 }
 
 /**
@@ -234,6 +359,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   ): Set<string> {
     const exportedDeclarations = localExportedDeclarations(sourceFile);
     const exportedNames = new Set<string>(exportedDeclarations.keys());
+    const defaultName = defaultExportListedName(sourceFile);
 
     for (const [name, declarations] of exportedDeclarations) {
       // Use only the first declaration per name to avoid duplicates
@@ -241,7 +367,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       const decl = declarations[0];
       if (!decl) continue;
 
-      this.addSymbol(symbols, name, decl, filePath, true);
+      this.addSymbol(symbols, name, decl, filePath, true, name === defaultName);
 
       if (
         decl.getKindName() === "ClassDeclaration" &&
@@ -348,6 +474,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     node: Node,
     filePath: string,
     isExported: boolean,
+    isDefaultExport = false,
   ): void {
     symbols.push({
       name,
@@ -357,6 +484,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       isExported,
       id: `${filePath}:${name}`,
       category: getCategory(node),
+      ...(isDefaultExport && { isDefaultExport }),
     });
   }
 
@@ -378,6 +506,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
           targetFilePath: usedSymbol.filePath,
           line: usedSymbol.line,
           isTypeOnly: usedSymbol.isTypeOnly,
+          ...(usedSymbol.relation && { relation: usedSymbol.relation }),
         });
       }
     }
@@ -684,13 +813,14 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       ...sourceFile.getClasses(),
       ...sourceFile.getVariableDeclarations(),
     ];
+    const localNames = localReferenceNames(declarations, importMap);
 
     for (const decl of declarations) {
       const symbolName = decl.getName();
       if (!symbolName) continue;
 
       const symbolId = `${filePath}:${symbolName}`;
-      const deps = this.extractSymbolDependencies(decl, importMap);
+      const deps = this.extractSymbolDependencies(decl, importMap, localNames);
 
       // CRITICAL: Add intra-file function call detection
       // This detects calls like fibonacci() -> fibonacci(), isEven() -> isOdd()
@@ -748,11 +878,12 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       string,
       { originalName: string; modulePath: string; isType: boolean }
     >,
+    localNames: Set<string> = new Set(),
   ): Array<UsedSymbol> {
     const dependencies: Array<UsedSymbol> = [];
 
-    // Extract dependencies from static imports
-    this.extractStaticImportDependencies(node, importMap, dependencies);
+    // Extract dependencies from static imports, and JSX references to this file's declarations
+    this.extractStaticImportDependencies(node, importMap, dependencies, localNames);
 
     // Extract dependencies from dynamic import() calls
     this.extractDynamicImportDependencies(node, dependencies);
@@ -770,28 +901,47 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       { originalName: string; modulePath: string; isType: boolean }
     >,
     dependencies: Array<UsedSymbol>,
+    localNames: Set<string>,
   ): void {
     const identifiers = node.getDescendantsOfKind(SyntaxKind.Identifier);
+    // JSX only parses in .tsx/.jsx: elsewhere no identifier is a tag or an attribute value.
+    const jsx = JSX_FILE.test(node.getSourceFile().getFilePath());
 
     for (const identifier of identifiers) {
-      const importInfo = importMap.get(identifier.getText());
-      if (!importInfo) continue;
-
-      const originalName = importInfo.originalName === "*"
-        ? (namespaceMemberName(identifier) ?? "*")
-        : importInfo.originalName;
-      const targetSymbolId = this.buildTargetSymbolId({ originalName, modulePath: importInfo.modulePath });
-
-      if (!dependencies.some((d) => d.symbolId === targetSymbolId)) {
-        dependencies.push({
-          symbolId: targetSymbolId,
-          filePath: importInfo.modulePath,
-          isTypeOnly: importInfo.isType,
-          line: identifier.getStartLineNumber(),
-        });
+      const text = identifier.getText();
+      const importInfo = importMap.get(text);
+      if (!importInfo) {
+        if (localNames.has(text)) addLocalReference(identifier, text, dependencies);
+        continue;
+      }
+      const dependency = this.importDependency(identifier, text, importInfo, jsx);
+      if (dependency && !dependencies.some((d) => d.symbolId === dependency.symbolId && d.relation === dependency.relation)) {
+        dependencies.push(dependency);
       }
     }
   }
+
+  /** The dependency one use of an import binding records; null for a wrapper callee or an intrinsic tag. */
+  private importDependency(
+    identifier: Node,
+    text: string,
+    importInfo: { originalName: string; modulePath: string; isType: boolean },
+    jsx: boolean,
+  ): UsedSymbol | null {
+    if ((FACTORY_IDENTIFIER.test(text) && isFactoryCallee(identifier)) || (jsx && isIntrinsicTag(identifier))) return null;
+    const originalName = importInfo.originalName === "*"
+      ? (namespaceMemberName(identifier) ?? "*")
+      : importInfo.originalName;
+    const relation = isRuntimeReference(identifier, jsx) ? "REFERENCES" : undefined;
+    return {
+      symbolId: this.buildTargetSymbolId({ originalName, modulePath: importInfo.modulePath }),
+      filePath: importInfo.modulePath,
+      isTypeOnly: importInfo.isType,
+      line: identifier.getStartLineNumber(),
+      ...(relation && { relation }),
+    };
+  }
+
 
   /**
    * Extract dependencies from dynamic import() calls
@@ -820,6 +970,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
           filePath: modulePath,
           isTypeOnly: false,
           line: callExpr.getStartLineNumber(),
+          ...(isLazyImport(callExpr) && { relation: "REFERENCES" as const }),
         });
       }
     }
@@ -946,22 +1097,11 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     }
 
     const symbols: SymbolInfo[] = [];
-    const exportedDeclarations = localExportedDeclarations(sourceFile);
-
-    for (const [name, declarations] of exportedDeclarations) {
+    const defaultName = defaultExportListedName(sourceFile);
+    for (const [name, declarations] of localExportedDeclarations(sourceFile)) {
       // Use only the first declaration per name to avoid duplicates
       const decl = declarations[0];
-      if (!decl) continue;
-
-      symbols.push({
-        name,
-        kind: decl.getKindName(),
-        line: decl.getStartLineNumber(),
-        endLine: decl.getEndLineNumber(),
-        isExported: true,
-        id: `${filePath}:${name}`,
-        category: getCategory(decl),
-      });
+      if (decl) this.addSymbol(symbols, name, decl, filePath, true, name === defaultName);
     }
     return symbols;
   }

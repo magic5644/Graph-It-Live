@@ -251,6 +251,8 @@ export interface SymbolInfo {
   id: string; // Unique ID: filePath:name
   parentSymbolId?: string; // Parent class/namespace ID (for methods/properties)
   category: "function" | "class" | "variable" | "interface" | "type" | "other";
+  /** The module's default export, listed under its declared name (`export default function Panel` is `Panel`) */
+  isDefaultExport?: boolean;
 }
 
 export interface SymbolDependency {
@@ -261,6 +263,11 @@ export interface SymbolDependency {
   line?: number;
   /** Whether this is a type-only import (interface, type alias) vs runtime code */
   isTypeOnly?: boolean;
+  /**
+   * `REFERENCES`: a runtime reference that is not a call there (`<Card />`, `onClick={save}`, `import('./m')`).
+   * Absent: a call or another use of the symbol.
+   */
+  relation?: "REFERENCES";
 }
 
 /**

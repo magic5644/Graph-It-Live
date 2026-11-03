@@ -86,8 +86,7 @@ export default function defaultFunction() {
     const result = analyzer.getExportedSymbols('/test.ts', content);
     
     expect(result).toHaveLength(1);
-    expect(result[0].name).toBe('default');
-    expect(result[0].isExported).toBe(true);
+    expect(result[0]).toMatchObject({ name: 'defaultFunction', id: '/test.ts:defaultFunction', isExported: true, isDefaultExport: true });
   });
 
   it('should not include non-exported symbols', () => {
@@ -530,8 +529,8 @@ describe('SymbolAnalyzer - symbols do not depend on the files analyzed before (#
     analyzer.analyzeFileContent('/ws/cyc/x.ts', 'export * from "./y";');
     const { symbols } = analyzer.analyzeFileContent('/ws/cyc/y.ts', DEP);
 
-    // A named default export is also listed under its local name (existing behavior).
-    expect(summary(symbols)).toEqual(['yFn*:FunctionDeclaration', 'default*:FunctionDeclaration', 'yv*:VariableDeclaration', 'dflt:FunctionDeclaration']);
+    // A named default export is listed once, under its declared name (#575).
+    expect(summary(symbols)).toEqual(['yFn*:FunctionDeclaration', 'yv*:VariableDeclaration', 'dflt*:FunctionDeclaration']);
     expect(symbols.every((s) => s.id.startsWith('/ws/cyc/y.ts:'))).toBe(true);
   });
 
@@ -552,5 +551,108 @@ describe('SymbolAnalyzer - symbols do not depend on the files analyzed before (#
   it('returns no symbols for an empty file or a file of re-exports only', () => {
     expect(new SymbolAnalyzer().analyzeFileContent('/ws/empty.ts', '').symbols).toEqual([]);
     expect(new SymbolAnalyzer().getExportedSymbols('/ws/barrel.ts', 'export * from "./missing";')).toEqual([]);
+  });
+});
+
+describe('SymbolAnalyzer - React references (#575)', () => {
+  /** `source -> target:relation@line` for the dependencies of a .tsx file. */
+  const edges = (source: string, file = '/ws/App.tsx') =>
+    new SymbolAnalyzer().analyzeFileContent(file, source).dependencies
+      .map((d) => `${d.sourceSymbolId.split(':').pop()} -> ${d.targetSymbolId.replace(/^\/ws\//, '')}:${d.relation ?? 'use'}@${d.line}`);
+
+  it.each([
+    {
+      title: 'a JSX element of an import, once for its opening and closing tags',
+      source: `import { Card } from './Card';\nexport function App() { return <Card>\n</Card>; }`,
+      expected: ['App -> ./Card:Card:REFERENCES@2'],
+    },
+    {
+      title: 'a namespace JSX element and a namespace attribute value',
+      source: `import * as UI from './ui';\nexport function App() { return <UI.Card onClick={UI.save} />; }`,
+      expected: ['App -> ./ui:Card:REFERENCES@2', 'App -> ./ui:save:REFERENCES@2'],
+    },
+    {
+      title: 'a handler passed as a value, and the same handler called in an arrow',
+      source: `import { save } from './h';\nexport function App() { return <><b onClick={save} />\n<i onClick={() => save()} /></>; }`,
+      expected: ['App -> ./h:save:REFERENCES@2', 'App -> ./h:save:use@3'],
+    },
+    {
+      title: 'a render prop, a local component and a self-recursive one',
+      source: `function Row() { return null; }\nexport function Tree() { return <List render={Row}><Tree /></List>; }`,
+      expected: ['Tree -> App.tsx:Row:REFERENCES@2', 'Tree -> App.tsx:Tree:REFERENCES@2'],
+    },
+    {
+      title: 'a member tag of a local object, whose member is not a declaration of this file',
+      source: `const Ext = { Card: () => null };\nfunction Card() { return null; }\nexport function App() { return <Ext.Card />; }`,
+      expected: [],
+    },
+    {
+      title: 'a lowercase tag even when a local or an import has its name',
+      source: `import { button } from './b';\nconst main = 1;\nexport function App() { return <main><button /></main>; }`,
+      expected: [],
+    },
+    {
+      title: 'a child value or a parameter used as a component',
+      source: `const label = 'x';\nexport function App({ Slot }: { Slot: () => null }) { return <div>{label}<Slot /></div>; }`,
+      expected: [],
+    },
+    {
+      title: 'the memo, forwardRef and lazy wrappers, bare or as React.*',
+      source: `import React, { memo, lazy } from 'react';\nexport const A = memo(function A() { return null; });\nexport const B = React.forwardRef(function B() { return null; });\nexport const C = lazy(() => import('./C'));\nexport default memo(A);`,
+      expected: ['C -> ./C:default:REFERENCES@4'],
+    },
+    {
+      title: 'an import() outside lazy(), which stays a plain use',
+      source: `export async function load() { const { run } = await import('./run'); return run; }`,
+      expected: ['load -> ./run:run:use@1'],
+    },
+  ])('records $title', ({ source, expected }) => {
+    expect(edges(source).sort()).toEqual([...expected].sort());
+  });
+
+  it('records JSX references in a .jsx file and a class component', () => {
+    expect(edges(`import { Card } from './Card';\nexport class Page { render() { return <Card />; } }`, '/ws/Page.jsx'))
+      .toEqual(['Page -> ./Card:Card:REFERENCES@2']);
+  });
+
+  it.each([
+    ['memo', 'export const A = memo(() => null);'],
+    ['React.forwardRef', 'export const A = React.forwardRef(function A() { return null; });'],
+    ['lazy', "export const A = lazy(() => import('./A'));"],
+  ])('treats a %s component as a function', (_wrapper, source) => {
+    expect(new SymbolAnalyzer().getExportedSymbols('/ws/A.tsx', source).map((s) => s.category)).toEqual(['function']);
+  });
+
+  it('keeps an unknown wrapper a variable', () => {
+    expect(new SymbolAnalyzer().getExportedSymbols('/ws/A.tsx', 'export const A = withRouter(B);').map((s) => s.category)).toEqual(['variable']);
+  });
+
+  it.each([
+    ['function Panel() { return null; }\nexport default memo(Panel);', 'Panel'],
+    ['export default () => null;', 'default'],
+  ])('lists a default export under its declared name, or default when anonymous', (source, name) => {
+    const symbols = new SymbolAnalyzer().analyzeFileContent('/ws/P.tsx', source).symbols;
+
+    expect(symbols.filter((s) => s.isExported).map((s) => [s.name, s.isDefaultExport])).toEqual([[name, true]]);
+  });
+});
+
+describe('SymbolAnalyzer - a parameter of a top-level function shadows a same-name declaration (#575)', () => {
+  it.each([
+    ['a function parameter', 'export function run(save: () => void) { register(save); }'],
+    ['a destructured parameter', 'export function run({ save }: { save: () => void }) { register(save); }'],
+    ['an arrow function parameter', 'export const run = (save: () => void) => register(save);'],
+    ['a catch variable', 'export function run() { try {} catch (save) { register(save); } }'],
+    ['a for-of variable', 'export function run(list: Array<() => void>) { for (const save of list) register(save); }'],
+  ])('passes no reference to the top-level function through %s', (_title, source) => {
+    const deps = new SymbolAnalyzer().analyzeFileContent('/ws/a.ts', `function save() {}\n${source}`).dependencies;
+
+    expect(deps.filter((d) => d.relation === 'REFERENCES')).toEqual([]);
+  });
+
+  it('references the top-level function when nothing shadows it', () => {
+    const deps = new SymbolAnalyzer().analyzeFileContent('/ws/a.ts', 'function save() {}\nexport function run() { register(save); }').dependencies;
+
+    expect(deps.map((d) => `${d.targetSymbolId}:${d.relation}@${d.line}`)).toEqual(['/ws/a.ts:save:REFERENCES@2']);
   });
 });

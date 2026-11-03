@@ -34,6 +34,8 @@ export async function executeTraceFunctionExecution(
     resolvedRelativePath: entry.resolvedFilePath
       ? getRelativePath(entry.resolvedFilePath, config.rootDir)
       : null,
+    ...(entry.line !== undefined && { line: entry.line }),
+    ...(entry.relation && { relation: entry.relation }),
   }));
 
   const relativePath = getRelativePath(filePath, config.rootDir);

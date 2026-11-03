@@ -25,7 +25,10 @@ export async function indexWorkspace(
   const tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
   fs.mkdirSync(path.join(tmpDir, "src"));
   fs.writeFileSync(path.join(tmpDir, "package.json"), "{}");
-  for (const [name, content] of Object.entries(files)) fs.writeFileSync(path.join(tmpDir, "src", name), content);
+  for (const [name, content] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(tmpDir, "src", name)), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, "src", name), content);
+  }
 
   LanguageService.reset();
   const runtime = new CliRuntime(tmpDir);

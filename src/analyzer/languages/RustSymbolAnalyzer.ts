@@ -4,6 +4,7 @@ import { Node, Parser } from "web-tree-sitter";
 import { normalizePath } from '../../shared/path';
 import { FileReader } from '../FileReader';
 import { ISymbolAnalyzer, SpiderError, SymbolDependency, SymbolInfo } from '../types';
+import { addPassedReferences, type ReferenceTarget } from './referenceDependency';
 import { WasmParserFactory } from './WasmParserFactory';
 
 /**
@@ -16,6 +17,8 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   private readonly fileReader: FileReader;
   private initPromise: Promise<void> | null = null;
   private readonly extensionPath?: string;
+  /** `use ... as alias` names of the file being analyzed: their import map entry is a full path. */
+  private readonly useAliases = new Set<string>();
 
   constructor(rootDirOrExtensionPath?: string, extensionPath?: string) {
     // Backward compatibility:
@@ -390,6 +393,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    */
   private buildImportMap(node: Node, content: string): Map<string, string> {
     const importMap = new Map<string, string>();
+    this.useAliases.clear();
 
     const traverse = (n: Node) => {
       // Handle: use path::to::module;
@@ -451,27 +455,13 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
    * Find the base module path for a use_list by traversing parent nodes
    */
   private findBaseModuleForUseList(useList: Node, content: string): string {
-    let current = useList.parent;
-    while (current) {
-      if (current.type === 'scoped_use_list') {
-        const baseModule = this.findScopedIdentifierInChildren(current, content);
-        if (baseModule) return baseModule;
-      }
-      current = current.parent;
+    // `use a::b::{c}`, `use utils::{c}`, `use crate::{m::{c}}`: every enclosing group adds its path, outermost first.
+    const segments: string[] = [];
+    for (let current = useList.parent; current; current = current.parent) {
+      const pathNode = current.type === 'scoped_use_list' ? current.childForFieldName('path') : null;
+      if (pathNode) segments.unshift(this.getNodeText(pathNode, content));
     }
-    return '';
-  }
-
-  /**
-   * Find scoped_identifier in children nodes
-   */
-  private findScopedIdentifierInChildren(node: Node, content: string): string {
-    for (const child of node.children) {
-      if (child.type === 'scoped_identifier') {
-        return this.getNodeText(child, content);
-      }
-    }
-    return '';
+    return segments.join('::');
   }
 
   /**
@@ -543,6 +533,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
         const path = this.getNodeText(pathNode, content);
         const alias = this.getNodeText(aliasNode, content);
         importMap.set(alias, path);
+        this.useAliases.add(alias);
       }
     }
   }
@@ -559,8 +550,13 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
     currentScope?: string,
     importMap?: Map<string, string>
   ): void {
-    const newScope = this.getScopeForNode(node, filePath, content, currentScope);
-    this.addCallDependencyIfAny(node, filePath, content, dependencies, symbols, newScope, importMap);
+    // One `type` read per node (a WASM call): each handler only runs on its own node type.
+    const type = node.type;
+    const newScope = this.getScopeForNode(node, type, filePath, content, currentScope);
+    if (type === 'call_expression') this.addCallDependencyIfAny(node, filePath, content, dependencies, symbols, newScope, importMap);
+    else if (type === 'arguments' && newScope) {
+      addPassedReferences(dependencies, newScope, node.namedChildren, PASSED_RUST_VALUES, (value) => this.passedTarget(value, filePath, content, symbols, importMap));
+    }
 
     for (const child of node.children) {
       this.extractDependencies(child, filePath, content, dependencies, symbols, newScope, importMap);
@@ -569,11 +565,12 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
 
   private getScopeForNode(
     node: Node,
+    type: string,
     filePath: string,
     content: string,
     currentScope?: string
   ): string | undefined {
-    if (node.type !== 'function_item') {
+    if (type !== 'function_item') {
       return currentScope;
     }
 
@@ -584,6 +581,37 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
 
     const name = this.getNodeText(nameNode, content);
     return `${filePath}:${name}`;
+  }
+
+  /** The function a passed name reaches: a module member, a same-file function, then an imported name. */
+  private passedTarget(
+    value: Node,
+    filePath: string,
+    content: string,
+    symbols: Map<string, SymbolInfo>,
+    importMap?: Map<string, string>
+  ): ReferenceTarget | null {
+    const { moduleName, symbolName } = this.extractModuleAndSymbolName(value, content);
+    if (moduleName) {
+      const specifier = importMap?.get(moduleName);
+      return specifier ? { symbolId: `${specifier}:${symbolName}`, filePath: specifier } : null;
+    }
+    const local = symbols.has(`${filePath}:${symbolName}`);
+    const imported = local ? null : this.importedTarget(symbolName, importMap);
+    if ((!local && !imported) || isBoundLocally(value, symbolName)) return null;
+    return local ? { symbolId: `${filePath}:${symbolName}`, filePath } : imported;
+  }
+
+  /**
+   * The function an imported name stands for: `use a::b::c` maps `c` to module `a::b`; `use a::b::c as d` maps
+   * `d` to the full path `a::b::c` (right for a module alias, `d::f()`), so a bare `d` is `c` in module `a::b`.
+   */
+  private importedTarget(name: string, importMap?: Map<string, string>): ReferenceTarget | null {
+    const specifier = importMap?.get(name);
+    if (specifier === undefined) return null;
+    if (!this.useAliases.has(name)) return { symbolId: `${specifier}:${name}`, filePath: specifier };
+    const { localName, modulePath } = this.splitModulePath(specifier);
+    return { symbolId: `${modulePath}:${localName}`, filePath: modulePath };
   }
 
   private addCallDependencyIfAny(
@@ -639,13 +667,12 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
     }
 
     // For unqualified calls, check if the symbol name itself is in the import map
-    if (importMap?.has(symbolName)) {
-      const moduleSpecifier = importMap.get(symbolName);
-      if (moduleSpecifier === undefined) return;
+    const imported = this.importedTarget(symbolName, importMap);
+    if (imported) {
       dependencies.push({
         sourceSymbolId: scope,
-        targetSymbolId: `${moduleSpecifier}:${symbolName}`,
-        targetFilePath: moduleSpecifier,
+        targetSymbolId: imported.symbolId,
+        targetFilePath: imported.filePath,
         line: node.startPosition.row + 1,
         isTypeOnly: false,
       });
@@ -774,4 +801,23 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   private getNodeText(node: Node, content: string): string {
     return content.slice(node.startIndex, node.endIndex);
   }
+}
+
+/** Passed values a function reference can be: `register(save)`, `register(helper::save)`. */
+const PASSED_RUST_VALUES: ReadonlySet<string> = new Set(['identifier', 'scoped_identifier']);
+
+/** Whether the enclosing function binds `name` (a parameter or a `let`), hiding the module-level function. */
+function isBoundLocally(node: Node, name: string): boolean {
+  for (let scope = node.parent; scope; scope = scope.parent) {
+    if (scope.type !== 'function_item' && scope.type !== 'closure_expression') continue;
+    // `fn f(a: T)` and `let a` bind a pattern; `|a, b: T|` lists its parameters in `closure_parameters`.
+    const closureParameters = scope.type === 'closure_expression' ? scope.childForFieldName('parameters') : null;
+    const bindings = [...scope.descendantsOfType('parameter'), ...scope.descendantsOfType('let_declaration')]
+      .map((binding) => binding?.childForFieldName('pattern'))
+      .concat(closureParameters ? [closureParameters] : []);
+    if (bindings.some((pattern) => pattern?.type === 'identifier' ? pattern.text === name : pattern?.descendantsOfType('identifier').some((id) => id?.text === name))) {
+      return true;
+    }
+  }
+  return false;
 }

@@ -83,6 +83,25 @@ describe("symbol tools", () => {
       // Not re-derived from kind: arrow const stays function, Rust trait stays type
       expect(result.symbols.map((s) => s.category)).toEqual(["function", "type"]);
       expect(result.relativePath).toBe("main.ts");
+      expect(result.dependencies[0]).not.toHaveProperty("relation");
+    });
+
+    it("keeps the line and the REFERENCES relation of a JSX dependency", async () => {
+      const filePath = await createTempFile(tempDir, "Page.tsx", "");
+      const card = path.join(tempDir, "Card.tsx");
+      setupWorkerState({
+        getSymbolGraph: vi.fn(async () => ({
+          symbols: [],
+          dependencies: [
+            { sourceSymbolId: `${filePath}:Page`, targetSymbolId: `${card}:Card`, targetFilePath: card, line: 4, relation: "REFERENCES" },
+            { sourceSymbolId: `${filePath}:Page`, targetSymbolId: `${card}:use`, targetFilePath: card, line: 5 },
+          ],
+        })),
+      });
+
+      const { dependencies } = await executeGetSymbolGraph({ filePath });
+
+      expect(dependencies.map((d) => [d.line, d.relation])).toEqual([[4, "REFERENCES"], [5, undefined]]);
     });
   });
 
