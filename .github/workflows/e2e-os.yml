@@ -1,8 +1,9 @@
-name: VS Code E2E (Windows/macOS)
+name: VS Code E2E (on demand)
 
-# On-demand VS Code E2E from the packaged VSIX on Windows and macOS (#423):
-# regular CI runs them on Linux only. Dispatch it, or add the label `e2e:all-os`
-# to a pull request (later pushes to that pull request run it again).
+# On-demand VS Code E2E from the packaged VSIX (#423). Dispatch it on any branch with one OS
+# (Linux, Windows, macOS), `both` (Windows + macOS) or `all`, and a suite glob; or add the label
+# `e2e:all-os` to a pull request for Windows + macOS (later pushes to that pull request run it again).
+# Regular CI runs the full suite on Linux only.
 
 on:
   workflow_dispatch:
@@ -10,7 +11,7 @@ on:
       os:
         description: Runner OS
         type: choice
-        options: [both, windows-latest, macos-latest]
+        options: [both, all, ubuntu-latest, windows-latest, macos-latest]
         default: both
       suite:
         description: Suite glob, relative to the compiled tests/vscode-e2e folder
@@ -42,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ fromJSON((inputs.os || 'both') == 'both' && '["windows-latest","macos-latest"]' || format('["{0}"]', inputs.os)) }}
+        os: ${{ fromJSON((inputs.os == 'all' && '["ubuntu-latest","windows-latest","macos-latest"]') || ((inputs.os || 'both') == 'both' && '["windows-latest","macos-latest"]') || format('["{0}"]', inputs.os)) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -67,7 +68,9 @@ jobs:
           E2E_SUITE_GLOB: ${{ inputs.suite || '**/architectureView.test.js' }}
           E2E_MOCHA_REPORTER: xunit
           E2E_MOCHA_REPORT_FILE: ${{ github.workspace }}/test-results/e2e-vscode-${{ runner.os }}.xml
-        run: npm run test:vscode:vsix
+        # Linux has no display: VS Code needs a virtual one, as in regular CI.
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm run test:vscode:vsix; else npm run test:vscode:vsix; fi
 
       - name: Upload E2E Test Report
         if: always()

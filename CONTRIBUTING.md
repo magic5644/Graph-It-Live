@@ -180,14 +180,15 @@ E2E_SUITE_GLOB='**/architectureView.test.js' npm run test:vscode
 npm run test:coverage
 ```
 
-Regular CI runs the VS Code E2E suites on Linux only. To run them on Windows and macOS, use the
-**VS Code E2E (Windows/macOS)** workflow (`.github/workflows/e2e-os.yml`):
+Regular CI runs every VS Code E2E suite on Linux only, inside the full test job. To run only the
+E2E suites on one OS, on any branch, use the **VS Code E2E (on demand)** workflow
+(`.github/workflows/e2e-os.yml`):
 
-- **Actions → VS Code E2E (Windows/macOS) → Run workflow**, with inputs `os` (`both`,
-  `windows-latest` or `macos-latest`), `suite` (the `E2E_SUITE_GLOB`, default
+- **Actions → VS Code E2E (on demand) → Run workflow**, with inputs `os` (`ubuntu-latest`,
+  `windows-latest`, `macos-latest`, `both` = Windows + macOS, or `all`), `suite` (the `E2E_SUITE_GLOB`, default
   `**/architectureView.test.js`; `**/**.test.js` runs every suite) and `vscode-version`
   (empty for stable);
-- or add the label `e2e:all-os` to a pull request: it runs the default suite on both OSes, and
+- or add the label `e2e:all-os` to a pull request: it runs the default suite on Windows and macOS, and
   again on every push while the label stays.
 
 Each run uploads its xunit report as the `e2e-test-report-<OS>` artifact.
