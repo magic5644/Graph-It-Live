@@ -743,6 +743,8 @@ describe('SignatureAnalyzer', () => {
       ['a renamed nested field', '{ a: { b } }', '{ a: { c } }', "Field 'a.b'"],
       ['a removed field after a hole', '[, b]', '[, ]', "Field '1'"],
       ['a removed computed key', '{ [key]: y }', '{}', "Field 'key'"],
+      ['a removed empty nested object', '{ a: {} }', '{}', "Field 'a'"],
+      ['a removed empty nested array', '{ a: [] }', '{}', "Field 'a'"],
     ])('reports %s', (_case, oldParams, newParams, description) => {
       expect(compare('/legend.js', oldParams, newParams)?.breakingChanges).toEqual([
         expect.objectContaining({ type: 'parameter-removed', description: expect.stringContaining(description) }),
