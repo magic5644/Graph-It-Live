@@ -14,6 +14,7 @@ paths:
 - Enumerate edge cases before writing tests (shadowing, unknown/missing target, repeated or nested use, type-only, JS and TS variants) and cover each.
 - Bug fix: check whether the same defect affects the other supported languages (TS/JS, Python, Go, Rust, Java, C#); fix shared causes together, otherwise list the affected languages in the PR and open a follow-up issue.
 - Add VS Code Electron E2E coverage for new commands, settings, or user-visible interactions.
+- E2E suites share one workbench and run in unsorted glob order (Linux order differs from macOS). A suite restores in `finally` every workbench change it makes (theme, settings, sidebar, panels, editor layout), or makes it only for local screenshots (`E2E_SCREENSHOT_DIR`). Before pushing a new or changed suite, run it first together with the layout-sensitive one: `E2E_SUITE_GLOB='suite/@(<suite>|architectureView).test.js'`.
 - Keep each touched source file at or above 80% coverage.
 - A class instantiated with `new` must use a constructible mock, for example `vi.fn().mockImplementation(function () { ... })`; arrow-function constructor mocks throw.
 - Use `@/` imports and existing fixtures. Include Windows separators, drive letters, and case behavior in new path tests.
