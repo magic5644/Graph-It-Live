@@ -181,6 +181,7 @@ export interface SymbolGraphMessage {
     incomingDependencies?: SymbolDependency[];
     referencingFiles?: string[];
     parentCounts?: Record<string, number>;
+    nodeMetadata?: GraphData['nodeMetadata'];
   };
 }
 

@@ -105,6 +105,10 @@ async function main() {
     };
 
     const launchArgs = [workspaceRoot, '--disable-extensions'];
+    if (process.env.E2E_CDP_PORT) {
+      if (!/^\d+$/.test(process.env.E2E_CDP_PORT)) throw new Error('E2E_CDP_PORT must be a port number');
+      launchArgs.push(`--remote-debugging-port=${process.env.E2E_CDP_PORT}`, '--remote-debugging-address=127.0.0.1');
+    }
 
     if (useVsix) {
       // Test from packaged .vsix file (production mode)

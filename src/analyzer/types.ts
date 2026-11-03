@@ -242,6 +242,7 @@ export interface SerializedReverseIndex {
 }
 
 export interface SymbolInfo {
+  framework?: 'react';
   name: string;
   kind: string; // 'Function', 'Class', 'Interface', 'Variable', etc.
   line: number;

@@ -22,6 +22,7 @@ import { computeRelatedNodes } from "../utils/graphTraversal";
 import { normalizePath } from "../utils/path";
 import { buildReactFlowGraph, GRAPH_LIMITS } from "./reactflow/buildGraph";
 import { CommunityLegend } from "./reactflow/CommunityLegend";
+import { ReactIcon } from './reactflow/LanguageIcon';
 import { collectFileCommunities, presentFileGraph } from "../utils/fileGraphPresentation";
 import {
   ExpansionOverlay,
@@ -1326,6 +1327,11 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
           gap: 8,
         }}
       >
+        {graph.nodes.some(node => node.data.framework === 'react') && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', background: 'var(--vscode-editor-background)', color: 'var(--vscode-editor-foreground)' }}>
+            <ReactIcon /><span>React</span>
+          </div>
+        )}
         {graph.cycles.size > 0 && (
           <div
             data-testid="cycles-badge"

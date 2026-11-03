@@ -1,10 +1,13 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { CATEGORY_ICONS, getSymbolStyle } from '../../utils/symbolUtils';
+import { REACT_IDENTITY } from '../../../shared/constants';
+import { frameworkName, frameworkSelectionOutline, ReactIcon } from './LanguageIcon';
 
 export interface SymbolNodeData {
     label: string;
     fullPath: string; // The ID of the symbol (path:name)
+    framework?: 'react';
     kind: string; // 'Function', 'Class', etc.
     category: string; // 'function', 'class', etc.
     line: number;
@@ -28,8 +31,14 @@ export interface SymbolNodeData {
 
 const actionButtonSize = 20;
 
+function symbolNodeStyle(category: string, framework?: 'react'): ReturnType<typeof getSymbolStyle> {
+    return framework === 'react'
+        ? { bg: REACT_IDENTITY.color, border: REACT_IDENTITY.color, text: REACT_IDENTITY.foreground }
+        : getSymbolStyle(category);
+}
+
 export const SymbolNode = React.memo<NodeProps<SymbolNodeData>>(function SymbolNode({ data, id }) {
-    const style = getSymbolStyle(data.category);
+    const style = symbolNodeStyle(data.category, data.framework);
     const icon = CATEGORY_ICONS[data.category] || '?';
 
     // T090: Apply dimming style for external references (FR-022)
@@ -96,11 +105,13 @@ export const SymbolNode = React.memo<NodeProps<SymbolNodeData>>(function SymbolN
                 alignItems: 'center',
                 justifyContent: 'center',
                 boxShadow: getBoxShadow(),
+                ...frameworkSelectionOutline(isSelected, data.framework),
                 cursor: 'pointer',
                 opacity,
                 padding: 0,
             }}
             title={`${data.kind}: ${data.label} (Line ${data.line})${isExternal ? ' [External]' : ''}${isSelected ? ' [Selected]' : ''}${data.isHighlighted ? ' [Highlighted]' : ''}`}
+            aria-label={frameworkName(data.label, data.framework)}
             onClick={handleClick}
             onDoubleClick={handleDoubleClick}
             onKeyDown={(e) => {
@@ -117,7 +128,7 @@ export const SymbolNode = React.memo<NodeProps<SymbolNodeData>>(function SymbolN
                 fontWeight: 'bold',
                 color: data.isRoot ? style.text : 'var(--vscode-editor-foreground)',
             }}>
-                {icon}
+                {data.framework === 'react' ? <ReactIcon /> : icon}
             </div>
 
             {/* Label below the node */}
@@ -214,6 +225,7 @@ export const SymbolNode = React.memo<NodeProps<SymbolNodeData>>(function SymbolN
         prev.id === next.id
         && pd.label === nd.label
         && pd.fullPath === nd.fullPath
+        && pd.framework === nd.framework
         && pd.kind === nd.kind
         && pd.category === nd.category
         && pd.line === nd.line

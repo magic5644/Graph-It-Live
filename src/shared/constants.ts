@@ -94,6 +94,15 @@ export const LANGUAGE_COLORS: Record<string, string> = {
     unknown: '#6b6b6b',
 };
 
+const REACT_COLOR = '#087e99';
+/** Framework identity stays separate from the JavaScript/TypeScript language. */
+export const REACT_IDENTITY = {
+    label: 'React',
+    color: REACT_COLOR,
+    foreground: '#ffffff',
+    svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="3" fill="${REACT_COLOR}"/><g fill="none" stroke="#ffffff" stroke-width="1.5"><ellipse cx="16" cy="16" rx="14" ry="5.5"/><ellipse cx="16" cy="16" rx="14" ry="5.5" transform="rotate(60 16 16)"/><ellipse cx="16" cy="16" rx="14" ry="5.5" transform="rotate(120 16 16)"/></g><circle cx="16" cy="16" r="2.5" fill="#ffffff"/></svg>`,
+} as const;
+
 // File extension to color mapping for border colors in graph visualization
 // Maps file extensions to their respective language colors
 export const EXTENSION_COLORS: Record<string, string> = {

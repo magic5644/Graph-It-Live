@@ -1,13 +1,14 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
-import { EXTENSION_COLORS, LANGUAGE_COLORS } from '../../../shared/constants';
+import { EXTENSION_COLORS, LANGUAGE_COLORS, REACT_IDENTITY } from '../../../shared/constants';
 import { actionButtonSize, cycleIndicatorSize } from '../../utils/nodeUtils';
 import { communityColor } from '../../utils/communityColor';
-import { LanguageIcon } from './LanguageIcon';
+import { frameworkName, frameworkSelectionOutline, LanguageIcon } from './LanguageIcon';
 
 export interface FileNodeData {
   label: string;
   fullPath: string;
+  framework?: 'react';
   isRoot: boolean;
   isParent: boolean;
   isInCycle: boolean;
@@ -58,7 +59,8 @@ export function getHubBorderWidth(score: number | undefined): number {
   return 2;
 }
 
-function getFileBorderColor(label: string, fullPath: string): string {
+function getFileBorderColor(label: string, fullPath: string, framework?: 'react'): string {
+  if (framework === 'react') return REACT_IDENTITY.color;
   if (isExternalPackage(fullPath || label)) {
     return EXTERNAL_PACKAGE_COLOR;
   }
@@ -68,8 +70,12 @@ function getFileBorderColor(label: string, fullPath: string): string {
   return EXTERNAL_PACKAGE_COLOR;
 }
 
+function rootTextColor(framework?: 'react'): string {
+  return framework === 'react' ? REACT_IDENTITY.foreground : '#000';
+}
+
 export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ data, id }) {
-  const borderColor = getFileBorderColor(data.label, data.fullPath);
+  const borderColor = getFileBorderColor(data.label, data.fullPath, data.framework);
   const isExternal = isExternalPackage(data.fullPath || data.label);
   const isSelected = data.selectedNodeId === (data.nodeId || id);
 
@@ -106,6 +112,7 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
         cursor: 'pointer'
       }}
       title={data.fullPath}
+      aria-label={frameworkName(data.label, data.framework)}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onKeyDown={handleKeyDown}
@@ -113,7 +120,7 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
       <Handle type="target" position={Position.Left} style={{ visibility: 'hidden' }} />
 
       {/* Language icon in top-left corner */}
-      <LanguageIcon filePath={data.fullPath} label={data.label} />
+      <LanguageIcon filePath={data.fullPath} label={data.label} framework={data.framework} />
 
       <div
         style={{
@@ -128,7 +135,7 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
                 const commBg = communityColor(data.communityId);
                 return commBg !== 'transparent' ? commBg + '22' : 'var(--vscode-editor-background)';
               })(),
-          color: data.isRoot ? '#000' : 'var(--vscode-editor-foreground)',
+          color: data.isRoot ? rootTextColor(data.framework) : 'var(--vscode-editor-foreground)',
           border: (() => {
             if (isSelected) return '4px solid #0078d4';
             const width = getHubBorderWidth(data.hubScore);
@@ -143,6 +150,7 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
           fontFamily: 'var(--vscode-font-family)',
           pointerEvents: 'none',
           boxShadow: isSelected ? '0 0 8px rgba(0, 120, 212, 0.5)' : 'none',
+          ...frameworkSelectionOutline(isSelected, data.framework),
         }}
       >
         {data.label}
@@ -306,6 +314,7 @@ export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ 
     prev.id === next.id &&
     pd.label === nd.label &&
     pd.fullPath === nd.fullPath &&
+    pd.framework === nd.framework &&
     pd.isRoot === nd.isRoot &&
     pd.isParent === nd.isParent &&
     pd.isInCycle === nd.isInCycle &&

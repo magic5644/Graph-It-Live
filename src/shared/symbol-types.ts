@@ -5,6 +5,7 @@
  */
 
 export interface SymbolNode {
+  framework?: 'react';
   id: string;
   name: string;
   originalName?: string;
@@ -45,6 +46,7 @@ export interface BreadcrumbPath {
 }
 
 export interface SymbolInfo {
+  framework?: 'react';
   name: string;
   kind: string;
   line: number;

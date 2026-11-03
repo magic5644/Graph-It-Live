@@ -336,6 +336,18 @@ describe("GraphProvider", () => {
     );
   });
 
+  it("forwards the symbol view's React file metadata to the webview", () => {
+    const webview = { postMessage: vi.fn(), asWebviewUri: vi.fn(), options: {}, html: "", onDidReceiveMessage: vi.fn(), cspSource: "test-csp" };
+    provider.resolveWebviewView({ webview, onDidDispose: vi.fn() } as any, {} as any, {} as any);
+    const nodeMetadata = { "/ws/Card.tsx": { hubScore: 0, framework: "react" as const } };
+    (provider as any)._sendSymbolGraphToWebview({
+      nodes: [], edges: [], symbolData: { symbols: [], dependencies: [] }, referencingFiles: [], nodeMetadata,
+    }, "/ws/Card.tsx", false);
+    expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      command: "symbolGraph", data: expect.objectContaining({ nodeMetadata }),
+    }));
+  });
+
   it("should trigger force reindex", async () => {
     // Ensure spider mock has a worker call available
     const spiderMock = getService<any>(graphProviderServiceTokens.spider);

@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import type { GraphData } from '../../shared/graph-types';
 import { getRelativePath, normalizePath } from '../../shared/path';
 import { COMMUNITY_PALETTE } from '../../shared/communityPalette';
+import { REACT_IDENTITY } from '../../shared/constants';
 import { aggregateCommunityGroups } from '../community/groupAggregation';
 
 /** What was analysed and how it was grouped, stated in the page header. */
@@ -100,6 +101,7 @@ export function buildHtmlGraphModel(graphData: GraphData, workspaceRoot?: string
       id: filePath,
       label: root ? getRelativePath(filePath, root) : filePath,
       group: metadata?.communityId ?? 0,
+      framework: metadata?.framework,
       color: nodeColor(metadata?.communityId, metadata?.hubScore),
       borderWidth: hubScoreBorderWidth(metadata?.hubScore),
     };
@@ -120,13 +122,16 @@ function buildHeader(workspaceName: string, context: HtmlExportContext, model: R
   ].filter(Boolean).join(' · ');
 }
 
-function buildLegend(groups: HtmlGroup[], communityMode: string): string {
+function buildLegend(groups: HtmlGroup[], communityMode: string, hasReact: boolean): string {
   if (groups.length === 0) return '';
   const items = groups.toSorted((a, b) => b.fileCount - a.fileCount || a.id - b.id).map(group =>
     `<div class="legend-item"><span class="swatch" style="background:${group.color};"></span>` +
     `<span>${htmlEscape(group.label)} — ${group.fileCount} file(s), ${group.internalEdgeCount} internal edge(s)</span></div>`,
   ).join('\n');
-  return `<div id="legend"><div class="legend-title">Groups (${htmlEscape(communityMode)})</div>\n${items}\n` +
+  const framework = hasReact
+    ? `<div class="legend-item"><img alt="" width="20" height="20" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(REACT_IDENTITY.svg)}"><span>React component files</span></div>`
+    : '';
+  return `<div id="legend"><div class="legend-title">Groups (${htmlEscape(communityMode)})</div>\n${items}\n${framework}` +
     '<div class="legend-hint">Ellipse = group, box = file. Double-click a group to expand it, a file to collapse its group. ' +
     'Click an edge to list the file pairs behind its count.</div></div>';
 }
@@ -138,7 +143,9 @@ export function exportHtml(config: HtmlExporterConfig): void {
 
   const model = buildHtmlGraphModel(config.graphData, config.workspaceRoot);
   const header = buildHeader(config.workspaceName, config.context, model);
-  const legend = buildLegend(model.groups, config.context.communityMode);
+  const reactFiles = model.files.filter(file => file.framework === 'react');
+  const legend = buildLegend(model.groups, config.context.communityMode, reactFiles.length > 0);
+  const graphLabel = htmlEscape(['Dependency graph', ...reactFiles.map(file => `React: ${file.label}`)].join('. '));
   const title = htmlEscape(config.workspaceName);
 
   // Groups are collapsed by the page itself, not by vis-network clustering: a vis cluster
@@ -182,12 +189,13 @@ export function exportHtml(config: HtmlExporterConfig): void {
     <button onclick="resetLayout()">↺ Reset</button>
   </div>
   <div id="progress">Laying out graph…</div>
-  <div id="graph"></div>
+  <div id="graph" role="img" aria-label="${graphLabel}"></div>
   <div id="panel" role="dialog" aria-live="polite"></div>
   <script>${safeVisSource}</script>
   <script>
     const groupsData = ${jsonForScript(model.groups)};
     const filesData = ${jsonForScript(model.files)};
+    const reactImage = ${jsonForScript(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(REACT_IDENTITY.svg)}`)};
     const edgesData = ${jsonForScript(model.edges)};
     const PAGE_SIZE = 50;
     const groupById = new Map(groupsData.map(g => [g.id, g]));
@@ -248,10 +256,12 @@ export function exportHtml(config: HtmlExporterConfig): void {
       };
     }
     function fileNode(f, position) {
+      const frameworkLabel = f.framework === 'react' ? ' [React]' : '';
       return {
-        id: f.id, label: f.label.split('/').pop(), ...position,
-        title: f.label + ' (group: ' + groupById.get(f.group).label + '). Double-click to collapse the group.',
+        id: f.id, label: f.label.split('/').pop() + frameworkLabel, ...position,
+        title: f.label + frameworkLabel + ' (group: ' + groupById.get(f.group).label + '). Double-click to collapse the group.',
         color: f.color, borderWidth: f.borderWidth,
+        ...(f.framework === 'react' ? { shape: 'image', image: reactImage, shapeProperties: { useBorderWithImage: true } } : {}),
       };
     }
 

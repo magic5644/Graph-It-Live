@@ -29,6 +29,7 @@ import type {
 } from "../../../shared/callgraph-types";
 import { buildCallGraphStylesheet } from "./CytoscapeTheme";
 import { GraphLegend } from "./GraphLegend";
+import { frameworkName } from "../reactflow/LanguageIcon";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -105,6 +106,10 @@ function computeCallOrder(edges: SerializedCallEdge[]): Map<string, number> {
 // Helper: build Cytoscape elements from graph data
 // ---------------------------------------------------------------------------
 
+function callNodeName(node: SerializedCallNode): string {
+  return frameworkName(node.name, node.framework) ?? node.name;
+}
+
 /**
  * Build Cytoscape node/compound elements. Edges are returned separately so they can
  * be added to the graph AFTER the batch that adds nodes — this ensures Cytoscape
@@ -145,9 +150,10 @@ function buildElements(
       data: {
         id: n.id,
         label: n.name,
-        name: n.name,
+        name: callNodeName(n),
         type: n.type,
         lang: n.lang,
+        framework: n.framework,
         path: n.path,
         startLine: n.startLine,
         startCol: n.startCol,
@@ -230,7 +236,7 @@ interface CytoscapeGraphProps {
  * Full-height Cytoscape graph container for the live call graph webview.
  */
 export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraphProps>): React.ReactElement {
-  const containerRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLElement>(null);
   const cyRef = useRef<cytoscape.Core | null>(null);
 
   // Resolved postMessage function: prefer the prop, fall back to local acquireVsCodeApi
@@ -258,6 +264,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
   const [hiddenFilters, setHiddenFilters] = useState<Set<string>>(new Set());
   const [graphNodeTypes, setGraphNodeTypes] = useState<SymbolType[]>([]);
   const [graphFolders, setGraphFolders] = useState<string[]>([]);
+  const [graphNodes, setGraphNodes] = useState<SerializedCallNode[]>([]);
   const hiddenFiltersRef = useRef<Set<string>>(new Set());
 
   // Depth slider state — synchronised with extension on each showCallGraph message
@@ -458,6 +465,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
     if (!cy) return;
 
     setHiddenNodeCount(msg.hiddenNodeCount ?? 0);
+    setGraphNodes(msg.nodes);
 
     if (msg.nodes.length === 0) {
       setIsLoading(false);
@@ -658,10 +666,11 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
   return (
     <div style={{ position: "relative", width: "100%", height: "100%" }}>
       {/* Cytoscape container */}
-      <div
+      <figure
         ref={containerRef}
-        style={{ width: "100%", height: "100%" }}
+        style={{ width: "100%", height: "100%", margin: 0 }}
         data-testid="cytoscape-container"
+        aria-label={`Call graph: ${graphNodes.map(callNodeName).join(', ')}`}
       />
 
       {/* Depth slider */}
@@ -721,6 +730,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
       {/* T027: Filter legend */}
       {!isLoading && !isEmpty && (
         <GraphLegend
+          hasReact={graphNodes.some(node => node.framework === 'react')}
           nodeTypes={graphNodeTypes}
           folders={graphFolders}
           hiddenFilters={hiddenFilters}

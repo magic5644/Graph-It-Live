@@ -25,6 +25,7 @@
  */
 
 import { WasmParserFactory } from "@/analyzer/languages/WasmParserFactory";
+import { analyzeReactIdentity, readReactJsxImportSource } from '@/analyzer/ReactIdentity';
 import { PathResolver } from "@/analyzer/utils/PathResolver";
 import type { RelationType, SupportedLang, SymbolType } from "@/shared/callgraph-types";
 import { mapWithConcurrency } from "@/shared/concurrency";
@@ -282,12 +283,24 @@ function isGuessedTarget(
   return REFERENCE_CAPTURES.has(captureName) && !isExactReference(node, targetId, targetNodeIds, importTargets);
 }
 
+/** One edge per source/target/relation; any React JSX use of it marks the kept edge. */
+function addEdge(seen: Map<string, CallGraphEdge>, edges: CallGraphEdge[], edge: CallGraphEdge, reactComponent: boolean): void {
+  const key = `${edge.sourceId}::${edge.targetId}::${edge.typeRelation}`;
+  const kept = seen.get(key) ?? edge;
+  if (reactComponent) kept.reactComponent = true;
+  if (kept !== edge) return;
+  seen.set(key, edge);
+  edges.push(edge);
+}
+
 // ---------------------------------------------------------------------------
 // GraphExtractor
 // ---------------------------------------------------------------------------
 
 export class GraphExtractor {
   private readonly config: ExtractorConfig;
+  /** shortcut: read once per extractor, so a tsconfig runtime edit applies after the next re-index session. */
+  private jsxImportSource?: Promise<string | undefined>;
   /** In-memory cache for .scm query sources — avoids re-reading from disk per file */
   private readonly querySourceCache = new Map<string, string>();
   /** Compiled tree-sitter Query objects cached per language — avoids recompilation per file */
@@ -295,6 +308,11 @@ export class GraphExtractor {
 
   constructor(config: ExtractorConfig) {
     this.config = config;
+  }
+
+  private readJsxImportSource(): Promise<string | undefined> {
+    this.jsxImportSource ??= readReactJsxImportSource(this.config.workspaceRoot);
+    return this.jsxImportSource;
   }
 
   /**
@@ -401,7 +419,9 @@ export class GraphExtractor {
       } else {
         importTargets = await resolveQualifiedCalls(tree.rootNode, calls, lang, normalizedPath, normalizePath(this.config.workspaceRoot));
       }
-      return this.processCaptures(captures, normalizedPath, lang, source, importTargets);
+      const jsxImportSource = lang === 'typescript' || lang === 'javascript'
+        ? await this.readJsxImportSource() : undefined;
+      return this.processCaptures(captures, normalizedPath, lang, source, importTargets, jsxImportSource);
     } finally {
       tree.delete();
     }
@@ -442,11 +462,17 @@ export class GraphExtractor {
     lang: SupportedLang,
     source: string,
     importTargets: Map<number, string | null>,
+    jsxImportSource?: string,
   ): ExtractionResult {
     const folder = this.computeFolder(normalizedFilePath);
     const { nodeMap, defCaptures, positionToNodeId, nameToNodeIds } =
       this.buildNodeMap(captures, normalizedFilePath, lang, folder, source);
-    const edges = this.buildEdges(captures, normalizedFilePath, positionToNodeId, nameToNodeIds, defCaptures, importTargets);
+    const identity = analyzeReactIdentity(normalizedFilePath, source, jsxImportSource);
+    for (const node of nodeMap.values()) {
+      node.reactEligible = identity.eligible;
+      if (identity.components.some(component => component.name === node.name && component.startLine === node.startLine)) node.framework = 'react';
+    }
+    const edges = this.buildEdges(captures, normalizedFilePath, positionToNodeId, nameToNodeIds, defCaptures, importTargets, identity.isReact);
     return { nodes: [...nodeMap.values()], edges };
   }
 
@@ -520,9 +546,10 @@ export class GraphExtractor {
     nameToNodeIds: Map<string, string[]>,
     defCaptures: Array<{ captureName: string; node: TreeNode }>,
     importTargets: Map<number, string | null>,
+    reactContext: boolean,
   ): CallGraphEdge[] {
     const edges: CallGraphEdge[] = [];
-    const seenEdges = new Set<string>();
+    const seenEdges = new Map<string, CallGraphEdge>();
 
     for (const capture of captures) {
       const relationType = captureNameToRelationType(capture.name);
@@ -540,10 +567,7 @@ export class GraphExtractor {
       );
       if (!sourceNodeId) continue;
 
-      const edgeKey = `${sourceNodeId}::${targetId}::${relationType}`;
-      if (seenEdges.has(edgeKey)) continue;
-      seenEdges.add(edgeKey);
-      edges.push({ sourceId: sourceNodeId, targetId, typeRelation: relationType, sourceLine });
+      addEdge(seenEdges, edges, { sourceId: sourceNodeId, targetId, typeRelation: relationType, sourceLine }, capture.name === 'jsx' && reactContext);
     }
     return edges;
   }

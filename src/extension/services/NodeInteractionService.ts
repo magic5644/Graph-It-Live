@@ -1,6 +1,7 @@
 import { Spider } from '../../analyzer/Spider';
 import { normalizePath } from '../../analyzer/types';
 import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
+import { collectReactReferencingPaths, enrichReactFramework } from '../../analyzer/ReactIdentity';
 import type { CommunityMode, GraphData, GraphEdge, GraphNodeMetadata } from '../../shared/types';
 
 type Logger = {
@@ -168,6 +169,8 @@ export class NodeInteractionService {
       parentCounts: Object.keys(parentCounts).length > 0 ? parentCounts : undefined,
     };
     computeNodeMetadata(tempData, this.spider.workspaceRoot, communityMode);
+    const frameworkSources = await collectReactReferencingPaths(nodes, file => this.spider.findReferencingFilesThroughBarrels?.(file) ?? Promise.resolve([]));
+    await enrichReactFramework(tempData, this.spider.workspaceRoot, frameworkSources);
     return tempData.nodeMetadata;
   }
 

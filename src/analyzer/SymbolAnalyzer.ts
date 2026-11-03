@@ -10,6 +10,7 @@ import {
 import { FileReader } from "./FileReader";
 import { ISymbolAnalyzer, SymbolDependency, SymbolInfo } from "./types";
 import { defaultExportNameOf, isComponentFactory } from "./utils/declarations";
+import { analyzeReactIdentity } from "./ReactIdentity";
 
 /** A symbol referenced from a declaration, with the line where it is used */
 type UsedSymbol = {
@@ -330,6 +331,8 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
 
     // Build dependencies
     this.buildDependencies(sourceFile, dependencies);
+
+    this.attachReactIdentity(symbols, filePath, content);
 
     return { symbols, dependencies };
   }
@@ -1104,7 +1107,15 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       const decl = declarations[0];
       if (decl) this.addSymbol(symbols, name, decl, filePath, true, name === defaultName);
     }
+    this.attachReactIdentity(symbols, filePath, content);
     return symbols;
+  }
+
+  private attachReactIdentity(symbols: SymbolInfo[], filePath: string, content: string): void {
+    const components = analyzeReactIdentity(filePath, content).components;
+    for (const symbol of symbols) {
+      if (components.some(component => component.name === symbol.name && component.startLine === symbol.line - 1)) symbol.framework = 'react';
+    }
   }
 
   /**

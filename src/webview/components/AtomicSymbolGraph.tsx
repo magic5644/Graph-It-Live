@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from "react";
 import type { IntraFileGraph, SymbolDependency, SymbolInfo } from "../../shared/types";
+import { frameworkName, ReactIcon } from './reactflow/LanguageIcon';
+import { REACT_IDENTITY } from '../../shared/constants';
 
 interface AtomicSymbolGraphProps {
   symbols: SymbolInfo[];
@@ -15,6 +17,7 @@ interface TreeNode {
   name: string;
   kind: string;
   category: string;
+  framework?: 'react';
   line: number;
   children: TreeNode[];
   isExpanded: boolean;
@@ -112,6 +115,7 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
         name: symbol.name,
         kind: symbol.kind,
         category: symbol.category,
+        framework: symbol.framework,
         line: symbol.line,
         children: [],
         isExpanded: false,
@@ -280,7 +284,7 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
             textAlign: 'left',
           }}
           onClick={() => handleNodeClick(node)}
-          aria-label={`Symbol ${node.name}`}
+          aria-label={frameworkName(node.name, node.framework) ?? `Symbol ${node.name}`}
         >
           {hasChildren && (
             <button
@@ -310,12 +314,12 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
 
           <span
             style={{
-              color: getColorForCategory(node.category),
+              color: node.framework === 'react' ? REACT_IDENTITY.color : getColorForCategory(node.category),
               fontWeight: '700',
               marginRight: '4px',
             }}
           >
-            {getIconForKind(node.kind)}
+            {node.framework === 'react' ? <ReactIcon /> : getIconForKind(node.kind)}
           </span>
 
           <span style={{ flex: 1, fontWeight: isSelected ? '600' : '500' }}>

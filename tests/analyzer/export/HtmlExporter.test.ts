@@ -29,6 +29,7 @@ import { aggregateCommunityGroups } from '../../../src/analyzer/community/groupA
 import { COMMUNITY_PALETTE } from '../../../src/shared/communityPalette';
 import type { GraphData } from '../../../src/shared/graph-types';
 import { normalizePath } from '../../../src/shared/path';
+import { REACT_IDENTITY } from '../../../src/shared/constants';
 
 /** Two path groups plus one unassigned file; a cycle between core and ui. */
 function sampleGraph(root = '/ws'): GraphData {
@@ -195,6 +196,14 @@ describe('nodeColor', () => {
 
 
 describe('buildHtmlGraphModel', () => {
+  it.each([undefined, 'react'] as const)('preserves risk/community styling with framework %s', (framework) => {
+    const graph = sampleGraph();
+    graph.nodeMetadata!['/ws/src/core/a.ts'] = { hubScore: 0.9, communityId: 1, framework };
+    const file = buildHtmlGraphModel(graph, '/ws').files[0];
+    expect(file.framework).toBe(framework);
+    expect(file.color).toEqual(nodeColor(1, 0.9));
+    expect(file.borderWidth).toBe(4);
+  });
   it('reuses aggregateCommunityGroups labels and counts and adds the unassigned group', () => {
     const graph = sampleGraph();
     const model = buildHtmlGraphModel(graph, '/ws');
@@ -333,7 +342,7 @@ describe('exportHtml', () => {
     const html = render();
     expect(html).toContain('<!DOCTYPE html>');
     expect(html).toContain('vis-network mock');
-    expect(html).toContain('<div id="graph">');
+    expect(html).toContain('<div id="graph" role="img"');
     expect(html).toContain('vis.Network');
   });
 
@@ -394,6 +403,23 @@ describe('exportHtml', () => {
     expect(page.nodes.get().map((n: { id: string }) => n.id)).toHaveLength(4);
     expect(page.edges.get()).toHaveLength(5);
     expect(page.edges.get().every((e: { label?: string }) => e.label === undefined)).toBe(true);
+  });
+
+  it('exports a React icon and accessible text without losing risk or non-React identity', () => {
+    const graphData = sampleGraph();
+    graphData.nodeMetadata!['/ws/src/core/a.ts'].framework = 'react';
+    const html = render({ ...baseConfig, graphData });
+    const page = runPage(html);
+    const react = page.nodes.get('/ws/src/core/a.ts');
+    expect(react.label).toBe('a.ts [React]');
+    expect(react.title).toContain('React');
+    expect(react.image).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(REACT_IDENTITY.svg)}`);
+    expect(react.borderWidth).toBe(4);
+    expect(react.color).toEqual(nodeColor(1, 0.9));
+    expect(page.nodes.get('/ws/src/core/b.ts').label).toBe('b.ts');
+    expect(page.nodes.get('/ws/src/core/b.ts').image).toBeUndefined();
+    expect(html).toContain('React component files');
+    expect(html).toContain('aria-label="Dependency graph. React: src/core/a.ts"');
   });
 
   it('collapses groups into directed group edges whose counts match the aggregation', () => {
