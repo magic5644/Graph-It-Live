@@ -43,6 +43,7 @@ export class CommandRegistrationService {
       this.registerReviewCallGraphCommand(),
       this.registerGetContextCommand(), // For E2E testing
       this.registerArchitectureControlsCommand(), // For E2E testing
+      this.registerCallGraphClickCommand(), // For E2E testing
     ];
   }
 
@@ -216,6 +217,7 @@ export class CommandRegistrationService {
       ['graph-it-live.callGraphNodeCount', () => this.provider.getCallGraphNodeCount()],
       ['graph-it-live.callGraphEdgeCount', () => this.provider.getCallGraphEdgeCount()],
       ['graph-it-live.callGraphCycleCount', () => this.provider.getCallGraphCycleCount()],
+      ['graph-it-live.callGraph', () => this.provider.getCallGraphE2EGraph()],
       ['graph-it-live.fileGraphNodeMetadata', () => this.provider.getFileGraphNodeMetadata()],
       ['graph-it-live.fileGraphRoot', () => this.provider.getFileGraphRoot()],
       ['graph-it-live.architectureRenderCount', () => architecture()?.renderCount ?? 0],
@@ -256,6 +258,14 @@ export class CommandRegistrationService {
     return vscode.commands.registerCommand(
       'graph-it-live.e2eArchitectureControls',
       (controls: Parameters<GraphProvider['setArchitectureControls']>[0]) => this.provider.setArchitectureControls(controls)
+    );
+  }
+
+  /** E2E test helper: clicks a call-graph node, which tests cannot reach in the webview. */
+  private registerCallGraphClickCommand(): vscode.Disposable {
+    return vscode.commands.registerCommand(
+      'graph-it-live.e2eCallGraphClick',
+      (nodeId: unknown) => (typeof nodeId === 'string' ? this.provider.clickCallGraphNode(nodeId) : false)
     );
   }
 

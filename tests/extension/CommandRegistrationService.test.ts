@@ -69,6 +69,8 @@ function createProviderMock(): GraphProvider {
       interactionCount: 5, interaction: { highlightedGroups: 2 }, matrixCount: 6, matrix: { rows: 11 }, rendered: { headerHeightPx: 90 },
     }),
     setArchitectureControls: vi.fn(),
+    getCallGraphE2EGraph: vi.fn().mockReturnValue({ rootSymbolId: 'a', nodes: [], edges: [] }),
+    clickCallGraphNode: vi.fn().mockResolvedValue(true),
   } as unknown as GraphProvider;
 }
 
@@ -118,8 +120,8 @@ describe('CommandRegistrationService', () => {
 
     const disposables = service.registerAll();
 
-    expect(disposables).toHaveLength(16); // getContext is shared; filter commands share one disposable
-    expect(registerCommand).toHaveBeenCalledTimes(17);
+    expect(disposables).toHaveLength(17); // getContext is shared; filter commands share one disposable
+    expect(registerCommand).toHaveBeenCalledTimes(18);
     expect(registeredHandlers.has('graph-it-live.showGraph')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.forceReindex')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.expandAllNodes')).toBe(true);
@@ -169,6 +171,12 @@ describe('CommandRegistrationService', () => {
 
     await registeredHandlers.get('graph-it-live.e2eArchitectureControls')?.({ find: 'ui', minImports: 2 });
     expect(provider.setArchitectureControls).toHaveBeenCalledWith({ find: 'ui', minImports: 2 });
+    expect(await getContext('graph-it-live.callGraph')).toEqual({ rootSymbolId: 'a', nodes: [], edges: [] });
+    const click = registeredHandlers.get('graph-it-live.e2eCallGraphClick')!;
+    expect(await click('/w/a.tsx:Card:0')).toBe(true);
+    expect(provider.clickCallGraphNode).toHaveBeenCalledWith('/w/a.tsx:Card:0');
+    expect(await click({ path: '/etc/passwd' })).toBe(false);
+    expect(provider.clickCallGraphNode).toHaveBeenCalledTimes(1);
     expect(await getContext('graph-it-live.unknown')).toBeUndefined();
     expect(await getContext('graph-it-live.reverseDependenciesVisible')).toBe(false);
     expect(await getContext('graph-it-live.graphViewResolved')).toBe(true);

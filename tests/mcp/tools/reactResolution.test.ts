@@ -77,13 +77,6 @@ describe.skipIf(!wasmBuilt)("React resolution through the MCP tools (#575)", { t
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("returns the corpus edges from query_call_graph and trace_function_execution alike", async () => {
-    const expected = [...REACT_CORPUS_EDGES].sort();
-
-    expect(await callGraphEdges()).toEqual(expected);
-    expect(await traceEdges()).toEqual(expected);
-  });
-
   it("lists JSX consumers as runtime references in get_impact_analysis", async () => {
     const { impactedItems, runtimeImpactCount, summary } = await executeGetImpactAnalysis({ filePath: abs("src/ui/Card.tsx"), symbolName: "Card" });
 

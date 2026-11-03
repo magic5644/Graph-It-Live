@@ -19,15 +19,16 @@ function symbolKey(root: string, symbolId: string): string | null {
 }
 
 /** Corpus edges as the ts-morph pipeline (trace) reports them, one hop from every top-level symbol. */
-async function tsMorphEdges(spider: Spider, root: string): Promise<string[]> {
+async function tsMorphEdges(spider: Spider, root: string, files: Record<string, string> = REACT_CORPUS): Promise<string[]> {
   const edges: string[] = [];
-  for (const file of Object.keys(REACT_CORPUS)) {
+  for (const file of Object.keys(files)) {
     const filePath = normalizePath(path.join(root, file));
     const { symbols } = await spider.getSymbolGraph(filePath);
     for (const symbol of symbols.filter((s) => !s.parentSymbolId)) {
       const { callChain } = await spider.traceFunctionExecution(filePath, symbol.name, 1);
       for (const entry of callChain) {
-        const target = symbolKey(root, entry.calledSymbolId);
+        // An unresolved entry keeps the imported module as file: it names no declaration.
+        const target = entry.resolvedFilePath && symbolKey(root, entry.calledSymbolId);
         if (target) edges.push(`${symbolKey(root, entry.callerSymbolId)} -${entry.relation ?? "CALLS"}@${entry.line}-> ${target}`);
       }
     }
@@ -101,6 +102,48 @@ describe("React component resolution is the same in both analyzer pipelines (#57
     expect(await unused("src/Fancy.tsx")).toEqual([]);
     expect(await unused("src/ui/Button.jsx")).toEqual([]);
     expect(await unused("src/other.tsx")).toEqual(["Missing"]);
+  });
+});
+
+describe("React resolution success, ambiguity and failure in both pipelines (#591)", () => {
+  /** One success, one name two `export *` barrels both declare, one import the target module does not export. */
+  const FILES: Record<string, string> = {
+    "src/a/Item.tsx": "export function Item() { return <li />; }\n",
+    "src/b/Item.tsx": "export function Item() { return <dt />; }\nexport function Only() { return <dd />; }\n",
+    "src/items.ts": "export * from './a/Item';\nexport * from './b/Item';\n",
+    "src/App.tsx": `import { Item, Only } from './items';
+import { Gone } from './a/Item';
+export function App() {
+  return <ul><Only /><Item /><Gone /></ul>;
+}
+`,
+  };
+  let harness: Harness;
+  let spider: Spider;
+
+  beforeAll(async () => {
+    harness = await createTreeSitterHarness("gil-react-ambiguous-");
+    await writeFiles(harness.root, FILES);
+    spider = new SpiderBuilder().withRootDir(harness.root).withReverseIndex(true).build();
+    await spider.buildFullIndex();
+  });
+  afterAll(async () => {
+    await spider.dispose?.();
+    await harness.dispose();
+  });
+
+  it("links the unique component and leaves the ambiguous and the missing one unresolved", async () => {
+    const expected = ["src/App.tsx#App -REFERENCES@4-> src/b/Item.tsx#Only"];
+
+    expect(treeSitterEdges((await harness.index(FILES)).edges)).toEqual(expected);
+    expect(await tsMorphEdges(spider, harness.root, FILES)).toEqual(expected);
+  });
+
+  it("reports neither homonym of the ambiguous usage as dead code (conservative)", async () => {
+    const unused = async (file: string) => (await spider.findUnusedSymbols(path.join(harness.root, file))).map((s) => s.name);
+
+    expect(await unused("src/a/Item.tsx")).toEqual([]);
+    expect(await unused("src/b/Item.tsx")).toEqual([]);
   });
 });
 

@@ -125,6 +125,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   private callGraphNodeCount = 0;
   private callGraphEdgeCount = 0;
   private callGraphCycleCount = 0;
+  /** Graph last posted to the webview — E2E observability and click driver only. */
+  private lastGraph: ReturnType<typeof queryNeighbourhood> | null = null;
   private disposed = false;
   private disposePromise: Promise<void> | null = null;
   private readonly activeOperations = new Set<Promise<unknown>>();
@@ -213,6 +215,21 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   public getCallGraphNodeCount(): number { return this.callGraphNodeCount; }
   public getCallGraphEdgeCount(): number { return this.callGraphEdgeCount; }
   public getCallGraphCycleCount(): number { return this.callGraphCycleCount; }
+  /** Nodes and edges of the graph last posted to the webview (E2E observability). */
+  public getCallGraphE2EGraph(): Pick<ReturnType<typeof queryNeighbourhood>, "rootSymbolId" | "nodes" | "edges"> | null {
+    const graph = this.lastGraph;
+    return graph && { rootSymbolId: graph.rootSymbolId, nodes: graph.nodes, edges: graph.edges };
+  }
+  /**
+   * E2E driver: clicks a node of the displayed graph as the webview does. Any extension can call it, so only
+   * a displayed node id is accepted, and its position comes from the graph, not from the caller.
+   */
+  public async clickCallGraphNodeForE2E(nodeId: string): Promise<boolean> {
+    const node = this.lastGraph?.nodes.find((n) => n.id === nodeId);
+    if (!node) return false;
+    await this.handleSymbolFocus({ command: "callGraphSymbolFocus", nodeId, path: node.path, startLine: node.startLine, startCol: node.startCol });
+    return true;
+  }
   /** Expose the indexer for LM Tools (query_call_graph). Returns null if not yet initialized. */
   public getCallGraphIndexerForLmTools(): CallGraphIndexer | null { return this.indexer; }
   // ---------------------------------------------------------------------------
@@ -576,6 +593,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    */
   private postGraphData(result: ReturnType<typeof queryNeighbourhood>): void {
     if (this.disposed) return;
+    this.lastGraph = result;
     // E2E observability: store cycle count as a field (readable via getContext command)
     // and also set VS Code context key for `when` clause use.
     const cycleCount = result.edges.filter((e) => e.isCyclic).length;

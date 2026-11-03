@@ -1341,6 +1341,14 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   public getCallGraphCycleCount(): number {
     return this._callGraphViewService?.getCallGraphCycleCount() ?? 0;
   }
+  public getCallGraphE2EGraph(): ReturnType<CallGraphViewService["getCallGraphE2EGraph"]> {
+    return this._callGraphViewService?.getCallGraphE2EGraph() ?? null;
+  }
+
+  /** E2E driver pass-through to CallGraphViewService */
+  public async clickCallGraphNode(nodeId: string): Promise<boolean> {
+    return (await this._callGraphViewService?.clickCallGraphNodeForE2E(nodeId)) ?? false;
+  }
 
   /**
    * Toggle unused dependency filter

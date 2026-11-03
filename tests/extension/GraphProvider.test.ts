@@ -235,6 +235,24 @@ describe("GraphProvider", () => {
     expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith("**/*.json");
   });
 
+  it("passes the call graph E2E observability and click driver through, with neutral values before wiring", async () => {
+    expect([provider.getCallGraphRenderCount(), provider.getCallGraphNodeCount(), provider.getCallGraphEdgeCount(), provider.getCallGraphCycleCount()]).toEqual([0, 0, 0, 0]);
+    expect(provider.getCallGraphE2EGraph()).toBeNull();
+    expect(await provider.clickCallGraphNode("/w/a.tsx:A:0")).toBe(false);
+
+    const graph = { rootSymbolId: "r", nodes: [], edges: [] };
+    const service = {
+      getCallGraphRenderCount: () => 1, getCallGraphNodeCount: () => 2, getCallGraphEdgeCount: () => 3, getCallGraphCycleCount: () => 4,
+      getCallGraphE2EGraph: () => graph, clickCallGraphNodeForE2E: vi.fn().mockResolvedValue(true),
+    };
+    provider.setCallGraphViewService(service as never);
+
+    expect([provider.getCallGraphRenderCount(), provider.getCallGraphNodeCount(), provider.getCallGraphEdgeCount(), provider.getCallGraphCycleCount()]).toEqual([1, 2, 3, 4]);
+    expect(provider.getCallGraphE2EGraph()).toBe(graph);
+    expect(await provider.clickCallGraphNode("/w/a.tsx:A:0")).toBe(true);
+    expect(service.clickCallGraphNodeForE2E).toHaveBeenCalledWith("/w/a.tsx:A:0");
+  });
+
   it("reports the sidebar view resolved only between resolveWebviewView and its disposal", () => {
     let dispose: () => void = () => {};
     const view = {
