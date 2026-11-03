@@ -56,3 +56,5 @@ export async function run(): Promise<void> {
       });
   });
 }
+
+// diag #584: main control run (temporary branch)
