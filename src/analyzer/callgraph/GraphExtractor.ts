@@ -326,6 +326,14 @@ function isGuessedTarget(
   return REFERENCE_CAPTURES.has(captureName) && !isExactReference(node, targetId, targetNodeIds, importTargets);
 }
 
+/**
+ * Key of a declaration node for the enclosing-definition walk: its start and its type, since the file root
+ * (`class A` at 0:0) and a Python block (its first nested `def`) start where another node does.
+ */
+function positionKey(node: TreeNode): string {
+  return `${node.startPosition.row}:${node.startPosition.column}:${node.type}`;
+}
+
 /** One edge per source/target/relation; any React JSX use of it marks the kept edge. */
 function addEdge(seen: Map<string, CallGraphEdge>, edges: CallGraphEdge[], edge: CallGraphEdge, reactComponent: boolean): void {
   const key = `${edge.sourceId}::${edge.targetId}::${edge.typeRelation}`;
@@ -574,10 +582,7 @@ export class GraphExtractor {
       // (e.g. `function_declaration` starts at the `function` keyword, not the name).
       // Using node.parent's position ensures the walk can find a match.
       const declNode = node.parent ?? node;
-      positionToNodeId.set(
-        `${declNode.startPosition.row}:${declNode.startPosition.column}`,
-        nodeId,
-      );
+      positionToNodeId.set(positionKey(declNode), nodeId);
       const existing = nameToNodeIds.get(symbolName) ?? [];
       existing.push(nodeId);
       nameToNodeIds.set(symbolName, existing);
@@ -621,7 +626,7 @@ export class GraphExtractor {
    * Walk up the AST from a reference node to find the nearest enclosing definition.
    * Returns the Call Graph Node ID for that definition, or null if not inside any definition.
    *
-   * positionToNodeId is keyed by the *declaration* node's start position (e.g. `function_declaration`
+   * positionToNodeId is keyed by the *declaration* node's start position and type (e.g. `function_declaration`
    * starts at the `function` keyword), which matches the ancestor nodes encountered during the walk.
    */
   private findEnclosingDefinitionId(
@@ -630,8 +635,7 @@ export class GraphExtractor {
   ): string | null {
     let current: TreeNode | null = refNode.parent;
     while (current !== null) {
-      const posKey = `${current.startPosition.row}:${current.startPosition.column}`;
-      const nodeId = positionToNodeId.get(posKey);
+      const nodeId = positionToNodeId.get(positionKey(current));
       if (nodeId) return nodeId;
       current = current.parent;
     }
