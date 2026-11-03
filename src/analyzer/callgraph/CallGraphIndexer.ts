@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS edges (
     source_id     TEXT     NOT NULL,
     target_id     TEXT     NOT NULL,
     type_relation TEXT     NOT NULL
-                           CHECK (type_relation IN ('CALLS','INHERITS','IMPLEMENTS','USES')),
+                           CHECK (type_relation IN ('CALLS','INHERITS','IMPLEMENTS','USES','REFERENCES')),
     is_cyclic     INTEGER  NOT NULL DEFAULT 0,
     source_line   INTEGER  NOT NULL,
     indexed_at    INTEGER  NOT NULL,
@@ -145,8 +145,9 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v10: Rust impl methods retain their type (`nodes.owner`); aliased `use` and typed receivers link (#522).
  * v11: C# declarations retain their enclosing namespaces and types (`nodes.owner`); a `using` alias links in its namespace only (#537).
  * v12: .tsx/.jsx parse with the tsx grammar; JSX components are USES edges (#574).
+ * v13: JSX components, attribute values and functions passed as arguments are REFERENCES edges (every language); default imports and memo/forwardRef/lazy resolve (#575).
  */
-const CURRENT_SCHEMA_VERSION = 12;
+const CURRENT_SCHEMA_VERSION = 13;
 
 /**
  * Optional FTS5 schema for fast symbol name search.

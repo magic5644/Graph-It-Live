@@ -23,8 +23,11 @@ export type SymbolType =
   | "type"
   | "variable";
 
-/** Relation types extracted by Tree-sitter queries */
-export type RelationType = "CALLS" | "INHERITS" | "IMPLEMENTS" | "USES";
+/**
+ * Relation types extracted by Tree-sitter queries. USES is a type-only reference;
+ * REFERENCES is a runtime reference that is not a call there (`<Card />`, `onClick={save}`).
+ */
+export type RelationType = "CALLS" | "INHERITS" | "IMPLEMENTS" | "USES" | "REFERENCES";
 
 /** Language keys aligned with LANGUAGE_COLORS in src/shared/constants.ts */
 export type SupportedLang = "typescript" | "javascript" | "python" | "rust" | "csharp" | "go" | "java" | "graphql";

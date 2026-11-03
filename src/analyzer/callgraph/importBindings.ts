@@ -1,9 +1,8 @@
+import { DEFAULT_ONLY, findDeclaration, type DeclarationReads } from "@/analyzer/utils/declarations";
 import type { PathResolver } from "@/analyzer/utils/PathResolver";
-import { isInIgnoredDirectory } from "@/analyzer/utils/PathPredicates";
-import { declaresExport, exportsOnlyAsDefault, mayReExport, parseReExports, type ReExport, type ReExportTarget } from "@/analyzer/utils/reExports";
+import type { ReExportTarget } from "@/analyzer/utils/reExports";
 import { mapWithConcurrency } from "@/shared/concurrency";
 import { normalizePath } from "@/shared/path";
-import fs from "node:fs/promises";
 import type { Node as TreeNode } from "web-tree-sitter";
 
 const NAMESPACE_CALL_CONCURRENCY = 8;
@@ -50,91 +49,50 @@ function enclosingScope(node: TreeNode, functionOnly: boolean): TreeNode {
   return scope;
 }
 
-/** The name a re-export declaration reaches `name` under in its source module, if any. */
-function reExportedAs(names: ReExport["names"], name: string): string | undefined {
-  // `export *` never re-exports `default`.
-  if (names === "all") return name === "default" ? undefined : name;
-  return names.find((entry) => entry.exported === name)?.imported;
-}
-
-/** `findDeclaration` result for a module that exports `name` only as the local name of its default export. */
-const DEFAULT_ONLY = "default-only";
-
 /** `@@import:` stub reaching `name` in `modulePath` (or the barrel's real declaration); null when nothing is exported under it. */
 function importStub(declared: ReExportTarget | typeof DEFAULT_ONLY | null, modulePath: string, name: string): string | null {
   if (declared === DEFAULT_ONLY) return null;
   return `@@import:${JSON.stringify([declared?.filePath ?? normalizePath(modulePath), declared?.name ?? name])}`;
 }
 
-/**
- * Follows `name` through barrels (`export { x } from`, `export * from`) to the module that
- * declares it, so a call through a barrel links to the real symbol. Null when the chain
- * cannot be resolved: the caller keeps the barrel as target. `DEFAULT_ONLY` when the module itself
- * exports `name` only as its default export's local name.
- */
-async function findDeclaration(
-  filePath: string,
-  name: string,
-  resolver: PathResolver,
-  visited: Set<string>,
-  reads: Map<string, Promise<string | null>>,
-): Promise<ReExportTarget | typeof DEFAULT_ONLY | null> {
-  const normalized = normalizePath(filePath);
-  const key = `${normalized}:${name}`;
-  if (visited.has(key) || isInIgnoredDirectory(normalized)) return null;
-  visited.add(key);
-  // One read per module per import statement set: several specifiers often share a module.
-  if (!reads.has(key)) reads.set(key, fs.readFile(filePath, "utf-8").catch(() => null));
-  const content = await reads.get(key)!; // NOSONAR S9382 sequential: first declaring barrel wins
-  if (content === null) return null;
-  const onlyDefault = () => exportsOnlyAsDefault(filePath, content, name);
-  if (!mayReExport(content) || declaresExport(filePath, content, name)) return onlyDefault() ? DEFAULT_ONLY : { filePath: normalized, name };
-  return (await followReExports(filePath, content, name, resolver, visited, reads)) ?? (onlyDefault() ? DEFAULT_ONLY : null); // NOSONAR S9382 single await
-}
-
-async function followReExports(
-  filePath: string,
-  content: string,
-  name: string,
-  resolver: PathResolver,
-  visited: Set<string>,
-  reads: Map<string, Promise<string | null>>,
-): Promise<ReExportTarget | null> {
-  for (const { specifier, names } of parseReExports(filePath, content)) {
-    const wanted = reExportedAs(names, name);
-    if (!wanted) continue;
-    // eslint-disable-next-line no-await-in-loop -- first declaring re-export in source order wins and shares the visited set; stopping there avoids reading the other barrels
-    const found = await resolver.resolve(filePath, specifier).catch(() => null) // NOSONAR S9382 sequential: source order, shared visited set
-      .then(next => next ? findDeclaration(next, wanted, resolver, visited, reads) : null);
-    if (found && found !== DEFAULT_ONLY) return found;
+/** Local name and imported name of each binding of an import statement: `import Panel, { Card as C } from`. */
+function importedNames(statement: TreeNode): Array<{ local: TreeNode; imported: string; isType: boolean }> {
+  const clause = statement.namedChildren.find(node => node.type === "import_clause");
+  const defaultBinding = clause?.namedChildren.find(node => node.type === "identifier");
+  const names = defaultBinding ? [{ local: defaultBinding, imported: "default", isType: false }] : [];
+  for (const specifier of statement.descendantsOfType("import_specifier")) {
+    const imported = specifier.childForFieldName("name");
+    if (!imported) continue;
+    const isType = specifier.children.some(node => node.type === "type");
+    names.push({ local: specifier.childForFieldName("alias") ?? imported, imported: imported.text, isType });
   }
-  return null;
+  return names;
 }
 
+/**
+ * Named and default import bindings: local name -> `@@import:` stub, or null when it links nowhere. Only bindings
+ * that a capture names (`used`) are resolved: the others stay null, so a module nothing calls is never resolved.
+ */
 async function collectNamedImports(
   root: TreeNode,
   filePath: string,
   resolver: PathResolver,
+  reads: DeclarationReads,
+  used: Set<string>,
 ): Promise<Map<string, string | null>> {
   const statements = root.namedChildren.filter(node => node.type === "import_statement");
-  const reads = new Map<string, Promise<string | null>>();
   const bindings = await Promise.all(statements.map(async (statement): Promise<Array<[string, string | null]>> => {
-    const specifiers = statement.descendantsOfType("import_specifier");
-    if (specifiers.length === 0) return [];
+    const names = importedNames(statement);
     const moduleName = statement.childForFieldName("source")?.namedChildren[0]?.text;
     const typeOnly = statement.children.some(node => node.type === "type");
-    const targetPath = !typeOnly && moduleName ? await resolver.resolve(filePath, moduleName) : null;
-    // Specifiers are independent (own visited set, shared promise cache): resolve them concurrently, in order.
-    const imports = await Promise.all(specifiers.map(async (specifier): Promise<[string, string | null] | null> => {
-      const imported = specifier.childForFieldName("name");
-      if (!imported) return null;
-      const local = specifier.childForFieldName("alias") ?? imported;
-      const isType = typeOnly || specifier.children.some(node => node.type === "type");
-      if (!targetPath || isType) return [local.text, null];
-      const declared = await findDeclaration(targetPath, imported.text, resolver, new Set(), reads);
-      return [local.text, importStub(declared, targetPath, imported.text)];
+    const needed = !typeOnly && moduleName && names.some(({ local, isType }) => !isType && used.has(local.text));
+    const targetPath = needed ? await resolver.resolve(filePath, moduleName) : null;
+    // Bindings are independent (own visited set, shared read cache): resolve them concurrently, in order.
+    return Promise.all(names.map(async ({ local, imported, isType }): Promise<[string, string | null]> => {
+      if (!targetPath || isType || !used.has(local.text)) return [local.text, null];
+      const declared = await findDeclaration(targetPath, imported, resolver, reads);
+      return [local.text, importStub(declared, targetPath, imported)];
     }));
-    return imports.filter(entry => entry !== null);
   }));
   return new Map(bindings.flat());
 }
@@ -209,37 +167,54 @@ async function resolveNamespaceCall(
   namespaces: Map<string, string>,
   shadows: Shadows,
   resolver: PathResolver,
-  reads: Map<string, Promise<string | null>>,
+  reads: DeclarationReads,
 ): Promise<string | null | undefined> {
   const object = namespaceObject(call);
   const modulePath = object && !findShadow(shadows, object) ? namespaces.get(object.text) : undefined;
   if (!modulePath) return undefined;
-  const declared = await findDeclaration(modulePath, call.text, resolver, new Set(), reads);
+  const declared = await findDeclaration(modulePath, call.text, resolver, reads);
   return importStub(declared, modulePath, call.text);
 }
 
-/** Resolve named and namespace imports before the AST is freed; unknown bindings never fall back to global names. */
+/** `@@import:` stub for the default export of the module a `lazy(() => import('./literal'))` loads, null when it does not resolve. */
+async function resolveLazyImport(specifier: TreeNode, filePath: string, resolver: PathResolver, reads: DeclarationReads): Promise<string | null> {
+  const modulePath = await resolver.resolve(filePath, specifier.text).catch(() => null);
+  return modulePath ? importStub(await findDeclaration(modulePath, "default", resolver, reads), modulePath, "default") : null;
+}
+
+/**
+ * Resolve named, default and namespace imports, and `lazy()` module specifiers (`string_fragment` nodes), before
+ * the AST is freed; unknown bindings never fall back to global names. A reference (`references`: `<Card />`,
+ * `register(save)`) that no import binds resolves through its scope: the innermost declaration of its name, so a
+ * parameter or a local variable links nowhere, and a name declared nowhere stays unresolved.
+ */
 export async function resolveNamedImportCalls(
   root: TreeNode,
   calls: TreeNode[],
   filePath: string,
   resolver: PathResolver,
+  { references = new Set(), declared = new Set() }: { references?: ReadonlySet<number>; declared?: ReadonlySet<string> } = {},
 ): Promise<Map<number, string | null>> {
+  const reads: DeclarationReads = new Map();
+  const used = new Set(calls.filter(call => call.type === "identifier").map(call => call.text));
   const [imports, namespaces] = await Promise.all([
-    collectNamedImports(root, filePath, resolver),
+    collectNamedImports(root, filePath, resolver, reads, used),
     collectNamespaceImports(root, filePath, resolver),
   ]);
   const targets = new Map<number, string | null>();
-  if (imports.size === 0 && namespaces.size === 0) return targets;
-  const shadows = collectShadows(root, { has: (name) => imports.has(name) || namespaces.has(name) });
-  const reads = new Map<string, Promise<string | null>>();
-  // Calls are independent (own visited set, shared promise cache); a file can hold many, so bound the reads in flight.
+  const isReference = (call: TreeNode) => call.type === "identifier" && references.has(call.id);
+  // Only a passed name this file declares needs its scope: an import is bound, any other name links nowhere.
+  const referenceNames = new Set(calls.filter(call => isReference(call) && declared.has(call.text)).map(call => call.text));
+  if (imports.size === 0 && namespaces.size === 0 && referenceNames.size === 0 && !calls.some(call => call.type === "string_fragment")) return targets;
+  const shadows = collectShadows(root, { has: (name) => imports.has(name) || namespaces.has(name) || referenceNames.has(name) });
+  // Calls are independent (own visited set, shared read cache); a file can hold many, so bound the reads in flight.
   const stubs = await mapWithConcurrency(calls, NAMESPACE_CALL_CONCURRENCY, async (call): Promise<string | null | undefined> => {
-    if (call.type === "identifier" && imports.has(call.text)) {
+    if (call.type === "string_fragment") return resolveLazyImport(call, filePath, resolver, reads);
+    if (isReference(call) && !imports.has(call.text) && !referenceNames.has(call.text)) return null;
+    if (call.type === "identifier" && (imports.has(call.text) || references.has(call.id))) {
       const shadow = findShadow(shadows, call);
-      return shadow
-        ? `${filePath}:${call.text}:${shadow.binding.startPosition.row}`
-        : imports.get(call.text)!;
+      if (shadow) return `${filePath}:${call.text}:${shadow.binding.startPosition.row}`;
+      return imports.has(call.text) ? imports.get(call.text)! : null;
     }
     return resolveNamespaceCall(call, namespaces, shadows, resolver, reads);
   });

@@ -122,8 +122,8 @@ interface CallGraphJob {
  *
  * ponytail: resolveExternalEdges() permanently deletes unresolved `@@external:`
  * stubs, so an edge whose TARGET gained a symbol is not restored by re-extracting
- * the target alone. Importers of changed files are re-extracted to cover the
- * import-based cases; non-import resolution (dynamic dispatch, Go/Java
+ * the target alone. Importers of changed files, direct or through re-export
+ * barrels, are re-extracted to cover the import-based cases; non-import resolution (dynamic dispatch, Go/Java
  * package-level) stays uncovered until the next full rebuild.
  */
 async function selectStaleJobs(
@@ -179,7 +179,8 @@ async function addReferencingJobs(
   const spider = workerState.spider;
   if (!spider) return;
 
-  const referencingPerJob = await mapWithConcurrency(jobs, 8, (job) => spider.findReferencingFiles(job.filePath));
+  // Through barrels too: an importer of `./ui` links to `ui/Card.tsx`'s nodes, whose ids move with the file (#575).
+  const referencingPerJob = await mapWithConcurrency(jobs, 8, (job) => spider.findReferencingFilesThroughBarrels(job.filePath));
   for (const referencingFiles of referencingPerJob) {
     for (const referencing of referencingFiles) {
       addIndexableJob(selected, normalizePath(referencing.path), onDisk);
@@ -429,7 +430,7 @@ export async function executeQueryCallGraph(
   const depth = params.depth ?? 2;
   // USES edges are type-only references, not calls: they come back only on request.
   const relationFilter: RelationType[] | null =
-    params.relationTypes ?? (params.includeTypeOnly ? null : ["CALLS", "INHERITS", "IMPLEMENTS"]);
+    params.relationTypes ?? (params.includeTypeOnly ? null : ["CALLS", "INHERITS", "IMPLEMENTS", "REFERENCES"]);
 
   const lookup = lookupCallGraphSymbol(db, {
     ...params,

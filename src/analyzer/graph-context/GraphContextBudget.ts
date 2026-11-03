@@ -14,6 +14,11 @@ const RUNTIME_IMPACT_RELATIONS = new Set<GraphContextRelation>([
   'USES',
   'IMPACTED_BY',
 ]);
+/** Code REFERENCES (`<Card />`, `onClick={save}`) are runtime impact; a document's REFERENCES link is not. */
+function isRuntimeImpact(edge: GraphContextEdge): boolean {
+  return RUNTIME_IMPACT_RELATIONS.has(edge.relation) || (edge.relation === 'REFERENCES' && edge.source.startsWith('symbol:'));
+}
+
 const MIN_TOKEN_BUDGET = 500;
 const MAX_TOKEN_BUDGET = 16_000;
 // ponytail: fixed skip streak; each probe rebuilds the page, so a full page stops
@@ -226,7 +231,7 @@ function rankNodes(response: GraphContextResponse): GraphContextNode[] {
   }
 
   for (const graphEdge of response.edges) {
-    if (!RUNTIME_IMPACT_RELATIONS.has(graphEdge.relation)) continue;
+    if (!isRuntimeImpact(graphEdge)) continue;
     addId(graphEdge.source);
     addId(graphEdge.target);
   }
