@@ -683,6 +683,50 @@ describe('SignatureAnalyzer', () => {
     });
   });
 
+  describe('destructured parameters (#585)', () => {
+    const compare = (file: string, oldParams: string, newParams: string) => analyzer.analyzeBreakingChanges(
+      file,
+      `export function Legend(${oldParams}) {}\n`,
+      `export function Legend(${newParams}) {}\n`,
+    ).find(result => result.symbolName === 'Legend');
+    const types = (file: string, oldParams: string, newParams: string) =>
+      (compare(file, oldParams, newParams)?.breakingChanges ?? []).map(change => change.type);
+
+    it.each([
+      ['TS object', '/legend.tsx', '{ items, onToggle }: Readonly<LegendProps>', '{ items, onToggle, compact = false }: Readonly<LegendProps>'],
+      ['TS object without default', '/legend.ts', '{ items }: Props, flag?: boolean', '{ items, compact }: Props, flag?: boolean'],
+      ['JS object', '/legend.js', '{ items, onToggle }', '{ items, onToggle, compact }'],
+      ['TS array', '/legend.ts', '[first]: string[]', '[first, second = "b"]: string[]'],
+      ['JS array', '/legend.js', '[first]', '[first, second]'],
+    ])('treats a field added to a %s pattern as compatible', (_case, file, oldParams, newParams) => {
+      const result = compare(file, oldParams, newParams);
+
+      expect(result?.breakingChanges ?? []).toEqual([]);
+      expect(result?.nonBreakingChanges.some(change => change.includes('gained field'))).toBe(true);
+      expect(result?.nonBreakingChanges.some(change => change.startsWith('Parameter order changed'))).toBe(false);
+    });
+
+    it.each([
+      ['TS object', '/legend.ts', '{ items, onToggle }: Props', '{ items, onSelect }: Props'],
+      ['JS object', '/legend.js', '{ items, onToggle }', '{ items, onSelect }'],
+      ['JS object key kept by its local alias only', '/legend.js', '{ items: list }', '{ entries: list }'],
+      ['TS array', '/legend.ts', '[first, second]: string[]', '[first]: string[]'],
+      ['JS array', '/legend.js', '[first, second]', '[first]'],
+    ])('reports a renamed or removed field of a %s pattern', (_case, file, oldParams, newParams) => {
+      expect(types(file, oldParams, newParams)).toEqual(['parameter-removed']);
+    });
+
+    it('keeps local renames and array element renames compatible', () => {
+      expect(types('/legend.js', '{ items: list }', '{ items: entries }')).toEqual([]);
+      expect(types('/legend.js', '[first, second]', '[a, b]')).toEqual([]);
+    });
+
+    it('reports a changed type annotation and a removed pattern parameter', () => {
+      expect(types('/legend.ts', '{ items }: Props', '{ items }: OtherProps')).toEqual(['parameter-type-changed']);
+      expect(types('/legend.ts', 'id: string, { items }: Props', 'id: string')).toEqual(['parameter-removed']);
+    });
+  });
+
   describe('analyzeBreakingChanges with symbolName (#260)', () => {
     const oldContent = 'export function createUser(name: string): string { return name; }\n';
     const newContent = 'export function createUser(name: string, role: string): string { return name + role; }\n';
