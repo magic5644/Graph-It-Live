@@ -124,7 +124,7 @@ export interface ReviewGateResult {
 }
 
 export interface SymbolDependentsProvider {
-  getSymbolDependents(filePath: string, symbolName: string): Promise<ReviewDependent[]>;
+  getSymbolDependents(filePath: string, symbolName: string): Promise<Array<{ sourceSymbolId: string }>>;
   /**
    * File-level reverse index: which files reference `filePath`.
    *
