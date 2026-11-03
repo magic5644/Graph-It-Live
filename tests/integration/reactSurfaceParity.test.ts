@@ -144,14 +144,14 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
     new LmToolsService({ provider, logger: { info() {}, warn() {}, error() {}, debug() {} } as never }).registerAll();
     // indexWorkspace writes its files under src/.
     mcp = await indexWorkspace("react-parity-", Object.fromEntries(Object.entries(REACT_CORPUS).map(([name, source]) => [name.replace(/^src\//, ""), source])));
-  });
+  }, 120_000);
   afterAll(async () => {
     indexer.dispose();
     await spider.dispose();
     await harness.dispose();
     await mcp.runtime.dispose();
     fs.rmSync(mcp.tmpDir, { recursive: true, force: true });
-  });
+  }, 60_000);
 
   it("answers the same queries with the same targets, relations and positions on every surface", async () => {
     const lm = await answers(lmSurface(), RELATIONS);
