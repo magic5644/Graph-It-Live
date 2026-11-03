@@ -126,6 +126,16 @@ export function ReactIcon(): React.JSX.Element {
     style={{ background: REACT_IDENTITY.color, borderRadius: 2, flexShrink: 0 }} />;
 }
 
+/** Framework key shown beside a graph that holds at least one React node. */
+export function ReactBadge({ style }: Readonly<{ style?: React.CSSProperties }>): React.JSX.Element {
+  return (
+    <div data-testid="react-badge" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+      background: 'var(--vscode-editor-background)', color: 'var(--vscode-editor-foreground)', ...style }}>
+      <ReactIcon /><span>{REACT_IDENTITY.label}</span>
+    </div>
+  );
+}
+
 export const LanguageIcon: React.FC<LanguageIconProps> = ({ filePath, label, framework }) => {
   const config = framework === 'react'
     ? { id: REACT_IDENTITY.label, color: REACT_IDENTITY.color, svg: REACT_IDENTITY.svg }

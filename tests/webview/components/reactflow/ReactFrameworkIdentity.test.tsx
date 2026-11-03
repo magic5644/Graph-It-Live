@@ -1,12 +1,11 @@
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { REACT_IDENTITY } from '@/shared/constants';
 import { FileNode, type FileNodeData } from '@/webview/components/reactflow/FileNode';
 import { SymbolNode, type SymbolNodeData } from '@/webview/components/reactflow/SymbolNode';
-import { LanguageIcon } from '@/webview/components/reactflow/LanguageIcon';
-import { GraphLegend } from '@/webview/components/cytoscape/GraphLegend';
+import { LanguageIcon, ReactBadge } from '@/webview/components/reactflow/LanguageIcon';
 import { buildCallGraphStylesheet } from '@/webview/components/cytoscape/CytoscapeTheme';
 import { buildReactFlowGraph } from '@/webview/components/reactflow/buildGraph';
 import { AtomicSymbolGraph } from '@/webview/components/AtomicSymbolGraph';
@@ -119,28 +118,12 @@ describe('proven React identity', () => {
     expect(screen.getByText('Container')).toBeTruthy();
   });
 
-  it('shows a framework legend alongside the existing symbol and relationship keys', () => {
-    render(<GraphLegend nodeTypes={['function']} folders={[]} hiddenFilters={new Set()} onToggle={noop} hasReact />);
-    expect(screen.getByText('React')).toBeTruthy();
-    expect(screen.getByLabelText('Toggle Function nodes')).toBeTruthy();
-    expect(screen.getByLabelText('Toggle Cycle edges')).toBeTruthy();
-  });
-
-  it.each([
-    ['edgeType', 'outgoing', 'Outgoing call'],
-    ['nodeType', 'function', 'Function'],
-    ['folder', 'src', 'src'],
-  ] as const)('keeps the %s legend toggle working beside React', (filterType, value, label) => {
-    const onToggle = vi.fn();
-    const postMessage = vi.fn();
-    render(<GraphLegend nodeTypes={['function']} folders={['src']} hasReact
-      hiddenFilters={new Set([`${filterType}:${value}`])} onToggle={onToggle} postMessage={postMessage} />);
-    const suffix = { edgeType: 'edges', nodeType: 'nodes', folder: 'folder' }[filterType];
-    const checkbox = screen.getByLabelText(`Toggle ${label} ${suffix}`).querySelector('input')!;
-    fireEvent.click(checkbox);
-    expect(onToggle).toHaveBeenCalledWith(filterType, value, true);
-    expect(postMessage).toHaveBeenCalledWith({ command: 'callGraphFilterChanged', filterType, value, visible: true });
-    expect(screen.getByText('React')).toBeTruthy();
+  it.each([undefined, { position: 'absolute' as const, top: '12px' }])('shows the shared React badge with style %o', style => {
+    render(<ReactBadge style={style} />);
+    const badge = screen.getByTestId('react-badge');
+    expect(badge.textContent).toBe('React');
+    expect(screen.getByAltText('React')).toBeTruthy();
+    expect(badge.style.position).toBe(style?.position ?? '');
   });
 
   it.each([true, false])('uses the shared icon and readable foreground in dark=%s call graphs', dark => {

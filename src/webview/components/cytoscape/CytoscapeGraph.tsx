@@ -29,7 +29,7 @@ import type {
 } from "../../../shared/callgraph-types";
 import { buildCallGraphStylesheet } from "./CytoscapeTheme";
 import { GraphLegend } from "./GraphLegend";
-import { frameworkName } from "../reactflow/LanguageIcon";
+import { frameworkName, ReactBadge } from "../reactflow/LanguageIcon";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -105,6 +105,11 @@ function computeCallOrder(edges: SerializedCallEdge[]): Map<string, number> {
 // ---------------------------------------------------------------------------
 // Helper: build Cytoscape elements from graph data
 // ---------------------------------------------------------------------------
+
+const REACT_BADGE_STYLE: React.CSSProperties = {
+  position: "absolute", top: "12px", right: "12px", zIndex: 20, borderRadius: "6px",
+  border: "1px solid var(--vscode-panel-border, rgba(128,128,128,0.3))",
+};
 
 function callNodeName(node: SerializedCallNode): string {
   return frameworkName(node.name, node.framework) ?? node.name;
@@ -727,10 +732,13 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
         </div>
       )}
 
+      {!isLoading && graphNodes.some(node => node.framework === 'react') && (
+        <ReactBadge style={REACT_BADGE_STYLE} />
+      )}
+
       {/* T027: Filter legend */}
       {!isLoading && !isEmpty && (
         <GraphLegend
-          hasReact={graphNodes.some(node => node.framework === 'react')}
           nodeTypes={graphNodeTypes}
           folders={graphFolders}
           hiddenFilters={hiddenFilters}

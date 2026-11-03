@@ -118,7 +118,7 @@ async function run(): Promise<void> {
   cy.forceRender();
   const canvas = document.querySelector<HTMLCanvasElement>('#calls canvas');
   check(canvas && canvas.width > 0 && canvas.height > 0, 'Call graph has no rendered canvas');
-  await until(() => !!document.querySelector('#calls [data-testid="graph-legend"]')?.textContent?.includes('React'), 'Call graph legend omits React');
+  await until(() => !!document.querySelector('#calls [data-testid="react-badge"]')?.textContent?.includes('React'), 'Call graph omits the React badge');
   check(contrast(rgb(REACT_IDENTITY.color), rgb(REACT_IDENTITY.foreground)) >= 4.5, 'React badge text/icon contrast is insufficient');
   const background = getComputedStyle(document.body).backgroundColor.match(/\d+/g)?.slice(0, 3).map(Number);
   check(background && contrast(rgb(REACT_IDENTITY.color), background) >= 3, 'React border contrast is insufficient in the active VS Code theme');
