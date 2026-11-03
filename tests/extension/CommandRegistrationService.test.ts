@@ -55,6 +55,7 @@ function createProviderMock(): GraphProvider {
   return {
     getViewMode: vi.fn().mockReturnValue('file'), // E2E test helper
     getReverseDependenciesVisible: vi.fn().mockReturnValue(false),
+    isGraphViewResolved: vi.fn().mockReturnValue(true),
     showReviewCallGraph: vi.fn(),
     getCallGraphRenderCount: vi.fn().mockReturnValue(1),
     getCallGraphNodeCount: vi.fn().mockReturnValue(2),
@@ -170,6 +171,7 @@ describe('CommandRegistrationService', () => {
     expect(provider.setArchitectureControls).toHaveBeenCalledWith({ find: 'ui', minImports: 2 });
     expect(await getContext('graph-it-live.unknown')).toBeUndefined();
     expect(await getContext('graph-it-live.reverseDependenciesVisible')).toBe(false);
+    expect(await getContext('graph-it-live.graphViewResolved')).toBe(true);
     expect([
       await getContext('graph-it-live.callGraphRenderCount'),
       await getContext('graph-it-live.callGraphNodeCount'),

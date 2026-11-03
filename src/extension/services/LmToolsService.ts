@@ -179,6 +179,16 @@ interface LmCallerInfo {
   callerRelativePath: string;
   line: number | null;
   isTypeOnly: boolean;
+  /** How the caller reaches the symbol: a call, a runtime reference (`<Card />`, `onClick={save}`) or a type use */
+  relation: 'CALLS' | 'REFERENCES' | 'USES';
+}
+
+/** Which edge of a caller wins: a call over a reference over a type-only use. */
+const CALLER_RELATION_RANK: Record<LmCallerInfo['relation'], number> = { CALLS: 0, REFERENCES: 1, USES: 2 };
+
+function dependentRelation(dep: { isTypeOnly?: boolean; relation?: 'REFERENCES' }): LmCallerInfo['relation'] {
+  if (dep.isTypeOnly) return 'USES';
+  return dep.relation ?? 'CALLS';
 }
 
 // ─── Service ─────────────────────────────────────────────────────────────────
@@ -561,6 +571,7 @@ export class LmToolsService {
             const callers = fromCallGraph
               ?? this.collectCallersFromDependents(await spider.getSymbolDependents(filePath, symbolName), includeTypeOnly, rootDir);
             const typeOnlyCallerCount = callers.filter((c) => c.isTypeOnly).length;
+            const referenceCallerCount = callers.filter((c) => c.relation === 'REFERENCES').length;
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(
                 JSON.stringify({
@@ -570,6 +581,7 @@ export class LmToolsService {
                   callerCount: callers.length,
                   runtimeCallerCount: callers.length - typeOnlyCallerCount,
                   typeOnlyCallerCount,
+                  referenceCallerCount,
                   callers,
                   callerFiles: [...new Set(callers.map((c) => c.callerFilePath))],
                 }),
@@ -584,7 +596,7 @@ export class LmToolsService {
   }
 
   /**
-   * Call sites from the call graph (CALLS edges; USES only when requested).
+   * Call sites from the call graph (CALLS and REFERENCES edges; USES only when requested).
    * Returns null when the call graph index is not built — it only exists once the Call Graph panel was opened.
    */
   private async collectCallersFromCallGraph(
@@ -601,27 +613,25 @@ export class LmToolsService {
     const symbolId = symbolRows[0]?.values[0]?.[0] as string | undefined;
     if (!symbolId) return [];
 
-    const edges = this.callGraphBfs(db, symbolId, 'callers', 1, includeTypeOnly ? ['CALLS', 'USES'] : ['CALLS']) as Array<{
-      relation: string; sourceLine: number; sourceName: string; sourceFile: string;
+    const relations: LmCallerInfo['relation'][] = includeTypeOnly ? ['CALLS', 'REFERENCES', 'USES'] : ['CALLS', 'REFERENCES'];
+    const edges = this.callGraphBfs(db, symbolId, 'callers', 1, relations) as Array<{
+      relation: LmCallerInfo['relation']; sourceLine: number; sourceName: string; sourceFile: string;
     }>;
 
-    // One entry per caller symbol: its first call site, runtime if any edge is a CALLS.
+    // One entry per caller symbol: its first edge of the strongest relation (call, then reference, then type use).
     const byCaller = new Map<string, LmCallerInfo>();
     for (const edge of edges) {
       const callerSymbolId = `${edge.sourceFile}:${edge.sourceName}`;
-      const isTypeOnly = edge.relation === 'USES';
       const existing = byCaller.get(callerSymbolId);
-      if (!existing) {
-        byCaller.set(callerSymbolId, {
-          callerSymbolId,
-          callerFilePath: edge.sourceFile,
-          callerRelativePath: rootDir ? toRelativePath(edge.sourceFile, rootDir) : edge.sourceFile,
-          line: edge.sourceLine,
-          isTypeOnly,
-        });
-      } else if (existing.isTypeOnly && !isTypeOnly) {
-        byCaller.set(callerSymbolId, { ...existing, line: edge.sourceLine, isTypeOnly: false });
-      }
+      if (existing && CALLER_RELATION_RANK[existing.relation] <= CALLER_RELATION_RANK[edge.relation]) continue;
+      byCaller.set(callerSymbolId, {
+        callerSymbolId,
+        callerFilePath: edge.sourceFile,
+        callerRelativePath: rootDir ? toRelativePath(edge.sourceFile, rootDir) : edge.sourceFile,
+        line: edge.sourceLine,
+        isTypeOnly: edge.relation === 'USES',
+        relation: edge.relation,
+      });
     }
     return [...byCaller.values()];
   }
@@ -629,10 +639,11 @@ export class LmToolsService {
   /**
    * Fallback when the call graph is not indexed: symbol-level dependents,
    * without file-level imports and, unless requested, without type-only references.
-   * ponytail: references (e.g. a function passed as a callback) count as callers here; exact parity needs the shared index (#173).
+   * JSX and handler references are labelled REFERENCES; ponytail: other references (e.g. a function passed as a
+   * callback argument) count as calls here; exact parity needs the shared index (#173).
    */
   private collectCallersFromDependents(
-    dependents: Array<{ sourceSymbolId: string; isTypeOnly?: boolean }>,
+    dependents: Array<{ sourceSymbolId: string; isTypeOnly?: boolean; relation?: 'REFERENCES' }>,
     includeTypeOnly: boolean,
     rootDir: string | undefined,
   ): LmCallerInfo[] {
@@ -649,6 +660,7 @@ export class LmToolsService {
         callerRelativePath: rootDir ? toRelativePath(callerFilePath, rootDir) : callerFilePath,
         line: null,
         isTypeOnly,
+        relation: dependentRelation(dep),
       });
     }
     // Module-level code (`<file>:(file)`) is a real caller (MCP impact keeps it) but adds nothing once a symbol of that file already calls.
@@ -663,10 +675,10 @@ export class LmToolsService {
   // ─── Tool: get_impact_analysis ────────────────────────────────────────────
 
   private buildImpactItem(
-    dep: { sourceSymbolId: string; targetFilePath: string; isTypeOnly?: boolean },
+    dep: { sourceSymbolId: string; targetFilePath: string; isTypeOnly?: boolean; relation?: 'REFERENCES' },
     depth: number,
     rootDir: string | undefined,
-  ): { symbolId: string; filePath: string; relativePath: string; usageType: 'runtime' | 'type-only'; depth: number } {
+  ): { symbolId: string; filePath: string; relativePath: string; usageType: 'runtime' | 'type-only'; relation?: 'REFERENCES'; depth: number } {
     // The impacted item is the caller: dep.targetFilePath is the file being changed.
     const callerFilePath = symbolFilePath(dep.sourceSymbolId);
     return {
@@ -674,6 +686,7 @@ export class LmToolsService {
       filePath: callerFilePath,
       relativePath: rootDir ? toRelativePath(callerFilePath, rootDir) : callerFilePath,
       usageType: dep.isTypeOnly ? 'type-only' : 'runtime',
+      ...(dep.relation && { relation: dep.relation }),
       depth,
     };
   }
@@ -1259,6 +1272,8 @@ export class LmToolsService {
                     resolvedRelativePath: entry.resolvedFilePath && rootDir
                       ? toRelativePath(entry.resolvedFilePath, rootDir)
                       : null,
+                    ...(entry.line !== undefined && { line: entry.line }),
+                    ...(entry.relation && { relation: entry.relation }),
                   })),
                   visitedSymbols: result.visitedSymbols,
                 }),

@@ -725,12 +725,12 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper' }) as Record<string, unknown>;
 
-      expect(exec.mock.calls[1][1]).toEqual(['sym1', 'CALLS']);
+      expect(exec.mock.calls[1][1]).toEqual(['sym1', 'CALLS', 'REFERENCES']);
       expect(spider.getSymbolDependents).not.toHaveBeenCalled();
-      expect(result).toMatchObject({ source: 'call-graph', callerCount: 2, runtimeCallerCount: 2, typeOnlyCallerCount: 0 });
+      expect(result).toMatchObject({ source: 'call-graph', callerCount: 2, runtimeCallerCount: 2, typeOnlyCallerCount: 0, referenceCallerCount: 0 });
       expect(result.callers).toEqual([
-        { callerSymbolId: 'src/b.ts:runB', callerFilePath: 'src/b.ts', callerRelativePath: 'src/b.ts', line: 12, isTypeOnly: false },
-        { callerSymbolId: 'src/c.ts:runC', callerFilePath: 'src/c.ts', callerRelativePath: 'src/c.ts', line: 4, isTypeOnly: false },
+        { callerSymbolId: 'src/b.ts:runB', callerFilePath: 'src/b.ts', callerRelativePath: 'src/b.ts', line: 12, isTypeOnly: false, relation: 'CALLS' },
+        { callerSymbolId: 'src/c.ts:runC', callerFilePath: 'src/c.ts', callerRelativePath: 'src/c.ts', line: 4, isTypeOnly: false, relation: 'CALLS' },
       ]);
       expect(result.callerFiles).toEqual(['src/b.ts', 'src/c.ts']);
     });
@@ -745,12 +745,54 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper', includeTypeOnly: true }) as Record<string, unknown>;
 
-      expect(exec.mock.calls[1][1]).toEqual(['sym1', 'CALLS', 'USES']);
+      expect(exec.mock.calls[1][1]).toEqual(['sym1', 'CALLS', 'REFERENCES', 'USES']);
       expect((result.callers as Array<Record<string, unknown>>).map((c) => [c.callerSymbolId, c.line, c.isTypeOnly])).toEqual([
         ['src/b.ts:runB', 9, false],
         ['src/types.ts:Shape', 3, true],
       ]);
       expect(result).toMatchObject({ runtimeCallerCount: 1, typeOnlyCallerCount: 1 });
+    });
+
+    it.each([
+      {
+        title: 'labels a JSX or handler reference as REFERENCES, not as a call',
+        rows: [['REFERENCES', 7]],
+        expected: [['src/Page.tsx:Page', 7, 'REFERENCES']],
+        counts: { runtimeCallerCount: 1, referenceCallerCount: 1, typeOnlyCallerCount: 0 },
+      },
+      {
+        title: 'keeps the call when a caller both renders and calls the symbol',
+        rows: [['REFERENCES', 3], ['CALLS', 8]],
+        expected: [['src/Page.tsx:Page', 8, 'CALLS']],
+        counts: { runtimeCallerCount: 1, referenceCallerCount: 0, typeOnlyCallerCount: 0 },
+      },
+      {
+        title: 'keeps the reference over a type-only use of the same caller',
+        rows: [['USES', 1], ['REFERENCES', 5]],
+        expected: [['src/Page.tsx:Page', 5, 'REFERENCES']],
+        counts: { runtimeCallerCount: 1, referenceCallerCount: 1, typeOnlyCallerCount: 0 },
+      },
+    ] as const)('$title', async ({ rows, expected, counts }) => {
+      const { service } = callGraphService(rows.map(([relation, line]) => edgeRow(relation, line, 'Page', '/workspace/src/Page.tsx')));
+      new LmToolsService({ provider: createProvider({ callGraphService: service }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper', includeTypeOnly: true }) as Record<string, unknown>;
+
+      expect((result.callers as Array<Record<string, unknown>>).map((c) => [c.callerSymbolId, c.line, c.relation])).toEqual(expected);
+      expect(result).toMatchObject(counts);
+    });
+
+    it('labels a JSX reference from the symbol dependents fallback as REFERENCES', async () => {
+      const spider = { getSymbolDependents: vi.fn().mockResolvedValue([
+        { ...dependent('/workspace/src/Page.tsx:Page'), relation: 'REFERENCES' },
+        dependent('/workspace/src/b.ts:runB'),
+        dependent('/workspace/src/types.ts:Shape', true),
+      ]) };
+      new LmToolsService({ provider: createProvider({ spider, callGraphService: null }), logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'helper', includeTypeOnly: true }) as Record<string, unknown>;
+
+      expect((result.callers as Array<Record<string, unknown>>).map((c) => c.relation)).toEqual(['REFERENCES', 'CALLS', 'USES']);
     });
 
     it('returns no callers when the symbol is not in the call graph', async () => {
