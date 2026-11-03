@@ -725,6 +725,37 @@ describe('SignatureAnalyzer', () => {
       expect(types('/legend.ts', '{ items }: Props', '{ items }: OtherProps')).toEqual(['parameter-type-changed']);
       expect(types('/legend.ts', 'id: string, { items }: Props', 'id: string')).toEqual(['parameter-removed']);
     });
+
+    it.each([
+      ['a nested field added', '{ a: { b } }', '{ a: { b, d } }'],
+      ['a renamed rest element', '{ a, ...rest }', '{ a, ...others }'],
+      ['a renamed array rest element', '[a, ...rest]', '[a, ...others]'],
+      ['an array hole filled', '[, b]', '[a, b]'],
+      ['a quoted key', "{ 'a': c, 'x-y': d }", "{ a: c, 'x-y': d }"],
+      ['a computed literal key', "{ ['x']: y, 1: z }", "{ 'x': y, '1': z }"],
+      ['a field added to an empty pattern', '{}', '{ a }'],
+      ['a plain parameter inserted before a pattern', 'id, { a }', 'id, flag = false, { a }'],
+    ])('treats %s as compatible', (_case, oldParams, newParams) => {
+      expect(types('/legend.js', oldParams, newParams)).toEqual([]);
+    });
+
+    it.each([
+      ['a renamed nested field', '{ a: { b } }', '{ a: { c } }', "Field 'a.b'"],
+      ['a removed field after a hole', '[, b]', '[, ]', "Field '1'"],
+      ['a removed computed key', '{ [key]: y }', '{}', "Field 'key'"],
+    ])('reports %s', (_case, oldParams, newParams, description) => {
+      expect(compare('/legend.js', oldParams, newParams)?.breakingChanges).toEqual([
+        expect.objectContaining({ type: 'parameter-removed', description: expect.stringContaining(description) }),
+      ]);
+    });
+
+    it('reports a removed leading pattern as breaking, shifting the next pattern onto its rank', () => {
+      expect(types('/legend.ts', '{ a }: A, { b }: B', '{ b }: B')).toEqual(['parameter-removed', 'parameter-removed', 'parameter-type-changed']);
+    });
+
+    it('reads a pattern turned into a plain parameter as removed + added (shortcut)', () => {
+      expect(types('/legend.ts', '{ a }: Props', 'props: Props')).toEqual(['parameter-removed', 'parameter-added-required']);
+    });
   });
 
   describe('analyzeBreakingChanges with symbolName (#260)', () => {

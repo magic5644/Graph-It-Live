@@ -12,7 +12,7 @@
  * - Optional → required parameter changes
  */
 
-import { Node, Project, SourceFile, SyntaxKind, type InterfaceDeclaration, type ParameterDeclaration, type TypeLiteralNode } from 'ts-morph';
+import { Node, Project, SourceFile, SyntaxKind, type BindingElement, type InterfaceDeclaration, type ParameterDeclaration, type TypeLiteralNode } from 'ts-morph';
 import * as path from 'node:path';
 import { mapWithConcurrency } from '../shared/concurrency';
 import { normalizePath } from '../shared/path';
@@ -41,8 +41,8 @@ export interface ParameterInfo {
   hasDefault: boolean;
   isRest: boolean;
   position: number;
-  /** Destructured parameter only: object property keys, or array element indexes. */
-  fields?: string[];
+  /** Destructured parameter only: its rank among destructured parameters, and the keys callers pass into it. */
+  pattern?: { index: number; fields: string[] };
 }
 
 /**
@@ -1369,26 +1369,19 @@ export class SignatureAnalyzer {
   }
 
   private extractParameters(params: ParameterDeclaration[]): ParameterInfo[] {
-    return params.map((param, index) => ({
-      name: param.getName(),
-      type: this.safeGetTypeNodeText(param.getTypeNode(), 'unknown'),
-      isOptional: param.isOptional(),
-      hasDefault: param.hasInitializer(),
-      isRest: param.isRestParameter(),
-      position: index,
-      ...this.bindingFields(param.getNameNode()),
-    }));
-  }
-
-  /** Callers see a binding pattern's keys (object) or slots (array), not the local names it binds. */
-  private bindingFields(nameNode: Node): Pick<ParameterInfo, 'fields'> {
-    if (Node.isObjectBindingPattern(nameNode)) {
-      return { fields: nameNode.getElements().map(e => e.getPropertyNameNode()?.getText() ?? e.getName()) };
-    }
-    if (Node.isArrayBindingPattern(nameNode)) {
-      return { fields: nameNode.getElements().flatMap((e, i) => (Node.isBindingElement(e) ? [String(i)] : [])) };
-    }
-    return {};
+    let patterns = 0;
+    return params.map((param, index) => {
+      const fields = bindingFields(param.getNameNode());
+      return {
+        name: param.getName(),
+        type: this.safeGetTypeNodeText(param.getTypeNode(), 'unknown'),
+        isOptional: param.isOptional(),
+        hasDefault: param.hasInitializer(),
+        isRest: param.isRestParameter(),
+        position: index,
+        ...(fields ? { pattern: { index: patterns++, fields } } : {}),
+      };
+    });
   }
 
   /**
@@ -1576,8 +1569,8 @@ export class SignatureAnalyzer {
     breakingChanges: BreakingChange[],
     nonBreakingChanges: string[]
   ): void {
-    const oldFields = oldParam.fields ?? [];
-    const newFields = newParam.fields ?? [];
+    const oldFields = oldParam.pattern?.fields ?? [];
+    const newFields = newParam.pattern?.fields ?? [];
     for (const field of oldFields.filter(f => !newFields.includes(f))) {
       breakingChanges.push({
         type: 'parameter-removed',
@@ -1613,9 +1606,31 @@ export class SignatureAnalyzer {
   }
 }
 
-/** Comparison key: a binding pattern's text changes with each field, so it is matched by position. */
+/**
+ * Comparison key: a binding pattern's text changes with each field, so it is matched by its rank among patterns.
+ * shortcut: a pattern turned into a plain parameter (or back) reads as removed + added, upgrade when types are compared.
+ */
 function parameterKey(param: ParameterInfo): string {
-  return param.fields ? `#${param.position}` : param.name;
+  return param.pattern ? `#${param.pattern.index}` : param.name;
+}
+
+/** Keys callers pass into a binding pattern: `a`, nested `a.b`, array slot `0`; rest elements and local names are not keys. */
+function bindingFields(node: Node, prefix = ''): string[] | undefined {
+  if (!Node.isObjectBindingPattern(node) && !Node.isArrayBindingPattern(node)) return undefined;
+  const fields: string[] = [];
+  for (const [index, element] of node.getElements().entries()) {
+    if (!Node.isBindingElement(element) || element.getDotDotDotToken()) continue;
+    const key = Node.isObjectBindingPattern(node) ? propertyKey(element) : String(index);
+    fields.push(...(bindingFields(element.getNameNode(), `${prefix}${key}.`) ?? [prefix + key]));
+  }
+  return fields;
+}
+
+/** `a`, `'a'` and `['a']` name the same property. */
+function propertyKey(element: BindingElement): string {
+  const nameNode = element.getPropertyNameNode() ?? element.getNameNode();
+  const key = Node.isComputedPropertyName(nameNode) ? nameNode.getExpression() : nameNode;
+  return Node.isStringLiteral(key) || Node.isNumericLiteral(key) ? key.getLiteralText() : key.getText();
 }
 
 /**
