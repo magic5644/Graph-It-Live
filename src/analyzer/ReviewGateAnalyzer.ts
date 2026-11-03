@@ -859,8 +859,10 @@ export class ReviewGateAnalyzer {
   }): ReviewEvidence[] {
     const evidence: ReviewEvidence[] = input.breakingChanges.map((change) => ({ kind: evidenceKindOf(change), detail: change.description }));
     if (input.impact.count > 0) evidence.push({ kind: "impact", detail: `${input.impact.count} known dependent symbol(s).` });
-    evidence.push(...referenceEvidence(input.impact.references ?? []));
-    evidence.push(...consumerEvidence(input.consumers, input.consumersMustAct, input.breakingChanges, input.exhaustiveConsumers, Boolean(input.impact.references?.length)));
+    evidence.push(
+      ...referenceEvidence(input.impact.references ?? []),
+      ...consumerEvidence(input.consumers, input.consumersMustAct, input.breakingChanges, input.exhaustiveConsumers, Boolean(input.impact.references?.length)),
+    );
     if (input.cycles) evidence.push({ kind: "cycle", detail: "Changed symbol participates in a detected symbol dependency cycle, or its file in an import cycle this diff adds." });
     if (input.unusedExport) evidence.push({ kind: "unused-export", detail: "Changed exported symbol is currently reported as unused." });
     if (input.testCandidates.length > 0) {
