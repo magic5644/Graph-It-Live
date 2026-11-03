@@ -303,11 +303,14 @@ export class ReviewGateAnalyzer {
     const loaded = await mapWithConcurrency(supported, 4, async (relativePath): Promise<ChangedSource> => {
       const absolutePath = this.resolveWorkspacePath(relativePath);
       try {
-        const [oldContent, newContent] = await Promise.all([
+        // Drain both reads on failure so Git cannot keep the workspace busy during Windows cleanup.
+        const [oldContent, newContent] = await Promise.allSettled([
           this.gitShow(baseRef, relativePath),
           this.readHeadContent(headRef, absolutePath, relativePath),
         ]);
-        return { relativePath, absolutePath, oldContent, newContent };
+        if (oldContent.status === "rejected") throw oldContent.reason;
+        if (newContent.status === "rejected") throw newContent.reason;
+        return { relativePath, absolutePath, oldContent: oldContent.value, newContent: newContent.value };
       } catch (error) {
         // An unreadable file is neither added nor deleted: the review goes on with the others, marked partial.
         return { relativePath, absolutePath, oldContent: null, newContent: null, unreadable: error instanceof Error ? error.message : String(error) };
