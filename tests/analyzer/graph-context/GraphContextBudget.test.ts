@@ -214,6 +214,43 @@ describe('applyGraphContextBudget', () => {
     ]);
   });
 
+  it('ranks a code REFERENCES edge (a JSX render) as runtime impact, not a document link', () => {
+    const seedNode = node('seed', 'symbol', 100);
+    const response: GraphContextResponse = {
+      indexRevision: 'references-revision',
+      fresh: true,
+      mode: 'refactor',
+      seeds: [seedNode.id],
+      nodes: [
+        { ...seedNode, isSeed: true },
+        node('scored', 'symbol', 50),
+        node('document:docs/ui.md', 'document', 0),
+        node('file:src/ui/Card.tsx', 'file', 0),
+        node('symbol:src/Page.tsx:Page:3', 'symbol', 0),
+        node('symbol:src/ui/Card.tsx:Card:0', 'symbol', 0),
+      ],
+      edges: [
+        edge('document:docs/ui.md', 'file:src/ui/Card.tsx', 'REFERENCES'),
+        edge('symbol:src/Page.tsx:Page:3', 'symbol:src/ui/Card.tsx:Card:0', 'REFERENCES'),
+      ],
+      paths: [],
+      ambiguous: [],
+      omitted: { nodes: 0, edges: 0 },
+      nextQueries: [],
+      tokenEstimate: 0,
+      truncated: false,
+    };
+
+    // A three-node page keeps the seed and the two ends of the render, ahead of a better-scored node.
+    const { response: page } = applyGraphContextBudgetPage(response, 16_000, 0, 3);
+
+    expect(page.nodes.map(result => result.id)).toEqual([
+      'seed',
+      'symbol:src/Page.tsx:Page:3',
+      'symbol:src/ui/Card.tsx:Card:0',
+    ]);
+  });
+
   it('rejects a budget that cannot contain mandatory graph identities', () => {
     const response = responseFixture();
     response.nodes[0] = {

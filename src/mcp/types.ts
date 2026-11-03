@@ -531,9 +531,9 @@ export const QueryCallGraphParamsSchema = z.object({
     .optional()
     .describe("Maximum BFS traversal depth (default: 2, min: 1, max: 10)"),
   relationTypes: z
-    .array(z.enum(["CALLS", "INHERITS", "IMPLEMENTS", "USES"]))
+    .array(z.enum(["CALLS", "INHERITS", "IMPLEMENTS", "USES", "REFERENCES"]))
     .optional()
-    .describe("Filter by relation types (default: CALLS, INHERITS and IMPLEMENTS; USES is added with includeTypeOnly)"),
+    .describe("Filter by relation types (default: CALLS, INHERITS, IMPLEMENTS and REFERENCES; USES is added with includeTypeOnly)"),
   includeTypeOnly: z
     .boolean()
     .optional()
@@ -1369,6 +1369,10 @@ export interface SymbolDependencyEdge {
   targetFilePath: string;
   /** Relative path of target file from workspace root */
   targetRelativePath: string;
+  /** 1-based line of the use in the source file */
+  line?: number;
+  /** "REFERENCES": a runtime reference that is not a call there (`<Card />`, `onClick={save}`) */
+  relation?: "REFERENCES";
 }
 
 /**
@@ -1425,6 +1429,10 @@ export interface CallChainEntry {
   resolvedFilePath: string | null;
   /** Relative path from workspace root (null if unresolved) */
   resolvedRelativePath: string | null;
+  /** 1-based line of the call or reference in the caller's file */
+  line?: number;
+  /** "REFERENCES": a runtime reference that is not a call there (`<Card />`, `onClick={save}`); absent for a call */
+  relation?: "REFERENCES";
 }
 
 /**
@@ -1538,6 +1546,8 @@ export interface ImpactedItem {
   relativePath: string;
   /** How the item uses the target symbol */
   usageType: "runtime" | "type-only";
+  /** "REFERENCES": the item renders or passes the target (`<Card />`, `onClick={save}`) without calling it */
+  relation?: "REFERENCES";
   /** Depth in dependency chain (1 = direct, 2+ = transitive) */
   depth: number;
 }

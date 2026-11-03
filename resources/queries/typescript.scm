@@ -6,6 +6,8 @@
 ;   @def.interface — interface declarations
 ;   @def.type      — type alias declarations
 ;   @call          — CALLS relation (function/method invocations)
+;   @ref           — REFERENCES relation (a function passed as an argument, not called there)
+;   @lazy          — REFERENCES relation to the default export `lazy(() => import('./m'))` loads
 ;   @inherit       — INHERITS relation (extends clause)
 ;   @impl          — IMPLEMENTS relation (implements clause)
 ;   @uses          — USES relation (type references)
@@ -29,6 +31,22 @@
   (variable_declarator
     name: (identifier) @def.function
     value: [(arrow_function) (function_expression)]))
+
+; React component factories assigned to a const/let/var: `const Card = memo(...)`,
+; `forwardRef(...)`, `lazy(...)`, bare or as `React.*`. The component is the variable.
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @def.function
+    value: (call_expression
+      function: [(identifier) (member_expression)] @_factory))
+  (#match? @_factory "^(React\\.)?(memo|forwardRef|lazy)$"))
+
+(variable_declaration
+  (variable_declarator
+    name: (identifier) @def.function
+    value: (call_expression
+      function: [(identifier) (member_expression)] @_factory))
+  (#match? @_factory "^(React\\.)?(memo|forwardRef|lazy)$"))
 
 ; Class declarations
 (class_declaration
@@ -68,6 +86,17 @@
   constructor: (member_expression
     property: (property_identifier) @call))
 
+; lazy(() => import('./Card')): the component is the module's default export.
+; A non-literal specifier is not captured: it stays unresolved.
+(call_expression
+  function: [(identifier) (member_expression)] @_lazy
+  arguments: (arguments
+    (arrow_function
+      body: (call_expression
+        function: (import)
+        arguments: (arguments (string (string_fragment) @lazy)))))
+  (#match? @_lazy "^(React\\.)?lazy$"))
+
 ; --------------------------------------------------------------------------
 ; INHERITS (class extends)
 ; --------------------------------------------------------------------------
@@ -102,3 +131,11 @@
 ; Generic type params: Array<MyType>
 (generic_type
   name: (type_identifier) @uses)
+
+; register(save), items.map(format), new Worker(run), register(this.save): a function or
+; value passed, not called there. A call written in the argument (register(save())) is a @call.
+(arguments (identifier) @ref)
+
+(arguments
+  (member_expression
+    property: (property_identifier) @ref))

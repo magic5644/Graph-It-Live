@@ -194,12 +194,8 @@ export async function resolvePythonImportCalls(
 /** Target of one call; undefined when the call is left to the extractor's own rules. */
 function callTarget(call: TreeNode, bindings: Map<string, Entry[]>, wildcard: boolean, filePath: string): string | null | undefined {
   const parent = call.parent;
-  if (parent?.type === "call") {
-    const found = visibleEntries(bindings, call.text, call);
-    // `from m import *` may supply any name, so only then is the global fallback kept.
-    if (found.length === 0) return wildcard ? undefined : LOCAL_ONLY;
-    return found.length === 1 ? bareTarget(found[0], call.text, filePath) : null;
-  }
+  const argument = isArgumentValue(call);
+  if (parent?.type === "call" || argument) return bareNameTarget(call, bindings, wildcard, filePath, argument);
   if (parent?.type !== "attribute" || parent.childForFieldName("attribute")?.id !== call.id) return undefined;
   const object = parent.childForFieldName("object");
   const found = object?.type === "identifier" ? visibleEntries(bindings, object.text, object) : [];
@@ -207,6 +203,24 @@ function callTarget(call: TreeNode, bindings: Map<string, Entry[]>, wildcard: bo
   const binding = found[0]?.binding;
   if (binding?.kind !== "module") return undefined;
   return binding.path ? `@@import:${JSON.stringify([binding.path, call.text])}` : null;
+}
+
+/** Target of a bare name, called (`save()`) or passed (`register(save)`), from the bindings in scope. */
+function bareNameTarget(call: TreeNode, bindings: Map<string, Entry[]>, wildcard: boolean, filePath: string, argument: boolean): string | null | undefined {
+  const found = visibleEntries(bindings, call.text, call);
+  if (found.length === 1) return bareTarget(found[0], call.text, filePath);
+  if (found.length > 1) return null;
+  // `from m import *` may supply any name, so only then is the global fallback kept.
+  if (wildcard) return undefined;
+  // A passed name bound nowhere (a builtin, an undefined name) links nowhere; a called one may be a same-file def.
+  return argument ? null : LOCAL_ONLY;
+}
+
+/** `save` in `register(save)` or `register(cb=save)`: a name passed as an argument value. */
+function isArgumentValue(node: TreeNode): boolean {
+  const parent = node.parent;
+  if (node.type !== "identifier" || !parent) return false;
+  return parent.type === "argument_list" || (parent.type === "keyword_argument" && parent.childForFieldName("value")?.id === node.id);
 }
 
 function bareTarget({ binding, node }: Entry, name: string, filePath: string): string | null {

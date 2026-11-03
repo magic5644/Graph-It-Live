@@ -99,7 +99,7 @@ describe.runIf(HAS_WASM)("call graph cache", () => {
     // Stand in for the warm Spider reverse index: f1.ts imports f0.ts.
     const importer = path.join(tmpDir, "src/f1.ts");
     workerState.spider = {
-      findReferencingFiles: (target: string) =>
+      findReferencingFilesThroughBarrels: (target: string) =>
         Promise.resolve(
           target.endsWith("f0.ts")
             ? [{ path: importer, type: "import", line: 1, module: "./f0" }]

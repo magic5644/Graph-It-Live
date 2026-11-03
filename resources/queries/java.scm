@@ -5,6 +5,7 @@
 ;   @def.interface — interface declarations
 ;   @def.type      — enum declarations
 ;   @call          — CALLS relation (method invocations)
+;   @ref           — REFERENCES relation (a function passed as an argument, not called there)
 ;   @inherit       — INHERITS relation (extends)
 ;   @impl          — IMPLEMENTS relation (implements)
 ;   @uses          — USES relation (type references)
@@ -69,3 +70,9 @@
 
 ; Generic type identifiers used in declarations, parameters, fields
 (type_identifier) @uses
+
+; register(this::save): a method reference, not a call. `Type::method` is not followed:
+; the type of the reference is not resolved.
+(method_reference
+  (this)
+  (identifier) @ref)

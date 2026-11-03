@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
 import { GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
-import { QUALIFIED_PREFIX, qualifiedCandidates, type QualifiedMember } from "@/analyzer/callgraph/qualifiedCalls";
+import { QUALIFIED_PREFIX, qualifiedCandidates, type QualifiedMember, workspaceFolder } from "@/analyzer/callgraph/qualifiedCalls";
 import type { SupportedLang } from "@/shared/callgraph-types";
 import { normalizePath } from "@/shared/path";
 
@@ -469,5 +469,17 @@ describe("qualified calls (#507)", () => {
     it("returns nothing when the container has no member of that name", () => {
       expect(qualifiedCandidates(stub("type", "T"), () => [], () => [])).toEqual([]);
     });
+  });
+});
+
+describe("workspaceFolder", () => {
+  it.each([
+    ["a file at the root", "/ws/app/a.go", "/ws/app", ""],
+    ["a nested file", "/ws/app/src/p/a.go", "/ws/app", "src/p"],
+    ["a root given with a trailing slash", "/ws/app/src/a.go", "/ws/app/", "src"],
+    ["a sibling directory sharing the root's prefix", "/ws/app2/a.go", "/ws/app", "/ws/app2"],
+    ["Windows separators and drive letter", String.raw`C:\ws\app\src\a.go`, String.raw`C:\ws\app`, "src"],
+  ])("returns the folder of %s", (_title, file, root, expected) => {
+    expect(workspaceFolder(file, root)).toBe(expected);
   });
 });

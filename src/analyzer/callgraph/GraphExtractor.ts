@@ -36,9 +36,10 @@ import type { Node as TreeNode } from "web-tree-sitter";
 import { Query } from "web-tree-sitter";
 import type { CallGraphEdge, CallGraphNode } from "./CallGraphIndexer";
 import { resolveNamedImportCalls } from "./importBindings";
+import { isComponentFactory } from "@/analyzer/utils/declarations";
 import { LOCAL_ONLY, resolvePythonImportCalls } from "./pythonImportBindings";
 import { extractGraphQL } from "./graphqlExtractor";
-import { definitionOwner, QUALIFIED_PREFIX, resolveQualifiedCalls } from "./qualifiedCalls";
+import { definitionOwner, QUALIFIED_PREFIX, resolveQualifiedCalls, workspaceFolder } from "./qualifiedCalls";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -81,11 +82,19 @@ const RELATION_CAPTURE_MAP: Record<string, RelationType> = {
   inherit: "INHERITS",
   impl: "IMPLEMENTS",
   uses: "USES",
-  jsx: "USES",
+  jsx: "REFERENCES",
+  ref: "REFERENCES",
+  lazy: "REFERENCES",
 };
 
 /** Captures whose target goes through import resolution (`@@import:` / `@@qualified:` stubs). */
-const IMPORT_RESOLVED_CAPTURES = new Set(["call", "jsx"]);
+const IMPORT_RESOLVED_CAPTURES = new Set(["call", "jsx", "ref", "lazy"]);
+
+/**
+ * Runtime references (`<Card />`, `onClick={save}`, `lazy(() => import())`) reach an import or a single
+ * same-file declaration only: a global name or a homonym is never guessed, unlike a call.
+ */
+const REFERENCE_CAPTURES = new Set(["jsx", "ref", "lazy"]);
 
 /**
  * A tree-sitter grammar: one per SupportedLang, plus `tsx` for `.tsx` and `.jsx`.
@@ -165,6 +174,112 @@ function resolveEdgeTarget(
     return target.startsWith("@@import:") || target.startsWith(QUALIFIED_PREFIX) || targetNodeIds?.includes(target) ? target : null;
   }
   return targetNodeIds?.[0] ?? `@@external:${node.text.trim()}`;
+}
+
+/** The object of a member reference, per grammar: `this.save`, `self.save`, `Self::save`, `this::save`. */
+const MEMBER_OBJECT_FIELD: Record<string, string> = {
+  member_expression: "object",
+  attribute: "object",
+  field_expression: "value",
+  member_access_expression: "expression",
+  selector_expression: "operand",
+  scoped_identifier: "path",
+};
+
+/**
+ * Per member grammar, the object that names the enclosing type: `this` (TS/JS, Java, C#), `self`/`cls` (Python),
+ * `self`/`Self` (Rust). Elsewhere `self` is an ordinary variable; Go has no such receiver keyword.
+ */
+const SELF_NAMES: Record<string, ReadonlySet<string>> = {
+  attribute: new Set(["self", "cls"]),
+  field_expression: new Set(["self"]),
+  scoped_identifier: new Set(["self", "Self"]),
+};
+
+/** Whether `object`, the object of a `memberType` reference, is the enclosing type, so its member is in this file. */
+function isSelfObject(memberType: string | undefined, object: TreeNode | null | undefined): boolean {
+  if (!object) return false;
+  if (object.type === "this" || object.type === "this_expression") return true;
+  return object.type === "identifier" && (SELF_NAMES[memberType ?? ""]?.has(object.text) ?? false);
+}
+
+/** Declarations whose members `this`/`self`/`Self` reach, per grammar. */
+const SELF_SCOPES = new Set([
+  "class_declaration", "class", "class_definition", "impl_item", "struct_declaration", "record_declaration",
+]);
+
+/** The object of `node`'s member reference (`this` in `this.save`), or undefined when `node` is no member. */
+function memberObject(node: TreeNode): TreeNode | null | undefined {
+  const member = node.parent;
+  if (member?.type === "method_reference") return member.namedChildren[0];
+  const objectField = MEMBER_OBJECT_FIELD[member?.type ?? ""];
+  return objectField === undefined ? undefined : member?.childForFieldName(objectField);
+}
+
+/**
+ * Candidates a `this.save` / `self.save` / `Self::save` reference can reach: the members of its enclosing type
+ * (a same-name function elsewhere in the file is not one of them); every candidate for any other reference.
+ */
+function ownMembers(node: TreeNode, candidates: string[] | undefined): string[] | undefined {
+  if (!candidates || candidates.length < 2 || !isSelfObject(node.parent?.type, memberObject(node))) return candidates;
+  let owner = node.parent;
+  while (owner && !SELF_SCOPES.has(owner.type)) owner = owner.parent;
+  if (!owner) return candidates;
+  const [start, end] = [owner.startPosition.row, owner.endPosition.row];
+  // Node ids end with their 0-based start line.
+  return candidates.filter((id) => {
+    const line = Number(id.slice(id.lastIndexOf(":") + 1));
+    return line >= start && line <= end;
+  });
+}
+
+/**
+ * Whether a reference capture resolved exactly: through an import or a scope, or to the only same-file
+ * declaration of its name. A member (`<Tabs.Panel />`, `onClick={props.save}`, `register(obj.save)`)
+ * reaches this file only through `this`/`self` (`register(this.save)`, Java `this::save`).
+ */
+function isExactReference(
+  node: TreeNode,
+  targetId: string,
+  targetNodeIds: string[] | undefined,
+  importTargets: Map<number, string | null>,
+): boolean {
+  if (importTargets.has(node.id)) return true;
+  if (targetId.startsWith("@@external:") || targetNodeIds?.length !== 1) return false;
+  const object = memberObject(node);
+  return object === undefined || isSelfObject(node.parent?.type, object);
+}
+
+/**
+ * `memo` of `const Card = memo(...)` (or `React.memo`): the component is what the wrapper wraps, so the wrapper
+ * is no callee of it, as in SymbolAnalyzer.
+ */
+const FACTORY_NAME = /^(?:memo|forwardRef|lazy)$/;
+
+function isFactoryCallee(node: TreeNode, name: string): boolean {
+  if (!FACTORY_NAME.test(name)) return false; // most calls: no tree walk (each node access crosses into WASM)
+  const callee = node.parent?.type === "member_expression" ? node.parent : node;
+  if (!isComponentFactory(callee.text)) return false;
+  const call = callee.parent;
+  return call?.type === "call_expression" && call.childForFieldName("function")?.id === callee.id
+    && call.parent?.type === "variable_declarator";
+}
+
+/** Whether an edge target would only be a guess by name, so the edge is dropped. */
+function isGuessedTarget(
+  captureName: string,
+  node: TreeNode,
+  targetId: string,
+  targetNodeIds: string[] | undefined,
+  importTargets: Map<number, string | null>,
+): boolean {
+  // Skip cross-file edges from member/method access calls (e.g. obj.method()).
+  // Without type information, name-only resolution creates false positives:
+  // Object.keys() → user's `keys`, Math.round() → user's `round`, etc.
+  // Intra-file member calls (this.method()) are kept — targetNodeIds is set.
+  // Same for JSX `<Tabs.Panel />` outside a resolved namespace import.
+  if (IMPORT_RESOLVED_CAPTURES.has(captureName) && targetId.startsWith("@@external:") && isMemberAccessCapture(node)) return true;
+  return REFERENCE_CAPTURES.has(captureName) && !isExactReference(node, targetId, targetNodeIds, importTargets);
 }
 
 // ---------------------------------------------------------------------------
@@ -274,10 +389,13 @@ export class GraphExtractor {
       const query = this.getOrCompileQuery(language, querySrc, grammar);
       const captures = query.captures(tree.rootNode);
       const calls = captures.filter(c => IMPORT_RESOLVED_CAPTURES.has(c.name)).map(c => c.node);
+      // A reference can only reach an import or a name this file declares: other passed values are left out early.
+      const declared = new Set(captures.filter(c => DEF_CAPTURE_NAMES.has(c.name)).map(c => c.node.text));
+      const references = new Set(captures.filter(c => REFERENCE_CAPTURES.has(c.name)).map(c => c.node.id));
       const resolver = new PathResolver(undefined, true, this.config.workspaceRoot);
       let importTargets: Map<number, string | null>;
       if (lang === "typescript" || lang === "javascript") {
-        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver);
+        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver, { references, declared });
       } else if (lang === "python") {
         importTargets = await resolvePythonImportCalls(tree.rootNode, calls, normalizedPath, resolver);
       } else {
@@ -410,28 +528,17 @@ export class GraphExtractor {
       const relationType = captureNameToRelationType(capture.name);
       if (!relationType) continue;
       const targetName = capture.node.text.trim();
-      if (!targetName) continue;
+      if (!targetName || (capture.name === "call" && isFactoryCallee(capture.node, targetName))) continue;
+      const named = nameToNodeIds.get(targetName);
+      const targetNodeIds = REFERENCE_CAPTURES.has(capture.name) ? ownMembers(capture.node, named) : named;
+      const targetId = resolveEdgeTarget(capture.node, targetNodeIds, importTargets);
+      // Target first: most passed values are variables that link nowhere, and the ancestor walk below is costly.
+      if (!targetId || isGuessedTarget(capture.name, capture.node, targetId, targetNodeIds, importTargets)) continue;
       const sourceLine = capture.node.startPosition.row;
       const sourceNodeId = this.findEnclosingDefinitionId(
         capture.node, normalizedFilePath, positionToNodeId, defCaptures,
       );
       if (!sourceNodeId) continue;
-      const targetNodeIds = nameToNodeIds.get(targetName);
-      const targetId = resolveEdgeTarget(capture.node, targetNodeIds, importTargets);
-      if (!targetId) continue;
-
-      // Skip cross-file edges from member/method access calls (e.g. obj.method()).
-      // Without type information, name-only resolution creates false positives:
-      // Object.keys() → user's `keys`, Math.round() → user's `round`, etc.
-      // Intra-file member calls (this.method()) are kept — targetNodeIds is set.
-      // Same for JSX `<Tabs.Panel />` outside a resolved namespace import.
-      if (
-        IMPORT_RESOLVED_CAPTURES.has(capture.name) &&
-        targetId.startsWith("@@external:") &&
-        isMemberAccessCapture(capture.node)
-      ) {
-        continue;
-      }
 
       const edgeKey = `${sourceNodeId}::${targetId}::${relationType}`;
       if (seenEdges.has(edgeKey)) continue;
@@ -499,14 +606,9 @@ export class GraphExtractor {
    * Result uses forward slashes and is never absolute.
    */
   private computeFolder(normalizedFilePath: string): string {
-    const workspaceRoot = normalizePath(this.config.workspaceRoot);
-    const dir = path.posix.dirname(normalizedFilePath);
-    if (dir.startsWith(workspaceRoot)) {
-      const rel = dir.slice(workspaceRoot.length);
-      return rel.startsWith("/") ? rel.slice(1) : rel;
-    }
-    return dir;
+    return workspaceFolder(normalizedFilePath, this.config.workspaceRoot);
   }
+
 
   /**
    * Load the Tree-sitter query source for the given grammar (its query files, concatenated).

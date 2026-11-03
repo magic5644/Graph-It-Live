@@ -1,11 +1,8 @@
-import fs from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { GraphExtractor, grammarOf } from "@/analyzer/callgraph/GraphExtractor";
+import { grammarOf } from "@/analyzer/callgraph/GraphExtractor";
 import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
-import type { SupportedLang } from "@/shared/callgraph-types";
-import { normalizePath } from "@/shared/path";
+import { createTreeSitterHarness, SQL_WASM_PATH } from "./treeSitterHarness";
 
 describe("grammarOf", () => {
   it("parses .tsx and .jsx, in any case, with the tsx grammar", () => {
@@ -22,65 +19,15 @@ describe("grammarOf", () => {
 });
 
 describe("JSX usages in the call graph", () => {
+  let harness: Awaited<ReturnType<typeof createTreeSitterHarness>>;
   let root: string;
-  let extractor: GraphExtractor;
+  const index = (files: Record<string, string>, savePath?: string) => harness.index(files, savePath);
 
   beforeAll(async () => {
-    root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gil-jsx-")));
-    const wasm = path.join(root, "dist/wasm");
-    const queries = path.join(root, "dist/queries");
-    await fs.mkdir(wasm, { recursive: true });
-    await fs.mkdir(queries, { recursive: true });
-    await fs.copyFile("node_modules/web-tree-sitter/web-tree-sitter.wasm", path.join(wasm, "tree-sitter.wasm"));
-    for (const grammar of ["typescript", "tsx"]) {
-      await fs.copyFile(`node_modules/tree-sitter-wasms/out/tree-sitter-${grammar}.wasm`, path.join(wasm, `tree-sitter-${grammar}.wasm`));
-      await fs.copyFile(`resources/queries/${grammar}.scm`, path.join(queries, `${grammar}.scm`));
-    }
-    extractor = new GraphExtractor({ extensionPath: root, workspaceRoot: root });
+    harness = await createTreeSitterHarness("gil-jsx-");
+    root = harness.root;
   });
-  afterAll(async () => {
-    extractor.dispose();
-    await fs.rm(root, { recursive: true, force: true });
-  });
-
-  /** `file#name` nodes and edges of an index. */
-  function describeIndex(indexer: CallGraphIndexer) {
-    const snapshot = indexer.getIndexSnapshot();
-    const key = (id: string) => {
-      const node = snapshot.nodes.find(n => n.id === id);
-      return node ? `${path.relative(root, node.path).replaceAll("\\", "/")}#${node.name}` : id;
-    };
-    return {
-      nodes: snapshot.nodes.map(n => ({ key: key(n.id), lang: n.lang, startLine: n.startLine, endLine: n.endLine })),
-      edges: snapshot.edges.map(e => `${key(e.sourceId)} -${e.typeRelation}@${e.sourceLine}-> ${key(e.targetId)}`),
-    };
-  }
-
-  /**
-   * Index `files` (relative path → source) in a fresh index and return `file#name` nodes and edges.
-   * With `savePath`, also save the index there.
-   */
-  async function index(files: Record<string, string>, savePath?: string) {
-    const indexer = new CallGraphIndexer(path.resolve("node_modules/sql.js/dist/sql-wasm.wasm"));
-    await indexer.init();
-    try {
-      for (const [name, source] of Object.entries(files)) {
-        await fs.mkdir(path.dirname(path.join(root, name)), { recursive: true });
-        await fs.writeFile(path.join(root, name), source);
-      }
-      for (const [name, source] of Object.entries(files)) {
-        const file = normalizePath(path.join(root, name));
-        const lang: SupportedLang = /\.jsx?$/.test(name) ? "javascript" : "typescript";
-        const result = await extractor.extractSource(file, lang, source);
-        indexer.indexFile(result.nodes, result.edges, file, lang, 1);
-      }
-      indexer.resolveExternalEdges();
-      if (savePath) await indexer.saveToFile(savePath);
-      return describeIndex(indexer);
-    } finally {
-      indexer.dispose();
-    }
-  }
+  afterAll(() => harness.dispose());
 
   const ISSUE_FIXTURE = {
     "src/ui/Card.tsx": "export function Card() { return <section />; }\nexport default function Panel() { return <aside />; }\n",
@@ -117,24 +64,24 @@ export function Later() { return useCounter(); }
     expect(edges.filter(e => e.startsWith("src/Page.tsx#Page ")).sort()).toEqual([
       "src/Page.tsx#Page -CALLS@4-> src/hooks.ts#useCounter",
       "src/Page.tsx#Page -CALLS@9-> src/hooks.ts#track",
-      "src/Page.tsx#Page -USES@7-> src/ui/Card.tsx#Card",
-      "src/Page.tsx#Page -USES@8-> src/ui/Card.tsx#Panel",
+      "src/Page.tsx#Page -REFERENCES@7-> src/ui/Card.tsx#Card",
+      "src/Page.tsx#Page -REFERENCES@8-> src/ui/Card.tsx#Panel",
     ]);
-    expect(edges).toContain("src/Old.jsx#Old -USES@1-> src/ui/Card.tsx#Card");
+    expect(edges).toContain("src/Old.jsx#Old -REFERENCES@1-> src/ui/Card.tsx#Card");
     expect(edges).toContain("src/Page.tsx#Later -CALLS@13-> src/hooks.ts#useCounter");
   });
 
   it("returns the same components and JSX edges from a reloaded (warm) index as from the cold run", async () => {
     const dbPath = path.join(root, "callgraph.db");
     const cold = await index(ISSUE_FIXTURE, dbPath);
-    const warm = new CallGraphIndexer(path.resolve("node_modules/sql.js/dist/sql-wasm.wasm"));
+    const warm = new CallGraphIndexer(SQL_WASM_PATH);
     try {
       await expect(warm.loadFromFile(dbPath)).resolves.toBe(true);
-      const reloaded = describeIndex(warm);
+      const reloaded = harness.describe(warm);
 
       expect(reloaded.nodes).toEqual(cold.nodes);
       expect(reloaded.edges.sort()).toEqual([...cold.edges].sort());
-      expect(reloaded.edges).toContain("src/Page.tsx#Page -USES@7-> src/ui/Card.tsx#Card");
+      expect(reloaded.edges).toContain("src/Page.tsx#Page -REFERENCES@7-> src/ui/Card.tsx#Card");
     } finally {
       warm.dispose();
     }
@@ -144,7 +91,7 @@ export function Later() { return useCounter(); }
 
   it.each([
     {
-      // `<Tabs.Panel />` resolves in its own file, like `this.method()`; a cross-file member never resolves by name.
+      // `<Tabs.Panel />` is whatever `Tabs` holds: a same-file `Panel` is only a homonym, never guessed (#575).
       title: "keeps intrinsic, namespaced and custom elements, fragments and unresolved members out of the graph",
       file: "src/Tags.tsx",
       source: `export function Tags() {
@@ -159,7 +106,7 @@ export function Later() { return useCounter(); }
 export function Panel() { return null; }
 export function C() { return null; }
 `,
-      expected: ["src/Tags.tsx#Tags -USES@5-> src/Tags.tsx#Panel", "src/Tags.tsx#Tags -USES@6-> src/Tags.tsx#C"],
+      expected: [],
     },
     {
       title: "links paired, self-closing, nested, conditional and ternary JSX once per target",
@@ -174,7 +121,7 @@ export function Shell({ a }: { a: boolean }) {
   );
 }
 `,
-      expected: ["src/Shell.tsx#Shell -USES@3-> src/parts.tsx#Card", "src/Shell.tsx#Shell -USES@4-> src/parts.tsx#Panel"],
+      expected: ["src/Shell.tsx#Shell -REFERENCES@3-> src/parts.tsx#Card", "src/Shell.tsx#Shell -REFERENCES@4-> src/parts.tsx#Panel"],
     },
     {
       title: "follows a component's local binding: a parameter shadowing an import or a type-only import links nowhere",
@@ -185,18 +132,71 @@ export function Wrap() { return <Card />; }
 export function Pass({ Panel }: { Panel: () => null }) { return <Panel />; }
 export function Uses() { return <Panel />; }
 `,
-      expected: ["src/Wrap.tsx#Uses -USES@4-> src/parts.tsx#Panel"],
+      expected: ["src/Wrap.tsx#Uses -REFERENCES@4-> src/parts.tsx#Panel"],
     },
     {
       title: "links a .jsx component to a same-file component without an import",
       file: "src/Local.jsx",
       source: "function Item() { return <li />; }\nexport function List() { return <ul><Item /></ul>; }\n",
-      expected: ["src/Local.jsx#List -USES@1-> src/Local.jsx#Item"],
+      expected: ["src/Local.jsx#List -REFERENCES@1-> src/Local.jsx#Item"],
+    },
+    {
+      title: "references a handler passed as a value and calls the one written in an arrow, at their lines",
+      file: "src/Form.tsx",
+      source: `function save() {}
+function track() {}
+export function Form() {
+  return <form onSubmit={save}>
+    <button onClick={() => track()} />
+  </form>;
+}
+`,
+      expected: ["src/Form.tsx#Form -CALLS@4-> src/Form.tsx#track", "src/Form.tsx#Form -REFERENCES@3-> src/Form.tsx#save"],
+    },
+    {
+      // `props.save` is whatever the parent passed: only `this.save` is known to be in this file.
+      title: "links a this.method handler, never a props member to a same-name function",
+      file: "src/Btn.tsx",
+      source: `function save() {}
+export class Btn {
+  handle() {}
+  render() { return <b onClick={this.handle} onBlur={this.props.save} />; }
+}
+export function Fn(props: { save: () => void }) { return <b onClick={props.save} />; }
+`,
+      expected: ["src/Btn.tsx#render -REFERENCES@3-> src/Btn.tsx#handle"],
+    },
+    {
+      // Each `<Item />` is the `Item` of its own function, by scope; `C` and `Card` are declared in another file only.
+      title: "resolves same-name local components by scope, and never guesses an unimported name declared elsewhere",
+      file: "src/Dup.tsx",
+      source: `export function A() { function Item() { return null; } return <Item />; }
+export function B() { function Item() { return null; } return <Item render={Item} />; }
+export function Other() { return <C onClick={Card} />; }
+`,
+      expected: ["src/Dup.tsx#A -REFERENCES@0-> src/Dup.tsx#Item", "src/Dup.tsx#B -REFERENCES@1-> src/Dup.tsx#Item"],
+    },
+    {
+      title: "declares memo, forwardRef and lazy components, bare or as React.*, with var or const",
+      file: "src/Wrapped.tsx",
+      source: `import { Card } from './parts';
+export const A = memo(function A() { return <Card />; });
+export const B = React.forwardRef(() => <A />);
+var L = React.lazy(() => import(name));
+export function Use() { return <><B /><L /></>; }
+`,
+      expected: [
+        "src/Wrapped.tsx#A -REFERENCES@1-> src/parts.tsx#Card",
+        "src/Wrapped.tsx#B -REFERENCES@2-> src/Wrapped.tsx#A",
+        "src/Wrapped.tsx#Use -REFERENCES@4-> src/Wrapped.tsx#B",
+        "src/Wrapped.tsx#Use -REFERENCES@4-> src/Wrapped.tsx#L",
+      ],
     },
   ])("$title", async ({ file, source, expected }) => {
     const { edges } = await index({ [file]: source, "src/parts.tsx": NULL_COMPONENTS });
 
-    expect(edges.filter(e => e.startsWith(`${file}#`)).sort()).toEqual(expected);
+    // A class name is also a type: its type-only USES edge is not what these cases check.
+    expect(edges.filter(e => e.startsWith(`${file}#`) && !e.includes(" -USES@")).sort()).toEqual(expected);
   });
 
   it("keeps .ts files on the TypeScript grammar, where `<T>x` is a type assertion, not JSX", async () => {

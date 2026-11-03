@@ -63,4 +63,15 @@ describe("CytoscapeTheme", () => {
     expect(light?.color).toBe("#1a1a1a");
     expect(styleOf(buildCallGraphStylesheet(), 'node[lang="javascript"]')).toBeDefined();
   });
+
+  it("draws a REFERENCES edge (a JSX render or a handler) unlike a call or a type-only use", () => {
+    const sheet = buildCallGraphStylesheet();
+    const references = styleOf(sheet, 'edge[typeRelation="REFERENCES"]');
+
+    expect(references).toMatchObject({ "line-style": "dashed", "target-arrow-shape": "triangle" });
+    expect(references?.["line-color"]).not.toBe(styleOf(sheet, 'edge[typeRelation="USES"]')?.["line-color"]);
+    // A cycle through a render keeps the cycle colour: its rule comes after.
+    const selectors = sheet.map(entry => ("selector" in entry ? entry.selector : ""));
+    expect(selectors.indexOf('edge[typeRelation="REFERENCES"]')).toBeLessThan(selectors.indexOf("edge[?isCyclic]"));
+  });
 });

@@ -125,6 +125,7 @@ const EDGE_LEGEND_ENTRIES: EdgeLegendEntry[] = [
   { label: "Lateral", color: "#aaaaaa", style: "dashed", filterKey: "lateral" },
   { label: "Inherits", color: "#5a9cf8", style: "solid", filterKey: "inherits" },
   { label: "Implements", color: "#9b59b6", style: "dashed", filterKey: "implements" },
+  { label: "References", color: "#26a69a", style: "dashed", filterKey: "references" },
   { label: "Uses", color: "#888888", style: "dotted", filterKey: "uses" },
   { label: "Cycle", color: "#ff4d4d", style: "dashed", filterKey: "cycle" },
 ];

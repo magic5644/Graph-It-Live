@@ -4,6 +4,7 @@
 ;   @def.class     — class definitions
 ;   @def.method    — method definitions inside classes
 ;   @call          — CALLS relation (function/method invocations)
+;   @ref           — REFERENCES relation (a function passed as an argument, not called there)
 ;   @inherit       — INHERITS relation (class base classes)
 ;   @uses          — USES relation (attribute access as module/symbol reference)
 
@@ -63,3 +64,17 @@
 ; module.symbol references (e.g. typing.Optional, collections.OrderedDict)
 (attribute
   object: (identifier) @uses)
+
+; register(save), register(mod.save), register(cb=save): a function passed, not called there.
+(argument_list (identifier) @ref)
+
+(argument_list
+  (attribute
+    attribute: (identifier) @ref))
+
+(keyword_argument
+  value: (identifier) @ref)
+
+(keyword_argument
+  value: (attribute
+    attribute: (identifier) @ref))

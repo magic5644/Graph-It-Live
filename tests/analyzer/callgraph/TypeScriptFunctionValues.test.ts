@@ -8,6 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
+import { normalizePath } from "@/shared/path";
 
 const ROOT = process.cwd();
 
@@ -65,5 +66,28 @@ export function d() { return g() + f() + legacy(); }
       .map((e) => `${nameOf.get(e.sourceId)}->${nameOf.get(e.targetId) ?? e.targetId}`);
 
     expect(calls).toEqual(expect.arrayContaining(["g->x", "f->x", "d->g", "d->f", "d->legacy"]));
+  });
+
+  it.each([
+    ["a.ts", "typescript"],
+    ["a.js", "javascript"],
+  ] as const)("defines React memo/forwardRef/lazy components in %s and links lazy() to its module's default export", async (file, lang) => {
+    await fs.writeFile(path.join(extensionPath, "Panel.ts"), "export default function Panel() {}\n");
+    const { nodes, edges } = await extractor.extractSource(path.join(extensionPath, file), lang, `
+const A = memo(function A() { return x(); });
+export const B = React.forwardRef(() => x());
+const L = lazy(() => import("./Panel"));
+const W = withRouter(A);
+export function x() { return 1; }
+`);
+    const nameOf = new Map(nodes.map((n) => [n.id, n.name]));
+
+    expect(nodes.map((n) => [n.name, n.type])).toEqual([["A", "function"], ["B", "function"], ["L", "function"], ["x", "function"]]);
+    // The wrappers are no callees; withRouter is not a known wrapper, so W is no component.
+    expect(edges.map((e) => `${nameOf.get(e.sourceId)} -${e.typeRelation}-> ${nameOf.get(e.targetId) ?? e.targetId}`).sort()).toEqual([
+      "A -CALLS-> x",
+      "B -CALLS-> x",
+      `L -REFERENCES-> @@import:${JSON.stringify([normalizePath(path.join(extensionPath, "Panel.ts")), "Panel"])}`,
+    ]);
   });
 });

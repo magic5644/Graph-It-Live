@@ -6,6 +6,7 @@
 ;   @def.type      — type alias declarations
 ;   @def.interface — trait definitions
 ;   @call          — CALLS relation (function/method invocations)
+;   @ref           — REFERENCES relation (a function passed as an argument, not called there)
 ;   @impl          — IMPLEMENTS relation (trait impl)
 ;   @uses          — USES relation (type path references)
 
@@ -80,3 +81,10 @@
 ; Scoped type path (e.g. std::sync::Arc, crate::services::MyService)
 (scoped_type_identifier
   name: (type_identifier) @uses)
+
+; register(save), register(helper::save): a function passed, not called there.
+(arguments (identifier) @ref)
+
+(arguments
+  (scoped_identifier
+    name: (identifier) @ref))

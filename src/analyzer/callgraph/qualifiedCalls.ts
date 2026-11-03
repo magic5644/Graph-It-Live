@@ -18,6 +18,23 @@ function stub(mode: Mode, key: string, name: string, owners?: string[]): string 
   return `${QUALIFIED_PREFIX}${JSON.stringify(owners ? [mode, key, name, owners] : [mode, key, name])}`;
 }
 
+/** Argument containers per grammar (`arguments`, `argument_list`, C# `argument`): a bare name there is passed, not called. */
+const ARGUMENT_PARENTS = new Set(["arguments", "argument_list", "argument"]);
+
+function isBareArgument(node: TreeNode): boolean {
+  return node.type === "identifier" && ARGUMENT_PARENTS.has(node.parent?.type ?? "");
+}
+
+/** `f` in `f()` or `register(f)`: a bare name a `use` alias can stand for. */
+function isCalleeOrArgument(node: TreeNode): boolean {
+  return node.type === "identifier" && (node.parent?.type === "call_expression" || isBareArgument(node));
+}
+
+/** A passed name a local variable or parameter holds: a value, not a function, so it links nowhere. */
+function isPassedVariable(node: TreeNode, declared: Set<string>): boolean {
+  return isBareArgument(node) && declared.has(node.text);
+}
+
 /** Name of the `call` node when it is the `field` of a member node and the member's receiver node. */
 function receiverOf(call: TreeNode, memberType: string, nameField: string, receiverField: string): TreeNode | null {
   const member = call.parent;
@@ -117,6 +134,9 @@ function typeTargets(root: TreeNode, calls: TreeNode[], lang: "java" | "csharp")
   const aliases = java ? new Map<string, CsharpAlias>() : csharpUsingAliases(root);
   const targets = new Map<number, string | null>();
   for (const call of calls) {
+    // A passed name is a method group of this type, unless a variable or parameter holds it.
+    if (isPassedVariable(call, declared)) targets.set(call.id, null);
+    if (isBareArgument(call)) continue;
     const receiver = java
       ? receiverOf(call, "method_invocation", "name", "object")
       : receiverOf(call, "member_access_expression", "name", "expression");
@@ -218,7 +238,11 @@ function rustTargets(root: TreeNode, calls: TreeNode[]): Map<number, string | nu
   const inline = new Set(root.descendantsOfType("mod_item").filter(mod => mod.childForFieldName("body")).map(mod => mod.childForFieldName("name")?.text ?? ""));
   const targets = new Map<number, string | null>();
   for (const call of calls) {
-    const alias = call.type === "identifier" && call.parent?.type === "call_expression" && !declared.has(call.text) ? aliases.get(call.text) : undefined;
+    if (isPassedVariable(call, declared)) {
+      targets.set(call.id, null); // a passed `let` or parameter, not a function
+      continue;
+    }
+    const alias = isCalleeOrArgument(call) && !declared.has(call.text) ? aliases.get(call.text) : undefined;
     if (alias) {
       targets.set(call.id, alias.module ? stub("module", alias.module, alias.name) : null);
       continue;
@@ -259,6 +283,17 @@ async function findGoModule(dir: string, root: string): Promise<{ dir: string; m
   return parent === dir ? null : findGoModule(parent, root);
 }
 
+/**
+ * Workspace-relative folder of a file, as call graph nodes record it: "" at the root, the absolute directory
+ * outside the workspace (`/ws/app2` is outside `/ws/app`).
+ */
+export function workspaceFolder(filePath: string, workspaceRoot: string): string {
+  const root = normalizePath(workspaceRoot).replace(/\/$/, "");
+  const dir = path.posix.dirname(normalizePath(filePath));
+  if (dir === root) return "";
+  return dir.startsWith(`${root}/`) ? dir.slice(root.length + 1) : dir;
+}
+
 /** Workspace-relative directory of a package of the workspace's Go module; null for stdlib and third-party packages. */
 async function goPackageFolder(importPath: string, filePath: string, workspaceRoot: string): Promise<string | null> {
   const root = normalizePath(workspaceRoot);
@@ -279,9 +314,13 @@ async function goPackageFolder(importPath: string, filePath: string, workspaceRo
 async function goTargets(root: TreeNode, calls: TreeNode[], filePath: string, workspaceRoot: string): Promise<Map<number, string | null>> {
   const targets = new Map<number, string | null>();
   const imports = goImports(root);
-  if (imports.size === 0) return targets;
+  const bare = calls.filter(isBareArgument);
+  if (imports.size === 0 && bare.length === 0) return targets;
   // shortcut: file-wide, a local `pkg := ...` in one function blocks the package in every function.
   const declared = declaredNames(root, ["var_spec", "const_spec", "parameter_declaration", "short_var_declaration", "range_clause"], ["name", "left"]);
+  // A bare passed name is a declaration of this package (the file's folder), unless a local variable holds it.
+  const ownFolder = workspaceFolder(filePath, workspaceRoot);
+  for (const call of bare) targets.set(call.id, declared.has(call.text) ? null : stub("folder", ownFolder, call.text));
   const used = calls.flatMap((call) => {
     const operand = receiverOf(call, "selector_expression", "field", "operand");
     const importPath = operand?.type === "identifier" ? imports.get(operand.text) : undefined;

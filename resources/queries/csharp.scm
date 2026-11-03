@@ -6,6 +6,7 @@
 ;   @def.interface — interface definitions
 ;   @def.type      — delegate / enum declarations
 ;   @call          — CALLS relation (method/function invocations)
+;   @ref           — REFERENCES relation (a function passed as an argument, not called there)
 ;   @inherit       — INHERITS relation (base class)
 ;   @impl          — IMPLEMENTS relation (interfaces)
 ;   @uses          — USES relation (type references)
@@ -93,3 +94,10 @@
 
 ; Named type references (e.g. MyService, List<T>)
 (identifier) @uses
+
+; Register(Save), Register(Helper.Save), Register(this.Save): a method group passed, not called there.
+(argument (identifier) @ref)
+
+(argument
+  (member_access_expression
+    name: (identifier) @ref))

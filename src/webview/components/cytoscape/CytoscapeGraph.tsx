@@ -637,6 +637,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
             lateral: 'edge[direction="lateral"]',
             inherits: 'edge[typeRelation="INHERITS"]',
             implements: 'edge[typeRelation="IMPLEMENTS"]',
+            references: 'edge[typeRelation="REFERENCES"]',
             uses: 'edge[typeRelation="USES"]',
             cycle: "edge[isCyclic=1]",
           };

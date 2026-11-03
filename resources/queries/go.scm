@@ -6,6 +6,7 @@
 ;   @def.interface — interface type definitions
 ;   @def.type      — type alias declarations
 ;   @call          — CALLS relation (function/method invocations)
+;   @ref           — REFERENCES relation (a function passed as an argument, not called there)
 ;   @inherit       — INHERITS relation (embedded types)
 ;   @impl          — IMPLEMENTS relation (interface satisfaction via method sets)
 ;   @uses          — USES relation (type references)
@@ -68,3 +69,10 @@
 
 ; Type identifiers used in declarations, parameters, variables
 (type_identifier) @uses
+
+; register(save), register(pkg.Save): a function passed, not called there.
+(argument_list (identifier) @ref)
+
+(argument_list
+  (selector_expression
+    field: (field_identifier) @ref))

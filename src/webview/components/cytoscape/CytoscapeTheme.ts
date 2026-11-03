@@ -319,6 +319,17 @@ export function buildCallGraphStylesheet(isDark = true): CyStylesheet[] {
       },
     },
     {
+      // A runtime reference that is not a call there: `<Card />`, `onClick={save}`.
+      selector: `edge[typeRelation="REFERENCES"]`,
+      style: {
+        "line-style": "dashed",
+        "target-arrow-shape": "triangle",
+        "target-arrow-fill": "open",
+        "line-color": "#26a69a",
+        "target-arrow-color": "#26a69a",
+      },
+    },
+    {
       selector: `edge[typeRelation="USES"]`,
       style: {
         "line-style": "dotted",
