@@ -41,6 +41,8 @@ export interface ParameterInfo {
   hasDefault: boolean;
   isRest: boolean;
   position: number;
+  /** Destructured parameter only: object property keys, or array element indexes. */
+  fields?: string[];
 }
 
 /**
@@ -1374,7 +1376,19 @@ export class SignatureAnalyzer {
       hasDefault: param.hasInitializer(),
       isRest: param.isRestParameter(),
       position: index,
+      ...this.bindingFields(param.getNameNode()),
     }));
+  }
+
+  /** Callers see a binding pattern's keys (object) or slots (array), not the local names it binds. */
+  private bindingFields(nameNode: Node): Pick<ParameterInfo, 'fields'> {
+    if (Node.isObjectBindingPattern(nameNode)) {
+      return { fields: nameNode.getElements().map(e => e.getPropertyNameNode()?.getText() ?? e.getName()) };
+    }
+    if (Node.isArrayBindingPattern(nameNode)) {
+      return { fields: nameNode.getElements().flatMap((e, i) => (Node.isBindingElement(e) ? [String(i)] : [])) };
+    }
+    return {};
   }
 
   /**
@@ -1426,8 +1440,8 @@ export class SignatureAnalyzer {
     const newParams = newSig.parameters;
 
     // Build maps for comparison
-    const oldParamMap = new Map(oldParams.map(p => [p.name, p]));
-    const newParamMap = new Map(newParams.map(p => [p.name, p]));
+    const oldParamMap = new Map(oldParams.map(p => [parameterKey(p), p]));
+    const newParamMap = new Map(newParams.map(p => [parameterKey(p), p]));
 
     // Check for removed parameters
     this.detectRemovedParameters(oldParams, newParamMap, newSig, breakingChanges);
@@ -1449,7 +1463,7 @@ export class SignatureAnalyzer {
     breakingChanges: BreakingChange[]
   ): void {
     for (const oldParam of oldParams) {
-      if (!newParamMap.has(oldParam.name)) {
+      if (!newParamMap.has(parameterKey(oldParam))) {
         breakingChanges.push({
           type: 'parameter-removed',
           symbolName: newSig.name,
@@ -1476,7 +1490,7 @@ export class SignatureAnalyzer {
     nonBreakingChanges: string[]
   ): void {
     for (const newParam of newParams) {
-      const oldParam = oldParamMap.get(newParam.name);
+      const oldParam = oldParamMap.get(parameterKey(newParam));
 
       if (!oldParam) {
         this.handleNewParameter(newParam, newSig, breakingChanges, nonBreakingChanges);
@@ -1521,6 +1535,8 @@ export class SignatureAnalyzer {
     breakingChanges: BreakingChange[],
     nonBreakingChanges: string[]
   ): void {
+    this.compareBindingFields(oldParam, newParam, newSig, breakingChanges, nonBreakingChanges);
+
     // Check type change
     if (oldParam.type !== newParam.type && this.isOptionalPropertyWidening(oldParam.type, newParam.type)) {
       nonBreakingChanges.push(`Parameter '${newParam.name}' gained optional properties`);
@@ -1551,6 +1567,34 @@ export class SignatureAnalyzer {
   }
 
   /**
+   * Same-position binding patterns: a dropped or renamed key is breaking, a new key is not.
+   */
+  private compareBindingFields(
+    oldParam: ParameterInfo,
+    newParam: ParameterInfo,
+    newSig: SignatureInfo,
+    breakingChanges: BreakingChange[],
+    nonBreakingChanges: string[]
+  ): void {
+    const oldFields = oldParam.fields ?? [];
+    const newFields = newParam.fields ?? [];
+    for (const field of oldFields.filter(f => !newFields.includes(f))) {
+      breakingChanges.push({
+        type: 'parameter-removed',
+        symbolName: newSig.name,
+        description: `Field '${field}' of destructured parameter '${oldParam.name}' was removed`,
+        severity: 'error',
+        oldValue: `${oldParam.name}: ${oldParam.type}`,
+        newValue: `${newParam.name}: ${newParam.type}`,
+        line: newSig.line,
+      });
+    }
+    for (const field of newFields.filter(f => !oldFields.includes(f))) {
+      nonBreakingChanges.push(`Destructured parameter '${newParam.name}' gained field '${field}'`);
+    }
+  }
+
+  /**
    * Detect parameter position changes
    */
   private detectPositionChanges(
@@ -1560,13 +1604,18 @@ export class SignatureAnalyzer {
   ): void {
     const minLength = Math.min(oldParams.length, newParams.length);
     for (let i = 0; i < minLength; i++) {
-      if (oldParams[i].name !== newParams[i].name) {
+      if (parameterKey(oldParams[i]) !== parameterKey(newParams[i])) {
         nonBreakingChanges.push(
           `Parameter order changed at position ${i}: '${oldParams[i].name}' → '${newParams[i].name}'`
         );
       }
     }
   }
+}
+
+/** Comparison key: a binding pattern's text changes with each field, so it is matched by position. */
+function parameterKey(param: ParameterInfo): string {
+  return param.fields ? `#${param.position}` : param.name;
 }
 
 /**
