@@ -17,7 +17,7 @@ type UsedSymbol = {
   filePath: string;
   isTypeOnly: boolean;
   line?: number;
-  relation?: SymbolDependency["relation"];
+  relation?: NonNullable<SymbolDependency["relation"]>;
 };
 
 /** Files whose JSX ts-morph parses, as the call graph does (`.js` keeps the TypeScript grammar there). */

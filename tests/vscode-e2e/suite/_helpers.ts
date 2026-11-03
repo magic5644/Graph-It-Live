@@ -62,13 +62,11 @@ export async function openGraphFor(
 }
 
 /** Wait until the sidebar webview is resolved, so view-mode commands take effect. */
-export async function waitForGraphViewResolved(timeoutMs = 10000): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (await getContextKey<boolean>('graph-it-live.graphViewResolved')) return;
-    await sleep(100);
-  }
-  assert.fail(`Timed out after ${timeoutMs} ms waiting for the Graph-It-Live view to resolve`);
+export async function waitForGraphViewResolved(timeoutMs = 10000, deadline = Date.now() + timeoutMs): Promise<void> {
+  if (await getContextKey<boolean>('graph-it-live.graphViewResolved')) return;
+  if (Date.now() >= deadline) assert.fail(`Timed out after ${timeoutMs} ms waiting for the Graph-It-Live view to resolve`);
+  await sleep(100);
+  return waitForGraphViewResolved(timeoutMs, deadline);
 }
 
 /**

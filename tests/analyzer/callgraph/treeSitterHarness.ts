@@ -22,10 +22,17 @@ export function describeIndex(indexer: CallGraphIndexer, root: string) {
 
 /** Write `files` (relative path → source) under `root`. */
 export async function writeFiles(root: string, files: Record<string, string>): Promise<void> {
-  for (const [name, source] of Object.entries(files)) {
+  await Promise.all(Object.entries(files).map(async ([name, source]) => {
     await fs.mkdir(path.dirname(path.join(root, name)), { recursive: true });
     await fs.writeFile(path.join(root, name), source);
-  }
+  }));
+}
+
+/** A fresh, initialized in-memory call graph index. */
+async function newIndexer(): Promise<CallGraphIndexer> {
+  const indexer = new CallGraphIndexer(SQL_WASM);
+  await indexer.init();
+  return indexer;
 }
 
 /** Grammars a harness loads: WASM file stem and query file stem (C# ships as `c_sharp`). */
@@ -42,29 +49,24 @@ export async function createTreeSitterHarness(prefix: string) {
   await fs.mkdir(wasm, { recursive: true });
   await fs.mkdir(queries, { recursive: true });
   await fs.copyFile("node_modules/web-tree-sitter/web-tree-sitter.wasm", path.join(wasm, "tree-sitter.wasm"));
-  for (const [grammar, query] of GRAMMARS) {
-    await fs.copyFile(`node_modules/tree-sitter-wasms/out/tree-sitter-${grammar}.wasm`, path.join(wasm, `tree-sitter-${grammar}.wasm`));
-    await fs.copyFile(`resources/queries/${query}.scm`, path.join(queries, `${query}.scm`));
-  }
+  await Promise.all(GRAMMARS.flatMap(([grammar, query]) => [
+    fs.copyFile(`node_modules/tree-sitter-wasms/out/tree-sitter-${grammar}.wasm`, path.join(wasm, `tree-sitter-${grammar}.wasm`)),
+    fs.copyFile(`resources/queries/${query}.scm`, path.join(queries, `${query}.scm`)),
+  ]));
   const extractor = new GraphExtractor({ extensionPath: root, workspaceRoot: root });
 
   /** Extract `files` into `indexer`; a file already indexed is replaced, as on an incremental update. */
   async function indexInto(indexer: CallGraphIndexer, files: Record<string, string>): Promise<void> {
     await writeFiles(root, files);
-    for (const [name, source] of Object.entries(files)) {
+    // Extraction runs concurrently; indexing stays in file order, as on a workspace scan.
+    const extracted = await Promise.all(Object.entries(files).map(async ([name, source]) => {
       const file = normalizePath(path.join(root, name));
       const lang = fileExtToLang(file);
       if (!lang) throw new Error(`No call graph language for ${name}`);
-      const result = await extractor.extractSource(file, lang, source);
-      indexer.indexFile(result.nodes, result.edges, file, lang, 1);
-    }
+      return { file, lang, result: await extractor.extractSource(file, lang, source) };
+    }));
+    for (const { file, lang, result } of extracted) indexer.indexFile(result.nodes, result.edges, file, lang, 1);
     indexer.resolveExternalEdges();
-  }
-
-  async function newIndexer(): Promise<CallGraphIndexer> {
-    const indexer = new CallGraphIndexer(SQL_WASM);
-    await indexer.init();
-    return indexer;
   }
 
   /** Index `files` in a fresh index and describe it; with `savePath`, also save the index there. */

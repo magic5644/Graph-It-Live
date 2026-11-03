@@ -31,7 +31,7 @@ export interface TraceCallEntry {
   calledFilePath: string;
   resolvedFilePath: string | null;
   line?: number;
-  relation?: SymbolDependency['relation'];
+  relation?: NonNullable<SymbolDependency['relation']>;
 }
 
 /** JS/TS modules, whose barrels and default exports `findDeclaration` follows. */
