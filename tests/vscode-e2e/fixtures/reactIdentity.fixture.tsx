@@ -66,12 +66,11 @@ root.render(<main style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', grid
 function check(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(message);
 }
-async function until(condition: () => boolean, message: string): Promise<void> {
-  const deadline = performance.now() + 15000;
-  while (!condition()) {
-    check(performance.now() < deadline, message);
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
+async function until(condition: () => boolean, message: string, deadline = performance.now() + 15000): Promise<void> {
+  if (condition()) return;
+  check(performance.now() < deadline, message);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  return until(condition, message, deadline);
 }
 const fileNode = (file: string) => document.querySelector<HTMLElement>(`#files [data-testid="rf__node-${file}"]`);
 const accessible = (scope: string, label: string) => document.querySelector<HTMLElement>(`#${scope} [aria-label="${label}"]`);
