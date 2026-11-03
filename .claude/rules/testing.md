@@ -15,6 +15,7 @@ paths:
 - Bug fix: check whether the same defect affects the other supported languages (TS/JS, Python, Go, Rust, Java, C#); fix shared causes together, otherwise list the affected languages in the PR and open a follow-up issue.
 - Add VS Code Electron E2E coverage for new commands, settings, or user-visible interactions.
 - E2E suites share one workbench and run in unsorted glob order (Linux order differs from macOS). A suite restores in `finally` every workbench change it makes (theme, settings, sidebar, panels, editor layout), or makes it only for local screenshots (`E2E_SCREENSHOT_DIR`). Before pushing a new or changed suite, run it first together with the layout-sensitive one: `E2E_SUITE_GLOB='suite/@(<suite>|architectureView).test.js'`.
+- Pull request CI runs the E2E suites on Linux only. Before opening or pushing to a pull request that adds or changes an E2E suite, or touches code run on every file event (graph refresh, indexing, extension services, file watcher), validate the pushed branch with the on-demand workflow: `gh workflow run e2e-os.yml --ref <branch> -f os=ubuntu-latest -f suite='**/**.test.js'`; use `os=all` when paths, workbench layout or file events are involved.
 - Keep each touched source file at or above 80% coverage.
 - A class instantiated with `new` must use a constructible mock, for example `vi.fn().mockImplementation(function () { ... })`; arrow-function constructor mocks throw.
 - Use `@/` imports and existing fixtures. Include Windows separators, drive letters, and case behavior in new path tests.
