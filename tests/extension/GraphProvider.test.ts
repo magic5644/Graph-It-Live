@@ -235,6 +235,20 @@ describe("GraphProvider", () => {
     expect(vscode.workspace.createFileSystemWatcher).toHaveBeenCalledWith("**/*.json");
   });
 
+  it("reports the sidebar view resolved only between resolveWebviewView and its disposal", () => {
+    let dispose: () => void = () => {};
+    const view = {
+      webview: { postMessage: vi.fn(), asWebviewUri: vi.fn(), options: {}, html: "", onDidReceiveMessage: vi.fn(() => ({ dispose: vi.fn() })), cspSource: "test-csp" },
+      onDidDispose: vi.fn((listener: () => void) => { dispose = listener; }),
+    };
+
+    expect(provider.isGraphViewResolved()).toBe(false);
+    provider.resolveWebviewView(view as any, {} as any, {} as any);
+    expect(provider.isGraphViewResolved()).toBe(true);
+    dispose();
+    expect(provider.isGraphViewResolved()).toBe(false);
+  });
+
   it("should update graph when updateGraph is called", async () => {
     const webview = {
       postMessage: vi.fn(),

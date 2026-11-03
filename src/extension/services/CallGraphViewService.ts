@@ -131,7 +131,14 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   private reindexing = false;
   private reindexPromise: Promise<void> | null = null;
 
-  constructor(private readonly context: vscode.ExtensionContext) {
+  /**
+   * @param findImporters files that import a file, directly or through re-export barrels; their edges link to
+   * the file's node ids, so they are re-extracted when those ids change on save (#575).
+   */
+  constructor(
+    private readonly context: vscode.ExtensionContext,
+    private readonly findImporters: (filePath: string) => Promise<string[]> = () => Promise.resolve([]),
+  ) {
     this.outputChannel = vscode.window.createOutputChannel("Call Graph");
     context.subscriptions.push(this.outputChannel);
   }
@@ -970,6 +977,24 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     }
   }
 
+  private nodeIdsOf(indexer: CallGraphIndexer, filePath: string): Set<string> {
+    const rows = indexer.getDb().exec("SELECT id FROM nodes WHERE path = ?", [filePath])[0]?.values ?? [];
+    return new Set(rows.map((row) => String(row[0])));
+  }
+
+  private async reindexImporters(filePath: string, indexer: CallGraphIndexer, extractor: GraphExtractor): Promise<void> {
+    const importers = await this.findImporters(filePath).catch(() => []);
+    for (const importer of new Set(importers.map((file) => normalizePath(file)))) {
+      const lang = langFromPath(importer);
+      if (!lang || importer === filePath) continue;
+      const mtime = Date.now();
+      // eslint-disable-next-line no-await-in-loop -- importers are indexed one by one into the same database
+      const extracted = await extractor.extractFile(importer, lang, mtime).catch(() => null); // NOSONAR S9382 sequential DB writes
+      if (this.disposed) return;
+      if (extracted) indexer.indexFile(extracted.nodes, extracted.edges, importer, lang, mtime);
+    }
+  }
+
   private async refreshFile(filePath: string, languageId: string, workspaceRoot: string): Promise<void> {
     const lang = toSupportedLang(languageId) ?? langFromPath(filePath);
     if (!lang || !this.currentFilePath) { return; }
@@ -981,9 +1006,16 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
 
     const extractor = this.ensureExtractor(workspaceRoot);
     const mtime = Date.now();
+    const before = this.nodeIdsOf(indexer, filePath);
     const { nodes, edges } = await extractor.extractFile(filePath, lang, mtime);
     if (this.disposed) return;
     indexer.indexFile(nodes, edges, filePath, lang, mtime);
+    // A declaration added, removed or moved changes the file's node ids: indexFile dropped the importers'
+    // edges to the old ids, so the importers are extracted again to link to the new ones.
+    if (nodes.length !== before.size || nodes.some((node) => !before.has(node.id))) {
+      await this.reindexImporters(filePath, indexer, extractor);
+      if (this.disposed) return;
+    }
 
     // Re-resolve cross-file edges since this file may introduce or change call
     // stubs; this also recomputes the cycle flags of the whole graph.

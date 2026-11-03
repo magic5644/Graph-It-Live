@@ -210,6 +210,7 @@ export class CommandRegistrationService {
     // Context keys are stored in VS Code's internal state, so GraphProvider tracks the ones tests read.
     const getters = new Map<string, () => unknown>([
       ['graph-it-live.viewMode', () => this.provider.getViewMode()],
+      ['graph-it-live.graphViewResolved', () => this.provider.isGraphViewResolved()],
       ['graph-it-live.reverseDependenciesVisible', () => this.provider.getReverseDependenciesVisible()],
       ['graph-it-live.callGraphRenderCount', () => this.provider.getCallGraphRenderCount()],
       ['graph-it-live.callGraphNodeCount', () => this.provider.getCallGraphNodeCount()],

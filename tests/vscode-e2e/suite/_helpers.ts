@@ -53,9 +53,22 @@ export async function openGraphFor(
   await vscode.window.showTextDocument(doc);
 
   await vscode.commands.executeCommand('graph-it-live.showGraph', file.fsPath);
+  // `showGraph` only focuses the view: VS Code resolves the webview later, and until then the
+  // view-mode commands return without switching (`viewMode` may already read `file`).
+  await waitForGraphViewResolved();
   await waitForViewMode('file');
 
   return doc;
+}
+
+/** Wait until the sidebar webview is resolved, so view-mode commands take effect. */
+export async function waitForGraphViewResolved(timeoutMs = 10000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await getContextKey<boolean>('graph-it-live.graphViewResolved')) return;
+    await sleep(100);
+  }
+  assert.fail(`Timed out after ${timeoutMs} ms waiting for the Graph-It-Live view to resolve`);
 }
 
 /**

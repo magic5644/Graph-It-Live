@@ -84,7 +84,10 @@ export function activate(context: vscode.ExtensionContext) {
     }) : undefined;
 
     // Call Graph panel — T019: register showCallGraph command
-    const callGraphViewService = new CallGraphViewService(context);
+    const callGraphViewService = new CallGraphViewService(context, async (filePath) => {
+        const spider = provider.getSpiderForLmTools();
+        return spider ? (await spider.findReferencingFilesThroughBarrels(filePath)).map((ref) => ref.path) : [];
+    });
     provider.setCallGraphViewService(callGraphViewService);
     const branchWatchRegistration = registerBranchWatch(context, provider);
     provider.setBranchWatchRegistration(branchWatchRegistration);

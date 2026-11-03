@@ -1300,6 +1300,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Get reverse dependencies visibility state
    * @returns True if reverse dependencies are visible
    */
+  /** Whether VS Code has resolved the sidebar webview: view-mode commands do nothing before. */
+  public isGraphViewResolved(): boolean {
+    return this._view !== undefined;
+  }
+
   public getReverseDependenciesVisible(): boolean {
     return this._graphState.getReverseDependenciesVisible();
   }
