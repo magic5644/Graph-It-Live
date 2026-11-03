@@ -1614,14 +1614,18 @@ function parameterKey(param: ParameterInfo): string {
   return param.pattern ? `#${param.pattern.index}` : param.name;
 }
 
-/** Keys callers pass into a binding pattern: `a`, nested `a.b`, array slot `0`; rest elements and local names are not keys. */
+/**
+ * Keys callers pass into a binding pattern: `a`, nested `a.b`, array slot `0`; rest elements and local names are not keys.
+ * shortcut: dropping a rest element is not reported, upgrade when callers' extra keys are tracked.
+ */
 function bindingFields(node: Node, prefix = ''): string[] | undefined {
   if (!Node.isObjectBindingPattern(node) && !Node.isArrayBindingPattern(node)) return undefined;
   const fields: string[] = [];
   for (const [index, element] of node.getElements().entries()) {
     if (!Node.isBindingElement(element) || element.getDotDotDotToken()) continue;
     const key = Node.isObjectBindingPattern(node) ? propertyKey(element) : String(index);
-    fields.push(...(bindingFields(element.getNameNode(), `${prefix}${key}.`) ?? [prefix + key]));
+    const nested = bindingFields(element.getNameNode(), `${prefix}${key}.`);
+    fields.push(...(nested?.length ? nested : [prefix + key]));
   }
   return fields;
 }
