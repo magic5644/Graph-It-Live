@@ -2121,6 +2121,37 @@ describe("ReviewGateAnalyzer - compatible contract changes (#546)", { timeout: G
 describe("ReviewGateAnalyzer - unreadable changed files (#546)", { timeout: GIT_TEST_TIMEOUT }, () => {
   const OVERSIZED = `export const big = 1;\n${"// pad\n".repeat(320_000)}`;
 
+  it.each(["base", "head"])("waits for the other read before returning when the %s read fails", async (failedRef) => {
+    vi.useFakeTimers();
+    try {
+      const events: string[] = [];
+      const pending = new Promise<string>((resolve) => {
+        setTimeout(() => { events.push("read finished"); resolve("export const value = 1;"); }, 10);
+      });
+      const analyzer = new ReviewGateAnalyzer(os.tmpdir());
+      const reads = analyzer as unknown as {
+        getChangedFiles: () => Promise<string[]>;
+        gitShow: () => Promise<string | null>;
+        readHeadContent: () => Promise<string | null>;
+      };
+      vi.spyOn(reads, "getChangedFiles").mockResolvedValue(["odd.ts"]);
+      vi.spyOn(reads, "gitShow").mockImplementation(() => failedRef === "base" ? Promise.reject(new Error("File is binary.")) : pending);
+      vi.spyOn(reads, "readHeadContent").mockImplementation(() => failedRef === "head" ? Promise.reject(new Error("File is binary.")) : pending);
+      const review = analyzer.analyze({ baseRef: "main", fileCycles: false }).then((result) => {
+        events.push("review returned");
+        return result;
+      });
+
+      await vi.runAllTimersAsync();
+      const result = await review;
+      expect(events).toEqual(["read finished", "review returned"]);
+      expect(result.isPartial).toBe(true);
+      expect(result.limitations).toContain("Could not compare odd.ts; File is binary.");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each([
     ["binary at the head", { "src/odd.ts": "export const odd = 1;\n" }, { "src/odd.ts": "export const odd = 1;\0\n" }, "File is binary."],
     ["oversized at the head", { "src/odd.ts": "export const odd = 1;\n" }, { "src/odd.ts": OVERSIZED }, "File exceeds the 2 MiB size limit."],
