@@ -82,3 +82,10 @@ export const REACT_CORPUS_EDGES = [
   "src/Page.tsx#Page -REFERENCES@24-> src/Page.tsx#Row",
   "src/Page.tsx#Page -REFERENCES@25-> src/hooks.js#save",
 ];
+
+/** #576 review regression: removing a parameter must retain JSX consumers, which do not call Card(...). */
+export const REACT_REVIEW_FILE = "src/ui/Card.tsx";
+export const REACT_REVIEW_BASE = {
+  ...REACT_CORPUS,
+  [REACT_REVIEW_FILE]: REACT_CORPUS[REACT_REVIEW_FILE].replace("Card()", "Card(props?: { title: string })"),
+};

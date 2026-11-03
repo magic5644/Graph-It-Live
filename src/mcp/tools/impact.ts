@@ -135,6 +135,7 @@ function createImpactedItem(
     symbolId: dep.sourceSymbolId,
     filePath: callerFilePath,
     relativePath: getRelativePath(callerFilePath, rootDir),
+    ...(dep.line === undefined ? {} : { line: dep.line }),
     usageType: dep.isTypeOnly ? "type-only" : "runtime",
     ...(dep.relation && { relation: dep.relation }),
     depth,
@@ -379,7 +380,7 @@ export async function executeGetImpactAnalysis(
   );
 
   // Generate summary
-  const summary = generateImpactSummary(
+  let summary = generateImpactSummary(
     symbolName,
     impactedItems.length,
     metrics.runtimeCount,
@@ -388,6 +389,9 @@ export async function executeGetImpactAnalysis(
     impactLevel,
     symbolCheck.status === "found",
   );
+  if (impactedItems.some((item) => item.relation === "REFERENCES" && /\.[jt]sx$/i.test(item.filePath))) {
+    summary += "\nReact props-contract compatibility is not checked (contrat de props non analysé).";
+  }
 
   return {
     targetSymbol: {

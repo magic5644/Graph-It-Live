@@ -11,6 +11,7 @@ import { workerState } from "@/mcp/shared/state";
 import { executeQueryCallGraph } from "@/mcp/tools/callgraph";
 import { executeTraceFunctionExecution } from "@/mcp/tools/execution";
 import { executeGetImpactAnalysis } from "@/mcp/tools/impact";
+import { executeScanDeadCode } from "@/mcp/tools/deadcode";
 import { executeInvalidateFiles } from "@/mcp/tools/workspace";
 import { REACT_CORPUS, REACT_CORPUS_EDGES } from "../../analyzer/react/reactCorpus";
 import { indexWorkspace, REPO_ROOT, wasmBuilt } from "./callGraphWorkspace";
@@ -84,7 +85,7 @@ describe.skipIf(!wasmBuilt)("React resolution through the MCP tools (#575)", { t
   });
 
   it("lists JSX consumers as runtime references in get_impact_analysis", async () => {
-    const { impactedItems, runtimeImpactCount } = await executeGetImpactAnalysis({ filePath: abs("src/ui/Card.tsx"), symbolName: "Card" });
+    const { impactedItems, runtimeImpactCount, summary } = await executeGetImpactAnalysis({ filePath: abs("src/ui/Card.tsx"), symbolName: "Card" });
 
     expect(impactedItems.map((i) => `${i.relativePath}#${i.symbolId.split(":").pop()}:${i.relation}:${i.usageType}`).sort()).toEqual([
       "src/Fancy.tsx#Fancy:REFERENCES:runtime",
@@ -92,9 +93,48 @@ describe.skipIf(!wasmBuilt)("React resolution through the MCP tools (#575)", { t
       "src/Page.tsx#Page:REFERENCES:runtime",
     ]);
     expect(runtimeImpactCount).toBe(3);
+    expect(impactedItems.map((i) => `${i.relativePath}:${i.line}`).sort()).toEqual(["src/Fancy.tsx:3", "src/Old.jsx:2", "src/Page.tsx:14"]);
+    expect(summary).toContain("props-contract compatibility is not checked");
+  });
+
+  it("keeps JSX-only corpus consumers out of dead code without crediting unresolved names", async () => {
+    const result = await executeScanDeadCode({});
+    const unused = result.entries.flatMap((entry) => entry.unusedSymbols.map((s) => `${rel(entry.filePath)}#${s.name}`));
+    for (const key of ["src/ui/Card.tsx#Card", "src/ui/Card.tsx#Panel", "src/ui/Button.jsx#Button", "src/Fancy.tsx#Fancy", "src/Fancy.tsx#Field"]) {
+      expect(unused).not.toContain(key);
+    }
+    expect(unused).toContain("src/other.tsx#Missing");
+  });
+
+  it.each(["jsx", "tsx"])("credits local JSX root references and default framework candidates in %s", async (extension) => {
+    const file = `src/entry.${extension}`;
+    edit({ [file]: `import { createRoot } from 'react-dom/client';
+export function App() { return <main />; }
+export function Unused() { return <aside />; }
+export default function Route() { return <App />; }
+createRoot(document.getElementById('root')).render(<App />);
+` });
+    await workerState.spider!.buildFullIndex();
+    expect((await workerState.spider!.getSymbolGraph(abs(file))).symbols.filter((s) => s.isExported).map((s) => s.name)).toEqual(["App", "Unused", "Route"]);
+    const unused = await workerState.spider!.findUnusedSymbols(abs(file));
+    expect(unused.map((s) => s.name)).toEqual(["Unused"]);
   });
 
   it.each([
+    { extension: "jsx", source: `export function Unused() { return <Unused />; }`, expected: ["Unused"] },
+    { extension: "tsx", source: `export function Unused() { return <Unused />; }`, expected: ["Unused"] },
+    { extension: "jsx", source: `export function Unused() { return null; }
+function local(Unused) { return <Unused />; }`, expected: ["Unused"] },
+    { extension: "tsx", source: `const value = 1; export default value;`, expected: ["value"] },
+    { extension: "ts", source: `export default function Route() { return null; }`, expected: ["Route"] },
+    { extension: "js", source: `export default function Route() { return null; }`, expected: ["Route"] },
+  ])("does not invent an entry point or consumer for $source ($extension)", async ({ extension, source, expected }) => {
+    const file = `src/unused.${extension}`;
+    edit({ [file]: source });
+    expect((await workerState.spider!.findUnusedSymbols(abs(file))).map((s) => s.name)).toEqual(expected);
+  });
+
+  it.each<{ title: string; files: Record<string, string | null>; expected: () => string[] }>([
     {
       title: "follows a renamed default export to its new name",
       files: { "src/ui/Card.tsx": "export function Card() { return <section />; }\nexport default function Board() { return <aside />; }\n" },

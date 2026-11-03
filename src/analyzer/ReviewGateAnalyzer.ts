@@ -22,6 +22,7 @@ export const REVIEW_GATE_MAX_FILES_LIMIT = MAX_MAX_FILES;
 const MAX_MAX_DEPTH = 10;
 /** Bound on the reverse-index walk used to decide whether a consumer is under test. */
 const MAX_COVERAGE_LOOKUP_FILES = 200;
+const REACT_PROPS_LIMITATION = "React props-contract compatibility is not checked (contrat de props non analysé); JSX consumers must be reviewed manually.";
 const SIGNATURE_ANALYSIS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".py"]);
 
 /** Whether the review compares signatures of `file`: the one list review-pr and Branch Watch share. */
@@ -123,7 +124,7 @@ export interface ReviewGateResult {
 }
 
 export interface SymbolDependentsProvider {
-  getSymbolDependents(filePath: string, symbolName: string): Promise<Array<{ sourceSymbolId: string }>>;
+  getSymbolDependents(filePath: string, symbolName: string): Promise<ReviewDependent[]>;
   /**
    * File-level reverse index: which files reference `filePath`.
    *
@@ -137,6 +138,12 @@ export interface SymbolDependentsProvider {
   findUnusedSymbols?(filePath: string): Promise<SymbolInfo[]>;
   /** Import cycles among `changedFiles` that the diff against `baseRef` adds; absent when the host cannot read the base. */
   findFileCycles?(changedFiles: string[], baseRef: string): Promise<FileCycleAnalysis>;
+}
+
+type ReviewDependent = Pick<SymbolDependency, "sourceSymbolId"> & Partial<Pick<SymbolDependency, "relation" | "line">>;
+interface ReferenceConsumer {
+  filePath: string;
+  line?: number;
 }
 
 interface FileEvidence {
@@ -203,6 +210,7 @@ interface DependentWalkState {
   consumerFiles: Set<string>;
   edges: Map<string, Set<string>>;
   next: Array<{ filePath: string; symbolName: string }>;
+  references: ReferenceConsumer[];
 }
 
 /** Deterministic, local Git-diff review analysis. */
@@ -250,6 +258,9 @@ export class ReviewGateAnalyzer {
     for (const { fileSymbols, fileLimitations } of analyses) {
       symbols.push(...fileSymbols);
       limitations.push(...fileLimitations);
+    }
+    if (symbols.some((symbol) => symbol.evidence.some((item) => item.detail === REACT_PROPS_LIMITATION))) {
+      limitations.push(REACT_PROPS_LIMITATION);
     }
 
     symbols.sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath) || a.name.localeCompare(b.name));
@@ -848,7 +859,8 @@ export class ReviewGateAnalyzer {
   }): ReviewEvidence[] {
     const evidence: ReviewEvidence[] = input.breakingChanges.map((change) => ({ kind: evidenceKindOf(change), detail: change.description }));
     if (input.impact.count > 0) evidence.push({ kind: "impact", detail: `${input.impact.count} known dependent symbol(s).` });
-    evidence.push(...consumerEvidence(input.consumers, input.consumersMustAct, input.breakingChanges, input.exhaustiveConsumers));
+    evidence.push(...referenceEvidence(input.impact.references ?? []));
+    evidence.push(...consumerEvidence(input.consumers, input.consumersMustAct, input.breakingChanges, input.exhaustiveConsumers, Boolean(input.impact.references?.length)));
     if (input.cycles) evidence.push({ kind: "cycle", detail: "Changed symbol participates in a detected symbol dependency cycle, or its file in an import cycle this diff adds." });
     if (input.unusedExport) evidence.push({ kind: "unused-export", detail: "Changed exported symbol is currently reported as unused." });
     if (input.testCandidates.length > 0) {
@@ -1053,7 +1065,7 @@ export class ReviewGateAnalyzer {
     const contents = await Promise.all(files.map((file) => this.readConsumerContent(file, headRef)));
     const kept = new Set(files.filter((_file, index) => {
       const content = contents[index];
-      return content === null || matches(content);
+      return content === null || impact.references?.some((reference) => reference.filePath === files[index]) || matches(content);
     }));
     const keep = (list: string[]): string[] => list.filter((file) => kept.has(file));
     return {
@@ -1099,6 +1111,7 @@ export class ReviewGateAnalyzer {
     const state: DependentWalkState = {
       seen: new Set<string>(), testDependents: new Set<string>(), consumerFiles: new Set<string>(),
       edges: new Map<string, Set<string>>(), next: [],
+      references: [],
     };
     const frontier = await this.walkDependentLevel([{ filePath, symbolName }], maxDepth, state);
 
@@ -1108,6 +1121,7 @@ export class ReviewGateAnalyzer {
       testDependents: [...state.testDependents],
       consumerFiles: [...state.consumerFiles],
       coveredFiles: [...state.consumerFiles].filter((file) => this.reachesTestFile(file, state.edges)),
+      references: state.references,
     };
   }
 
@@ -1133,13 +1147,16 @@ export class ReviewGateAnalyzer {
 
   private collectDependent(
     parent: string,
-    dependent: { sourceSymbolId: string },
+    dependent: ReviewDependent,
     state: DependentWalkState,
   ): void {
     const separator = dependent.sourceSymbolId.lastIndexOf(":");
     if (separator <= 0) return;
     const dependentPath = normalizePath(dependent.sourceSymbolId.slice(0, separator));
     const child = this.toWorkspaceRelative(dependentPath);
+    if (dependent.relation === "REFERENCES") {
+      state.references.push({ filePath: child, line: dependent.line });
+    }
     if (child !== parent) {
       const children = state.edges.get(parent) ?? new Set<string>();
       children.add(child);
@@ -1277,15 +1294,16 @@ function isPytestFile(filePath: string): boolean {
 }
 
 /** Where the consumers of a changed contract stand, and which of them may handle every member of a widened union or enum. */
-function consumerEvidence(consumers: ConsumerStanding, consumersMustAct: boolean, changes: BreakingChange[], exhaustive: string[]): ReviewEvidence[] {
+function consumerEvidence(consumers: ConsumerStanding, consumersMustAct: boolean, changes: BreakingChange[], exhaustive: string[], hasReferences: boolean): ReviewEvidence[] {
   const { updated, covered, unverified } = consumers;
   const evidence: ReviewEvidence[] = [];
   const total = updated.length + covered.length + unverified.length;
   if (total > 0) {
     const unverifiedDetail = unverified.length > 0 ? `: ${unverified.join(", ")}` : "";
-    const standing = consumersMustAct
+    let standing = consumersMustAct
       ? `${covered.length + unverified.length} must be updated (${covered.length} with tests that will fail, ${unverified.length} unverified${unverifiedDetail})`
       : `${covered.length} covered by tests, ${unverified.length} neither; ${recheckReason(changes)}`;
+    if (hasReferences) standing = `${covered.length + unverified.length} require manual review; runtime references do not establish call-site compatibility`;
     evidence.push({ kind: "consumers", detail: `${total} consumer file(s): ${updated.length} updated in this diff, ${standing}.` });
   }
   if (exhaustive.length > 0) {
@@ -1294,6 +1312,13 @@ function consumerEvidence(consumers: ConsumerStanding, consumersMustAct: boolean
       detail: `${exhaustive.length} file(s) may handle every member (switch, Record, mapped type) and likely stop compiling: ${exhaustive.join(", ")}.`,
     });
   }
+  return evidence;
+}
+
+function referenceEvidence(references: ReferenceConsumer[]): ReviewEvidence[] {
+  if (references.length === 0) return [];
+  const evidence = references.map((reference): ReviewEvidence => ({ kind: "impact", detail: `${reference.filePath}:${reference.line ?? "?"}: proven runtime reference consumer.` }));
+  if (references.some((reference) => /\.[jt]sx$/i.test(reference.filePath))) evidence.push({ kind: "partial", detail: REACT_PROPS_LIMITATION });
   return evidence;
 }
 
@@ -1508,11 +1533,13 @@ function mergeImpacts(left: SymbolImpact, right: SymbolImpact): SymbolImpact {
     testDependents: union(left.testDependents, right.testDependents),
     consumerFiles: union(left.consumerFiles, right.consumerFiles),
     coveredFiles: union(left.coveredFiles, right.coveredFiles),
+    references: [...left.references ?? [], ...right.references ?? []],
   };
 }
 
 /** Result of walking the dependent graph for one changed symbol. */
 interface SymbolImpact {
+  references?: ReferenceConsumer[];
   count: number;
   /** The count is an over- or under-estimate; see containerScoped. */
   partial: boolean;
@@ -1576,6 +1603,10 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     .flatMap((symbol) => symbol.evidence.filter((item) => item.kind === "moved").map((item) => `- ${safe(item.detail)}`))
     .slice(0, 20);
 
+  const impactEvidence = result.symbols
+    .flatMap((symbol) => symbol.evidence.filter((item) => item.kind === "impact").map((item) => `- ${safe(item.detail)}`))
+    .slice(0, 20);
+
   const cycles = result.cycles.slice(0, 10).map((cycle) => `- ${cycle.classification}: ${cycle.files.map(safe).join(" <-> ")}`);
 
   return [
@@ -1593,6 +1624,7 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
       : []),
     ...(compatibleConsumers.length > 0 ? ["", "### Compatible change: consumers to re-check", ...compatibleConsumers] : []),
     ...(moved.length > 0 ? ["", "### Moved symbols", ...moved] : []),
+    ...(impactEvidence.length > 0 ? ["", "### Impact evidence", ...impactEvidence] : []),
     ...(cycles.length > 0 ? ["", "### Import cycles", ...cycles] : []),
     ...(result.limitations.length > 0 ? ["", "### Limitations", ...result.limitations.map((item) => `- ${safe(item)}`)] : []),
   ].join("\n");
