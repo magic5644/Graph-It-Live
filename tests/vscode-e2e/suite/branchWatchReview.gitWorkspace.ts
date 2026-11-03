@@ -2,6 +2,7 @@ import * as assert from 'node:assert';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { branchWatchReact } from '../fixtures/branchWatch.fixture';
 
 interface SnapshotItem {
   label: string | { label: string };
@@ -10,7 +11,7 @@ interface SnapshotItem {
 }
 
 interface BranchWatchSnapshot {
-  state: { phase: string; reason?: string };
+  state: { phase: string; reason?: string; result?: { review: { symbols: Array<{ name: string; unusedExportEvidence: boolean }> } } };
   items: SnapshotItem[];
 }
 
@@ -77,6 +78,24 @@ suite('Branch Watch review in a Git workspace (#546)', function () {
       assert.ok(symbols.some(label => label.startsWith("value: Function 'value' was removed")), `Deletion not reviewed: ${JSON.stringify(symbols)}`);
     } finally {
       await fs.writeFile(source, content);
+    }
+  });
+
+  test('shows a JSX-only consumer and the unchecked props contract after a save (#576)', async () => {
+    const source = path.join(root(), branchWatchReact.source);
+    try {
+      await fs.writeFile(source, branchWatchReact.changed);
+      await vscode.commands.executeCommand('graph-it-live.branchWatch.refresh');
+      await waitForReview(labels => labels.some(label => label.startsWith('Widget: ')));
+      const snapshot = await snapshotOf();
+      const visibleTree = JSON.stringify(snapshot.items);
+      assert.ok(visibleTree.includes(branchWatchReact.consumer), `JSX consumer missing from the tree: ${visibleTree}`);
+      assert.ok(visibleTree.includes('props-contract compatibility is not checked'), `Props limitation missing: ${visibleTree}`);
+      const widget = snapshot.state.result?.review.symbols.find(symbol => symbol.name === 'Widget');
+      assert.ok(widget, 'The saved component must be reviewed');
+      assert.strictEqual(widget.unusedExportEvidence, false, 'JSX-only consumption must prevent unused-export evidence');
+    } finally {
+      await fs.writeFile(source, branchWatchReact.content);
     }
   });
 });

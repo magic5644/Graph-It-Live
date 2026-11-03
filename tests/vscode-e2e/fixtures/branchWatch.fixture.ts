@@ -16,6 +16,13 @@ export const branchWatchLanguages = [
   { name: 'GraphQL', source: 'graphql/api.graphql', consumer: 'graphql/consumer.graphql', content: 'fragment Fields on User { id }\n', changed: 'fragment Fields on User { id name }\n', use: '# import "./api.graphql"\nquery UserQuery { user { ...Fields } }\n' },
 ] as const;
 
+export const branchWatchReact = {
+  name: 'React', source: 'react/Widget.tsx', consumer: 'react/Consumer.tsx',
+  content: `export function Widget(props?: { caption: string }) { return <section>{props?.caption}</section>; }\n`,
+  changed: `export function Widget() { return <section />; }\n`,
+  use: `import { Widget } from './Widget';\nexport function Consumer() { return <Widget />; }\n`,
+};
+
 export function fixtureGit(root: string, ...args: string[]): string {
   const gitCommand = process.platform === 'win32' ? 'git.exe' : '/usr/bin/git';
   return execFileSync(gitCommand, ['-c', `core.hooksPath=${path.join(root, '.empty-git-hooks')}`, ...args], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -23,7 +30,7 @@ export function fixtureGit(root: string, ...args: string[]): string {
 
 export async function createBranchWatchFixture(mode: 'git' | 'noGit' | 'unborn' = 'git'): Promise<string> {
   const root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-branch-e2e-')));
-  for (const language of branchWatchLanguages) {
+  for (const language of [...branchWatchLanguages, branchWatchReact]) {
     for (const [file, content] of [[language.source, language.content], [language.consumer, language.use]]) {
       await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true });
       await fs.writeFile(path.join(root, file), content);
