@@ -10,7 +10,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { closeSession, startMcpSession } from './mcpSession.ts';
+import { closeSession, startMcpSession } from './mcpSession.mts';
 import { NPM_FILES, NPM_PACKAGE_NAME, npmManifest } from './npm-package.mjs';
 import { requiredAssets } from './verify-package.mjs';
 

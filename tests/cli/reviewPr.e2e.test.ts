@@ -4,7 +4,7 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { closeSession, startMcpSession } from "../../scripts/mcpSession";
+import { closeSession, startMcpSession } from "../../scripts/mcpSession.mts";
 
 const repositoryRoot = path.resolve(__dirname, "../..");
 const cliEntry = path.join(repositoryRoot, "dist", "graph-it.js");
