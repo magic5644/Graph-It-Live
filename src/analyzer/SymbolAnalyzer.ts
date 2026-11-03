@@ -264,6 +264,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         // Provide basic compiler options instead of reading from tsconfig
         target: 99, // ESNext
         module: 99, // ESNext
+        allowJs: true,
       },
     });
   }
@@ -851,7 +852,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       if (Node.isImportDeclaration(stmt)) continue;
 
       // Extract dependencies from this statement
-      const deps = this.extractSymbolDependencies(stmt, importMap);
+      const deps = this.extractSymbolDependencies(stmt, importMap, localNames);
       fileScopeUsages.push(...deps);
     }
 

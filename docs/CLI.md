@@ -961,6 +961,16 @@ The VS Code Architecture view and the [`check_architecture`](#check_architecture
 
 Find unused exported symbols (dead code) — either workspace-wide, scoped to a directory, or for a single file.
 
+JSX/TSX runtime references count as consumers: `<Card />`, namespace/aliased components,
+handlers and render props keep the proven target out of unused-export results, including
+same-file JSX and `createRoot(...).render(<App />)` at file scope. Self-reference alone
+does not establish a consumer. Function/class default exports in `.jsx`/`.tsx` are
+conservatively treated as possible external framework entry points even without an
+in-workspace importer; this can retain an unused default component. This does not infer
+framework routes. A named export without a proven consumer or this entry-point rule
+may still be reported: no known consumer was found, which is not proof of runtime
+unreachability. Missing imports, shadowed names and ambiguous targets are never guessed.
+
 ```
 graph-it check [target] [options]
 ```
@@ -1236,6 +1246,16 @@ that happens.
 ---
 
 ### review-pr
+
+React JSX consumers are included in impact evidence with workspace-relative file and
+1-based usage line, including through aliases and barrels. Review Gate and Branch Watch
+reuse this analysis. Removing a function parameter must not discard a JSX consumer just
+because it has no ordinary `Component(...)` call. `get_impact_analysis` also returns the
+usage `line` when known. A runtime reference proves a dependency, not an invocation.
+The same preservation applies to passed callbacks in plain JS/TS and Python; the
+review does not discard them merely because the consumer passes a value instead of calling it.
+React props-contract compatibility is not checked (**contrat de props non analysé**):
+review affected consumers manually; impact is not proof that their props are broken or compatible.
 
 Run a deterministic local review of a Git diff:
 

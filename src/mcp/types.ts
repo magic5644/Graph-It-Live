@@ -1538,6 +1538,8 @@ export type ImpactLevel = "high" | "medium" | "low";
  * Information about an impacted file/symbol
  */
 export interface ImpactedItem {
+  /** Proven usage location in the consumer file, 1-based. */
+  line?: number;
   /** The symbol ID that would be affected */
   symbolId: string;
   /** The file path */

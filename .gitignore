@@ -229,6 +229,7 @@ skills-lock.json
 
 # Local Superpowers workflow state
 .superpowers/
+/docs/superpowers/
 
 # Internal product strategy, kept out of the public repo
 /docs/strategy/

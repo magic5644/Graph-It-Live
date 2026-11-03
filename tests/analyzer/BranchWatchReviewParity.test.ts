@@ -7,6 +7,7 @@ import { BranchWatchAnalyzer } from "@/analyzer/BranchWatchAnalyzer";
 import { ReviewGateAnalyzer, type ReviewGateResult } from "@/analyzer/ReviewGateAnalyzer";
 import { Spider } from "@/analyzer/Spider";
 import { createSpiderDependentsProvider } from "@/mcp/tools/impact";
+import { REACT_CORPUS, REACT_REVIEW_BASE, REACT_REVIEW_FILE } from "./react/reactCorpus";
 
 type Files = Record<string, string | null>;
 
@@ -53,6 +54,7 @@ function comparable(review: ReviewGateResult) {
       name: symbol.name, filePath: symbol.filePath, score: symbol.score,
       changes: symbol.breakingChanges.map((change) => `${change.type}:${change.severity}`),
       consumers: symbol.consumers, exhaustiveConsumers: symbol.exhaustiveConsumers, testCandidates: symbol.testCandidates,
+      evidence: symbol.evidence,
     })),
     limitations: review.limitations.filter((limitation) => !/import[- ]cycle/i.test(limitation)),
     isPartial: review.limitations.some((limitation) => !/import[- ]cycle/i.test(limitation)),
@@ -74,7 +76,29 @@ const API_TS = "export function value(n: number): number { return n; }\n";
 
 /** Regression (#546): Branch Watch filtered the diff before the review, so it reviewed less than review-pr. */
 describe("Branch Watch and review-pr review the same diff alike (#546)", { timeout: 60_000 }, () => {
-  it.each([
+  it("retains proven JSX consumers when a component loses an optional parameter (#576)", async () => {
+    const { reviewPr, branchWatch } = await bothReviews(REACT_REVIEW_BASE, { [REACT_REVIEW_FILE]: REACT_CORPUS[REACT_REVIEW_FILE] });
+    expect(branchWatch).toEqual(reviewPr);
+    const card = reviewPr.symbols.find((s) => s.name === "Card")!;
+    expect(card.consumers.unverified.sort()).toEqual(["src/Fancy.tsx", "src/Old.jsx", "src/Page.tsx"]);
+    expect(card.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "impact", detail: expect.stringContaining("src/Page.tsx:14") }),
+      expect.objectContaining({ kind: "partial", detail: expect.stringContaining("props-contract compatibility is not checked") }),
+    ]));
+    expect(card.evidence.some((e) => e.kind === "unused-export")).toBe(false);
+    expect(card.evidence.find((e) => e.kind === "consumers")?.detail).toContain("require manual review");
+  });
+
+  it.each<{
+    name: string; base: Files; head: Files;
+    expected: { name: string; consumers?: string[]; exhaustive?: string[]; tests?: string[]; limitation?: string };
+  }>([
+    ...["js", "ts"].map((extension) => ({
+      name: `a ${extension} callback with a removed optional parameter`,
+      base: { [`src/api.${extension}`]: `export function value(n=0) { return n; }\n`, [`src/consumer.${extension}`]: `import { value } from './api';\nregister(value);\n` },
+      head: { [`src/api.${extension}`]: `export function value() { return 0; }\n` },
+      expected: { name: "value", consumers: [`src/consumer.${extension}`] },
+    })),
     {
       name: "a TypeScript signature change",
       base: { "src/api.ts": API_TS, "src/consumer.ts": 'import { value } from "./api";\nexport const result = value(1);\n' },
@@ -90,6 +114,12 @@ describe("Branch Watch and review-pr review the same diff alike (#546)", { timeo
       },
       head: { "src/lang.ts": 'export type Lang = "a" | "b" | "c";\n' },
       expected: { name: "Lang", consumers: ["src/use.ts"], exhaustive: ["src/use.ts"], tests: ["tests/use.test.ts"] },
+    },
+    {
+      name: "a Python callback with a removed optional parameter",
+      base: { "pkg/__init__.py": "", "pkg/api.py": `def value(n=0):\n    return n\n`, "pkg/consumer.py": `from .api import value\nregister(value)\n` },
+      head: { "pkg/api.py": `def value():\n    return 0\n` },
+      expected: { name: "value", consumers: ["pkg/consumer.py"] },
     },
     {
       name: "a Python-only signature change",
@@ -112,6 +142,7 @@ describe("Branch Watch and review-pr review the same diff alike (#546)", { timeo
   ])("$name", async ({ base, head, expected }) => {
     const { reviewPr, branchWatch } = await bothReviews(base, head);
     expect(branchWatch).toEqual(reviewPr);
+    expect(reviewPr.limitations.join(" ")).not.toContain("props-contract");
     // Parity on an empty review would prove nothing: each case must find what it is about.
     const symbol = reviewPr.symbols.find((candidate) => candidate.name === expected.name);
     expect(symbol).toBeDefined();

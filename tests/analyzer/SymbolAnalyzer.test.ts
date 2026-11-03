@@ -599,7 +599,7 @@ describe('SymbolAnalyzer - React references (#575)', () => {
     {
       title: 'the memo, forwardRef and lazy wrappers, bare or as React.*',
       source: `import React, { memo, lazy } from 'react';\nexport const A = memo(function A() { return null; });\nexport const B = React.forwardRef(function B() { return null; });\nexport const C = lazy(() => import('./C'));\nexport default memo(A);`,
-      expected: ['C -> ./C:default:REFERENCES@4'],
+      expected: ['C -> ./C:default:REFERENCES@4', '(file) -> App.tsx:A:REFERENCES@5'],
     },
     {
       title: 'an import() outside lazy(), which stays a plain use',

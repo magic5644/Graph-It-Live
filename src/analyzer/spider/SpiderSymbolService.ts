@@ -136,7 +136,7 @@ export class SpiderSymbolService {
   async findUnusedSymbols(filePath: string, reExportMemo: ReExportMemo = new Map()): Promise<SymbolInfo[]> {
     try {
       const normalizedTarget = normalizePath(filePath);
-      const { symbols } = await this.getSymbolGraph(normalizedTarget);
+      const { symbols, dependencies } = await this.getSymbolGraph(normalizedTarget);
       const exportedSymbols = symbols.filter((s) => s.isExported);
       if (exportedSymbols.length === 0) {
         return [];
@@ -144,6 +144,7 @@ export class SpiderSymbolService {
 
       const referencingFiles = await this.findReferencingFiles(normalizedTarget);
       const usedSymbolIds = await this.collectUsedSymbolIds(referencingFiles, normalizedTarget);
+      this.addJsxConsumers(normalizedTarget, { symbols: exportedSymbols, dependencies }, usedSymbolIds);
       // `import Panel from` uses the default export, listed under its declared name.
       const defaultExport = exportedSymbols.find((s) => s.isDefaultExport);
       if (defaultExport && usedSymbolIds.has(this.symbolDependencyHelper.buildUsedSymbolId(normalizedTarget, 'default'))) {
@@ -160,6 +161,20 @@ export class SpiderSymbolService {
       const spiderError = SpiderError.fromError(error, filePath);
       log.error('Find unused symbols failed:', spiderError.toUserMessage());
       return [];
+    }
+  }
+
+  private addJsxConsumers(filePath: string, graph: SymbolGraph, used: Set<string>): void {
+    // Same-file JSX consumers count too; self references alone do not establish a consumer.
+    for (const dep of graph.dependencies) {
+      if (dep.relation === "REFERENCES" && normalizePath(dep.targetFilePath) === filePath && normalizePath(dep.sourceSymbolId) !== normalizePath(dep.targetSymbolId)) {
+        used.add(normalizePath(dep.targetSymbolId));
+      }
+    }
+    if (!/\.[jt]sx$/i.test(filePath)) return;
+    // JSX defaults may be framework entry points with no in-workspace importer.
+    for (const symbol of graph.symbols) {
+      if (symbol.isDefaultExport && (symbol.category === "function" || symbol.category === "class")) used.add(normalizePath(symbol.id));
     }
   }
 
