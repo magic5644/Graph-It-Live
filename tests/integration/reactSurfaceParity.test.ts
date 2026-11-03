@@ -33,6 +33,8 @@ import type { GraphProvider } from "@/extension/GraphProvider";
 import { LmToolsService } from "@/extension/services/LmToolsService";
 import { executeQueryCallGraph } from "@/mcp/tools/callgraph";
 import { executeTraceFunctionExecution } from "@/mcp/tools/execution";
+import { QueryCallGraphParamsSchema } from "@/mcp/types";
+import packageJson from "../../package.json";
 import { createTreeSitterHarness } from "../analyzer/callgraph/treeSitterHarness";
 import { REACT_CORPUS, REACT_CORPUS_EDGES } from "../analyzer/react/reactCorpus";
 import { indexWorkspace, REPO_ROOT, wasmBuilt } from "../mcp/tools/callGraphWorkspace";
@@ -41,7 +43,7 @@ const DIST_ENTRY = path.join(REPO_ROOT, "dist/graph-it.js");
 const SOURCES = [...new Set(REACT_CORPUS_EDGES.map((edge) => edge.split(" ")[0]))];
 /** Every corpus symbol with an edge, plus a component no file declares under that name (not_found). */
 const SYMBOLS = [...new Set(REACT_CORPUS_EDGES.flatMap((edge) => [edge.split(" ")[0], edge.split(" ").at(-1)!])), "src/Page.tsx#Missing"].sort();
-/** The relations the call graph documents; every surface returns USES only on request. */
+/** Every relation the call graph documents; the default filter of each surface is checked too. */
 const RELATIONS = ["CALLS", "REFERENCES", "USES"];
 
 interface CallEdge { relation: string; sourceLine: number; sourceName: string; sourceFile: string; targetName: string; targetFile: string }
@@ -56,7 +58,8 @@ interface TraceAnswer { callChain: Array<{ calledSymbolId: string; resolvedRelat
 /** One surface: its workspace root and the two documented queries. */
 interface Surface {
   root: string;
-  callGraph(filePath: string, symbolName: string): Promise<CallGraphAnswer>;
+  /** query_call_graph; without `relationTypes`, the surface's documented default filter. */
+  callGraph(filePath: string, symbolName: string, relationTypes?: string[]): Promise<CallGraphAnswer>;
   trace(filePath: string, symbolName: string): Promise<TraceAnswer>;
 }
 
@@ -68,13 +71,13 @@ const inSequence = <T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]>
   items.reduce<Promise<R[]>>(async (done, item) => [...(await done), await fn(item)], Promise.resolve([]));
 
 /** Every answer of a surface as `query: fact` lines, with 1-based lines and workspace-relative paths. */
-async function answers(surface: Surface): Promise<string[]> {
+async function answers(surface: Surface, relationTypes?: string[]): Promise<string[]> {
   const rel = (file: string) => relativeTo(surface.root, file);
   const edge = (e: CallEdge) => `${rel(e.sourceFile)}#${e.sourceName} -${e.relation}@${e.sourceLine + 1}-> ${rel(e.targetFile)}#${e.targetName}`;
   const split = (key: string) => key.split("#") as [string, string];
   const graphs = await inSequence(SYMBOLS, async (key) => {
     const [file, symbolName] = split(key);
-    const graph = await surface.callGraph(path.join(surface.root, file), symbolName);
+    const graph = await surface.callGraph(path.join(surface.root, file), symbolName, relationTypes);
     const { symbol } = graph;
     return [
       `${key} symbol: ${symbol ? `${rel(symbol.filePath)}#${symbol.name}@${symbol.startLine + 1}-${symbol.endLine + 1}` : graph.reason}`,
@@ -105,12 +108,12 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
 
   const lmSurface = (): Surface => ({
     root: harness.root,
-    callGraph: (filePath, symbolName) => invoke("graph-it-live_query_call_graph", { filePath, symbolName, direction: "both", depth: 1, relationTypes: RELATIONS }),
+    callGraph: (filePath, symbolName, relationTypes) => invoke("graph-it-live_query_call_graph", { filePath, symbolName, direction: "both", depth: 1, relationTypes }),
     trace: (filePath, symbolName) => invoke("graph-it-live_trace_function_execution", { filePath, symbolName, maxDepth: 1 }),
   });
   const mcpSurface = (): Surface => ({
     root: mcp.tmpDir,
-    callGraph: (filePath, symbolName) => executeQueryCallGraph({ filePath, symbolName, direction: "both", depth: 1, relationTypes: RELATIONS as never }),
+    callGraph: (filePath, symbolName, relationTypes) => executeQueryCallGraph({ filePath, symbolName, direction: "both", depth: 1, relationTypes: relationTypes as never }),
     trace: (filePath, symbolName) => executeTraceFunctionExecution({ filePath, symbolName, maxDepth: 1 }),
   });
   const cliSurface = (root: string): Surface => {
@@ -122,8 +125,8 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
     };
     return {
       root,
-      callGraph: (filePath, symbolName) => tool("query_call_graph", `--filePath=${filePath}`, `--symbolName=${symbolName}`,
-        "--direction=both", "--depth=1", `--relationTypes=${JSON.stringify(RELATIONS)}`),
+      callGraph: (filePath, symbolName, relationTypes) => tool("query_call_graph", `--filePath=${filePath}`, `--symbolName=${symbolName}`,
+        "--direction=both", "--depth=1", ...(relationTypes ? [`--relationTypes=${JSON.stringify(relationTypes)}`] : [])),
       trace: (filePath, symbolName) => tool("trace_function_execution", `--filePath=${filePath}`, `--symbolName=${symbolName}`, "--maxDepth=1"),
     };
   };
@@ -152,25 +155,38 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
   });
 
   it("answers the same queries with the same targets, relations and positions on every surface", async () => {
-    const lm = await answers(lmSurface());
-    const corpusEdges = (lines: string[]) => lines
-      .filter((line) => line.includes(" callee: ") && !line.includes(" -USES@"))
-      .map((line) => line.split(" callee: ")[1])
-      .sort();
+    const lm = await answers(lmSurface(), RELATIONS);
+    const runtimeOnly = lm.filter((line) => !line.includes(" -USES@"));
+    const corpusEdges = runtimeOnly.filter((line) => line.includes(" callee: ")).map((line) => line.split(" callee: ")[1]).sort();
 
-    expect(corpusEdges(lm)).toEqual([...REACT_CORPUS_EDGES].sort());
+    expect(corpusEdges).toEqual([...REACT_CORPUS_EDGES].sort());
+    // The only type-only use: a class component's name is also a type.
+    expect(lm.filter((line) => line.includes(" -USES@"))).toEqual([
+      "src/ui/Button.jsx#Button callee: src/ui/Button.jsx#Button -USES@2-> src/ui/Button.jsx#Button",
+      "src/ui/Button.jsx#Button caller: src/ui/Button.jsx#Button -USES@2-> src/ui/Button.jsx#Button",
+    ]);
     expect(lm).toContain("src/Page.tsx#Missing symbol: not_found");
-    expect(lm.some((line) => line.includes(" -USES@"))).toBe(true);
-    expect(await answers(mcpSurface())).toEqual(lm);
+    expect(await answers(mcpSurface(), RELATIONS)).toEqual(lm);
+    // Documented defaults: the LM tool returns every relation, MCP and the CLI add USES only on request.
+    expect(await answers(lmSurface())).toEqual(lm);
+    expect(await answers(mcpSurface())).toEqual(runtimeOnly);
     // The CLI indexes in its own process, on a copy of the MCP workspace.
     const cliRoot = fs.realpathSync(fs.mkdtempSync(path.join(path.dirname(mcp.tmpDir), "react-cli-")));
     try {
       fs.cpSync(path.join(mcp.tmpDir, "src"), path.join(cliRoot, "src"), { recursive: true });
       fs.writeFileSync(path.join(cliRoot, "package.json"), "{}");
-      expect(await answers(cliSurface(cliRoot))).toEqual(lm);
+      expect(await answers(cliSurface(cliRoot), RELATIONS)).toEqual(lm);
+      expect(await answers(cliSurface(cliRoot))).toEqual(runtimeOnly);
     } finally {
       fs.rmSync(cliRoot, { recursive: true, force: true });
     }
+  });
+
+  it("documents the same relation types in the LM tool schema as in the MCP schema", () => {
+    const lmTool = packageJson.contributes.languageModelTools.find((tool) => tool.name === "graph-it-live_query_call_graph");
+    const lmRelations = (lmTool?.inputSchema.properties as { relationTypes?: { items: { enum: string[] } } }).relationTypes?.items.enum;
+
+    expect([...(lmRelations ?? [])].sort()).toEqual([...QueryCallGraphParamsSchema.shape.relationTypes.unwrap().element.options].sort());
   });
 
   it("labels JSX consumers as references in the LM callers and impact tools", async () => {

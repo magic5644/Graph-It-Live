@@ -1228,7 +1228,8 @@
                   "CALLS",
                   "INHERITS",
                   "IMPLEMENTS",
-                  "USES"
+                  "USES",
+                  "REFERENCES"
                 ]
               },
               "description": "Filter by relation types (default: all types included)"
