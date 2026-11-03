@@ -24,13 +24,16 @@ function service(): CallGraphViewService {
 }
 
 describe("CallGraphViewService E2E observability and click driver (#591)", () => {
-  it("has no graph before one is posted, then exposes the posted nodes and edges", () => {
+  it("has no graph before one is posted, exposes the posted nodes and edges, and forgets them on dispose", async () => {
     const callGraph = service();
     expect(callGraph.getCallGraphE2EGraph()).toBeNull();
 
     (callGraph as unknown as { postGraphData(graph: typeof GRAPH): void }).postGraphData(GRAPH);
 
     expect(callGraph.getCallGraphE2EGraph()).toEqual({ rootSymbolId: CARD.id, nodes: [CARD], edges: [] });
+
+    await callGraph.disposeAsync();
+    expect(callGraph.getCallGraphE2EGraph()).toBeNull();
   });
 
   it("opens a displayed node at the position the graph holds for it", async () => {

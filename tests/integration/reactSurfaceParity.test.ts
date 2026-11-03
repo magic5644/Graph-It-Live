@@ -182,13 +182,6 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
     }
   });
 
-  it("documents the same relation types in the LM tool schema as in the MCP schema", () => {
-    const lmTool = packageJson.contributes.languageModelTools.find((tool) => tool.name === "graph-it-live_query_call_graph");
-    const lmRelations = (lmTool?.inputSchema.properties as { relationTypes?: { items: { enum: string[] } } }).relationTypes?.items.enum;
-
-    expect([...(lmRelations ?? [])].sort()).toEqual([...QueryCallGraphParamsSchema.shape.relationTypes.unwrap().element.options].sort());
-  });
-
   it("labels JSX consumers as references in the LM callers and impact tools", async () => {
     const filePath = path.join(harness.root, "src/ui/Card.tsx");
     const callers = await invoke<{ callers: Array<{ callerRelativePath: string; callerSymbolId: string; relation: string; line: number }>; referenceCallerCount: number }>(
@@ -207,5 +200,15 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
       "src/Old.jsx:REFERENCES:runtime",
       "src/Page.tsx:REFERENCES:runtime",
     ]);
+  });
+});
+
+// Needs no build: read from package.json and the MCP schema.
+describe("query_call_graph schemas (#591)", () => {
+  it("documents the same relation types in the LM tool schema as in the MCP schema", () => {
+    const lmTool = packageJson.contributes.languageModelTools.find((tool) => tool.name === "graph-it-live_query_call_graph");
+    const lmRelations = (lmTool?.inputSchema.properties as { relationTypes?: { items: { enum: string[] } } }).relationTypes?.items.enum;
+
+    expect([...(lmRelations ?? [])].sort()).toEqual([...QueryCallGraphParamsSchema.shape.relationTypes.unwrap().element.options].sort());
   });
 });
