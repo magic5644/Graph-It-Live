@@ -34,7 +34,6 @@ import { LmToolsService } from "@/extension/services/LmToolsService";
 import { executeQueryCallGraph } from "@/mcp/tools/callgraph";
 import { executeTraceFunctionExecution } from "@/mcp/tools/execution";
 import { QueryCallGraphParamsSchema } from "@/mcp/types";
-import packageJson from "../../package.json";
 import { createTreeSitterHarness } from "../analyzer/callgraph/treeSitterHarness";
 import { REACT_CORPUS, REACT_CORPUS_EDGES } from "../analyzer/react/reactCorpus";
 import { indexWorkspace, REPO_ROOT, wasmBuilt } from "../mcp/tools/callGraphWorkspace";
@@ -206,8 +205,11 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
 // Needs no build: read from package.json and the MCP schema.
 describe("query_call_graph schemas (#591)", () => {
   it("documents the same relation types in the LM tool schema as in the MCP schema", () => {
-    const lmTool = packageJson.contributes.languageModelTools.find((tool) => tool.name === "graph-it-live_query_call_graph");
-    const lmRelations = (lmTool?.inputSchema.properties as { relationTypes?: { items: { enum: string[] } } }).relationTypes?.items.enum;
+    const manifest = JSON.parse(fs.readFileSync(path.join(REPO_ROOT, "package.json"), "utf8")) as {
+      contributes: { languageModelTools: Array<{ name: string; inputSchema: { properties: { relationTypes?: { items: { enum: string[] } } } } }> };
+    };
+    const lmTool = manifest.contributes.languageModelTools.find((tool) => tool.name === "graph-it-live_query_call_graph");
+    const lmRelations = lmTool?.inputSchema.properties.relationTypes?.items.enum;
 
     expect([...(lmRelations ?? [])].sort()).toEqual([...QueryCallGraphParamsSchema.shape.relationTypes.unwrap().element.options].sort());
   });
