@@ -49,12 +49,20 @@ async function waitForRootEdges(expected: string[], timeoutMs = 20000, deadline 
   return waitForRootEdges(expected, timeoutMs, deadline);
 }
 
-/** Open Page.tsx with the cursor on `Page` and show its call graph. */
-async function showPageGraph(): Promise<void> {
+/**
+ * Open Page.tsx with the cursor on `Page` and show its call graph until it draws `expected`: the create events
+ * of the setup files reach the call graph after a debounce, and a show() before them draws Page alone.
+ */
+async function showPageGraph(expected: string[], deadline = Date.now() + 30000): Promise<void> {
   const document = await vscode.workspace.openTextDocument(getProjectFile(PROJECT, 'Page.tsx'));
   const position = new vscode.Position(3, 16);
   await vscode.window.showTextDocument(document, { selection: new vscode.Range(position, position) });
   await showCallGraphAndWait(60000, 200);
+  if (JSON.stringify(rootEdges(await shownGraph())) === JSON.stringify(expected) || Date.now() >= deadline) {
+    return waitForRootEdges(expected, 0);
+  }
+  await sleep(500);
+  return showPageGraph(expected, deadline);
 }
 
 /** Replace the whole text of a file through its document and save it, as a user would. */
@@ -97,8 +105,7 @@ suite('React components in the call graph view', () => {
 
   test('displays JSX references to React components and opens a clicked component at its declaration', async function () {
     this.timeout(120000);
-    await showPageGraph();
-    await waitForRootEdges(['Page -REFERENCES@5-> Card', 'Page -REFERENCES@5-> Panel']);
+    await showPageGraph(['Page -REFERENCES@5-> Card', 'Page -REFERENCES@5-> Panel']);
     const graph = (await shownGraph())!;
     const cardNode = graph.nodes.find(node => node.name === 'Card');
     assert.ok(cardNode, JSON.stringify(graph.nodes));
@@ -122,8 +129,7 @@ suite('React components in the call graph view', () => {
 
   test('refreshes the displayed edges when a component is renamed or removed, or an importer changes', async function () {
     this.timeout(180000);
-    await showPageGraph();
-    await waitForRootEdges(['Page -REFERENCES@5-> Card', 'Page -REFERENCES@5-> Panel']);
+    await showPageGraph(['Page -REFERENCES@5-> Card', 'Page -REFERENCES@5-> Panel']);
 
     // Renamed component: the importers' names no longer resolve, and no edge stays on the old declaration.
     await saveText(card(), CARD.replace('function Card', 'function Board'));
