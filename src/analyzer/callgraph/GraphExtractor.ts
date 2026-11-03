@@ -41,6 +41,7 @@ import { isComponentFactory } from "@/analyzer/utils/declarations";
 import { LOCAL_ONLY, resolvePythonImportCalls } from "./pythonImportBindings";
 import { extractGraphQL } from "./graphqlExtractor";
 import { definitionOwner, QUALIFIED_PREFIX, resolveQualifiedCalls, workspaceFolder } from "./qualifiedCalls";
+import { enclosingType, methodOwner, TYPE_SCOPES, typeNameOf, variableType } from "./receiverTypes";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,6 +186,7 @@ const MEMBER_OBJECT_FIELD: Record<string, string> = {
   member_access_expression: "expression",
   selector_expression: "operand",
   scoped_identifier: "path",
+  method_invocation: "object",
 };
 
 /**
@@ -204,11 +206,6 @@ function isSelfObject(memberType: string | undefined, object: TreeNode | null | 
   return object.type === "identifier" && (SELF_NAMES[memberType ?? ""]?.has(object.text) ?? false);
 }
 
-/** Declarations whose members `this`/`self`/`Self` reach, per grammar. */
-const SELF_SCOPES = new Set([
-  "class_declaration", "class", "class_definition", "impl_item", "struct_declaration", "record_declaration",
-]);
-
 /** The object of `node`'s member reference (`this` in `this.save`), or undefined when `node` is no member. */
 function memberObject(node: TreeNode): TreeNode | null | undefined {
   const member = node.parent;
@@ -224,7 +221,7 @@ function memberObject(node: TreeNode): TreeNode | null | undefined {
 function ownMembers(node: TreeNode, candidates: string[] | undefined): string[] | undefined {
   if (!candidates || candidates.length < 2 || !isSelfObject(node.parent?.type, memberObject(node))) return candidates;
   let owner = node.parent;
-  while (owner && !SELF_SCOPES.has(owner.type)) owner = owner.parent;
+  while (owner && !TYPE_SCOPES.has(owner.type)) owner = owner.parent;
   if (!owner) return candidates;
   const [start, end] = [owner.startPosition.row, owner.endPosition.row];
   // Node ids end with their 0-based start line.
@@ -232,6 +229,47 @@ function ownMembers(node: TreeNode, candidates: string[] | undefined): string[] 
     const line = Number(id.slice(id.lastIndexOf(":") + 1));
     return line >= start && line <= end;
   });
+}
+
+/** Bare calls that reach a method of the enclosing type, as `this.m()` does: Java and C# invocations. */
+const IMPLICIT_THIS_CALLS = new Set(["method_invocation", "invocation_expression"]);
+
+/** Type of the receiver of a member call: `this`/`self`, a variable, a type (`B.m()`) or a construction (`new B()`). */
+function receiverType(node: TreeNode, object: TreeNode): string | null {
+  if (isSelfObject(node.parent?.type, object)) return enclosingType(object);
+  return object.type === "identifier" ? variableType(object) : typeNameOf(object);
+}
+
+/**
+ * Same-file homonyms a call can reach (#505): the method of its receiver's type, a function (or, in Java and
+ * C#, a method of the enclosing type) for a bare call. Null, so no edge, unless exactly one matches: a call is
+ * never linked to an arbitrary homonym. A single candidate is kept as is.
+ * shortcut: a method inherited from a same-file base type is not followed; upgrade with the INHERITS edges.
+ */
+function homonymTargets(node: TreeNode, candidates: string[] | undefined, definitions: Map<string, TreeNode>): string[] | null | undefined {
+  if (!candidates || candidates.length < 2) return candidates;
+  // A Java bare invocation has no `object` field: null, like no member at all.
+  const object = memberObject(node) ?? undefined;
+  let owner: string | null = null;
+  if (object) owner = receiverType(node, object);
+  else if (IMPLICIT_THIS_CALLS.has(node.parent?.type ?? "")) owner = enclosingType(node);
+  if (object && owner === null) return null;
+  const matching = candidates.filter((id) => {
+    const definition = definitions.get(id);
+    return definition !== undefined && methodOwner(definition) === owner;
+  });
+  return matching.length === 1 ? matching : null;
+}
+
+/** Same-file candidates of a capture: a call not bound by an import or a qualifier picks among its homonyms. */
+function callTargets(
+  capture: ReturnType<Query["captures"]>[number],
+  candidates: string[] | undefined,
+  definitions: Map<string, TreeNode>,
+  importTargets: Map<number, string | null>,
+): string[] | null | undefined {
+  const bound = importTargets.has(capture.node.id) && importTargets.get(capture.node.id) !== LOCAL_ONLY;
+  return capture.name === "call" && !bound ? homonymTargets(capture.node, candidates, definitions) : candidates;
 }
 
 /**
@@ -465,14 +503,14 @@ export class GraphExtractor {
     jsxImportSource?: string,
   ): ExtractionResult {
     const folder = this.computeFolder(normalizedFilePath);
-    const { nodeMap, defCaptures, positionToNodeId, nameToNodeIds } =
+    const { nodeMap, positionToNodeId, nameToNodeIds, definitions } =
       this.buildNodeMap(captures, normalizedFilePath, lang, folder, source);
     const identity = analyzeReactIdentity(normalizedFilePath, source, jsxImportSource);
     for (const node of nodeMap.values()) {
       node.reactEligible = identity.eligible;
       if (identity.components.some(component => component.name === node.name && component.startLine === node.startLine)) node.framework = 'react';
     }
-    const edges = this.buildEdges(captures, normalizedFilePath, positionToNodeId, nameToNodeIds, defCaptures, importTargets, identity.isReact);
+    const edges = this.buildEdges(captures, positionToNodeId, nameToNodeIds, definitions, importTargets, identity.isReact);
     return { nodes: [...nodeMap.values()], edges };
   }
 
@@ -484,14 +522,16 @@ export class GraphExtractor {
     source: string,
   ): {
     nodeMap: Map<string, CallGraphNode>;
-    defCaptures: Array<{ captureName: string; node: TreeNode }>;
     positionToNodeId: Map<string, string>;
     nameToNodeIds: Map<string, string[]>;
+    /** Name node of each definition, read only to tell same-named methods apart. */
+    definitions: Map<string, TreeNode>;
   } {
     const nodeMap = new Map<string, CallGraphNode>();
     const defCaptures: Array<{ captureName: string; node: TreeNode }> = [];
     const positionToNodeId = new Map<string, string>();
     const nameToNodeIds = new Map<string, string[]>();
+    const definitions = new Map<string, TreeNode>();
 
     for (const capture of captures) {
       if (!DEF_CAPTURE_NAMES.has(capture.name)) continue;
@@ -522,6 +562,7 @@ export class GraphExtractor {
       const owner = definitionOwner(lang, node);
       if (owner) cgNode.owner = owner;
       nodeMap.set(nodeId, cgNode);
+      definitions.set(nodeId, node);
       // Store the containing DECLARATION node's position for AST ancestor walking.
       // The def capture node is the *name identifier* (e.g. `foo` in `function foo()`),
       // but findEnclosingDefinitionId walks up and compares full declaration node positions
@@ -536,15 +577,14 @@ export class GraphExtractor {
       existing.push(nodeId);
       nameToNodeIds.set(symbolName, existing);
     }
-    return { nodeMap, defCaptures, positionToNodeId, nameToNodeIds };
+    return { nodeMap, positionToNodeId, nameToNodeIds, definitions };
   }
 
   private buildEdges(
     captures: ReturnType<Query["captures"]>,
-    normalizedFilePath: string,
     positionToNodeId: Map<string, string>,
     nameToNodeIds: Map<string, string[]>,
-    defCaptures: Array<{ captureName: string; node: TreeNode }>,
+    definitions: Map<string, TreeNode>,
     importTargets: Map<number, string | null>,
     reactContext: boolean,
   ): CallGraphEdge[] {
@@ -557,14 +597,13 @@ export class GraphExtractor {
       const targetName = capture.node.text.trim();
       if (!targetName || (capture.name === "call" && isFactoryCallee(capture.node, targetName))) continue;
       const named = nameToNodeIds.get(targetName);
-      const targetNodeIds = REFERENCE_CAPTURES.has(capture.name) ? ownMembers(capture.node, named) : named;
+      const targetNodeIds = REFERENCE_CAPTURES.has(capture.name) ? ownMembers(capture.node, named) : callTargets(capture, named, definitions, importTargets);
+      if (targetNodeIds === null) continue;
       const targetId = resolveEdgeTarget(capture.node, targetNodeIds, importTargets);
       // Target first: most passed values are variables that link nowhere, and the ancestor walk below is costly.
       if (!targetId || isGuessedTarget(capture.name, capture.node, targetId, targetNodeIds, importTargets)) continue;
       const sourceLine = capture.node.startPosition.row;
-      const sourceNodeId = this.findEnclosingDefinitionId(
-        capture.node, normalizedFilePath, positionToNodeId, defCaptures,
-      );
+      const sourceNodeId = this.findEnclosingDefinitionId(capture.node, positionToNodeId);
       if (!sourceNodeId) continue;
 
       addEdge(seenEdges, edges, { sourceId: sourceNodeId, targetId, typeRelation: relationType, sourceLine }, capture.name === 'jsx' && reactContext);
@@ -581,9 +620,7 @@ export class GraphExtractor {
    */
   private findEnclosingDefinitionId(
     refNode: TreeNode,
-    _filePath: string,
     positionToNodeId: Map<string, string>,
-    _defCaptures: Array<{ captureName: string; node: TreeNode }>,
   ): string | null {
     let current: TreeNode | null = refNode.parent;
     while (current !== null) {

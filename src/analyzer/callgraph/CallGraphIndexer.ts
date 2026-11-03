@@ -161,8 +161,9 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v12: .tsx/.jsx parse with the tsx grammar; JSX components are USES edges (#574).
  * v13: JSX components, attribute values and functions passed as arguments are REFERENCES edges (every language); default imports and memo/forwardRef/lazy resolve (#575).
  * v14: persist local React identity, competing-runtime exclusion and JSX-specific target evidence (#577).
+ * v15: a call reaches the same-file method of its receiver's type, never the first same-named one (#505).
  */
-const CURRENT_SCHEMA_VERSION = 14;
+const CURRENT_SCHEMA_VERSION = 15;
 
 /**
  * Optional FTS5 schema for fast symbol name search.
