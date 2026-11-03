@@ -95,6 +95,15 @@ suite('React components in the call graph view', () => {
     assert.ok(ext, 'Extension should exist');
     if (!ext.isActive) await ext.activate();
     await vscode.commands.executeCommand('graph-it-live.graphView.focus');
+    // Folders first: on Linux the watcher can miss files written right after their new folder is created.
+    await vscode.workspace.fs.createDirectory(getProjectFile(PROJECT, 'ui'));
+    await sleep(1500);
+  });
+
+  suiteTeardown(async function () {
+    this.timeout(30000);
+    await vscode.workspace.fs.delete(getProjectFile(PROJECT), { recursive: true }).then(undefined, () => undefined);
+    await sleep(1500); // let the delete events reach the index before the next suite
   });
 
   setup(async function () {
@@ -110,8 +119,9 @@ suite('React components in the call graph view', () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     // The call graph replaced the shared view's file graph: restore it for the next suite.
     await vscode.commands.executeCommand('graph-it-live.setViewModeFile');
-    await vscode.workspace.fs.delete(getProjectFile(PROJECT), { recursive: true }).then(undefined, () => undefined);
-    await sleep(1500); // let the delete events reach the index before the next suite
+    await Promise.all([card(), getProjectFile(PROJECT, 'ui', 'index.ts'), page()]
+      .map(file => vscode.workspace.fs.delete(file).then(undefined, () => undefined)));
+    await sleep(1500); // let the delete events reach the index before the next test
   });
 
   test('displays JSX references to React components and opens a clicked component at its declaration', async function () {
