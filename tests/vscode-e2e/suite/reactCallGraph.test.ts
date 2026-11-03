@@ -4,6 +4,7 @@
  * renders another component, refreshes the displayed edges.
  */
 import * as assert from 'node:assert';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { getContextKey, getProjectFile, showCallGraphAndWait, sleep } from './_helpers';
 
@@ -105,7 +106,8 @@ suite('React components in the call graph view', () => {
 
     const editor = vscode.window.activeTextEditor;
     assert.ok(editor, 'The click should open an editor');
-    assert.strictEqual(editor.document.uri.fsPath, card().fsPath);
+    // path.relative ignores the drive letter case Windows may report differently.
+    assert.strictEqual(path.relative(card().fsPath, editor.document.uri.fsPath), '', editor.document.uri.fsPath);
     const { line, character } = editor.selection.active;
     assert.deepStrictEqual([line, character], [cardNode.startLine, cardNode.startCol]);
     // The node starts at the declared name.

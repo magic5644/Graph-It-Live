@@ -27,8 +27,9 @@ async function tsMorphEdges(spider: Spider, root: string, files: Record<string, 
     for (const symbol of symbols.filter((s) => !s.parentSymbolId)) {
       const { callChain } = await spider.traceFunctionExecution(filePath, symbol.name, 1);
       for (const entry of callChain) {
-        // An unresolved entry keeps the imported module as file: it names no declaration.
-        const target = entry.resolvedFilePath && symbolKey(root, entry.calledSymbolId);
+        // An unresolved entry keeps the imported module as file: it names no declaration, so it reads `?Name`.
+        const key = symbolKey(root, entry.calledSymbolId);
+        const target = key && !entry.resolvedFilePath ? `?${key.split("#")[1]}` : key;
         if (target) edges.push(`${symbolKey(root, entry.callerSymbolId)} -${entry.relation ?? "CALLS"}@${entry.line}-> ${target}`);
       }
     }
@@ -128,15 +129,20 @@ export function App() {
     await spider.buildFullIndex();
   });
   afterAll(async () => {
-    await spider.dispose?.();
+    await spider.dispose();
     await harness.dispose();
   });
 
   it("links the unique component and leaves the ambiguous and the missing one unresolved", async () => {
-    const expected = ["src/App.tsx#App -REFERENCES@4-> src/b/Item.tsx#Only"];
+    const linked = "src/App.tsx#App -REFERENCES@4-> src/b/Item.tsx#Only";
 
-    expect(treeSitterEdges((await harness.index(FILES)).edges)).toEqual(expected);
-    expect(await tsMorphEdges(spider, harness.root, FILES)).toEqual(expected);
+    // The call graph stores no edge for a name it cannot resolve; trace lists it without a declaration.
+    expect(treeSitterEdges((await harness.index(FILES)).edges)).toEqual([linked]);
+    expect(await tsMorphEdges(spider, harness.root, FILES)).toEqual([
+      "src/App.tsx#App -REFERENCES@4-> ?Gone",
+      "src/App.tsx#App -REFERENCES@4-> ?Item",
+      linked,
+    ]);
   });
 
   it("reports neither homonym of the ambiguous usage as dead code (conservative)", async () => {

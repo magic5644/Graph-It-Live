@@ -464,6 +464,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     this.saveListener?.dispose();
     this.saveListener = null;
     this.sidebarWebview = null;
+    this.lastGraph = null;
     await this.waitForActiveOperations();
     // Persist the final DB state before closing the connection. Skipped while
     // another process holds the lock: it is indexing and writes a fresher DB.
