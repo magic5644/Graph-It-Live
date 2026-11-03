@@ -72,6 +72,13 @@ async function runGitWorkspaceSuite(options: { version: string; cachePath: strin
   }
 }
 
+/** Optional loopback DevTools port, used for local E2E screenshots. */
+function debuggingArgs(port = process.env.E2E_CDP_PORT): string[] {
+  if (!port) return [];
+  if (!/^\d+$/.test(port)) throw new Error('E2E_CDP_PORT must be a port number');
+  return [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'];
+}
+
 async function main() {
   const useVsix = process.argv.includes('--vsix');
   let temporaryProfileDirectory: string | undefined;
@@ -104,11 +111,7 @@ async function main() {
       ...(resolvedReportFile ? { E2E_MOCHA_REPORT_FILE: resolvedReportFile } : {}),
     };
 
-    const launchArgs = [workspaceRoot, '--disable-extensions'];
-    if (process.env.E2E_CDP_PORT) {
-      if (!/^\d+$/.test(process.env.E2E_CDP_PORT)) throw new Error('E2E_CDP_PORT must be a port number');
-      launchArgs.push(`--remote-debugging-port=${process.env.E2E_CDP_PORT}`, '--remote-debugging-address=127.0.0.1');
-    }
+    const launchArgs = [workspaceRoot, '--disable-extensions', ...debuggingArgs()];
 
     if (useVsix) {
       // Test from packaged .vsix file (production mode)
