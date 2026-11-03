@@ -36,6 +36,17 @@ function rootEdges(graph: ShownGraph | null): string[] {
   return [...new Set(edges)].sort();
 }
 
+/** Whether the call graph index holds Card.tsx#Card, for failure messages. */
+async function indexedCard(): Promise<string> {
+  const result = await vscode.lm.invokeTool('graph-it-live_query_call_graph', {
+    input: { filePath: getProjectFile(PROJECT, 'ui', 'Card.tsx').fsPath, symbolName: 'Card', direction: 'callers', depth: 1 },
+    toolInvocationToken: undefined,
+  });
+  const part = result.content.find(p => p instanceof vscode.LanguageModelTextPart);
+  const answer = part instanceof vscode.LanguageModelTextPart ? JSON.parse(part.value) as { symbol: unknown; reason?: string; callers?: unknown[] } : null;
+  return answer?.symbol ? `yes, ${answer.callers?.length ?? 0} callers` : `no (${answer?.reason ?? 'no answer'})`;
+}
+
 /** Wait until the displayed root edges equal `expected`; a save refresh is debounced and re-extracts importers. */
 async function waitForRootEdges(expected: string[], timeoutMs = 20000, deadline = Date.now() + timeoutMs): Promise<void> {
   const graph = await shownGraph();
@@ -43,7 +54,7 @@ async function waitForRootEdges(expected: string[], timeoutMs = 20000, deadline 
   if (JSON.stringify(actual) === JSON.stringify(expected)) return;
   if (Date.now() >= deadline) {
     const shown = graph ? `root ${graph.rootSymbolId}, nodes ${graph.nodes.map(node => node.name).join(', ')}` : 'no graph';
-    assert.deepStrictEqual(actual, expected, `Displayed call graph edges did not refresh (${shown})`);
+    assert.deepStrictEqual(actual, expected, `Displayed call graph edges did not refresh (${shown}; Card in the index: ${await indexedCard()})`);
   }
   await sleep(250);
   return waitForRootEdges(expected, timeoutMs, deadline);
