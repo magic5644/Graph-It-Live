@@ -32,6 +32,7 @@ describe('React framework transport', () => {
       crawl: vi.fn().mockResolvedValue({ nodes: [component, plain], edges: [] }),
       crawlFrom: vi.fn().mockResolvedValue({ nodes: [component, plain], edges: [] }),
       findReferencingFiles: vi.fn().mockResolvedValue([{ path: component }, { path: plain }]),
+      getIndexedReferencingFiles: vi.fn().mockReturnValue([{ path: component }, { path: plain }]),
       hasReverseIndex: vi.fn().mockReturnValue(false),
       getCallerCount: vi.fn().mockReturnValue(0),
       verifyDependencyUsage: vi.fn().mockResolvedValue(true),

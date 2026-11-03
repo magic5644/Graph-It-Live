@@ -382,6 +382,9 @@ describe('Spider - handleResolverConfigChange', () => {
     expect(await spider.handleResolverConfigChange(path.join(tmpDir, 'tsconfig.json'))).toBe(1);
     expect((await spider.analyzeFromIndex(app)).map((d) => d.path)).toEqual([np(target)]);
     expect((await spider.findReferencingFiles(target)).map((d) => d.path)).toEqual([np(app)]);
+    // Index-only lookup, with Windows separators normalized: same importer, no fallback scan.
+    expect(spider.getIndexedReferencingFiles(target.replaceAll('/', '\\')).map((d) => d.path)).toEqual([np(app)]);
+    expect(spider.getIndexedReferencingFiles(app)).toEqual([]);
 
     await writeTsConfig({});
     await spider.handleResolverConfigChange(path.join(tmpDir, 'tsconfig.json'));
