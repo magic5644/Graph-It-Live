@@ -9,6 +9,9 @@ export default defineConfig({
   test: {
     globals: true,
     environment: "node",
+    // Many suites build a real index in hooks; Windows/macOS CI runners are several times slower than a dev machine.
+    testTimeout: 30_000,
+    hookTimeout: 60_000,
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
     exclude: ["tests/vscode-e2e/**", "tests/e2e/**"],
     coverage: {
