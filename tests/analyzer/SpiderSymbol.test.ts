@@ -5,6 +5,7 @@ import * as path from 'path';
 import { Spider } from '../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { SpiderSymbolService } from '../../src/analyzer/spider/SpiderSymbolService';
+import { normalizePath } from '../../src/analyzer/types';
 
 /** Indexes `files` (written under `<tmp>/src`) with a fresh Spider and exposes `dependentsOf`. */
 function useTempProject(prefix: string, files: Record<string, string>) {
@@ -349,5 +350,42 @@ describe('Spider - Referencing files behind Python and Rust re-exports (#521)', 
   it.each([['py/pkg/impl.py'], ['rs/src/inner/imp.rs']])('reports only the unused symbol of %s behind its barrel', async (target) => {
     const unused = await project.spider.findUnusedSymbols(project.file(target));
     expect(unused.map((symbol) => symbol.name)).toEqual(['lonely']);
+  });
+});
+
+describe('Spider - Dead code behind a Rust crate root or Python package barrel (#519)', () => {
+  const project = useTempProject('gitl-dead-root-', {
+    'rs/Cargo.toml': '[package]\nname = "fixture"\nversion = "0.1.0"\n',
+    'rs/src/lib.rs': 'mod a;\nmod b;\nmod mid;\nmod twin;\nmod cyc;\nmod q;\nmod only_list;\npub use a::used;\npub use a::orig as renamed;\npub use mid::chained;\npub use cyc::cyc_fn;\n',
+    'rs/src/a.rs': 'pub fn used() {}\npub fn orig() {}\npub fn dead() {}\n',
+    'rs/src/mid/mod.rs': 'mod leaf;\npub use leaf::chained;\n',
+    'rs/src/mid/leaf.rs': 'pub fn chained() {}\npub fn leaf_dead() {}\n',
+    'rs/src/twin.rs': 'pub fn used() {}\n',
+    'rs/src/only_list.rs': 'use crate::{renamed as r};\npub fn h() { r(); }\n',
+    'rs/src/q.rs': 'pub fn q_used() {}\npub fn q_dead() {}\n',
+    'rs/src/cyc.rs': 'pub use crate::used;\npub fn cyc_fn() {}\npub fn cyc_dead() {}\n',
+    'rs/src/b.rs': 'use crate::{used};\nuse super::chained;\nfn g() { used(); chained(); crate::cyc_fn(); crate::q::q_used(); }\n',
+    'py/pkg/a.py': 'def f():\n    pass\n\ndef dead():\n    pass\n',
+    'py/pkg/__init__.py': 'from .a import f\n',
+    'py/main.py': 'from pkg import f\n\nf()\n',
+  });
+  const unusedIn = async (name: string) => (await project.spider.findUnusedSymbols(project.file(name))).map((s) => s.name);
+
+  it.each([
+    ['Rust: `use crate::{..}` list (aliased) of a crate-root `pub use`, renamed', 'rs/src/a.rs', ['dead']],
+    ['Rust: chain through a mod.rs to the crate root, `use super::`', 'rs/src/mid/leaf.rs', ['leaf_dead']],
+    ['Rust: same-name item the crate root does not re-export', 'rs/src/twin.rs', ['used']],
+    ['Rust: re-export cycle with the crate root, qualified call', 'rs/src/cyc.rs', ['cyc_dead']],
+    ['Rust: qualified `crate::m::f()` call with no `use`', 'rs/src/q.rs', ['q_dead']],
+    ['Python: `from pkg import f` of a package `__init__` re-export', 'py/pkg/a.py', ['dead']],
+  ])('%s', async (_case, target, expected) => {
+    expect(await unusedIn(target)).toEqual(expected);
+  });
+
+  it('agrees with scanDeadCode', async () => {
+    const { entries } = await project.spider.scanDeadCode();
+    const scanned = (name: string) => entries.find((e) => e.filePath === normalizePath(project.file(name)))?.unusedSymbols.map((s) => s.name);
+    expect(scanned('rs/src/a.rs')).toEqual(['dead']);
+    expect(scanned('py/pkg/a.py')).toEqual(['dead']);
   });
 });

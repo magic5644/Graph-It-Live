@@ -138,7 +138,9 @@ export class RustParser implements ILanguageAnalyzer {
       // (`use super::*;` then `inner::f()`), so it is looked up under each glob's module.
       const globs = expressionPaths.some((node) => !LOCAL_PATH.test(node.text)) ? rustGlobPrefixes(content) : [];
       for (const node of expressionPaths) {
-        const scopes = LOCAL_PATH.test(node.text) ? [node.text] : globs.map((glob) => `${glob}::${node.text}`);
+        const scopes = LOCAL_PATH.test(node.text)
+          ? [fromFileModule(node.text, inlineModuleDepth(node)) ?? ""]
+          : globs.map((glob) => `${glob}::${node.text}`);
         for (const scope of scopes) this.addDependency(scope, node, dependencies, seen);
       }
 
@@ -179,12 +181,8 @@ export class RustParser implements ILanguageAnalyzer {
       // Extract file path from potential symbol ID
       const actualFromFile = extractFilePath(fromFile);
 
-      // Handle relative modules (self, super, crate)
-      if (
-        moduleSpecifier.startsWith("self::") ||
-        moduleSpecifier.startsWith("super::") ||
-        moduleSpecifier.startsWith("crate::")
-      ) {
+      // Handle relative modules (self, super, crate); a bare `crate` is the module of `use crate::f`
+      if (LOCAL_PATH.test(moduleSpecifier)) {
         return await this.resolveRelativeModule(actualFromFile, moduleSpecifier);
       }
 
@@ -192,7 +190,8 @@ export class RustParser implements ILanguageAnalyzer {
       // outside any crate (no Cargo.toml) also try their own directory, as before crates were located.
       const segments = moduleSpecifier.split("::");
       const resolved = await this.resolveLongestModule(moduleDir(actualFromFile), segments);
-      if (resolved || (await this.crateDir(actualFromFile))) return resolved;
+      if (resolved) return resolved;
+      if (await this.crateDir(actualFromFile)) return await this.resolvePackagePath(actualFromFile, segments);
       return await this.resolveLongestModule(path.dirname(actualFromFile), segments);
     } catch {
       // Resolution failures are not critical - return null
@@ -211,8 +210,10 @@ export class RustParser implements ILanguageAnalyzer {
   ): void {
     // Find scoped_identifier or identifier nodes
     const identifiers = this.collectIdentifiers(node, content);
+    const depth = inlineModuleDepth(node);
 
-    for (const module of identifiers) {
+    for (const written of identifiers) {
+      const module = fromFileModule(written, depth);
       if (!module) continue;
       
       // IMPORTANT: Detect external crates vs local modules
@@ -366,27 +367,52 @@ export class RustParser implements ILanguageAnalyzer {
       identifiers.push(text);
     }
 
+    identifiers.push(...this.findAllByType(node, "use_list").flatMap(useListPaths));
     return identifiers;
   }
 
   /**
    * Resolve relative module paths: `crate::` from the crate's `src/`, `self::` from the file's module
-   * directory, each `super::` one module up.
+   * directory, each `super::` one module up. A direct item with no module file (`crate::used`, `super::f`,
+   * bare `crate` of `use crate::{f}`) resolves to the module's own file, so a `pub use` there is followed.
+   * Deeper paths (`super::Foo::new`, a glob-scoped guess) and inner prefixes keep needing a module file.
    */
   private async resolveRelativeModule(
     fromFile: string,
     moduleSpecifier: string,
   ): Promise<string | null> {
     const segments = moduleSpecifier.split("::");
+    const sourceDir = await this.crateSourceDir(fromFile);
+    let dir: string;
+    let i: number;
     if (segments[0] === "crate") {
-      return this.resolveLongestModule(await this.crateSourceDir(fromFile), segments.slice(1));
+      dir = sourceDir;
+      i = 1;
+    } else {
+      dir = moduleDir(fromFile);
+      for (i = segments[0] === "self" ? 1 : 0; segments[i] === "super"; i++) {
+        dir = path.dirname(dir);
+      }
     }
-    let dir = moduleDir(fromFile);
-    let i = segments[0] === "self" ? 1 : 0;
-    for (; segments[i] === "super"; i++) {
-      dir = path.dirname(dir);
-    }
-    return this.resolveLongestModule(dir, segments.slice(i));
+    if (!isInsideDir(dir, path.resolve(this.rootDir))) return null;
+    const rest = segments.slice(i);
+    const resolved = await this.resolveLongestModule(dir, rest);
+    // Only a direct item (`crate::f`) or a bare module (`crate`): an inner prefix like `super::super` is no use.
+    if (resolved || (rest.length !== 1 && segments.length > 1)) return resolved;
+    const owner = await this.moduleFileOf(dir, dir === sourceDir);
+    // `self::item` names the file itself, which is no dependency.
+    return owner && owner !== normalizePath(path.resolve(fromFile)) ? owner : null;
+  }
+
+  /**
+   * The file of the module whose children live in `dir`: the crate root (`lib.rs`, then `main.rs`, whose binary
+   * uses the library of its package), else `mod.rs` or `<dir>.rs`.
+   */
+  private moduleFileOf(dir: string, isCrateRoot: boolean): Promise<string | null> {
+    const root = path.resolve(this.rootDir);
+    const candidates = (isCrateRoot ? ["lib.rs", "main.rs"].map((file) => path.join(dir, file)) : [path.join(dir, "mod.rs"), `${dir}.rs`])
+      .filter((candidate) => isInsideDir(candidate, root));
+    return firstNonNull(candidates, async (candidate) => ((await this.fileExists(candidate)) ? normalizePath(candidate) : null));
   }
 
   /**
@@ -396,6 +422,14 @@ export class RustParser implements ILanguageAnalyzer {
   private async resolveLongestModule(dir: string, segments: string[]): Promise<string | null> {
     const prefixes = segments.map((_, i) => segments.slice(0, segments.length - i).join("::")).filter(Boolean);
     return firstNonNull(prefixes, (prefix) => this.resolveModDeclaration(dir, prefix));
+  }
+
+  /** `use my_crate::f` from the package's binary or tests names its library: resolve it as `crate::f`. */
+  private async resolvePackagePath(fromFile: string, segments: string[]): Promise<string | null> {
+    const crateDir = await this.crateDir(fromFile);
+    if (!crateDir) return null;
+    const cargo = await fs.readFile(path.join(crateDir, "Cargo.toml"), "utf-8").catch(() => "");
+    return segments[0] === libraryName(cargo) ? this.resolveRelativeModule(fromFile, ["crate", ...segments.slice(1)].join("::")) : null;
   }
 
   /** Directory of the nearest `Cargo.toml` at or above `fromFile` inside the workspace, if any. */
@@ -543,7 +577,62 @@ export function isInsideDir(filePath: string, dir: string, pathApi: typeof path 
   return relative === "" || (relative.split(pathApi.sep)[0] !== ".." && !pathApi.isAbsolute(relative));
 }
 
-const LOCAL_PATH = /^(?:crate|self|super)::/;
+/** Path of the groups around a `use_list`: `use a::b::{c}`, `use crate::{m::{c}}`, outermost first. */
+export function useListBase(useList: Node): string {
+  const segments: string[] = [];
+  for (let current = useList.parent; current; current = current.parent) {
+    const pathNode = current.type === "scoped_use_list" ? current.childForFieldName("path") : null;
+    if (pathNode) segments.unshift(pathNode.text);
+  }
+  return segments.join("::");
+}
+
+/** The library's crate name in a `Cargo.toml`: `[lib] name`, else `[package] name`, `-` read as `_`. */
+export function libraryName(cargoToml: string): string | undefined {
+  const names = new Map<string, string>();
+  let section = "";
+  for (const line of cargoToml.split("\n").map((text) => text.trim())) {
+    if (line.startsWith("[")) section = line;
+    const name = /^name\s*=\s*"([^"]+)"/.exec(line)?.[1];
+    if (name && !names.has(section)) names.set(section, name);
+  }
+  return (names.get("[lib]") ?? names.get("[package]"))?.replaceAll("-", "_");
+}
+
+/** `use crate::{f, m::g, h as k, self}`: each list item is a path under the list's base (`crate::f`), not a child module. */
+function useListPaths(useList: Node): string[] {
+  const base = useListBase(useList);
+  return useList.namedChildren
+    .map((child) => (child?.type === "use_as_clause" ? child.childForFieldName("path") : child))
+    .filter((item): item is Node => item?.type === "identifier" || item?.type === "scoped_identifier" || item?.type === "self")
+    .map((item) => (item.type === "self" ? base : `${base}::${item.text}`));
+}
+
+/** Number of inline `mod m { ... }` blocks around `node`: `self` and `super` there start inside the file. */
+export function inlineModuleDepth(node: Node): number {
+  let depth = 0;
+  for (let parent = node.parent; parent; parent = parent.parent) {
+    if (parent.type === "mod_item") depth++;
+  }
+  return depth;
+}
+
+/**
+ * `specifier`, written inside `depth` inline modules, as seen from the file's own module: the first `depth`
+ * `super`s climb back to the file (`super::helper` in `mod tests` is `self::helper`); a path that stays inside
+ * the inline modules (`self::x`, fewer `super`s) names this file, so it is no dependency (null).
+ */
+export function fromFileModule(specifier: string, depth: number): string | null {
+  const segments = specifier.split("::");
+  let supers = 0;
+  while (segments[supers] === "super") supers++;
+  if (depth === 0 || (supers === 0 && segments[0] !== "self")) return specifier;
+  if (supers < depth) return null;
+  return ["self", ...segments.slice(depth)].join("::");
+}
+
+/** A path inside the current crate: `crate`, `self` or `super`, alone or followed by `::`. */
+export const LOCAL_PATH = /^(?:crate|self|super)(?:::|$)/;
 
 /** Outermost path in an expression (`a::b::f`), outside `use` declarations. */
 function isExpressionPath(node: Node): boolean {

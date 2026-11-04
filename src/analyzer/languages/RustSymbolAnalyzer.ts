@@ -5,6 +5,7 @@ import { normalizePath } from '../../shared/path';
 import { FileReader } from '../FileReader';
 import { ISymbolAnalyzer, SpiderError, SymbolDependency, SymbolInfo } from '../types';
 import { addPassedReferences, type ReferenceTarget } from './referenceDependency';
+import { LOCAL_PATH, useListBase } from './RustParser';
 import { WasmParserFactory } from './WasmParserFactory';
 
 /**
@@ -446,22 +447,9 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
   ): void {
     const useLists = this.findAllByType(node, 'use_list');
     for (const useList of useLists) {
-      const baseModule = this.findBaseModuleForUseList(useList, content);
+      const baseModule = useListBase(useList);
       this.extractIdentifiersFromUseList(useList, baseModule, content, importMap);
     }
-  }
-
-  /**
-   * Find the base module path for a use_list by traversing parent nodes
-   */
-  private findBaseModuleForUseList(useList: Node, content: string): string {
-    // `use a::b::{c}`, `use utils::{c}`, `use crate::{m::{c}}`: every enclosing group adds its path, outermost first.
-    const segments: string[] = [];
-    for (let current = useList.parent; current; current = current.parent) {
-      const pathNode = current.type === 'scoped_use_list' ? current.childForFieldName('path') : null;
-      if (pathNode) segments.unshift(this.getNodeText(pathNode, content));
-    }
-    return segments.join('::');
   }
 
   /**
@@ -532,7 +520,9 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       if (pathNode && aliasNode) {
         const path = this.getNodeText(pathNode, content);
         const alias = this.getNodeText(aliasNode, content);
-        importMap.set(alias, path);
+        // `use crate::{f as g}`: the clause path is relative to its list's base.
+        const base = useClause.parent?.type === 'use_list' ? useListBase(useClause.parent) : '';
+        importMap.set(alias, base ? `${base}::${path}` : path);
         this.useAliases.add(alias);
       }
     }
@@ -650,10 +640,10 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
     }
 
     // Check if it's a call to an imported symbol (external file)
-    // For qualified calls like helper::format_data, check if module is imported
-    if (moduleName && importMap?.has(moduleName)) {
-        const moduleSpecifier = importMap.get(moduleName);
-        if (moduleSpecifier === undefined) return;
+    // For qualified calls like helper::format_data, check if module is imported;
+    // `crate::m::f()` / `super::f()` need no import: the path itself resolves (#519).
+    const moduleSpecifier = moduleName && (importMap?.get(moduleName) ?? (LOCAL_PATH.test(moduleName) ? moduleName : undefined));
+    if (moduleSpecifier) {
       // Create dependency with module specifier as targetFilePath
       // This will be resolved to absolute path by SpiderSymbolService.getSymbolGraph()
       dependencies.push({
