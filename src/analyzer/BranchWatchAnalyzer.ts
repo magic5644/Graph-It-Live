@@ -245,7 +245,8 @@ export class BranchWatchAnalyzer {
     if (!find || !findMany || !changes.length) return new Map();
     try {
       const targets = changes.map(change => resolveReviewCallGraphPath(this.root, change.path));
-      const indexed = await Promise.all(targets.map(target => find(target)));
+      // Bounded: while the index is not ready, each lookup may scan the workspace.
+      const indexed = await mapWithConcurrency(targets, 8, target => find(target));
       const repaired = await findMany(targets.filter((_target, index) => !indexed[index].length));
       return new Map(changes.map((change, index) => [normalizePath(change.path),
         indexed[index].length ? indexed[index] : repaired.get(normalizePath(targets[index])) ?? []]));

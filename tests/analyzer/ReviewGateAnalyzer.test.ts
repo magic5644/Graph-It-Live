@@ -2331,6 +2331,26 @@ describe("ReviewGateAnalyzer repeated reviews (#605)", { timeout: GIT_TEST_TIMEO
     } finally { compare.mockRestore(); }
   });
 
+  it("keys a comparison on the normalized path and caches no failed comparison", async () => {
+    const workspace = await createGitWorkspace();
+    const { SignatureAnalyzer } = await import("../../src/analyzer/SignatureAnalyzer");
+    const cache = new Map();
+    const analyzer = new ReviewGateAnalyzer(workspace, undefined, cache) as unknown as {
+      breakingChanges(file: string, oldContent: string, newContent: string): unknown[];
+    };
+    const compare = vi.spyOn(SignatureAnalyzer.prototype, "analyzeBreakingChanges");
+    try {
+      analyzer.breakingChanges(String.raw`C:\repo\src\a.ts`, "export const a = 1;", "export const a = 2;");
+      analyzer.breakingChanges("c:/repo/src/a.ts", "export const a = 1;", "export const a = 2;");
+      expect(compare).toHaveBeenCalledTimes(1);
+      expect(cache.size).toBe(1);
+
+      compare.mockImplementationOnce(() => { throw new Error("parser failed"); });
+      expect(() => analyzer.breakingChanges("c:/repo/src/b.ts", "export const b = 1;", "export const b = 2;")).toThrow("parser failed");
+      expect(cache.size).toBe(1);
+    } finally { compare.mockRestore(); }
+  });
+
   it("drops the least recently used comparison past the cache size", async () => {
     const workspace = await createGitWorkspace();
     const cache = new Map(Array.from({ length: 2000 }, (_unused, index) => [`stale-${index}`, []]));
@@ -2343,7 +2363,11 @@ describe("ReviewGateAnalyzer repeated reviews (#605)", { timeout: GIT_TEST_TIMEO
   it("reads no consumer evidence for a file whose signatures did not change", async () => {
     const workspace = await createGitWorkspaceWithDiff("export const value = 1;\n", "// comment\nexport const value = 1;\n");
     const dependents = { getSymbolDependents: vi.fn(async () => []), getSymbolGraph: vi.fn(), findUnusedSymbols: vi.fn() };
-    const result = await new ReviewGateAnalyzer(workspace, dependents as unknown as SymbolDependentsProvider).analyze({ baseRef: "main" });
+    const { SignatureAnalyzer } = await import("../../src/analyzer/SignatureAnalyzer");
+    const headExports = vi.spyOn(SignatureAnalyzer.prototype, "exportedDeclarationNames");
+    const result = await new ReviewGateAnalyzer(workspace, dependents as unknown as SymbolDependentsProvider).analyze({ baseRef: "main" }).finally(() => headExports.mockRestore());
+    // Neither the move targets nor the head exports are parsed without a removal.
+    expect(headExports).not.toHaveBeenCalled();
     expect(result.symbols).toEqual([]);
     expect(result.limitations.filter((limitation) => /evidence unavailable for|Unused-export|Cycle evidence/.test(limitation))).toEqual([]);
     expect(dependents.getSymbolGraph).not.toHaveBeenCalled();
