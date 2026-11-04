@@ -6,6 +6,8 @@ import { mapWithConcurrency } from "../shared/concurrency";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import { normalizePath } from "../shared/path";
 import { detectCycles } from "../shared/cycleUtils";
+import { renderArchitectureMarkdown, type ArchitectureReview } from "./architecture/architectureReview";
+import { ARCHITECTURE_BASELINE_FILE, ARCHITECTURE_CONFIG_FILE } from "./architecture/architectureRules";
 import { SignatureAnalyzer, type BreakingChange, type ReexportedModule, type SignatureInfo } from "./SignatureAnalyzer";
 import type { SymbolDependency, SymbolInfo } from "./types";
 import { PathResolver } from "./utils/PathResolver";
@@ -20,6 +22,8 @@ const MAX_MAX_FILES = 1_000;
 /** Most changed files one review reads; callers with a higher budget (Branch Watch) clamp to it. */
 export const REVIEW_GATE_MAX_FILES_LIMIT = MAX_MAX_FILES;
 const MAX_MAX_DEPTH = 10;
+/** Lowest score of a review with a new error violation of the architecture rules: high risk. */
+const ARCHITECTURE_ERROR_SCORE = 50;
 /** Bound on the reverse-index walk used to decide whether a consumer is under test. */
 const MAX_COVERAGE_LOOKUP_FILES = 200;
 const REACT_PROPS_LIMITATION = "React props-contract compatibility is not checked (contrat de props non analysé); JSX consumers must be reviewed manually.";
@@ -117,6 +121,8 @@ export interface ReviewGateResult {
   symbols: ReviewSymbol[];
   /** Import cycles the diff introduces or aggravates; a cycle that already existed untouched is not listed. */
   cycles: ReviewCycle[];
+  /** What the diff does to the rules of graphit.architecture.json; absent without one. */
+  architecture?: ArchitectureReview;
   score: number;
   risk: ReviewRiskLevel;
   isPartial: boolean;
@@ -138,6 +144,8 @@ export interface SymbolDependentsProvider {
   findUnusedSymbols?(filePath: string): Promise<SymbolInfo[]>;
   /** Import cycles among `changedFiles` that the diff against `baseRef` adds; absent when the host cannot read the base. */
   findFileCycles?(changedFiles: string[], baseRef: string): Promise<FileCycleAnalysis>;
+  /** The architecture rules checked on the base and the head, compared; no review when neither has a config. */
+  reviewArchitecture?(changedFiles: string[], baseRef: string, headRef: string): Promise<{ review?: ArchitectureReview; limitations: string[] }>;
 }
 
 type ReviewDependent = Pick<SymbolDependency, "sourceSymbolId"> & Partial<Pick<SymbolDependency, "relation" | "line">>;
@@ -243,6 +251,8 @@ export class ReviewGateAnalyzer {
       limitations.push(`Analysis limited to ${maxFiles} changed files.`);
     }
 
+    // Settles (never rejects) while the files are analyzed.
+    const architecturePromise = this.collectArchitecture(changedFiles, options.baseRef, headRef);
     const sources = await this.loadChangedSources(changedFiles, options.baseRef, headRef);
     const fileCycles = options.fileCycles === false ? { cycles: [], limitations: [] } : await this.collectFileCycles(changedFiles, options.baseRef, headRef);
     limitations.push(...fileCycles.limitations);
@@ -263,14 +273,19 @@ export class ReviewGateAnalyzer {
       limitations.push(REACT_PROPS_LIMITATION);
     }
 
+    const architecture = await architecturePromise;
+    limitations.push(...architecture.limitations);
+
     symbols.sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath) || a.name.localeCompare(b.name));
-    const score = symbols.reduce((highest, symbol) => Math.max(highest, symbol.score), 0);
+    const symbolScore = symbols.reduce((highest, symbol) => Math.max(highest, symbol.score), 0);
+    const score = architecture.review?.newErrors ? Math.max(symbolScore, ARCHITECTURE_ERROR_SCORE) : symbolScore;
     return {
       baseRef: options.baseRef,
       headRef,
       changedFiles,
       symbols,
       cycles: fileCycles.cycles,
+      ...(architecture.review ? { architecture: architecture.review } : {}),
       score,
       risk: riskForScore(score),
       isPartial: limitations.length > 0,
@@ -289,6 +304,20 @@ export class ReviewGateAnalyzer {
       return { cycles: analysis.cycles, limitations };
     } catch {
       return { cycles: [], limitations: ["Import-cycle evidence unavailable: the dependency graph could not be compared with the base ref."] };
+    }
+  }
+
+  /** The architecture review, or why it is unavailable; none, at no cost, without a rules file at the head or in the diff. */
+  private async collectArchitecture(changedFiles: string[], baseRef: string, headRef: string): Promise<{ review?: ArchitectureReview; limitations: string[] }> {
+    if (!this.dependents?.reviewArchitecture) return { limitations: [] };
+    try {
+      const rulesFilesChanged = changedFiles.some((file) => file === ARCHITECTURE_CONFIG_FILE || file === ARCHITECTURE_BASELINE_FILE);
+      if (!rulesFilesChanged && await this.readHeadContent(headRef, this.resolveWorkspacePath(ARCHITECTURE_CONFIG_FILE), ARCHITECTURE_CONFIG_FILE) === null) {
+        return { limitations: [] };
+      }
+      return await this.dependents.reviewArchitecture(changedFiles, baseRef, headRef);
+    } catch (error) {
+      return { limitations: [`Architecture rules unavailable: ${error instanceof Error ? error.message : String(error)}`] };
     }
   }
 
@@ -1628,6 +1657,7 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     ...(moved.length > 0 ? ["", "### Moved symbols", ...moved] : []),
     ...(impactEvidence.length > 0 ? ["", "### Impact evidence", ...impactEvidence] : []),
     ...(cycles.length > 0 ? ["", "### Import cycles", ...cycles] : []),
+    ...(result.architecture ? renderArchitectureMarkdown(result.architecture, safe) : []),
     ...(result.limitations.length > 0 ? ["", "### Limitations", ...result.limitations.map((item) => `- ${safe(item)}`)] : []),
   ].join("\n");
 }

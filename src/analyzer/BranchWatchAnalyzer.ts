@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
@@ -18,6 +18,50 @@ const execFileAsync = promisify(execFile);
 export const BRANCH_WATCH_MAX_FILES = 200;
 export const BRANCH_WATCH_MAX_FILES_LIMIT = 2000;
 const CONFIG_FILES = /(?:^|\/)(?:tsconfig[^/]*\.json|package\.json|go\.mod|Cargo\.toml)$/;
+/** Root ignore files and architecture rules: with the source and config files, what a tree copy must hold. */
+const ROOT_FILES = /^(?:\.gitignore|\.graphitignore|graphit\.architecture(?:\.baseline)?\.json)$/;
+
+interface TreeEntry {
+  mode: string;
+  sha: string;
+  size: number;
+  file: string;
+}
+
+/** Blob bytes read by one `git cat-file --batch` process. */
+const BLOB_BATCH_BYTES = 32 * 1024 * 1024;
+
+/** `entries` in order, split so that each batch reads at most BLOB_BATCH_BYTES (or one larger blob). */
+function blobBatches(entries: readonly TreeEntry[]): TreeEntry[][] {
+  const batches: TreeEntry[][] = [];
+  let bytes = Infinity;
+  for (const entry of entries) {
+    if (bytes + entry.size > BLOB_BATCH_BYTES) {
+      batches.push([]);
+      bytes = 0;
+    }
+    batches.at(-1)!.push(entry);
+    bytes += entry.size;
+  }
+  return batches;
+}
+
+/** The blobs of `git cat-file --batch` output: `<sha> blob <size>\n<content>\n` each, in request order. */
+export function parseCatFileBatch(output: Buffer): Buffer[] {
+  const blobs: Buffer[] = [];
+  let at = 0;
+  while (at < output.length) {
+    const end = output.indexOf(10, at);
+    const [sha, type, size] = output.toString('utf8', at, end === -1 ? output.length : end).split(' ');
+    const bytes = Number(size);
+    if (end === -1 || type !== 'blob' || !Number.isInteger(bytes) || end + 1 + bytes > output.length) {
+      throw new BranchWatchError('git-error', `Git returned no readable blob for ${sha}.`);
+    }
+    blobs.push(output.subarray(end + 1, end + 1 + bytes));
+    at = end + 2 + bytes;
+  }
+  return blobs;
+}
 
 export type BranchWatchErrorCode = 'not-a-repository' | 'git-unavailable' | 'unborn-head' | 'ambiguous-root'
   | 'unsupported-vcs' | 'detached-head' | 'conflicts' | 'invalid-reference' | 'ambiguous-base' | 'git-error';
@@ -396,10 +440,7 @@ export class BranchWatchAnalyzer {
     if (this.baseline?.sha === sha && this.baseline.seedKey === seedKey && this.baseline.scopeKey === scopeKey) {
       return this.baseline.graph;
     }
-    const entries = (await this.git(['ls-tree', '-r', '-z', sha])).split('\0').filter(Boolean).map(entry => {
-      const tab = entry.indexOf('\t');
-      return { meta: entry.slice(0, tab).split(' '), file: this.relativePath(entry.slice(tab + 1)) };
-    }).filter(entry => LanguageService.isSupported(entry.file) || CONFIG_FILES.test(entry.file));
+    const entries = await this.treeEntries(sha, file => LanguageService.isSupported(file) || CONFIG_FILES.test(file));
     const scopedFiles = scope ? new Set([...scope, ...seeds].map(file => normalizePath(file))) : undefined;
     const candidates = scopedFiles
       ? entries.filter(entry => scopedFiles.has(entry.file) || CONFIG_FILES.test(entry.file))
@@ -409,38 +450,99 @@ export class BranchWatchAnalyzer {
       const rightPriority = scopedFiles?.has(right.file) ? 0 : 1;
       return leftPriority - rightPriority || left.file.localeCompare(right.file);
     }).slice(0, this.maxFiles);
-    let graph: FileGraph = { edges: [], limitations: [] };
-    if (selectedEntries.length < candidates.length) {
-      graph.limitations.push(`Cycle analysis reached the ${this.maxFiles}-file baseline limit.`);
-    }
-    // A bounded private copy of Git blobs allows existing resolvers to see historical config and paths.
-    // No checkout, hooks, index changes or commands from the inspected project are executed.
-    const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-baseline-'));
+    const limitations = selectedEntries.length < candidates.length ? [`Cycle analysis reached the ${this.maxFiles}-file baseline limit.`] : [];
+    const graph = await this.withBlobs(selectedEntries, async (directory, blobLimitations): Promise<FileGraph> => {
+      const baselineSeeds = seeds.filter(seed => selectedEntries.some(entry => entry.file === seed));
+      const parsed = await new BranchWatchAnalyzer(directory, undefined, this.extensionPath, this.gitPath, this.maxFiles)
+        .readGraphFromSeeds(directory, baselineSeeds);
+      return { edges: parsed.edges, limitations: [...limitations, ...blobLimitations, ...parsed.limitations] };
+    });
+    this.baseline = { sha, seedKey, scopeKey, graph };
+    return graph;
+  }
+
+  /** Runs `read` on a private copy of the tracked files of `ref`; the copy is removed afterwards. */
+  async withRefTree<T>(ref: string, read: (directory: string, limitations: string[]) => Promise<T>): Promise<T> {
+    // Every file: an import may resolve to any (a stylesheet, an .mts module) and unit roles read
+    // manifests such as a Dockerfile; only a source or config file that cannot be copied is a limitation.
+    return this.withBlobs(await this.treeEntries(ref, () => true), read,
+      file => LanguageService.isSupported(file) || CONFIG_FILES.test(file) || ROOT_FILES.test(file));
+  }
+
+  /** The commit `git diff base...head` compares `head` with. */
+  async mergeBase(base: string, head: string): Promise<string> {
+    return (await this.git(['merge-base', base, head])).trim();
+  }
+
+  /** Entries of `ref`'s tree that `keep` selects, workspace-relative, with their blob size. */
+  private async treeEntries(ref: string, keep: (file: string) => boolean): Promise<TreeEntry[]> {
+    // shortcut: git() buffers 4 MiB of listing, about 40 000 files; stream ls-tree when larger repositories need it.
+    return (await this.git(['ls-tree', '-r', '-z', '-l', ref])).split('\0').filter(Boolean).map(entry => {
+      const tab = entry.indexOf('\t');
+      // `-l` right-aligns the size: fields are separated by one or more spaces.
+      const [mode, , sha, size] = entry.slice(0, tab).split(/ +/);
+      return { mode, sha, size: Number(size), file: this.relativePath(entry.slice(tab + 1)) };
+    }).filter(entry => keep(entry.file));
+  }
+
+  /**
+   * Runs `read` on a private copy of the blobs of `entries`, with why the `needed` ones could not
+   * be copied; another binary or too large file is copied empty, so that it still exists (a symbolic
+   * link or a submodule is not copied).
+   * No checkout, hooks, index changes or commands from the inspected project are executed.
+   */
+  private async withBlobs<T>(entries: readonly TreeEntry[], read: (directory: string, limitations: string[]) => Promise<T>,
+    needed: (file: string) => boolean = () => true): Promise<T> {
+    // realpath: the macOS tmpdir is a symlink (/var → /private/var), which the workspace checks resolve.
+    const directory = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-baseline-')));
     try {
-        // Git blob reads are independent; a small bounded pool avoids spawning
-        // thousands of sequential processes on large repositories.
-        const blobLimitations = await mapWithConcurrency(selectedEntries, 8, async ({ meta, file }) => {
-          if (!['100644', '100755'].includes(meta[0])) return `${file}: unsupported baseline file mode.`;
-          const size = Number.parseInt((await this.git(['cat-file', '-s', meta[2]])).trim(), 10);
-          if (size > MAX_TEXT_FILE_BYTES) return `${file}: baseline file exceeds text analysis limits.`;
-          const content = await this.git(['cat-file', 'blob', meta[2]]);
-          if (content.includes('\0')) return `${file}: baseline file is binary.`;
-          const target = resolveReviewCallGraphPath(directory, file);
-          await fs.mkdir(path.dirname(target), { recursive: true });
-          await fs.writeFile(target, content);
-          return undefined;
-        });
-        graph.limitations.push(...blobLimitations.filter((limitation): limitation is string => Boolean(limitation)));
-        const baselineSeeds = seeds.filter(seed => selectedEntries.some(entry => entry.file === seed));
-        const parsed = await new BranchWatchAnalyzer(directory, undefined, this.extensionPath, this.gitPath, this.maxFiles)
-          .readGraphFromSeeds(directory, baselineSeeds);
-        graph = { edges: parsed.edges, limitations: [...graph.limitations, ...parsed.limitations] };
+      const isRegular = (entry: TreeEntry) => ['100644', '100755'].includes(entry.mode);
+      const regular = entries.filter(isRegular);
+      const limitations = entries.filter(entry => !isRegular(entry) && needed(entry.file)).map(({ file }) => `${file}: unsupported baseline file mode.`);
+      const write = async (file: string, content: Buffer | string) => {
+        const target = resolveReviewCallGraphPath(directory, file);
+        await fs.mkdir(path.dirname(target), { recursive: true });
+        await fs.writeFile(target, content);
+      };
+      const copy = async (file: string, content: Buffer | undefined) => {
+        if (content !== undefined && !content.includes(0)) return write(file, content);
+        if (needed(file)) limitations.push(`${file}: baseline file ${content === undefined ? 'exceeds text analysis limits' : 'is binary'}.`);
+        else await write(file, '');
+      };
+      const large = regular.filter(entry => entry.size > MAX_TEXT_FILE_BYTES);
+      await mapWithConcurrency(large, 16, entry => copy(entry.file, undefined));
+      // Two batches in flight bound the memory to about 2 × BLOB_BATCH_BYTES.
+      await mapWithConcurrency(blobBatches(regular.filter(entry => entry.size <= MAX_TEXT_FILE_BYTES)), 2, async batch => {
+        const blobs = await this.readBlobs(batch.map(entry => entry.sha));
+        await mapWithConcurrency(batch, 16, (entry, index) => copy(entry.file, blobs[index]));
+      });
+      return await read(directory, limitations.toSorted((left, right) => left.localeCompare(right)));
     } finally {
       LanguageService.releaseWorkspace(directory);
       await fs.rm(directory, { recursive: true, force: true });
     }
-    this.baseline = { sha, seedKey, scopeKey, graph };
-    return graph;
+  }
+
+  /** Contents of the blobs `shas`, in order, read by one `git cat-file --batch` process. */
+  private readBlobs(shas: readonly string[]): Promise<Buffer[]> {
+    return new Promise((resolve, reject) => {
+      const child = spawn(this.gitPath, ['-c', 'core.fsmonitor=false', 'cat-file', '--batch'], {
+        cwd: this.root, signal: this.abortController.signal, env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+      });
+      const output: Buffer[] = [];
+      child.stdout.on('data', (chunk: Buffer) => output.push(chunk));
+      child.on('error', error => reject(new BranchWatchError('git-unavailable', 'Git is unavailable or the workspace is inaccessible.', { cause: error })));
+      // A Git failure surfaces as a non-zero exit code below; the broken pipe itself adds nothing.
+      child.stdin.on('error', () => undefined);
+      child.on('close', code => {
+        if (code === 0) {
+          try { resolve(parseCatFileBatch(Buffer.concat(output))); } catch (error) { reject(error); }
+        } else {
+          reject(new BranchWatchError('git-error', `Git could not read this repository while running git cat-file --batch (exit code ${code}).`));
+        }
+      });
+      child.stdin.end(shas.map(sha => `${sha}\n`).join(''));
+    });
   }
 
   private classifyCycles(current: FileGraph, baseline: FileGraph, snapshot: CycleScope): BranchWatchCycleFinding[] {

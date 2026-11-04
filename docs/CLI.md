@@ -124,7 +124,7 @@ These options are available for every command:
 | Option | Shorthand | Default | Description |
 |--------|-----------|---------|-------------|
 | `--workspace <path>` | `-w` | auto-detected from `cwd` | Root directory of the project to analyze |
-| `--format <format>` | `-f` | `text` | Output format: `text`, `json`, `toon`, `markdown`, `mermaid`; `csv` only for `architecture --matrix`, `sarif` only for `check-architecture` |
+| `--format <format>` | `-f` | `text` | Output format: `text`, `json`, `toon`, `markdown`, `mermaid`; `csv` only for `architecture --matrix`, `sarif` only for `check-architecture` and `review-pr` |
 | `--help` | `-h` | — | Show help for the current command |
 | `--version` | `-v` | — | Print the installed version |
 | `--reindex` | — | — | Discard the cached index and rebuild it from scratch |
@@ -221,7 +221,7 @@ MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is
 
 **Format availability per command:**
 
-`scan`, `summary`, `trace`, `explain`, `path`, `path-in`, `check-dependencies`, `cycles`, `architecture`, `check`, `review-pr` and `tool` accept all five formats; `architecture` also accepts `csv`, with `--matrix` only. `mermaid` draws the nodes and edges when the result has them, and a generic diagram of the JSON fields otherwise. The other commands differ:
+`scan`, `summary`, `trace`, `explain`, `path`, `path-in`, `check-dependencies`, `cycles`, `architecture`, `check`, `review-pr` and `tool` accept all five formats; `architecture` also accepts `csv`, with `--matrix` only, and `review-pr` also accepts `sarif`. `mermaid` draws the nodes and edges when the result has them, and a generic diagram of the JSON fields otherwise. The other commands differ:
 
 | Command | Accepted formats | Other values |
 |---------|------------------|--------------|
@@ -1262,7 +1262,7 @@ review affected consumers manually; impact is not proof that their props are bro
 Run a deterministic local review of a Git diff:
 
 ```bash
-graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--max-files 200] --format text|json|toon|markdown|mermaid
+graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--max-files 200] --format text|json|toon|markdown|mermaid|sarif
 ```
 
 The command first ensures that the workspace index is available. It then lists changed files with `git diff` and compares exported TypeScript, JavaScript and Vue signatures, and the top-level functions, classes and variables of Python modules, between the base and head. For Python, adding or dropping a type annotation is not breaking, and switching between `def` and `async def` is; methods and definitions nested in `if`/`try` blocks are not compared. Without `--head`, the head is the current working tree (`HEAD` plus staged and unstaged file contents). With `--head <ref>`, both sides come from Git refs and the changed-file list uses the three-dot comparison.
@@ -1287,7 +1287,19 @@ A changed file that cannot be read safely at the base or the head (a symbolic li
 
 `cycles` lists the import cycles the diff creates (`introduced`) or enlarges (`aggravated`), with every file in the cycle; a cycle that already existed and that the diff leaves intact is not listed, and a cycle the diff removes is not reported. Type-only and dynamic `import()` edges count like any import, since the dependency graph records them. A file in such a cycle gives its changed symbols a `cycles` score factor; a cycle alone, with no changed signature, is reported without raising the risk. The base graph is rebuilt from the Git objects of `--base` (bounded to 200 files; `limitations` says when the bound is reached) and the head graph is read from the checked-out tree, so `limitations` says so when `--head` names another ref, and when the cycle data cannot be read at all. A Rust `mod x;` declaration never closes a cycle. Side-effect-only imports (`import "./x"`) are recorded as edges of type `side-effect`, so they can close a cycle; `import "./x.css"` is an edge only when the file resolves.
 
-The Action's PR comment lists `cycles` in an "Import cycles" section (classification and files, at most 20 cycles and 10 files each, escaped like the other values); the section is absent when there is none or when the CLI predates `cycles`. The risk and summary lines ignore it, so a cycle-only diff keeps its risk.
+The Action's PR comment adds the "Architecture rules" section of the review, and the gate fails on any new `error` violation the baseline does not accept, even without `fail-on-risk`, as `check-architecture` would; an older CLI without `architecture` leaves the gate unchanged. The Action's PR comment lists `cycles` in an "Import cycles" section (classification and files, at most 20 cycles and 10 files each, escaped like the other values); the section is absent when there is none or when the CLI predates `cycles`. The risk and summary lines ignore it, so a cycle-only diff keeps its risk.
+
+#### Architecture rules
+
+When the head has a `graphit.architecture.json` (or the diff edits it or its baseline), `architecture` says whether the diff **degrades** or **improves** the declared architecture. The rules are checked on the head (the working tree, or a copy of `--head`) and on the base (a copy of `--base`, or of its merge base with `--head`), each with its own config, or with the head config when the base has none. The base tree is copied from the Git objects of every tracked file (no checkout, no hooks) and its imports are parsed again, so the review takes about as long again as a [`check-architecture`](#check-architecture) run.
+
+- `rules`: for each rule the head checks (not `off`), its `newViolations` (file pair, importing `line`, elements, and `accepted` when the head baseline lists it), `resolvedViolations` and the `unchanged` count. A violation the base baseline accepted and the head baseline no longer does is new again: `check-architecture` fails on it. Violations are matched by rule name and file pair; a rule the diff removes or switches off resolves nothing, and a rule it adds reports what the code already breaks as new.
+- `unitCycles`: file pairs between two units of one import cycle (as `graph-it architecture --level units` shows them), new, resolved and unchanged, whatever the rules.
+- `verdict`: `degraded` with any new violation or unit cycle, `improved` with resolved ones and none new, `unchanged` otherwise.
+- `newErrors`: new `error` violations the head baseline does not accept. Any raises the result score to at least `50` (`high` risk); warnings and accepted violations do not change the score.
+- `configChange` (only when the diff edits `graphit.architecture.json` or `graphit.architecture.baseline.json`): rules and elements `added`, `removed` and `changed` by name, whether the unit `roles` changed, and the baseline entries `added` (violations the diff accepts) and `removed`. A deleted config yields only this part.
+
+Without a config at the head and in the diff, no `architecture` field is returned and nothing more is read. An invalid rules file, at either ref, is reported as the limitation `Architecture rules unavailable: <ref>: <reason>`. Markdown adds an "Architecture rules" section (verdict, rules table, new and resolved violations, at most 20 each, rules-file changes); `--format sarif` lists the new violations the baseline does not accept on their importing line, as `check-architecture --format sarif` does (driver `graph-it review-pr`; without a config, a run with no result, so a CI upload step still works).
 
 The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `baseRef`, optional `headRef`, `maxDepth`, and `maxFiles`. Omit `headRef` to review the checked-out worktree; provide a local or remote branch ref to compare two committed branch refs. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file, printed in the PR comment as a code span to copy (GitHub strips non-http(s) Markdown links, so it is not clickable); the extension accepts depth 1–5 and validates the path again. Branch Watch's VS Code confidence label is UI context for incomplete local evidence; the CLI and MCP continue to expose the structured limitations and `isPartial` fields instead of that label.
 
@@ -1295,7 +1307,7 @@ The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `
 
 The composite Action has no trigger of its own. Consumer repositories must add a `pull_request` workflow; see [`examples/graph-it-review-gate.yml`](examples/graph-it-review-gate.yml). It installs `@magic5644/graph-it-live@latest` in a temporary prefix and runs `graph-it review-pr --workspace "$GITHUB_WORKSPACE"` against the checked-out consumer repository. It never installs or builds consumer dependencies.
 
-`cli-version` is optional: omit it to use npm `latest`, or supply an npm version, tag, or range. The Action validates the CLI's actual `graph-it-live vX.Y.Z` output, logs it, exposes it as `outputs.cli-version`, and rejects versions below `1.13.0`. It also exposes `risk` and `score` outputs.
+`cli-version` is optional: omit it to use npm `latest`, or supply an npm version, tag, or range. The Action validates the CLI's actual `graph-it-live vX.Y.Z` output, logs it, exposes it as `outputs.cli-version`, and rejects versions below `1.13.0`. It also exposes `risk`, `score` and `architecture-new-errors` outputs.
 
 Pin the Action to a release tag, such as `magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.18.0`. Never use `pull_request_target` to inspect untrusted PR code. Set `comment: false` for fork PRs; then grant only `contents: read` rather than `pull-requests: write`.
 

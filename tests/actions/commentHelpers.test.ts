@@ -150,15 +150,51 @@ describe("review-gate CLI version validation", () => {
   });
 });
 
+describe("review-gate comment architecture section", () => {
+  const base = { risk: "high", score: 50, changedFiles: ["src/a.ts"], isPartial: false, limitations: [], symbols: [] };
+  const violation = (index: number) => ({ source: `src/f${index}|x.ts`, target: "backend/db.ts", line: index + 1, from: "a", to: "b", accepted: index === 0 });
+
+  it("renders the verdict, the rules table, capped new violations and rules-file changes", () => {
+    const rendered = renderReviewComment({
+      ...base,
+      architecture: {
+        verdict: "degraded", newErrors: 21,
+        rules: [{ name: "r<x>", severity: "error", newViolations: Array.from({ length: 22 }, (_, index) => violation(index)), resolvedViolations: [violation(30)], unchanged: 150 }],
+        unitCycles: { newViolations: [{ source: "ui/a.ts", target: "core/b.ts", from: "ui", to: "core" }], resolvedViolations: [], unchanged: 0 },
+        configChange: { rules: { added: ["r<x>"], removed: [], changed: [] }, elements: { added: [], removed: ["old"], changed: [] }, roles: true, baseline: { added: [{}], removed: [] } },
+      },
+    }, "magic5644.graph-it-live");
+    expect(rendered).toContain("### Architecture rules: DEGRADED");
+    expect(rendered).toContain("New error violations: 21. Unit cycles: 1 new, 0 resolved, 0 unchanged.");
+    expect(rendered).toContain("| r x | error | 22 | 1 | 150 |");
+    expect(rendered).toContain("- r x: src/f0 x.ts:1 -> backend/db.ts (accepted by the baseline)");
+    expect(rendered).toContain("- … 2 more");
+    expect(rendered).toContain("#### Resolved violations");
+    expect(rendered).toContain("- units: ui/a.ts -> core/b.ts");
+    expect(rendered).toContain("- Rules added: r x");
+    expect(rendered).toContain("- Elements removed: old");
+    expect(rendered).toContain("- Unit roles changed");
+    expect(rendered).toContain("- Baseline: 1 violation(s) accepted, 0 entry(ies) removed");
+  });
+
+  it("adds no section without architecture data, and survives malformed data", () => {
+    expect(renderReviewComment(base, "magic5644.graph-it-live")).not.toContain("Architecture rules");
+    const malformed = renderReviewComment({ ...base, architecture: { verdict: 3, rules: "invalid", unitCycles: null, newErrors: "x", configChange: "x" } }, "magic5644.graph-it-live");
+    expect(malformed).toContain("### Architecture rules: 3");
+    expect(malformed).toContain("New error violations: 0. Unit cycles: 0 new, 0 resolved, 0 unchanged.");
+    expect(malformed).not.toContain("| Rule |");
+  });
+});
+
 describe("review-gate action risk threshold", () => {
   const actionPath = resolve(process.cwd(), ".github/actions/graph-it-review-gate/action.yml");
   const riskGatePath = resolve(process.cwd(), ".github/actions/graph-it-review-gate/riskGate.cjs");
   const action = readFileSync(actionPath, "utf8");
 
-  function runRiskGate(risk: string, threshold: string) {
+  function runRiskGate(risk: string, threshold: string, architectureNewErrors = "") {
     return spawnSync(process.execPath, [riskGatePath], {
       encoding: "utf8",
-      env: { ...process.env, RISK: risk, THRESHOLD: threshold },
+      env: { ...process.env, RISK: risk, THRESHOLD: threshold, ARCHITECTURE_NEW_ERRORS: architectureNewErrors },
     });
   }
 
@@ -182,5 +218,18 @@ describe("review-gate action risk threshold", () => {
     const invalid = runRiskGate("low", "medium");
     expect(invalid.status).toBe(2);
     expect(invalid.stderr).toContain("Invalid fail-on-risk value: medium (use high or critical)");
+  });
+
+  it("fails on a new error violation of the architecture rules, whatever the threshold", () => {
+    for (const threshold of ["", "critical"]) {
+      const failed = runRiskGate("low", threshold, "2");
+      expect(failed.status).toBe(1);
+      expect(failed.stderr).toContain("Graph-It Review Gate failed: 2 new error violation(s) of the architecture rules");
+    }
+    // Absent (older CLI, no config) or zero: informative.
+    for (const count of ["", "0", "not a number"]) expect(runRiskGate("low", "", count).status).toBe(0);
+    expect(runRiskGate("low", "medium", "2").status).toBe(2);
+    expect(action).toContain("ARCHITECTURE_NEW_ERRORS: ${{ steps.review.outputs.architecture-new-errors }}");
+    expect(action).toContain('"\\narchitecture-new-errors="+(result.architecture?.newErrors ?? 0)');
   });
 });

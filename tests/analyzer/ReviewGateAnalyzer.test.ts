@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { BranchWatchAnalyzer } from "../../src/analyzer/BranchWatchAnalyzer";
-import { ReviewGateAnalyzer, renderReviewMarkdown, riskForScore } from "../../src/analyzer/ReviewGateAnalyzer";
+import { ReviewGateAnalyzer, renderReviewMarkdown, riskForScore, type SymbolDependentsProvider } from "../../src/analyzer/ReviewGateAnalyzer";
 
 const temporaryDirectories: string[] = [];
 
@@ -2194,5 +2194,60 @@ describe("ReviewGateAnalyzer - unreadable changed files (#546)", { timeout: GIT_
     const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
     expect(result.symbols.map((symbol) => symbol.name)).toEqual(["gone"]);
     expect(result.limitations.join(" ")).not.toContain("Could not compare");
+  });
+});
+
+describe("ReviewGateAnalyzer architecture rules", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const degraded = {
+    verdict: "degraded" as const, configFile: "graphit.architecture.json", newErrors: 1,
+    rules: [{ name: "r", kind: "forbid" as const, severity: "error" as const, newViolations: [{ source: "src/a.ts", target: "src/b.ts", line: 2, from: "a", to: "b", accepted: false }], resolvedViolations: [], unchanged: 0 }],
+    unitCycles: { newViolations: [], resolvedViolations: [], unchanged: 0 },
+  };
+  const provider = (reviewArchitecture: NonNullable<SymbolDependentsProvider["reviewArchitecture"]>): SymbolDependentsProvider =>
+    ({ getSymbolDependents: async () => [], reviewArchitecture });
+
+  it("skips the rules, at no cost, without a config at the head or in the diff", async () => {
+    const workspace = await createGitWorkspace();
+    const reviewArchitecture = vi.fn();
+    const result = await new ReviewGateAnalyzer(workspace, provider(reviewArchitecture)).analyze({ baseRef: "main" });
+    expect(reviewArchitecture).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty("architecture");
+  });
+
+  it("raises the risk on a new error violation and renders the architecture section", async () => {
+    const workspace = await createGitWorkspace();
+    await fs.writeFile(path.join(workspace, "graphit.architecture.json"), "{}");
+    const reviewArchitecture = vi.fn().mockResolvedValue({ review: degraded, limitations: ["partial rules"] });
+    const result = await new ReviewGateAnalyzer(workspace, provider(reviewArchitecture)).analyze({ baseRef: "main" });
+    expect(reviewArchitecture).toHaveBeenCalledWith(["src/api.ts"], "main", "HEAD");
+    expect(result.architecture).toEqual(degraded);
+    expect(result.score).toBeGreaterThanOrEqual(50);
+    expect(result.risk).toBe("high");
+    expect(result.limitations).toContain("partial rules");
+    const markdown = renderReviewMarkdown(result);
+    expect(markdown).toContain("### Architecture rules: DEGRADED");
+    expect(markdown).toContain("- r: src/a.ts:2 -> src/b.ts (a -> b)");
+  });
+
+  it("keeps the score of a review whose new violations are only warnings or accepted", async () => {
+    const workspace = await createGitWorkspace();
+    await fs.writeFile(path.join(workspace, "graphit.architecture.json"), "{}");
+    const reviewArchitecture = vi.fn().mockResolvedValue({ review: { ...degraded, newErrors: 0 }, limitations: [] });
+    const withRules = await new ReviewGateAnalyzer(workspace, provider(reviewArchitecture)).analyze({ baseRef: "main" });
+    const without = await new ReviewGateAnalyzer(workspace, { getSymbolDependents: async () => [] }).analyze({ baseRef: "main" });
+    expect(withRules.score).toBe(without.score);
+  });
+
+  it("checks the rules of a diff that deletes the config, and reports a failed check as a limitation", async () => {
+    const workspace = await createGitWorkspace();
+    await fs.writeFile(path.join(workspace, "graphit.architecture.json"), "{}");
+    execFileSync("git", ["add", "."], { cwd: workspace });
+    execFileSync("git", ["commit", "-m", "rules"], { cwd: workspace });
+    await fs.rm(path.join(workspace, "graphit.architecture.json"));
+    const reviewArchitecture = vi.fn().mockRejectedValue(new Error("main: broken"));
+    const result = await new ReviewGateAnalyzer(workspace, provider(reviewArchitecture)).analyze({ baseRef: "HEAD" });
+    expect(reviewArchitecture).toHaveBeenCalledWith(["graphit.architecture.json"], "HEAD", "HEAD");
+    expect(result.limitations).toContain("Architecture rules unavailable: main: broken");
+    expect(result.isPartial).toBe(true);
   });
 });

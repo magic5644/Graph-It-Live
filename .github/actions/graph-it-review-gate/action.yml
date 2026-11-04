@@ -10,6 +10,9 @@ outputs:
   score:
     description: Computed review risk score.
     value: ${{ steps.review.outputs.score }}
+  architecture-new-errors:
+    description: New error violations of graphit.architecture.json that its baseline does not accept (0 without the file); any fails the gate.
+    value: ${{ steps.review.outputs.architecture-new-errors }}
 inputs:
   token:
     description: GitHub token. Required only when comment is true.
@@ -21,7 +24,7 @@ inputs:
     description: Publish or update the sticky pull-request comment.
     default: "true"
   fail-on-risk:
-    description: "Optional gate threshold: high or critical. Empty keeps the gate informative."
+    description: "Optional gate threshold: high or critical. Empty keeps the gate informative, except on a new error violation of graphit.architecture.json, which always fails it."
     default: ""
   cli-version:
     description: Optional npm version, tag, or range for @magic5644/graph-it-live. Empty installs latest. Ignored when local-dist is set.
@@ -80,7 +83,7 @@ runs:
           CLI_CMD=(npx --no-install --prefix "$CLI_DIR" graph-it)
         fi
         "${CLI_CMD[@]}" review-pr --workspace "$GITHUB_WORKSPACE" --base "$BASE_REF" --depth "$MAX_DEPTH" --max-files "$MAX_FILES" --format json > "$RUNNER_TEMP/graph-it-review.json"
-        node -e 'const fs=require("node:fs"); const result=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/graph-it-review.json","utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "risk="+result.risk+"\nscore="+result.score+"\n")'
+        node -e 'const fs=require("node:fs"); const result=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/graph-it-review.json","utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "risk="+result.risk+"\nscore="+result.score+"\narchitecture-new-errors="+(result.architecture?.newErrors ?? 0)+"\n")'
     - name: Update review comment
       if: inputs.comment == 'true' && github.event_name == 'pull_request' && inputs.token != ''
       shell: bash
@@ -93,7 +96,8 @@ runs:
       env:
         RISK: ${{ steps.review.outputs.risk }}
         THRESHOLD: ${{ inputs.fail-on-risk }}
+        ARCHITECTURE_NEW_ERRORS: ${{ steps.review.outputs.architecture-new-errors }}
       run: |
         const path = require("node:path");
         const { runRiskGate } = require(path.join(process.env.GITHUB_ACTION_PATH, "riskGate.cjs"));
-        process.exitCode = runRiskGate(process.env.RISK, process.env.THRESHOLD);
+        process.exitCode = runRiskGate(process.env.RISK, process.env.THRESHOLD, process.env.ARCHITECTURE_NEW_ERRORS);

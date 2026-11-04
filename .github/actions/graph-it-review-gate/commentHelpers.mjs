@@ -10,6 +10,59 @@ function safeScore(value) {
   return Number.isFinite(value) ? Math.max(0, Math.min(100, Math.round(value))) : 0;
 }
 
+function safeCount(value) {
+  return Number.isFinite(value) ? Math.max(0, Math.round(value)) : 0;
+}
+
+const list = (value) => (Array.isArray(value) ? value : []);
+
+/** `rule: source:line -> target`, one import of a violation or a unit cycle. */
+function violationLine(rule, violation) {
+  const line = Number.isInteger(violation?.line) ? `:${violation.line}` : "";
+  return `- ${sanitize(rule)}: ${sanitize(violation?.source)}${line} -> ${sanitize(violation?.target)}`;
+}
+
+function capped(title, lines) {
+  if (lines.length === 0) return [];
+  const more = lines.length > MAX_ROWS ? [`- … ${lines.length - MAX_ROWS} more`] : [];
+  return ["", title, ...lines.slice(0, MAX_ROWS), ...more];
+}
+
+/** What a rules-file edit changes, one line per kind; `architecture.configChange` is absent when the diff leaves them alone. */
+function configChangeLines(change) {
+  if (!change || typeof change !== "object") return [];
+  const names = (what, changes) => ["added", "removed", "changed"]
+    .filter((kind) => list(changes?.[kind]).length > 0)
+    .map((kind) => `- ${what} ${kind}: ${list(changes[kind]).map(sanitize).join(", ")}`);
+  const baseline = list(change.baseline?.added).length + list(change.baseline?.removed).length > 0
+    ? [`- Baseline: ${list(change.baseline?.added).length} violation(s) accepted, ${list(change.baseline?.removed).length} entry(ies) removed`]
+    : [];
+  return ["", "#### Architecture rules or baseline changed", ...names("Rules", change.rules), ...names("Elements", change.elements),
+    ...(change.roles ? ["- Unit roles changed"] : []), ...baseline];
+}
+
+/** The architecture section; `architecture` is absent without graphit.architecture.json or from an older CLI. */
+function architectureLines(architecture) {
+  if (!architecture || typeof architecture !== "object") return [];
+  const rules = list(architecture.rules);
+  const rows = rules.map((rule) =>
+    `| ${sanitize(rule?.name)} | ${sanitize(rule?.severity)} | ${list(rule?.newViolations).length} | ${list(rule?.resolvedViolations).length} | ${safeCount(rule?.unchanged)} |`);
+  const added = rules.flatMap((rule) => list(rule?.newViolations).map((violation) =>
+    `${violationLine(rule?.name, violation)}${violation?.accepted ? " (accepted by the baseline)" : ""}`));
+  const resolved = rules.flatMap((rule) => list(rule?.resolvedViolations).map((violation) => violationLine(rule?.name, violation)));
+  const cycles = architecture.unitCycles;
+  return [
+    "", `### Architecture rules: ${sanitize(architecture.verdict).toUpperCase()}`,
+    "",
+    `New error violations: ${safeCount(architecture.newErrors)}. Unit cycles: ${list(cycles?.newViolations).length} new, ${list(cycles?.resolvedViolations).length} resolved, ${safeCount(cycles?.unchanged)} unchanged.`,
+    ...(rows.length > 0 ? ["", "| Rule | Severity | New | Resolved | Unchanged |", "| --- | --- | ---: | ---: | ---: |", ...rows] : []),
+    ...capped("#### New violations", added),
+    ...capped("#### Resolved violations", resolved),
+    ...capped("#### New unit cycles", list(cycles?.newViolations).map((violation) => violationLine("units", violation))),
+    ...configChangeLines(architecture.configChange),
+  ];
+}
+
 export function buildReviewDeepLink(result, extensionId = "magic5644.graph-it-live") {
   const symbols = Array.isArray(result?.symbols) ? result.symbols : [];
   const target = symbols.find((symbol) =>
@@ -83,6 +136,7 @@ export function renderReviewComment(result, extensionId) {
     ...(rows.length > 0 ? rows : ["| low | 0 | — | No risky changed symbols detected | 0 | 0 | no |"]),
     ...(evidence.length > 0 ? ["", "### Evidence", ...evidence] : []),
     ...(cycleLines.length > 0 ? ["", "### Import cycles", ...cycleLines] : []),
+    ...architectureLines(result?.architecture),
     ...(limitationLines.length > 0 ? ["", "### Limitations", ...limitationLines] : []),
     // GitHub strips non-http(s) links from comments, so the URI is a code span to copy, not a Markdown link.
     ...(deepLink ? ["", "Open the highest-risk call graph: copy this URI and paste it in your browser address bar (VS Code with Graph-It-Live must be installed).", "", `\`${deepLink}\``] : []),

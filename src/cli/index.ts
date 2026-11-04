@@ -134,7 +134,7 @@ Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text);
                     html for export, csv for architecture --matrix,
-                    sarif for check-architecture
+                    sarif for check-architecture and review-pr
   --help, -h        Show this help
   --version, -v     Show version
   --reindex         Discard the cached index and rebuild it from scratch

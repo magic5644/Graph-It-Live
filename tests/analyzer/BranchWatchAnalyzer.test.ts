@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BRANCH_WATCH_MAX_FILES, BRANCH_WATCH_MAX_FILES_LIMIT, BranchWatchAnalyzer, BranchWatchError,
-  normalizeBranchWatchMaxFiles } from '@/analyzer/BranchWatchAnalyzer';
+  normalizeBranchWatchMaxFiles, parseCatFileBatch } from '@/analyzer/BranchWatchAnalyzer';
 import { LanguageService } from '@/analyzer/LanguageService';
 import { Spider } from '@/analyzer/Spider';
 
@@ -32,6 +32,46 @@ describe('BranchWatchAnalyzer limits', () => {
     expect(normalizeBranchWatchMaxFiles(0)).toBe(1);
     expect(normalizeBranchWatchMaxFiles(25.9)).toBe(25);
     expect(normalizeBranchWatchMaxFiles(BRANCH_WATCH_MAX_FILES_LIMIT + 1)).toBe(BRANCH_WATCH_MAX_FILES_LIMIT);
+  });
+});
+
+describe('parseCatFileBatch', () => {
+  it('splits the blobs of a batch, empty and binary ones included', () => {
+    const output = Buffer.concat([Buffer.from('a1 blob 3\nabc\nb2 blob 0\n\nc3 blob 2\n'), Buffer.from([0, 10]), Buffer.from('\n')]);
+    expect(parseCatFileBatch(output).map(blob => [...blob])).toEqual([[97, 98, 99], [], [0, 10]]);
+    expect(parseCatFileBatch(Buffer.alloc(0))).toEqual([]);
+  });
+
+  it('rejects a missing object or a truncated output', () => {
+    expect(() => parseCatFileBatch(Buffer.from('a1 missing\n'))).toThrow('Git returned no readable blob for a1.');
+    expect(() => parseCatFileBatch(Buffer.from('a1 blob 9\nabc\n'))).toThrow(BranchWatchError);
+    expect(() => parseCatFileBatch(Buffer.from('a1 blob 3'))).toThrow('Git returned no readable blob for a1.');
+  });
+});
+
+describe('BranchWatchAnalyzer ref tree', { timeout: GIT_TEST_TIMEOUT }, () => {
+  it('copies every tracked file: binary and oversized ones empty, a limitation only for source files', async () => {
+    const root = await workspace(false);
+    await fs.mkdir(path.join(root, 'assets'));
+    await fs.writeFile(path.join(root, 'assets', 'logo.png'), Buffer.from([137, 80, 0, 71]));
+    await fs.writeFile(path.join(root, 'assets', 'big.txt'), Buffer.alloc(3 * 1024 * 1024, 65));
+    await fs.writeFile(path.join(root, 'bin.ts'), Buffer.from([0, 1, 2]));
+    await fs.writeFile(path.join(root, 'style.css'), 'a {}\n');
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'base');
+    const analyzer = new BranchWatchAnalyzer(root);
+    const copied = await analyzer.withRefTree('HEAD', async (directory, limitations) => ({
+      limitations,
+      files: Object.fromEntries(await Promise.all(['api.ts', 'style.css', 'assets/logo.png', 'assets/big.txt', 'bin.ts'].map(async file =>
+        [file, await fs.readFile(path.join(directory, file), 'utf8').catch(() => null)]))),
+    }));
+    expect(copied.files).toEqual({ 'api.ts': 'export function value(n: number) { return n; }\n', 'style.css': 'a {}\n', 'assets/logo.png': '', 'assets/big.txt': '', 'bin.ts': null });
+    expect(copied.limitations).toEqual(['bin.ts: baseline file is binary.']);
+    expect(await analyzer.mergeBase('main', 'HEAD')).toBe(git(root, 'rev-parse', 'HEAD'));
+  });
+
+  it('rejects a ref Git cannot read', async () => {
+    const root = await workspace();
+    await expect(new BranchWatchAnalyzer(root).withRefTree('no-such-ref', async () => undefined)).rejects.toThrow(BranchWatchError);
   });
 });
 
@@ -255,11 +295,12 @@ describe('BranchWatchAnalyzer findings', { timeout: GIT_TEST_TIMEOUT }, () => {
     git(root, 'add', '.'); git(root, 'commit', '-m', 'cycle baseline');
     await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
     const analyzer = new BranchWatchAnalyzer(root, undefined, process.cwd(), 'git', 3);
-    const gitCall = vi.spyOn(analyzer as any, 'git');
+    const readBlobs = vi.spyOn(analyzer as any, 'readBlobs');
 
     const result = await analyzer.analyze(await analyzer.capture('main'));
 
-    const blobReads = gitCall.mock.calls.filter(([args]) => args[0] === 'cat-file' && args[1] === 'blob');
+    const blobReads = readBlobs.mock.calls.flatMap(([shas]) => shas as string[]);
+    expect(blobReads.length).toBeGreaterThan(0);
     expect(blobReads.length).toBeLessThanOrEqual(3);
     expect(result.cycleSummary).toEqual({ detected: 0, scopeComplete: false });
     expect(result.limitations.join(' ')).toContain('3-file baseline limit');

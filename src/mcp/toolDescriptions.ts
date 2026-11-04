@@ -257,7 +257,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       "WHEN: before opening a pull request, or as a CI gate.",
       "WHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.",
-      "RETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed.",
+      "RETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed. With graphit.architecture.json, `architecture` says whether the diff degrades or improves the declared rules: new, resolved and unchanged violations per rule, unit cycles, rules-file edits; a new error violation raises the risk.",
       { lm: "LIMITS: runs git in the first workspace folder; impact counts are incomplete while background indexing runs." },
     ],
   },

@@ -1280,7 +1280,7 @@
         "displayName": "Graph-It-Live: Review PR",
         "icon": "$(git-pull-request)",
         "userDescription": "Review a local Git diff against a base ref and report its risk with per-symbol evidence",
-        "modelDescription": "Reviews a local Git diff and reports the risk it carries, with per-symbol evidence.\n\nWHEN: before opening a pull request, or as a CI gate.\nWHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.\nRETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed.\nLIMITS: runs git in the first workspace folder; impact counts are incomplete while background indexing runs.",
+        "modelDescription": "Reviews a local Git diff and reports the risk it carries, with per-symbol evidence.\n\nWHEN: before opening a pull request, or as a CI gate.\nWHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.\nRETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed. With graphit.architecture.json, `architecture` says whether the diff degrades or improves the declared rules: new, resolved and unchanged violations per rule, unit cycles, rules-file edits; a new error violation raises the risk.\nLIMITS: runs git in the first workspace folder; impact counts are incomplete while background indexing runs.",
         "inputSchema": {
           "type": "object",
           "properties": {
