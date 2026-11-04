@@ -522,7 +522,8 @@ describe('SymbolAnalyzer - symbols do not depend on the files analyzed before (#
       expect(after.dependencies).toEqual(alone.dependencies);
       expect(new SymbolAnalyzer().getExportedSymbols(x, source)).toEqual(warm.getExportedSymbols(x, source));
     }
-  });
+    // Six ts-morph projects per case: slow under coverage instrumentation and on Windows/macOS runners.
+  }, 30_000);
 
   it('keeps the symbols of the file that declares them', () => {
     const analyzer = new SymbolAnalyzer();
