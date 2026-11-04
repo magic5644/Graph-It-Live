@@ -19,4 +19,6 @@ paths:
 - Keep each touched source file at or above 80% coverage.
 - A class instantiated with `new` must use a constructible mock, for example `vi.fn().mockImplementation(function () { ... })`; arrow-function constructor mocks throw.
 - Use `@/` imports and existing fixtures. Include Windows separators, drive letters, and case behavior in new path tests.
+- Compare paths in assertions only after `normalizePath()` on both sides (or as workspace-relative paths with `/`), never a raw result path against a normalized one: on Windows the two differ in separators and drive-letter case, so `find`/`toEqual`/`has` silently miss (#519, PR #594).
+- Give heavy tests an explicit timeout sized for the slowest CI runner, not for a local machine: anything that builds a real index, spawns the CLI or MCP server, loads WASM, starts the AST worker, or runs a VS Code E2E suite. GitHub-hosted runners vary in power (Windows and macOS are often several times slower), so never rely on the 5 s default and never assert tight wall-clock bounds; prefer work counters or ratios. Put the timeout on the `it`/hook that does the work (setup in `beforeAll` needs its own hook timeout).
 - Run smallest relevant test during iteration, then required unit/E2E/coverage checks for changed scope.
