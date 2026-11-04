@@ -415,6 +415,35 @@ describe('BranchWatchAnalyzer findings', { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(impact.limitations).toContain('api.ts: dependency index lookup failed; impact is incomplete.');
   });
 
+  it('repairs the changed files the index reports no importer for with one batched scan (#605)', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'other.ts'), 'export const other = 1;\n');
+    git(root, 'add', 'other.ts'); git(root, 'commit', '-m', 'other');
+    await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
+    await fs.appendFile(path.join(root, 'other.ts'), '// changed\n');
+    const indexed: Record<string, Array<{ path: string }>> = { 'other.ts': [{ path: path.join(root, 'indexed.ts') }] };
+    const findMany = vi.fn(async (files: readonly string[]) => new Map(files.map(file => [normalizePath(file), [{ path: path.join(root, 'repaired.ts') }]])));
+    const findReferencingFilesWithFallback = vi.fn(async () => []);
+    const provider = {
+      getSymbolDependents: async () => [],
+      findReferencingFiles: async (file: string) => indexed[path.basename(file)] ?? [],
+      findReferencingFilesWithFallback,
+      findManyReferencingFilesWithFallback: findMany,
+    };
+    const analyzer = new BranchWatchAnalyzer(root, provider);
+    const impacts = (await analyzer.analyze(await analyzer.capture('main'))).fileImpacts;
+    expect(impacts.map(impact => `${impact.path}:${impact.dependents.map(d => d.path).join(',')}`)).toEqual(['api.ts:repaired.ts', 'other.ts:indexed.ts']);
+    expect(findMany).toHaveBeenCalledTimes(1);
+    expect(findMany.mock.calls[0][0].map(file => normalizePath(path.relative(root, file)))).toEqual(['api.ts']);
+    expect(findReferencingFilesWithFallback).not.toHaveBeenCalled();
+
+    // A failed batch leaves each file to look its importers up itself.
+    findMany.mockRejectedValueOnce(new Error('scan failed'));
+    findReferencingFilesWithFallback.mockResolvedValueOnce([{ path: path.join(root, 'single.ts') }] as never);
+    const fallback = (await analyzer.analyze(await analyzer.capture('main'))).fileImpacts;
+    expect(fallback[0].dependents.map(d => d.path)).toEqual(['single.ts']);
+  });
+
   it('reserves a root lookup for every changed file after a large impact walk', async () => {
     const root = await workspace();
     await fs.writeFile(path.join(root, 'other.ts'), 'export const other = 1;\n');

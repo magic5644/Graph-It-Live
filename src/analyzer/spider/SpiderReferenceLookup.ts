@@ -1,5 +1,5 @@
 import { FileReader } from '../FileReader';
-import { ReferencingFilesFinder } from '../ReferencingFilesFinder';
+import { ReferencingFilesFinder, type FallbackReference, type FallbackTarget } from '../ReferencingFilesFinder';
 import { ReverseIndexManager } from '../ReverseIndexManager';
 import type { Dependency } from '../types';
 import { normalizePath } from '../types';
@@ -87,15 +87,27 @@ export class SpiderReferenceLookup {
    * index can be structurally complete while still predating a source change.
    */
   async findReferencingFilesWithFallback(targetPath: string): Promise<Dependency[]> {
+    return (await this.findManyReferencingFilesWithFallback([targetPath])).get(normalizePath(targetPath)) ?? [];
+  }
+
+  /** findReferencingFilesWithFallback for every target, by normalized target path, with one fallback scan (#605). */
+  async findManyReferencingFilesWithFallback(targetPaths: readonly string[]): Promise<Map<string, Dependency[]>> {
     // This path explicitly repairs potentially stale index data. Never reuse a
     // previous empty fallback result after a source file may have changed.
     this.clearFallbackCache();
-    const normalizedTargetPath = normalizePath(targetPath);
-    const indexedResults = this.reverseIndexManager.hasEntries()
-      ? this.reverseIndexManager.getReferencingFiles(normalizedTargetPath)
-      : [];
-    const fallbackResults = await this.getFallbackReferencingFiles(normalizedTargetPath);
-    return this.mergeDependencies(indexedResults, fallbackResults);
+    const targets = [...new Set(targetPaths.map(targetPath => normalizePath(targetPath)))];
+    const fallback = await this.fallbackFinder?.findReferencingFilesFallbackMany(targets);
+    return new Map(targets.map(target => {
+      const indexedResults = this.reverseIndexManager.hasEntries()
+        ? this.reverseIndexManager.getReferencingFiles(target)
+        : [];
+      const fallbackResults = fallback?.get(target) ?? [];
+      if (fallback) {
+        this._fallbackCache.set(target, fallbackResults);
+        this._fallbackCacheEntryVersion.set(target, this._fallbackCacheVersion);
+      }
+      return [target, this.mergeDependencies(indexedResults, fallbackResults)];
+    }));
   }
 
   private async getFallbackReferencingFiles(normalizedTargetPath: string): Promise<Dependency[]> {
@@ -132,15 +144,15 @@ export class SpiderReferenceLookup {
     return [...merged.values()];
   }
 
-  async findReferenceInFile(
+  async findReferencesInFile(
     filePath: string,
-    targetPath: string,
-    targetBasename: string
-  ): Promise<Dependency | null> {
+    targets: ReadonlyArray<FallbackTarget>
+  ): Promise<FallbackReference[]> {
     try {
       const content = await this.fileReader.readFile(filePath);
-      if (!content.includes(targetBasename)) {
-        return null;
+      const candidates = targets.filter(target => content.includes(target.basename));
+      if (candidates.length === 0) {
+        return [];
       }
 
       // The fallback is specifically used to repair an index that may be
@@ -148,20 +160,20 @@ export class SpiderReferenceLookup {
       // answer; analyzing also refreshes the reverse-index entry.
       this.dependencyAnalyzer.invalidateDependencyCache(filePath);
       const dependencies = await this.dependencyAnalyzer.analyze(filePath);
-      const matchingDep = dependencies.find((dep) => normalizePath(dep.path) === targetPath);
-
-      if (!matchingDep) {
-        return null;
-      }
-
-      return {
-        path: normalizePath(filePath),
-        type: matchingDep.type,
-        line: matchingDep.line,
-        module: matchingDep.module,
-      };
+      return candidates.flatMap(({ path: target }) => {
+        const matchingDep = dependencies.find((dep) => normalizePath(dep.path) === target);
+        return matchingDep ? [{
+          target,
+          dependency: {
+            path: normalizePath(filePath),
+            type: matchingDep.type,
+            line: matchingDep.line,
+            module: matchingDep.module,
+          },
+        }] : [];
+      });
     } catch {
-      return null;
+      return [];
     }
   }
 }

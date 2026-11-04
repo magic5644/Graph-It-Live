@@ -640,6 +640,8 @@ export class SignatureAnalyzer {
     results: SignatureComparisonResult[],
     loadModule: ReexportModuleLoader,
   ): Promise<{ results: SignatureComparisonResult[]; limitations: string[] }> {
+    // Nothing changed, nothing removed: no need to parse the new content.
+    if (results.length === 0) return { results, limitations: [] };
     const newNames = new Set(this.declaredNames(filePath, 'new', newContent));
     // Limitations are collected per result and merged in input order, so output stays deterministic.
     const resolutions = await Promise.all(results.map(async (result) => {

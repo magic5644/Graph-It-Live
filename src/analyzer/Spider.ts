@@ -350,8 +350,8 @@ export class Spider {
         sourceFileCollector: this.sourceFileCollector,
         getRootDir: () => this.config.rootDir,
         getConcurrency: () => this.config.indexingConcurrency,
-        findReferenceInFile: (filePath, normalizedTargetPath, targetBasename) =>
-          this.referenceLookup.findReferenceInFile(filePath, normalizedTargetPath, targetBasename),
+        findReferencesInFile: (filePath, targets) =>
+          this.referenceLookup.findReferencesInFile(filePath, targets),
       });
       this.referenceLookup.setFallbackFinder(this.referencingFilesFinder);
 
@@ -789,6 +789,11 @@ export class Spider {
 
   async findReferencingFilesWithFallback(targetPath: string): Promise<Dependency[]> {
     return this.referenceLookup.findReferencingFilesWithFallback(targetPath);
+  }
+
+  /** findReferencingFilesWithFallback for every target, by normalized target path, with one fallback scan. */
+  findManyReferencingFilesWithFallback(targetPaths: readonly string[]): Promise<Map<string, Dependency[]>> {
+    return this.referenceLookup.findManyReferencingFilesWithFallback(targetPaths);
   }
 
   /**

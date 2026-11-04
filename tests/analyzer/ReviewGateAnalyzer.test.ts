@@ -2305,3 +2305,48 @@ describe("ReviewGateAnalyzer architecture rules", { timeout: GIT_TEST_TIMEOUT },
     expect(result.isPartial).toBe(true);
   });
 });
+
+describe("ReviewGateAnalyzer repeated reviews (#605)", { timeout: GIT_TEST_TIMEOUT }, () => {
+  it("compares a file again only when one of its two contents changes, and never shares its result", async () => {
+    const workspace = await createGitWorkspace();
+    const { SignatureAnalyzer } = await import("../../src/analyzer/SignatureAnalyzer");
+    const compare = vi.spyOn(SignatureAnalyzer.prototype, "analyzeBreakingChanges");
+    try {
+      const cache = new Map();
+      const first = await new ReviewGateAnalyzer(workspace, undefined, cache).analyze({ baseRef: "main" });
+      first.symbols[0].breakingChanges.length = 0;
+      const second = await new ReviewGateAnalyzer(workspace, undefined, cache).analyze({ baseRef: "main" });
+      expect(compare).toHaveBeenCalledTimes(1);
+      expect(second.symbols.map((symbol) => `${symbol.name}:${symbol.breakingChanges.length}`)).toEqual(["greet:1"]);
+
+      await fs.writeFile(path.join(workspace, "src", "api.ts"), "export function greet(): string { return ''; }\n");
+      const edited = await new ReviewGateAnalyzer(workspace, undefined, cache).analyze({ baseRef: "main" });
+      expect(compare).toHaveBeenCalledTimes(2);
+      expect(edited.symbols[0].breakingChanges.map((change) => change.type)).toContain("parameter-removed");
+      expect(cache.size).toBe(2);
+
+      // Without a cache, every review compares again.
+      await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });
+      expect(compare).toHaveBeenCalledTimes(3);
+    } finally { compare.mockRestore(); }
+  });
+
+  it("drops the least recently used comparison past the cache size", async () => {
+    const workspace = await createGitWorkspace();
+    const cache = new Map(Array.from({ length: 2000 }, (_unused, index) => [`stale-${index}`, []]));
+    await new ReviewGateAnalyzer(workspace, undefined, cache).analyze({ baseRef: "main" });
+    expect(cache.size).toBe(2000);
+    expect(cache.has("stale-0")).toBe(false);
+    expect(cache.has("stale-1")).toBe(true);
+  });
+
+  it("reads no consumer evidence for a file whose signatures did not change", async () => {
+    const workspace = await createGitWorkspaceWithDiff("export const value = 1;\n", "// comment\nexport const value = 1;\n");
+    const dependents = { getSymbolDependents: vi.fn(async () => []), getSymbolGraph: vi.fn(), findUnusedSymbols: vi.fn() };
+    const result = await new ReviewGateAnalyzer(workspace, dependents as unknown as SymbolDependentsProvider).analyze({ baseRef: "main" });
+    expect(result.symbols).toEqual([]);
+    expect(result.limitations.filter((limitation) => /evidence unavailable for|Unused-export|Cycle evidence/.test(limitation))).toEqual([]);
+    expect(dependents.getSymbolGraph).not.toHaveBeenCalled();
+    expect(dependents.findUnusedSymbols).not.toHaveBeenCalled();
+  });
+});
