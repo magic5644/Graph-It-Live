@@ -23,6 +23,7 @@ import {
   type WorkspaceArchitectureCheck,
 } from "../../analyzer/architecture/architectureRules.js";
 import { workerState } from "../../mcp/shared/state";
+import type { ArchitectureRuleSummary } from "../../shared/architecture-model";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
@@ -70,11 +71,17 @@ function sarifResult(violation: ArchitectureViolation, ruleIndex: number, reason
   };
 }
 
+/** What a SARIF report lists: the rules and the violations of one check. */
+type SarifCheck = Pick<WorkspaceArchitectureCheck, "configFile"> & {
+  rules: readonly Pick<ArchitectureRuleSummary, "name" | "kind" | "severity" | "reason">[];
+  violations: readonly ArchitectureViolation[];
+};
+
 /**
  * SARIF 2.1.0 for GitHub code scanning: one result per new violation (baseline ones are
- * accepted), located on the importing line.
+ * accepted), located on the importing line. `tool` names the command that checked.
  */
-export function toSarif(check: WorkspaceArchitectureCheck): string {
+export function toSarif(check: SarifCheck, tool = "graph-it check-architecture"): string {
   const ruleIndex = new Map(check.rules.map((rule, index) => [rule.name, index]));
   const sarif = {
     $schema: "https://json.schemastore.org/sarif-2.1.0.json",
@@ -82,7 +89,7 @@ export function toSarif(check: WorkspaceArchitectureCheck): string {
     runs: [{
       tool: {
         driver: {
-          name: "graph-it check-architecture",
+          name: tool,
           informationUri: "https://github.com/magic5644/Graph-It-Live",
           rules: check.rules.map((rule) => ({
             id: rule.name,

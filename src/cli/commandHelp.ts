@@ -243,8 +243,12 @@ Options:
   --depth N            Optional: max dependency-impact traversal depth
   --max-files N        Optional: cap on files analyzed
   --workspace, -w      Workspace root directory (default: auto-detected)
-  --format, -f         Output format: text|json|toon|markdown|mermaid (default: text)
+  --format, -f         Output format: text|json|toon|markdown|mermaid|sarif (default: text);
+                       sarif lists the new violations of graphit.architecture.json
   --help, -h           Show this help
+
+With graphit.architecture.json, the review also checks its rules on the base and
+on the head and reports new, resolved and unchanged violations per rule.
 
 Examples:
   graph-it review-pr --base origin/main

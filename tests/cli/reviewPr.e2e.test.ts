@@ -74,6 +74,27 @@ async function createDeletedModuleRepository(): Promise<string> {
   return root;
 }
 
+/** #443: a rule forbids frontend → backend; the working tree adds such an import. */
+async function createArchitectureRepository(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "review-pr-e2e-"));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "ignore" });
+  git("init", "--initial-branch=main");
+  git("config", "user.email", "e2e@example.com");
+  git("config", "user.name", "Review PR E2E");
+  await fs.mkdir(path.join(root, "frontend"));
+  await fs.mkdir(path.join(root, "backend"));
+  await fs.writeFile(path.join(root, "graphit.architecture.json"), JSON.stringify({
+    elements: { frontend: { path: "frontend/" }, backend: { path: "backend/" } },
+    rules: [{ name: "frontend-not-backend", from: "frontend", forbid: "backend", reason: "UI talks to the API only." }],
+  }));
+  await fs.writeFile(path.join(root, "backend", "db.ts"), "export const db = 1;\n");
+  await fs.writeFile(path.join(root, "frontend", "app.ts"), "export const app = 1;\n");
+  git("add", "-A");
+  git("commit", "-m", "base");
+  await fs.writeFile(path.join(root, "frontend", "app.ts"), 'import { db } from "../backend/db";\nexport const app = db;\n');
+  return root;
+}
+
 const runCli = (...args: string[]): string =>
   execFileSync(process.execPath, [cliEntry, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 
@@ -125,6 +146,36 @@ describe.skipIf(!fsSync.existsSync(cliEntry))("review-pr CLI E2E", { timeout: 15
       await fs.rm(root, { recursive: true, force: true });
     }
   });
+
+  it("reports a new architecture violation in every format, through the CLI and MCP alike (#443)", async () => {
+    const root = await createArchitectureRepository();
+    try {
+      runCli("scan", "--workspace", root);
+      const review = (format: string) => runCli("review-pr", "--workspace", root, "--base", "main", "--format", format);
+      const cli = JSON.parse(review("json")) as { risk: string; architecture: { verdict: string; newErrors: number; rules: Array<{ name: string; newViolations: Array<{ source: string; target: string; line: number }> }> } };
+      expect(cli.risk).toBe("high");
+      expect(cli.architecture).toMatchObject({ verdict: "degraded", newErrors: 1 });
+      expect(cli.architecture.rules[0].newViolations).toMatchObject([{ source: "frontend/app.ts", target: "backend/db.ts", line: 1 }]);
+
+      const sarif = JSON.parse(review("sarif")) as { runs: Array<{ tool: { driver: { name: string } }; results: Array<{ ruleId: string; locations: Array<{ physicalLocation: { artifactLocation: { uri: string }; region: { startLine: number } } }> }> }> };
+      expect(sarif.runs[0].tool.driver.name).toBe("graph-it review-pr");
+      expect(sarif.runs[0].results.map((result) => [result.ruleId, result.locations[0].physicalLocation.artifactLocation.uri, result.locations[0].physicalLocation.region.startLine]))
+        .toEqual([["frontend-not-backend", "frontend/app.ts", 1]]);
+      expect(review("markdown")).toContain("### Architecture rules: DEGRADED");
+      expect(review("toon")).toContain("degraded");
+      expect(review("text")).toContain("frontend-not-backend");
+
+      const session = await startMcpSession(cliEntry, root, root);
+      try {
+        const mcp = JSON.parse((await session.callTool("graphitlive_review_pr", { baseRef: "main", response_format: "json" })).content[0].text);
+        expect(mcp.data.architecture).toEqual(cli.architecture);
+      } finally {
+        await closeSession(session.child);
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  }, 90_000);
 
   // Two CLI runs plus an MCP session: Windows and macOS runners can take well over 15 s.
   it.each(["b1", "b2"])("reports the importer of a deleted or moved module, through the CLI and MCP alike (#516, %s)", async (head) => {

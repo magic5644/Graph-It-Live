@@ -73,7 +73,7 @@ export function formatOutput(
     case "csv":
       throw new CliError('Format "csv" is only produced by graph-it architecture --matrix.', ExitCode.UNSUPPORTED_FORMAT);
     case "sarif":
-      throw new CliError('Format "sarif" is only produced by graph-it check-architecture.', ExitCode.UNSUPPORTED_FORMAT);
+      throw new CliError('Format "sarif" is only produced by graph-it check-architecture and graph-it review-pr.', ExitCode.UNSUPPORTED_FORMAT);
   }
 }
 

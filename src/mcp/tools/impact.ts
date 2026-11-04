@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { reviewArchitecture } from "../../analyzer/architecture/architectureReview";
 import { BranchWatchAnalyzer } from "../../analyzer/BranchWatchAnalyzer";
 import { ReviewGateAnalyzer, type SymbolDependentsProvider } from "../../analyzer/ReviewGateAnalyzer";
 import type { Spider } from "../../analyzer/Spider";
@@ -24,7 +25,7 @@ import type {
  * `extensionPath` locates the WASM parsers: without it, import cycles of Python, Rust, Go, Java and C# files cannot be read.
  */
 export function createSpiderDependentsProvider(
-  spider: Pick<Spider, "getSymbolDependents" | "getSymbolGraph" | "findUnusedSymbols" | "findReferencingFiles" | "findReferencingFilesWithFallback">,
+  spider: Pick<Spider, "analyze" | "getSymbolDependents" | "getSymbolGraph" | "findUnusedSymbols" | "findReferencingFiles" | "findReferencingFilesWithFallback">,
   rootDir?: string,
   extensionPath?: string,
 ): SymbolDependentsProvider {
@@ -34,7 +35,19 @@ export function createSpiderDependentsProvider(
     findUnusedSymbols: (filePath) => spider.findUnusedSymbols(filePath),
     findReferencingFiles: (filePath) => spider.findReferencingFiles(filePath),
     findReferencingFilesWithFallback: (filePath) => spider.findReferencingFilesWithFallback(filePath),
-    ...(rootDir && { findFileCycles: (changedFiles, baseRef) => new BranchWatchAnalyzer(rootDir, undefined, extensionPath).findFileCycles(changedFiles, baseRef) }),
+    ...(rootDir && {
+      findFileCycles: (changedFiles, baseRef) => new BranchWatchAnalyzer(rootDir, undefined, extensionPath).findFileCycles(changedFiles, baseRef),
+      reviewArchitecture: (changedFiles, baseRef, headRef) => {
+        const git = new BranchWatchAnalyzer(rootDir, undefined, extensionPath);
+        return reviewArchitecture({
+          workspaceRoot: rootDir,
+          analyzeFile: (filePath) => spider.analyze(filePath),
+          withRefTree: (ref, read) => git.withRefTree(ref, read),
+          mergeBase: (base, head) => git.mergeBase(base, head),
+          extensionPath,
+        }, changedFiles, baseRef, headRef);
+      },
+    }),
   };
 }
 

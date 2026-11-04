@@ -508,10 +508,21 @@ export async function checkWorkspaceArchitecture(
   files: ArchitectureRulesFileNames = {},
 ) {
   const { configFile, config, baselineFile, baseline } = await loadArchitectureRules(workspaceRoot, files);
+  return { configFile, baselineFile, ...checkGraphArchitecture(graph, workspaceRoot, config, baseline).check };
+}
+
+/** The rules checked against the graph of the tree at `workspaceRoot`, with the unit assignment they read. */
+export function checkGraphArchitecture(graph: ArchitectureGraph, workspaceRoot: string, config: ArchitectureConfig, baseline?: readonly BaselineEntry[]) {
   const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
   const { units } = buildArchitectureUnits(graph, workspaceRoot, assignment, config.roles);
   const roleOf = new Map(units.map((unit) => [unit.key, unit.role]));
-  return { configFile, baselineFile, ...checkArchitecture(graph, assignment, config, baseline, roleOf) };
+  return { assignment, check: checkArchitecture(graph, assignment, config, baseline, roleOf) };
+}
+
+/** File pairs between two units of one import cycle, as `graph-it architecture --level units` shows them. */
+export function unitCyclePairs(graph: ArchitectureGraph, assignment: UnitAssignment): Pick<ArchitectureViolation, "source" | "target" | "line" | "from" | "to">[] {
+  return [...cycleViolations(graph.edges, (file) => assignment.unitOf.get(file))]
+    .map(([edge, pair]) => ({ source: edge.sourceRelative, target: edge.targetRelative, line: edge.line, ...pair }));
 }
 
 /**

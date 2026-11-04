@@ -77,20 +77,20 @@ graph-it review-pr --base origin/main --head feature/my-change --depth 3 --max-f
 - `--max-files` limits changed files; use an integer from 1 to 1000.
 - Use `--format markdown` for a human report; use `toon` or `json` for structured agent analysis.
 
-If `graphit.architecture.json` exists at the workspace root, also check the declared architecture rules:
+If `graphit.architecture.json` exists at the workspace root (or the diff edits it), the report also has
+an `architecture` section: the rules checked on the base and on the head, compared. Read its `verdict`
+(`degraded`, `improved`, `unchanged`), the `newViolations` of each rule (importing file and line, target
+file; `accepted` when the head baseline lists them), the `resolvedViolations`, the new `unitCycles`, and
+`configChange` when the diff edits the rules or their baseline. A new `error` violation the baseline does
+not accept (`newErrors` > 0) blocks the merge: it raises the risk and fails the Review Gate. Treat a
+`configChange` that weakens a rule, removes one, or accepts new baseline entries as a finding to justify.
 
-```bash
-graph-it check-architecture --format markdown   # report for humans and PR comments
-graph-it check-architecture --format toon       # every field, for structured analysis
-```
-
-It exits 1 when an `error` violation is not in `graphit.architecture.baseline.json`: a new error violation blocks the merge.
-The `markdown` report gives the verdict, a rules table and the new violations grouped by rule
-(importing file and line, target file); paste it or restate it. Add `--verbose` to list the accepted violations.
+`graph-it check-architecture --format markdown` still gives the whole-workspace check against the
+baseline; add `--verbose` to list the accepted violations.
 
 ### 2. Interpret evidence before concluding
 
-The report includes a top-level `risk`, `score`, `changedFiles`, `symbols`, `limitations`, and `isPartial`.
+The report includes a top-level `risk`, `score`, `changedFiles`, `symbols`, `cycles`, `limitations`, and `isPartial`, plus `architecture` with a rules file.
 
 | Risk | Meaning | Review action |
 | --- | --- | --- |
