@@ -505,6 +505,7 @@ describe('BranchWatchAnalyzer whole-graph cycles (#605)', { timeout: GIT_TEST_TI
     const introduced = await analyzer.buildCycles({ changes: changed('c.ts'), mergeBaseSha: second }, []);
     expect(introduced.findings.map(finding => finding.classification)).toEqual(['introduced']);
     expect(withRefTree.mock.calls.map(([ref]) => ref)).toEqual([first, second]);
+    expect([...(analyzer as unknown as { refGraphs: Map<string, unknown> }).refGraphs.keys()]).toEqual([second]);
   });
 
   it('reports an unreadable base as a limitation, not as an empty result, and retries it', async () => {
