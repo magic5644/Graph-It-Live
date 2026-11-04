@@ -49,6 +49,9 @@ async function buildWorkspace(root: string, files: Record<string, string[]>): Pr
       ({ path: path.join(root, relative), type: "import" as const, line: 1, module: relative })));
 }
 
+/** Each setup builds real indexes (Spider, WASM parsers): Windows and macOS runners need far more than 10 s. */
+const HEAVY_SETUP_TIMEOUT = 60_000;
+
 describe("exploreArchitecture", () => {
   let root: string;
   let graph: ArchitectureGraph;
@@ -58,7 +61,7 @@ describe("exploreArchitecture", () => {
     root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-explorer-")));
     graph = await buildWorkspace(path.join(root, "small"), workspace);
     hubGraph = await buildWorkspace(path.join(root, "hub"), hubWorkspace);
-  });
+  }, HEAVY_SETUP_TIMEOUT);
 
   afterAll(async () => {
     vi.restoreAllMocks();
@@ -170,7 +173,7 @@ describe("groupDetail", () => {
     root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-detail-")));
     graph = await buildWorkspace(path.join(root, "small"), workspace);
     bigGraph = await buildWorkspace(path.join(root, "big"), bigWorkspace);
-  });
+  }, HEAVY_SETUP_TIMEOUT);
 
   afterAll(async () => {
     vi.restoreAllMocks();
@@ -296,7 +299,7 @@ describe("overviewArchitecture", () => {
     root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-overview-")));
     graph = await buildWorkspace(path.join(root, "small"), workspace);
     hubGraph = await buildWorkspace(path.join(root, "hub"), hubWorkspace);
-  });
+  }, HEAVY_SETUP_TIMEOUT);
 
   afterAll(async () => {
     vi.restoreAllMocks();
