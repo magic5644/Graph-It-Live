@@ -126,6 +126,7 @@ describe.skipIf(!fsSync.existsSync(cliEntry))("review-pr CLI E2E", { timeout: 15
     }
   });
 
+  // Two CLI runs plus an MCP session: Windows and macOS runners can take well over 15 s.
   it.each(["b1", "b2"])("reports the importer of a deleted or moved module, through the CLI and MCP alike (#516, %s)", async (head) => {
     const root = await createDeletedModuleRepository();
     try {
@@ -147,5 +148,5 @@ describe.skipIf(!fsSync.existsSync(cliEntry))("review-pr CLI E2E", { timeout: 15
     } finally {
       await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }
-  });
+  }, 60_000);
 });
