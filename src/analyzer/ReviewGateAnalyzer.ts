@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { promisify } from "node:util";
@@ -8,7 +9,7 @@ import { normalizePath } from "../shared/path";
 import { detectCycles } from "../shared/cycleUtils";
 import { renderArchitectureMarkdown, type ArchitectureReview } from "./architecture/architectureReview";
 import { ARCHITECTURE_BASELINE_FILE, ARCHITECTURE_CONFIG_FILE } from "./architecture/architectureRules";
-import { SignatureAnalyzer, type BreakingChange, type ReexportedModule, type SignatureInfo } from "./SignatureAnalyzer";
+import { SignatureAnalyzer, type BreakingChange, type ReexportedModule, type SignatureComparisonResult, type SignatureInfo } from "./SignatureAnalyzer";
 import type { SymbolDependency, SymbolInfo } from "./types";
 import { PathResolver } from "./utils/PathResolver";
 import { maskNonCode } from "./utils/maskNonCode";
@@ -19,6 +20,8 @@ const execFileAsync = promisify(execFile);
 const DEFAULT_MAX_FILES = 200;
 const DEFAULT_MAX_DEPTH = 3;
 const MAX_MAX_FILES = 1_000;
+/** Entries a signature cache keeps: the changed files of two reviews at the largest file limit. */
+const SIGNATURE_CACHE_SIZE = 2 * MAX_MAX_FILES;
 /** Most changed files one review reads; callers with a higher budget (Branch Watch) clamp to it. */
 export const REVIEW_GATE_MAX_FILES_LIMIT = MAX_MAX_FILES;
 const MAX_MAX_DEPTH = 10;
@@ -140,6 +143,8 @@ export interface SymbolDependentsProvider {
    */
   findReferencingFiles?(filePath: string): Promise<Array<{ path: string }>>;
   findReferencingFilesWithFallback?(filePath: string): Promise<Array<{ path: string }>>;
+  /** findReferencingFilesWithFallback for every file, by normalized path, with one fallback scan of the workspace. */
+  findManyReferencingFilesWithFallback?(filePaths: readonly string[]): Promise<Map<string, Array<{ path: string }>>>;
   getSymbolGraph?(filePath: string): Promise<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] }>;
   findUnusedSymbols?(filePath: string): Promise<SymbolInfo[]>;
   /** Import cycles among `changedFiles` that the diff from `baseRef` to `headRef` adds; absent when the host cannot read the base. */
@@ -187,8 +192,8 @@ interface ChangedSource {
 /** Cross-file state of one review, used to tell a moved symbol from a removed one. */
 interface MoveIndex {
   sources: Map<string, ChangedSource>;
-  /** Exported name → changed files that export it at the head ref but not at the base ref. */
-  targets: Map<string, Array<{ relativePath: string; absolutePath: string; content: string }>>;
+  /** Exported name → changed files that export it at the head ref but not at the base ref; parsed on the first removal. */
+  targets: () => Map<string, Array<{ relativePath: string; absolutePath: string; content: string }>>;
   /** Memoized stale importers per old module and exported name; null when they could not be checked. */
   stale: Map<string, Promise<string[] | null>>;
   /** Memoized text search for the importers of a deleted module, per module. */
@@ -227,9 +232,14 @@ export class ReviewGateAnalyzer {
   private readonly signatures = new SignatureAnalyzer();
   private readonly resolver: PathResolver;
 
+  /**
+   * `signatureCache`: signature comparisons kept between reviews by a caller that repeats them (Branch
+   * Watch, on every file event); a comparison only depends on the path and both contents (#605).
+   */
   constructor(
     private readonly workspaceRoot: string,
     private readonly dependents?: SymbolDependentsProvider,
+    private readonly signatureCache?: Map<string, SignatureComparisonResult[]>,
   ) {
     this.normalizedRoot = normalizePath(path.resolve(workspaceRoot));
     this.resolver = new PathResolver(undefined, true, workspaceRoot);
@@ -256,7 +266,8 @@ export class ReviewGateAnalyzer {
     const fileCyclesPromise = options.fileCycles === false ? Promise.resolve({ cycles: [], limitations: [] }) : this.collectFileCycles(changedFiles, options.baseRef, headRef);
     const cycleFiles = fileCyclesPromise.then((analysis) => new Set(analysis.cycles.flatMap((cycle) => cycle.changedFiles.map((file) => normalizePath(file)))));
     const sources = await this.loadChangedSources(changedFiles, options.baseRef, headRef);
-    const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map(), grep: new Map(), contents: new Map(), cycleFiles };
+    let targets: ReturnType<MoveIndex["targets"]> | undefined;
+    const moves: MoveIndex = { sources, targets: () => (targets ??= this.collectMoveTargets(sources)), stale: new Map(), grep: new Map(), contents: new Map(), cycleFiles };
     // Each file gets its own limitations, merged in file order, so the report matches a sequential run.
     // The shared caches memoize promises, so files analyzed at the same time share one lookup.
     const analyses = await mapWithConcurrency(changedFiles, 4, async (relativePath) => {
@@ -359,8 +370,8 @@ export class ReviewGateAnalyzer {
   }
 
   /** Names each changed file exports at the head ref but did not export at the base ref: where a removed symbol may have moved. */
-  private collectMoveTargets(sources: Map<string, ChangedSource>): MoveIndex["targets"] {
-    const targets: MoveIndex["targets"] = new Map();
+  private collectMoveTargets(sources: Map<string, ChangedSource>): ReturnType<MoveIndex["targets"]> {
+    const targets: ReturnType<MoveIndex["targets"]> = new Map();
     for (const { relativePath, absolutePath, oldContent, newContent } of sources.values()) {
       if (newContent === null) continue;
       let added: string[];
@@ -415,20 +426,34 @@ export class ReviewGateAnalyzer {
     // unanalyzable gap marked every added file — a new test above all — as a
     // limitation, inflating the review instead of crediting the addition.
     if (oldContent === null) return [];
+    const scope: MoveScope = { relativePath, absolutePath, oldContent, headRef, changedFiles, moves, limitations };
+    const comparisons = await this.analyzeSignatures(scope, newContent, limitations);
+    // The evidence only scores changed symbols: a body or comment edit needs none of its index lookups (#605).
+    if (comparisons.length === 0) return [];
     const fileEvidence = {
       ...await this.collectFileEvidence(absolutePath, relativePath, limitations, availability),
       inFileCycle: moves.cycleFiles.then((files) => files.has(relativePath)),
       functions: this.extractTopLevelFunctions(absolutePath, newContent),
     };
-    const scope: MoveScope = { relativePath, absolutePath, oldContent, headRef, changedFiles, moves, limitations };
-    const comparisons = await this.analyzeSignatures(scope, newContent, limitations);
     return Promise.all(comparisons.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, fileEvidence, changedFiles, headRef)));
+  }
+
+  /** analyzeBreakingChanges, memoized in the caller's cache (least recently used out); a copy, so callers may change it. */
+  private breakingChanges(filePath: string, oldContent: string, newContent: string): SignatureComparisonResult[] {
+    if (!this.signatureCache) return this.signatures.analyzeBreakingChanges(filePath, oldContent, newContent);
+    const digest = (content: string) => createHash("sha256").update(content).digest("hex");
+    const key = `${normalizePath(filePath)}\0${digest(oldContent)}\0${digest(newContent)}`;
+    const comparisons = this.signatureCache.get(key) ?? this.signatures.analyzeBreakingChanges(filePath, oldContent, newContent);
+    this.signatureCache.delete(key);
+    this.signatureCache.set(key, comparisons);
+    if (this.signatureCache.size > SIGNATURE_CACHE_SIZE) this.signatureCache.delete(this.signatureCache.keys().next().value!);
+    return structuredClone(comparisons);
   }
 
   private async analyzeSignatures(scope: MoveScope, newContent: string, limitations: string[]): Promise<ReviewComparison[]> {
     const { absolutePath, relativePath, oldContent, headRef } = scope;
     try {
-      const comparisons = this.signatures.analyzeBreakingChanges(absolutePath, oldContent, newContent);
+      const comparisons = this.breakingChanges(absolutePath, oldContent, newContent);
       // Every removed symbol walks its re-export chain: load each module once, not once per symbol.
       const loaded = new Map<string, Promise<ReexportedModule | null>>();
       const reexports = await this.signatures.resolveReexportedRemovals(
@@ -446,7 +471,8 @@ export class ReviewGateAnalyzer {
       limitations.push(...reexports.limitations.map((limitation) => `${relativePath}: ${limitation}`));
       // A removal still reported as such — not resolved through a re-export — may have moved to another changed file.
       const removals = new Set(comparisons.filter((comparison) => comparison.breakingChanges.length === 1));
-      const headExports = this.signatures.exportedDeclarationNames(absolutePath, newContent);
+      // Parsed only when a removal needs it: most edits remove nothing.
+      const headExports = removals.size > 0 ? this.signatures.exportedDeclarationNames(absolutePath, newContent) : new Set<string>();
       const resolved = await Promise.all(reexports.results.map((result) =>
         removals.has(result) && !headExports.has(exportedNameOf(result.symbolName)) ? this.resolveMove(result, scope) : Promise.resolve(result)));
       return scope.deleted ? await this.withDeletedImporters(resolved, scope) : resolved;
@@ -464,7 +490,7 @@ export class ReviewGateAnalyzer {
    */
   private async resolveMove(removal: ReviewComparison, scope: MoveScope): Promise<ReviewComparison> {
     const exportedName = exportedNameOf(removal.symbolName);
-    const matches = (scope.moves.targets.get(exportedName) ?? [])
+    const matches = (scope.moves.targets().get(exportedName) ?? [])
       .filter((target) => target.relativePath !== scope.relativePath)
       .flatMap((target) => {
         const moved = this.signatures.compareMovedRemoval(scope.absolutePath, scope.oldContent, removal.symbolName, {

@@ -155,6 +155,32 @@ describe('Spider - Reverse Index Integration', () => {
             }
         });
 
+        it.each([
+            ['SpiderBuilder', (root: string) => new SpiderBuilder().withRootDir(root).withTsConfigPath(path.join(root, 'tsconfig.json')).withReverseIndex(true).build()],
+            ['Spider', (root: string) => new Spider({ rootDir: root, tsConfigPath: path.join(root, 'tsconfig.json'), enableReverseIndex: true })],
+        ] as const)('repairs several stale targets with one fallback scan (%s, #605)', async (_name, create) => {
+            const root = await fs.mkdtemp(path.join(os.tmpdir(), 'spider-fallback-many-'));
+            const localSpider = create(root);
+            try {
+                await fs.writeFile(path.join(root, 'tsconfig.json'), '{}');
+                const [a, b, lone, importer] = ['a.ts', 'b.ts', 'lone.ts', 'importer.ts'].map(file => path.join(root, file));
+                await Promise.all([a, b, lone, importer].map(file => fs.writeFile(file, 'export const value = 1;\n')));
+                await localSpider.buildFullIndex();
+                await fs.writeFile(importer, "import { value } from './a';\nimport { value as other } from './b';\nexport const sum = value + other;\n");
+
+                const found = await localSpider.findManyReferencingFilesWithFallback([a, b.replaceAll('/', path.sep), lone]);
+                expect([...found.keys()]).toEqual([a, b, lone].map(file => normalizePath(file)));
+                expect(found.get(normalizePath(a))?.map(reference => normalizePath(reference.path))).toEqual([normalizePath(importer)]);
+                expect(found.get(normalizePath(b))?.map(reference => normalizePath(reference.path))).toEqual([normalizePath(importer)]);
+                expect(found.get(normalizePath(lone))).toEqual([]);
+                // The single-target lookup answers the same.
+                expect((await localSpider.findReferencingFilesWithFallback(a)).map(reference => normalizePath(reference.path))).toEqual([normalizePath(importer)]);
+            } finally {
+                await localSpider.dispose();
+                await fs.rm(root, { recursive: true, force: true });
+            }
+        });
+
         it('should use indexed references only when indexing is idle', async () => {
             const mainFile = path.join(fixturesPath, 'src/main.ts');
             const buttonFile = path.join(fixturesPath, 'src/components/Button.tsx');

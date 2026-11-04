@@ -8,6 +8,7 @@ import { mapWithConcurrency } from '@/shared/concurrency';
 import { normalizePath, normalizePathForComparison } from '@/shared/path';
 import { resolveReviewCallGraphPath } from '@/shared/reviewTarget';
 import { LanguageService } from './LanguageService';
+import type { SignatureComparisonResult } from './SignatureAnalyzer';
 import { hasSignatureAnalysis, REVIEW_GATE_MAX_FILES_LIMIT, ReviewGateAnalyzer, type FileCycleAnalysis, type ReviewGateResult, type SymbolDependentsProvider } from './ReviewGateAnalyzer';
 import { detectCycleEdges } from '../shared/cycleUtils';
 import type { GraphEdge } from '../shared/graph-types';
@@ -187,6 +188,8 @@ export function normalizeBranchWatchMaxFiles(value: number): number {
 export class BranchWatchAnalyzer {
   /** Whole import graphs of committed trees by SHA: the merge base, and an explicit head ref. */
   private readonly refGraphs = new Map<string, Promise<FileGraph>>();
+  /** Signature comparisons by path and contents, kept between refreshes: an edit compares only the edited file again. */
+  private readonly signatureCache = new Map<string, SignatureComparisonResult[]>();
   private readonly abortController = new AbortController();
   private maxFiles: number;
   constructor(readonly root: string, private readonly dependents?: SymbolDependentsProvider,
@@ -218,11 +221,37 @@ export class BranchWatchAnalyzer {
   private async collectFileImpacts(snapshot: BranchWatchSnapshot): Promise<BranchWatchFileImpact[]> {
     const fileImpacts: BranchWatchFileImpact[] = [];
     const references = new Map<string, Array<{ path: string }>>();
-    for (const change of snapshot.changes.slice(0, this.maxFiles)) {
+    const changes = snapshot.changes.slice(0, this.maxFiles);
+    const roots = await this.rootReferences(changes.filter(change => this.hasImpact(change, snapshot)));
+    for (const change of changes) {
       // eslint-disable-next-line no-await-in-loop -- the reference cache and its file budget are shared: file order decides which impacts fit
-      fileImpacts.push(await this.fileImpact(change, snapshot, references));
+      fileImpacts.push(await this.fileImpact(change, snapshot, references, roots));
     }
     return fileImpacts;
+  }
+
+  private hasImpact(change: BranchWatchChange, snapshot: BranchWatchSnapshot): boolean {
+    return Boolean(this.dependents?.findReferencingFiles) && LanguageService.isSupported(change.path) && snapshot.readablePaths.includes(change.path);
+  }
+
+  /**
+   * The importers of each changed file, by normalized path, read before the walks: the files the
+   * index reports no importer for share one fallback scan instead of one workspace scan each (#605).
+   * Empty when the provider cannot batch or a lookup fails: each file then looks its root up itself.
+   */
+  private async rootReferences(changes: readonly BranchWatchChange[]): Promise<Map<string, Array<{ path: string }>>> {
+    const find = this.dependents?.findReferencingFiles?.bind(this.dependents);
+    const findMany = this.dependents?.findManyReferencingFilesWithFallback?.bind(this.dependents);
+    if (!find || !findMany || !changes.length) return new Map();
+    try {
+      const targets = changes.map(change => resolveReviewCallGraphPath(this.root, change.path));
+      const indexed = await Promise.all(targets.map(target => find(target)));
+      const repaired = await findMany(targets.filter((_target, index) => !indexed[index].length));
+      return new Map(changes.map((change, index) => [normalizePath(change.path),
+        indexed[index].length ? indexed[index] : repaired.get(normalizePath(targets[index])) ?? []]));
+    } catch {
+      return new Map();
+    }
   }
 
   private async buildReview(snapshot: BranchWatchSnapshot, limitations: string[]): Promise<ReviewGateResult> {
@@ -231,7 +260,7 @@ export class BranchWatchAnalyzer {
     // The review reads the diff itself and decides per file, as review-pr does (#546): untracked
     // files are not in `git diff`, so a diff of untracked files only has nothing to review.
     if (snapshot.changes.every(c => c.kind === 'untracked')) return emptyReview;
-    const review = await new ReviewGateAnalyzer(this.root, this.dependents).analyze({
+    const review = await new ReviewGateAnalyzer(this.root, this.dependents, this.signatureCache).analyze({
       baseRef: snapshot.mergeBaseSha, maxFiles: Math.min(this.maxFiles, REVIEW_GATE_MAX_FILES_LIMIT), maxDepth: 3,
       headRef: snapshot.headReference, fileCycles: false,
     });
@@ -313,9 +342,9 @@ export class BranchWatchAnalyzer {
   }
 
   private async fileImpact(change: BranchWatchChange, snapshot: BranchWatchSnapshot,
-    references: Map<string, Array<{ path: string }>>): Promise<BranchWatchFileImpact> {
+    references: Map<string, Array<{ path: string }>>, roots: ReadonlyMap<string, Array<{ path: string }>>): Promise<BranchWatchFileImpact> {
     const result: BranchWatchFileImpact = { path: change.path, dependents: [], availability: 'available', limitations: [] };
-    if (!this.dependents?.findReferencingFiles || !LanguageService.isSupported(change.path) || !snapshot.readablePaths.includes(change.path)) {
+    if (!this.dependents?.findReferencingFiles || !this.hasImpact(change, snapshot)) {
       result.availability = 'unavailable';
       result.limitations.push(`${change.path}: Dependency analysis unavailable for this file or index.`);
       return result;
@@ -336,7 +365,7 @@ export class BranchWatchAnalyzer {
       // this file's root before a previous large impact walk consumes the
       // shared budget, otherwise later changed files can be reported empty.
       const rootKey = normalizePath(change.path);
-      if (!references.has(rootKey)) references.set(rootKey, await findRootReferencingFiles(changedAbsolutePath));
+      if (!references.has(rootKey)) references.set(rootKey, roots.get(rootKey) ?? await findRootReferencingFiles(changedAbsolutePath));
       await this.traverseImpact(snapshot, references, result, seen, queue,
         async file => {
           const indexed = await findReferencingFiles(file);

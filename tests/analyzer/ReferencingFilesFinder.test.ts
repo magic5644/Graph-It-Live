@@ -9,21 +9,14 @@ const sampleFiles = [
 
 describe('ReferencingFilesFinder', () => {
   const collectAllSourceFiles = vi.fn(async () => sampleFiles);
-  const findReferenceInFile = vi.fn(async (filePath: string, normalizedTarget: string) => {
-    if (filePath.endsWith('b.ts')) {
-      return {
-        path: filePath,
-        type: 'import',
-        line: 1,
-        module: './a',
-      } as any;
-    }
-    return null;
-  });
+  const findReferencesInFile = vi.fn(async (filePath: string, targets: ReadonlyArray<{ path: string; basename: string }>) =>
+    filePath.endsWith('b.ts')
+      ? targets.map(target => ({ target: target.path, dependency: { path: filePath, type: 'import', line: 1, module: `./${target.basename}` } as any }))
+      : []);
 
   beforeEach(() => {
     collectAllSourceFiles.mockClear();
-    findReferenceInFile.mockClear();
+    findReferencesInFile.mockClear();
   });
 
   it('returns empty when basename cannot be derived', async () => {
@@ -31,7 +24,7 @@ describe('ReferencingFilesFinder', () => {
       sourceFileCollector: { collectAllSourceFiles } as any,
       getRootDir: () => '/root',
       getConcurrency: () => 2,
-      findReferenceInFile,
+      findReferencesInFile,
     });
 
     const result = await finder.findReferencingFilesFallback('');
@@ -44,7 +37,7 @@ describe('ReferencingFilesFinder', () => {
       sourceFileCollector: { collectAllSourceFiles } as any,
       getRootDir: () => '/root',
       getConcurrency: () => 2,
-      findReferenceInFile,
+      findReferencesInFile,
     });
 
     const result = await finder.findReferencingFilesFallback('/root/src/a.ts');
@@ -52,6 +45,25 @@ describe('ReferencingFilesFinder', () => {
     expect(result[0]?.path).toBe('/root/src/b.ts');
     expect(collectAllSourceFiles).toHaveBeenCalledWith('/root');
     // Should skip target file itself
-    expect(findReferenceInFile).toHaveBeenCalledTimes(2);
+    expect(findReferencesInFile).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers every target from one scan, each file read once (#605)', async () => {
+    const finder = new ReferencingFilesFinder({
+      sourceFileCollector: { collectAllSourceFiles } as any,
+      getRootDir: () => '/root',
+      getConcurrency: () => 2,
+      findReferencesInFile,
+    });
+
+    const result = await finder.findReferencingFilesFallbackMany(['/root/src/a.ts', String.raw`\root\src\c.js`, '']);
+    expect([...result.keys()]).toEqual(['/root/src/a.ts', '/root/src/c.js', '']);
+    expect(result.get('/root/src/a.ts')?.map(d => d.module)).toEqual(['./a']);
+    expect(result.get('/root/src/c.js')?.map(d => d.module)).toEqual(['./c']);
+    expect(result.get('')).toEqual([]);
+    expect(collectAllSourceFiles).toHaveBeenCalledTimes(1);
+    // Each file once, without the targets it is itself.
+    expect(findReferencesInFile.mock.calls.map(([file, targets]) => `${file}:${targets.map(t => t.basename).join(',')}`))
+      .toEqual(['/root/src/a.ts:c', '/root/src/b.ts:a,c', '/root/src/c.js:a']);
   });
 });

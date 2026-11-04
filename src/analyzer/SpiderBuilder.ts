@@ -849,8 +849,8 @@ export class SpiderBuilder {
       sourceFileCollector,
       getRootDir: () => this.rootDir!,
       getConcurrency: () => this.indexingConcurrency,
-      findReferenceInFile: (filePath, normalizedTargetPath, targetBasename) =>
-        referenceLookup.findReferenceInFile(filePath, normalizedTargetPath, targetBasename),
+      findReferencesInFile: (filePath, targets) =>
+        referenceLookup.findReferencesInFile(filePath, targets),
     });
     
     // Wire circular dependency
