@@ -1,6 +1,6 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { getContextKey, getProjectFile, openGraphFor, sleep, waitForViewMode } from './_helpers';
+import { getContextKey, getProjectFile, openGraphFor, settleFileEvents, sleep, waitForViewMode } from './_helpers';
 
 interface ArchitectureRender {
   renderCount: number;
@@ -461,9 +461,9 @@ suite('Architecture view mode', () => {
       assert.strictEqual(stale.buildCount, built.buildCount, 'a file change does not rebuild');
       assert.strictEqual(stale.revision, built.revision, 'the stale summary keeps its revision');
     } finally {
-      await vscode.workspace.fs.writeFile(file, original);
+      // Let the restore's change event mark the view stale before Refresh.
+      await settleFileEvents([file], () => vscode.workspace.fs.writeFile(file, original));
     }
-    await sleep(1500); // let the restore's change event mark the view stale before Refresh
 
     const staleCount = (await readRender()).renderCount;
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
@@ -479,34 +479,34 @@ suite('Architecture view mode', () => {
     const importer = getProjectFile('sample-project', 'src', 'e2eLateImporter.ts');
     const target = getProjectFile('workspaces-project', 'packages', 'ui', 'src', 'e2eLateTarget.ts');
     try {
-      await vscode.workspace.fs.writeFile(importer, Buffer.from(
+      // Let the importer's create event index it, its import still unresolved.
+      await settleFileEvents([importer], () => vscode.workspace.fs.writeFile(importer, Buffer.from(
         "import { late } from '../../workspaces-project/packages/ui/src/e2eLateTarget';\nexport const viaLate = late;\n",
-      ));
-      await sleep(2000); // let the importer's create event index it, its import still unresolved
+      )));
       await openFreshArchitecture();
       const before = await expectMatrix('the units matrix', { view: 'matrix' }, matrix => matrix.unit === undefined);
 
       const staleCount = (await readRender()).renderCount;
-      await vscode.workspace.fs.writeFile(target, Buffer.from('export const late = 1;\n'));
+      // Let the create event re-analyse the importer before Refresh.
+      await settleFileEvents([target], () => vscode.workspace.fs.writeFile(target, Buffer.from('export const late = 1;\n')));
       await waitForRender('the stale banner', staleCount, render => render.stale);
-      await sleep(2000); // let the create event re-analyse the importer before Refresh
       await vscode.commands.executeCommand('graph-it-live.refreshGraph');
       const after = await expectMatrix('the matrix with the new edge', { view: 'matrix' },
         matrix => matrix.unit === undefined && matrix.revision !== before.revision);
       assert.strictEqual(after.fileEdges, before.fileEdges + 1, 'the importer → created target edge');
     } finally {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph' });
-      await vscode.workspace.fs.delete(importer).then(undefined, () => undefined);
-      await vscode.workspace.fs.delete(target).then(undefined, () => undefined);
-      await sleep(1500); // let the delete events reach the index before the next test refreshes
+      // Let the delete events reach the index before the next test refreshes.
+      await settleFileEvents([importer, target], () => Promise.all([importer, target]
+        .map(file => vscode.workspace.fs.delete(file).then(undefined, () => undefined))));
     }
   });
 
-  const refreshMatrix = async (label: string, revision: string, change: () => Thenable<void>) => {
+  const refreshMatrix = async (label: string, revision: string, config: vscode.Uri, content: Uint8Array) => {
     const staleCount = (await readRender()).renderCount;
-    await change();
+    // Let the config event re-index the importer before Refresh.
+    await settleFileEvents([config], () => vscode.workspace.fs.writeFile(config, content));
     await waitForRender('the stale banner', staleCount, render => render.stale);
-    await sleep(2000); // let the config event re-index the importer before Refresh
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
     return expectMatrix(label, { view: 'matrix' }, matrix => matrix.unit === undefined && matrix.revision !== revision);
   };
@@ -519,21 +519,23 @@ suite('Architecture view mode', () => {
     const original = await vscode.workspace.fs.readFile(tsConfig);
     const withAlias = Buffer.from(Buffer.from(original).toString('utf8').replace('"paths": {', '"paths": {\n      "@e2e419/*": ["../workspaces-project/packages/ui/src/*"],'));
     try {
-      await vscode.workspace.fs.writeFile(importer, Buffer.from("export * from '@e2e419/index';\n"));
-      await sleep(2000); // let the importer's create event index it, its import still unresolved
+      // Let the importer's create event index it, its import still unresolved.
+      await settleFileEvents([importer], () => vscode.workspace.fs.writeFile(importer, Buffer.from("export * from '@e2e419/index';\n")));
       await openFreshArchitecture();
       const before = await expectMatrix('the units matrix', { view: 'matrix' }, matrix => matrix.unit === undefined);
 
-      const added = await refreshMatrix('the matrix with the alias edge', before.revision, () => vscode.workspace.fs.writeFile(tsConfig, withAlias));
+      const added = await refreshMatrix('the matrix with the alias edge', before.revision, tsConfig, withAlias);
       assert.strictEqual(added.fileEdges, before.fileEdges + 1, 'the importer → aliased target edge');
 
-      const removed = await refreshMatrix('the matrix without the alias edge', added.revision, () => vscode.workspace.fs.writeFile(tsConfig, original));
+      const removed = await refreshMatrix('the matrix without the alias edge', added.revision, tsConfig, original);
       assert.strictEqual(removed.fileEdges, before.fileEdges, 'removing the alias removes the edge');
     } finally {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph' });
-      await vscode.workspace.fs.writeFile(tsConfig, original);
-      await vscode.workspace.fs.delete(importer).then(undefined, () => undefined);
-      await sleep(1500); // let the config and delete events reach the index before the next test refreshes
+      // Let the config and delete events reach the index before the next test refreshes.
+      await settleFileEvents([tsConfig, importer], async () => {
+        await vscode.workspace.fs.writeFile(tsConfig, original);
+        await vscode.workspace.fs.delete(importer).then(undefined, () => undefined);
+      });
     }
   });
 
@@ -548,25 +550,29 @@ suite('Architecture view mode', () => {
     const { paths, ...compilerOptions } = config.compilerOptions;
     const baseWith = (extra: Record<string, string[]>) => Buffer.from(JSON.stringify({ compilerOptions: { baseUrl: '.', paths: { ...paths, ...extra } } }));
     try {
-      await vscode.workspace.fs.writeFile(importer, Buffer.from("export * from '@e2e431/index';\n"));
-      await vscode.workspace.fs.writeFile(base, baseWith({}));
-      // The aliases move to the extends target; nothing the importer resolves changes.
-      await vscode.workspace.fs.writeFile(tsConfig, Buffer.from(JSON.stringify({ ...config, extends: './e2eExtendsBase.json', compilerOptions })));
-      await sleep(2000); // let the create and tsconfig events index the importer and record the extends target
+      // Let the create and tsconfig events index the importer and record the extends target.
+      await settleFileEvents([importer, base, tsConfig], async () => {
+        await vscode.workspace.fs.writeFile(importer, Buffer.from("export * from '@e2e431/index';\n"));
+        await vscode.workspace.fs.writeFile(base, baseWith({}));
+        // The aliases move to the extends target; nothing the importer resolves changes.
+        await vscode.workspace.fs.writeFile(tsConfig, Buffer.from(JSON.stringify({ ...config, extends: './e2eExtendsBase.json', compilerOptions })));
+      });
       await openFreshArchitecture();
       const before = await expectMatrix('the units matrix', { view: 'matrix' }, matrix => matrix.unit === undefined);
 
-      const added = await refreshMatrix('the matrix with the alias edge', before.revision, () => vscode.workspace.fs.writeFile(base, baseWith({ '@e2e431/*': ['../workspaces-project/packages/ui/src/*'] })));
+      const added = await refreshMatrix('the matrix with the alias edge', before.revision, base, baseWith({ '@e2e431/*': ['../workspaces-project/packages/ui/src/*'] }));
       assert.strictEqual(added.fileEdges, before.fileEdges + 1, 'the importer → aliased target edge');
 
-      const removed = await refreshMatrix('the matrix without the alias edge', added.revision, () => vscode.workspace.fs.writeFile(base, baseWith({})));
+      const removed = await refreshMatrix('the matrix without the alias edge', added.revision, base, baseWith({}));
       assert.strictEqual(removed.fileEdges, before.fileEdges, 'removing the alias removes the edge');
     } finally {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph' });
-      await vscode.workspace.fs.writeFile(tsConfig, original);
-      await vscode.workspace.fs.delete(importer).then(undefined, () => undefined);
-      await vscode.workspace.fs.delete(base).then(undefined, () => undefined);
-      await sleep(1500); // let the config and delete events reach the index before the next test refreshes
+      // Let the config and delete events reach the index before the next test refreshes.
+      await settleFileEvents([tsConfig, importer, base], async () => {
+        await vscode.workspace.fs.writeFile(tsConfig, original);
+        await vscode.workspace.fs.delete(importer).then(undefined, () => undefined);
+        await vscode.workspace.fs.delete(base).then(undefined, () => undefined);
+      });
     }
   });
 
@@ -785,9 +791,9 @@ suite('Architecture view mode', () => {
       await vscode.workspace.fs.writeFile(configFile, Buffer.from('{ "elements": {}, "rules": [{ "name": "r", "noCycles": "ghost" }] }'));
       await waitForRender('the stale banner after breaking the config', ruled.renderCount, render => render.stale);
     } finally {
-      await vscode.workspace.fs.delete(configFile);
+      // Let the delete mark the view stale before Refresh.
+      await settleFileEvents([configFile], () => vscode.workspace.fs.delete(configFile));
     }
-    await sleep(1500); // let the delete mark the view stale before Refresh
     const staleCount = (await readRender()).renderCount;
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
     const restored = await waitForRender('the render without rules', staleCount, render => !render.stale && render.rulesPanel.length === 0);
@@ -820,9 +826,9 @@ suite('Architecture view mode', () => {
       assert.deepStrictEqual(declared.roles, EXPECTED.roles.declared, 'a declared role overrides the inferred one, as the CLI reports');
       assert.notStrictEqual(declared.revision, built.revision, 'roles are part of the revision');
     } finally {
-      await vscode.workspace.fs.delete(configFile);
+      // Let the delete mark the view stale before Refresh.
+      await settleFileEvents([configFile], () => vscode.workspace.fs.delete(configFile));
     }
-    await sleep(1500); // let the delete mark the view stale before Refresh
     const staleCount = (await readRender()).renderCount;
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
     await waitForRender('the inferred roles again', staleCount, render => !render.stale && render.roles.join() === EXPECTED.roles.legend.join());
@@ -898,9 +904,9 @@ suite('Architecture view mode', () => {
       assert.strictEqual(drawn.findStatus, '', 'the found group is drawn: nothing left to report');
     } finally {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { find: '' });
-      await vscode.workspace.fs.delete(unit, { recursive: true });
+      // Let the delete mark the view stale before Refresh.
+      await settleFileEvents([unit], () => vscode.workspace.fs.delete(unit, { recursive: true }));
     }
-    await sleep(1500); // let the delete mark the view stale before Refresh
     const staleCount = (await readRender()).renderCount;
     await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { unit: '' });
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
@@ -964,12 +970,14 @@ suite('Architecture view mode', () => {
     // The view's panel at its working size: 25% of a 230px strip cannot hold a toolbar.
     await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
     try {
-      for (let index = 0; index < 60; index++) {
-        const unit = vscode.Uri.joinPath(many, `pkg-${index}`);
-        await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(unit, 'package.json'), Buffer.from(JSON.stringify({ name: `@many/pkg-${index}` })));
-        await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(unit, 'index.ts'), Buffer.from('export const a = 1;\n'));
-      }
-      await sleep(1500); // let the new files mark the view stale before Refresh: a late mark adds the stale banner
+      const units = Array.from({ length: 60 }, (_, index) => vscode.Uri.joinPath(many, `pkg-${index}`));
+      // Let the new files mark the view stale before Refresh: a late mark adds the stale banner.
+      await settleFileEvents(units.map(unit => vscode.Uri.joinPath(unit, 'index.ts')), async () => {
+        for (const [index, unit] of units.entries()) {
+          await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(unit, 'package.json'), Buffer.from(JSON.stringify({ name: `@many/pkg-${index}` })));
+          await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(unit, 'index.ts'), Buffer.from('export const a = 1;\n'));
+        }
+      });
       const before = (await readRender()).renderCount;
       await openFreshArchitecture();
       const render = await waitForRender('the 71 units', before, current => !current.stale && current.groupCount === EXPECTED.units.groups + 60);
@@ -981,9 +989,9 @@ suite('Architecture view mode', () => {
       assert.strictEqual(render.unitLevel?.layerBands, EXPECTED.units.layers, 'the new units sit on layer 0');
     } finally {
       await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
-      await vscode.workspace.fs.delete(many, { recursive: true });
+      // Let the delete mark the view stale before Refresh.
+      await settleFileEvents([many], () => vscode.workspace.fs.delete(many, { recursive: true }));
     }
-    await sleep(1500); // let the delete mark the view stale before Refresh
     const staleCount = (await readRender()).renderCount;
     await vscode.commands.executeCommand('graph-it-live.refreshGraph');
     await waitForRender('the fixtures again', staleCount, render => !render.stale && render.groupCount === EXPECTED.units.groups);

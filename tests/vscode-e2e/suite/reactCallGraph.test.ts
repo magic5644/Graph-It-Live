@@ -6,7 +6,7 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { getContextKey, getProjectFile, showCallGraphAndWait, sleep } from './_helpers';
+import { getContextKey, getProjectFile, settleFileEvents, showCallGraphAndWait, sleep } from './_helpers';
 
 interface ShownGraph {
   rootSymbolId: string;
@@ -36,15 +36,25 @@ function rootEdges(graph: ShownGraph | null): string[] {
   return [...new Set(edges)].sort();
 }
 
-/** Whether the call graph index holds Card.tsx#Card, for failure messages. */
-async function indexedCard(): Promise<string> {
-  const result = await vscode.lm.invokeTool('graph-it-live_query_call_graph', {
-    input: { filePath: getProjectFile(PROJECT, 'ui', 'Card.tsx').fsPath, symbolName: 'Card', direction: 'callers', depth: 1 },
-    toolInvocationToken: undefined,
-  });
+/** Parsed JSON answer of a Graph-It-Live language model tool. */
+async function invokeTool<T>(name: string, input: object): Promise<T | null> {
+  const result = await vscode.lm.invokeTool(name, { input, toolInvocationToken: undefined });
   const part = result.content.find(p => p instanceof vscode.LanguageModelTextPart);
-  const answer = part instanceof vscode.LanguageModelTextPart ? JSON.parse(part.value) as { symbol: unknown; reason?: string; callers?: unknown[] } : null;
-  return answer?.symbol ? `yes, ${answer.callers?.length ?? 0} callers` : `no (${answer?.reason ?? 'no answer'})`;
+  return part instanceof vscode.LanguageModelTextPart ? JSON.parse(part.value) as T : null;
+}
+
+/**
+ * Whether the call graph index holds Card.tsx#Card, and the dependency index ui/index.ts, for failure messages.
+ * Only a watcher event brings ui/index.ts into the dependency index: both ui/ files missing points at the folder watch.
+ */
+async function indexState(): Promise<string> {
+  const card = getProjectFile(PROJECT, 'ui', 'Card.tsx').fsPath;
+  const answer = await invokeTool<{ symbol: unknown; reason?: string; callers?: unknown[] }>('graph-it-live_query_call_graph',
+    { filePath: card, symbolName: 'Card', direction: 'callers', depth: 1 });
+  const importers = await invokeTool<{ referencingFiles?: Array<{ relativePath: string }> }>('graph-it-live_find_referencing_files', { targetPath: card });
+  const barrel = importers?.referencingFiles?.some(file => file.relativePath.replaceAll('\\', '/').endsWith('ui/index.ts')) ? 'yes' : 'no';
+  const indexed = answer?.symbol ? `yes, ${answer.callers?.length ?? 0} callers` : `no (${answer?.reason ?? 'no answer'})`;
+  return `Card in the call graph index: ${indexed}; ui/index.ts in the dependency index: ${barrel}`;
 }
 
 /** Wait until the displayed root edges equal `expected`; a save refresh is debounced and re-extracts importers. */
@@ -54,26 +64,22 @@ async function waitForRootEdges(expected: string[], timeoutMs = 20000, deadline 
   if (JSON.stringify(actual) === JSON.stringify(expected)) return;
   if (Date.now() >= deadline) {
     const shown = graph ? `root ${graph.rootSymbolId}, nodes ${graph.nodes.map(node => node.name).join(', ')}` : 'no graph';
-    assert.deepStrictEqual(actual, expected, `Displayed call graph edges did not refresh (${shown}; Card in the index: ${await indexedCard()})`);
+    assert.deepStrictEqual(actual, expected, `Displayed call graph edges did not refresh (${shown}; ${await indexState()})`);
   }
   await sleep(250);
   return waitForRootEdges(expected, timeoutMs, deadline);
 }
 
 /**
- * Open Page.tsx with the cursor on `Page` and show its call graph until it draws `expected`: the create events
- * of the setup files reach the call graph after a debounce, and a show() before them draws Page alone.
+ * Open Page.tsx with the cursor on `Page` and show its call graph, which must draw `expected` at once: show()
+ * indexes Page's imports itself, without waiting for the create events of the setup files (#600).
  */
-async function showPageGraph(expected: string[], deadline = Date.now() + 30000): Promise<void> {
+async function showPageGraph(expected: string[]): Promise<void> {
   const document = await vscode.workspace.openTextDocument(getProjectFile(PROJECT, 'Page.tsx'));
   const position = new vscode.Position(3, 16);
   await vscode.window.showTextDocument(document, { selection: new vscode.Range(position, position) });
   await showCallGraphAndWait(60000, 200);
-  if (JSON.stringify(rootEdges(await shownGraph())) === JSON.stringify(expected) || Date.now() >= deadline) {
-    return waitForRootEdges(expected, 0);
-  }
-  await sleep(500);
-  return showPageGraph(expected, deadline);
+  return waitForRootEdges(expected, 0);
 }
 
 /** Replace the whole text of a file through its document and save it, as a user would. */
@@ -88,6 +94,7 @@ async function saveText(file: vscode.Uri, text: string): Promise<void> {
 suite('React components in the call graph view', () => {
   const card = () => getProjectFile(PROJECT, 'ui', 'Card.tsx');
   const page = () => getProjectFile(PROJECT, 'Page.tsx');
+  const files = () => [card(), getProjectFile(PROJECT, 'ui', 'index.ts'), page()];
 
   suiteSetup(async function () {
     this.timeout(30000);
@@ -95,15 +102,13 @@ suite('React components in the call graph view', () => {
     assert.ok(ext, 'Extension should exist');
     if (!ext.isActive) await ext.activate();
     await vscode.commands.executeCommand('graph-it-live.graphView.focus');
-    // Folders first: on Linux the watcher can miss files written right after their new folder is created.
-    await vscode.workspace.fs.createDirectory(getProjectFile(PROJECT, 'ui'));
-    await sleep(1500);
   });
 
   suiteTeardown(async function () {
     this.timeout(30000);
-    await vscode.workspace.fs.delete(getProjectFile(PROJECT), { recursive: true }).then(undefined, () => undefined);
-    await sleep(1500); // let the delete events reach the index before the next suite
+    // Wait for the delete events to reach the index before the next suite.
+    await settleFileEvents([getProjectFile(PROJECT)],
+      () => vscode.workspace.fs.delete(getProjectFile(PROJECT), { recursive: true }).then(undefined, () => undefined));
   });
 
   setup(async function () {
@@ -111,7 +116,6 @@ suite('React components in the call graph view', () => {
     await vscode.workspace.fs.writeFile(card(), Buffer.from(CARD));
     await vscode.workspace.fs.writeFile(getProjectFile(PROJECT, 'ui', 'index.ts'), Buffer.from("export * from './Card';\n"));
     await vscode.workspace.fs.writeFile(page(), Buffer.from(PAGE));
-    await sleep(1500); // let the create events reach the index
   });
 
   teardown(async function () {
@@ -119,9 +123,8 @@ suite('React components in the call graph view', () => {
     await vscode.commands.executeCommand('workbench.action.closeAllEditors');
     // The call graph replaced the shared view's file graph: restore it for the next suite.
     await vscode.commands.executeCommand('graph-it-live.setViewModeFile');
-    await Promise.all([card(), getProjectFile(PROJECT, 'ui', 'index.ts'), page()]
-      .map(file => vscode.workspace.fs.delete(file).then(undefined, () => undefined)));
-    await sleep(1500); // let the delete events reach the index before the next test
+    // Wait for the delete events to reach the index before the next test.
+    await settleFileEvents(files(), () => Promise.all(files().map(file => vscode.workspace.fs.delete(file).then(undefined, () => undefined))));
   });
 
   test('displays JSX references to React components and opens a clicked component at its declaration', async function () {

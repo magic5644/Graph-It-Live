@@ -71,6 +71,7 @@ function createProviderMock(): GraphProvider {
     setArchitectureControls: vi.fn(),
     getCallGraphE2EGraph: vi.fn().mockReturnValue({ rootSymbolId: 'a', nodes: [], edges: [] }),
     clickCallGraphNode: vi.fn().mockResolvedValue(true),
+    fileChangeScheduler: { whenIdle: vi.fn().mockResolvedValue(undefined) },
   } as unknown as GraphProvider;
 }
 
@@ -120,8 +121,8 @@ describe('CommandRegistrationService', () => {
 
     const disposables = service.registerAll();
 
-    expect(disposables).toHaveLength(17); // getContext is shared; filter commands share one disposable
-    expect(registerCommand).toHaveBeenCalledTimes(18);
+    expect(disposables).toHaveLength(18); // getContext is shared; filter commands share one disposable
+    expect(registerCommand).toHaveBeenCalledTimes(19);
     expect(registeredHandlers.has('graph-it-live.showGraph')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.forceReindex')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.expandAllNodes')).toBe(true);
@@ -176,6 +177,8 @@ describe('CommandRegistrationService', () => {
     expect(await click('/w/a.tsx:Card:0')).toBe(true);
     expect(provider.clickCallGraphNode).toHaveBeenCalledWith('/w/a.tsx:Card:0');
     expect(await click({ path: '/etc/passwd' })).toBe(false);
+    await registeredHandlers.get('graph-it-live.e2eFileUpdatesIdle')!();
+    expect(provider.fileChangeScheduler.whenIdle).toHaveBeenCalledTimes(1);
     expect(provider.clickCallGraphNode).toHaveBeenCalledTimes(1);
     expect(await getContext('graph-it-live.unknown')).toBeUndefined();
     expect(await getContext('graph-it-live.reverseDependenciesVisible')).toBe(false);

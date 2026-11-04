@@ -2,7 +2,7 @@ import { after, before } from 'mocha';
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { waitForViewMode } from './_helpers';
+import { settleFileEvents, waitForViewMode } from './_helpers';
 
 /**
  * Helper to get a file path from a test project within the fixtures workspace
@@ -1564,10 +1564,7 @@ suite('Live Updates', () => {
       const newCode = '\nexport function testGreet(): string {\n  return greet("Test");\n}\n';
       edit.insert(doc.uri, new vscode.Position(lastLine, 0), newCode);
       await vscode.workspace.applyEdit(edit);
-      await doc.save();
-      
-      // Wait for debounce (500ms) + processing time
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await settleFileEvents([doc.uri], () => doc.save());
       
       // Verify file was processed without errors
       // In E2E we can't easily check webview state, but we can verify no crashes
@@ -1581,8 +1578,7 @@ suite('Live Updates', () => {
         originalContent
       );
       await vscode.workspace.applyEdit(restoreEdit);
-      await doc.save();
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await settleFileEvents([doc.uri], () => doc.save());
     } catch (error) {
       assert.fail(`Test failed with error: ${error}`);
     }
@@ -1626,10 +1622,7 @@ suite('Live Updates', () => {
         modifiedText
       );
       await vscode.workspace.applyEdit(edit);
-      await doc.save();
-      
-      // Wait for debounce (500ms) + processing time
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await settleFileEvents([doc.uri], () => doc.save());
       
       // Verify update completed without errors
       assert.ok(true, 'Graph updated after removing call');
@@ -1642,8 +1635,7 @@ suite('Live Updates', () => {
         originalContent
       );
       await vscode.workspace.applyEdit(restoreEdit);
-      await doc.save();
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await settleFileEvents([doc.uri], () => doc.save());
     } catch (error) {
       assert.fail(`Test failed with error: ${error}`);
     }
@@ -1759,10 +1751,7 @@ suite('Live Updates', () => {
       const edit3 = new vscode.WorkspaceEdit();
       edit3.insert(doc.uri, new vscode.Position(doc.lineCount, 0), '// Edit 3\n');
       await vscode.workspace.applyEdit(edit3);
-      await doc.save();
-      
-      // Now wait for debounce to complete (500ms + processing time)
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await settleFileEvents([doc.uri], () => doc.save());
       
       // In E2E, we can't easily count how many re-analyses occurred
       // But we can verify the system didn't crash and processed the final state
@@ -1776,8 +1765,7 @@ suite('Live Updates', () => {
         originalContent
       );
       await vscode.workspace.applyEdit(restoreEdit);
-      await doc.save();
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await settleFileEvents([doc.uri], () => doc.save());
     } catch (error) {
       assert.fail(`Test failed with error: ${error}`);
     }

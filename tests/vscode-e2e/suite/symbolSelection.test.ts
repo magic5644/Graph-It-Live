@@ -6,6 +6,7 @@ import { after, before, beforeEach } from 'mocha';
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
+import { settleFileEvents } from './_helpers';
 
 suite('Symbol Selection E2E Tests', () => {
   const workspaceRoot = path.join(__dirname, '../../../tests/fixtures/sample-project');
@@ -128,8 +129,7 @@ suite('Symbol Selection E2E Tests', () => {
       });
 
       // Save the file (should trigger cache invalidation)
-      await document.save();
-      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await settleFileEvents([document.uri], () => document.save());
     } finally {
       // Always restore original content to avoid test fixtures drifting
       const restoreEdit = new vscode.WorkspaceEdit();
@@ -139,8 +139,7 @@ suite('Symbol Selection E2E Tests', () => {
         originalContent,
       );
       await vscode.workspace.applyEdit(restoreEdit);
-      await document.save();
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      await settleFileEvents([document.uri], () => document.save());
     }
 
     assert.ok(true, 'Cache invalidation triggered successfully');
