@@ -65,12 +65,18 @@ async function runGitWorkspaceSuite(options: { version: string; cachePath: strin
       extensionDevelopmentPath,
       extensionTestsPath: options.extensionTestsPath,
       extensionTestsEnv: { ...options.env, E2E_SUITE_GLOB: GIT_WORKSPACE_SUITE },
-      launchArgs: [workspace],
+      launchArgs: [workspace, ...RENDERING_ARGS],
     });
   } finally {
     fs.rmSync(workspace, { recursive: true, force: true });
   }
 }
+
+/**
+ * Keep the webviews rendering when the test window is hidden behind other windows: Chromium pauses animation
+ * frames and resize observers there (macOS occlusion), so render reports never arrive on a local run.
+ */
+const RENDERING_ARGS = ['--disable-renderer-backgrounding', '--disable-backgrounding-occluded-windows', '--disable-background-timer-throttling'];
 
 /** Optional loopback DevTools port, used for local E2E screenshots. */
 function debuggingArgs(port = process.env.E2E_CDP_PORT): string[] {
@@ -111,7 +117,7 @@ async function main() {
       ...(resolvedReportFile ? { E2E_MOCHA_REPORT_FILE: resolvedReportFile } : {}),
     };
 
-    const launchArgs = [workspaceRoot, '--disable-extensions', ...debuggingArgs()];
+    const launchArgs = [workspaceRoot, '--disable-extensions', ...RENDERING_ARGS, ...debuggingArgs()];
 
     if (useVsix) {
       // Test from packaged .vsix file (production mode)
@@ -162,6 +168,7 @@ async function main() {
         launchArgs: [
           workspaceRoot,
           ...isolatedProfileArgs,
+          ...RENDERING_ARGS,
         ],
       });
     } else {
