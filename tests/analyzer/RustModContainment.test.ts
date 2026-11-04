@@ -4,7 +4,8 @@ import * as os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { buildArchitectureGraph } from '@/analyzer/architecture/ArchitectureGraphBuilder';
-import { BranchWatchAnalyzer } from '@/analyzer/BranchWatchAnalyzer';
+import { readReviewTrees } from '@/analyzer/architecture/architectureReview';
+import { addedFileCycles, BranchWatchAnalyzer } from '@/analyzer/BranchWatchAnalyzer';
 import { RustParser } from '@/analyzer/languages/RustParser';
 import { Spider } from '@/analyzer/Spider';
 import { normalizePath } from '@/analyzer/types';
@@ -198,5 +199,14 @@ describe('Rust mod declarations are containment (#595)', () => {
     expect(facade.summary).toEqual({ detected: 0, scopeComplete: true });
     const usage = await analyzer.buildCycles({ changes: [{ path: 'usage/src/a.rs', kind: 'modified' }], mergeBaseSha: sha }, []);
     expect(usage.summary.detected).toBe(1);
+    // review-pr reads the whole graphs, the head one from the warmed Spider (#603).
+    const { head } = await readReviewTrees({
+      workspaceRoot: root, analyzeFile: (file) => spider.analyze(file), extensionPath: process.cwd(),
+      withRefTree: (ref, read) => analyzer.withRefTree(ref, read), mergeBase: (b, h) => analyzer.mergeBase(b, h),
+    }, sha, 'HEAD');
+    expect(addedFileCycles(head.imports ?? [], [], ['facade/src/lib.rs', 'facade/src/a.rs', 'facade/src/net/tcp.rs'])).toEqual([]);
+    expect(addedFileCycles(head.imports ?? [], [], ['usage/src/a.rs'])).toEqual([
+      { classification: 'introduced', files: ['usage/src/a.rs', 'usage/src/b.rs'], changedFiles: ['usage/src/a.rs'] },
+    ]);
   }, 120_000);
 });

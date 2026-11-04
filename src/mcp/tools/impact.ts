@@ -1,6 +1,7 @@
 import * as fs from "node:fs/promises";
-import { reviewArchitecture } from "../../analyzer/architecture/architectureReview";
-import { BranchWatchAnalyzer } from "../../analyzer/BranchWatchAnalyzer";
+import type { AnalyzeFile } from "../../analyzer/architecture/ArchitectureGraphBuilder";
+import { readReviewTrees, reviewArchitecture, type ReviewTrees } from "../../analyzer/architecture/architectureReview";
+import { addedFileCycles, BranchWatchAnalyzer } from "../../analyzer/BranchWatchAnalyzer";
 import { ReviewGateAnalyzer, type SymbolDependentsProvider } from "../../analyzer/ReviewGateAnalyzer";
 import type { Spider } from "../../analyzer/Spider";
 import type { SymbolDependency } from "../../analyzer/types";
@@ -38,19 +39,39 @@ export function createSpiderDependentsProvider(
     findUnusedSymbols: (filePath) => spider.findUnusedSymbols(filePath),
     findReferencingFiles: (filePath) => spider.findReferencingFiles(filePath),
     findReferencingFilesWithFallback: (filePath) => spider.findReferencingFilesWithFallback(filePath),
-    ...(rootDir && { findFileCycles: (changedFiles, baseRef) => new BranchWatchAnalyzer(rootDir, undefined, extensionPath).findFileCycles(changedFiles, baseRef) }),
-    ...(rootDir && analyze && {
-      reviewArchitecture: (changedFiles, baseRef, headRef) => {
-        const git = new BranchWatchAnalyzer(rootDir, undefined, extensionPath);
-        return reviewArchitecture({
-          workspaceRoot: rootDir,
-          analyzeFile: (filePath) => analyze.call(spider, filePath),
-          withRefTree: (ref, read) => git.withRefTree(ref, read),
-          mergeBase: (base, head) => git.mergeBase(base, head),
-          extensionPath,
-        }, changedFiles, baseRef, headRef);
-      },
-    }),
+    ...(rootDir && analyze && reviewTreeProvider(rootDir, (filePath) => analyze.call(spider, filePath), extensionPath)),
+  };
+}
+
+/**
+ * Import cycles and architecture rules of one review, read from the same head and base trees:
+ * each pair of refs is parsed once, whichever check asks first (#603).
+ */
+function reviewTreeProvider(rootDir: string, analyzeFile: AnalyzeFile, extensionPath?: string):
+  Pick<SymbolDependentsProvider, "findFileCycles" | "reviewArchitecture"> {
+  const git = new BranchWatchAnalyzer(rootDir, undefined, extensionPath);
+  const trees = new Map<string, Promise<ReviewTrees>>();
+  const read = (baseRef: string, headRef: string) => {
+    const key = `${baseRef}\0${headRef}`;
+    let pending = trees.get(key);
+    if (!pending) {
+      pending = readReviewTrees({
+        workspaceRoot: rootDir,
+        analyzeFile,
+        withRefTree: (ref, readTree) => git.withRefTree(ref, readTree),
+        mergeBase: (base, head) => git.mergeBase(base, head),
+        extensionPath,
+      }, baseRef, headRef);
+      trees.set(key, pending);
+    }
+    return pending;
+  };
+  return {
+    findFileCycles: async (changedFiles, baseRef, headRef) => {
+      const { head, base, limitations } = await read(baseRef, headRef);
+      return { cycles: addedFileCycles(head.imports ?? [], base.imports ?? [], changedFiles), limitations };
+    },
+    reviewArchitecture: async (changedFiles, baseRef, headRef) => reviewArchitecture(await read(baseRef, headRef), changedFiles),
   };
 }
 

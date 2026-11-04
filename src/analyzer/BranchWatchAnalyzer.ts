@@ -124,14 +124,57 @@ interface FileGraph {
 }
 
 /** Encodes paths before the arrow-delimited cycle edge keys (Git filenames may contain arrows); keeps containment marks. */
-function encodeEdges(graph: FileGraph): GraphEdge[] {
-  return graph.edges.map(e => ({ ...e, source: encodeURIComponent(e.source), target: encodeURIComponent(e.target) }));
+function encodeEdges(edges: readonly GraphEdge[]): GraphEdge[] {
+  return edges.map(e => ({ ...e, source: encodeURIComponent(e.source), target: encodeURIComponent(e.target) }));
 }
 /** What the cycle analysis reads of a snapshot: the changed files and the base to compare with. */
 export type CycleScope = Pick<BranchWatchSnapshot, 'changes' | 'mergeBaseSha'>;
 export interface CycleAnalysis {
   findings: BranchWatchCycleFinding[];
   summary: { detected: number; scopeComplete: boolean };
+}
+
+function classifyCycles(current: GraphEdge[], baseline: GraphEdge[], changes: readonly BranchWatchChange[]): BranchWatchCycleFinding[] {
+  const currentEdges = detectCycleEdges(encodeEdges(current));
+  const oldEdges = detectCycleEdges(encodeEdges(baseline));
+  const oldNodes = new Set([...oldEdges].flatMap(e => e.split('->')));
+  const remaining = new Set(currentEdges);
+  const findings: BranchWatchCycleFinding[] = [];
+  while (remaining.size) {
+    const edges = [remaining.values().next().value!];
+    remaining.delete(edges[0]);
+    const nodes = new Set(edges[0].split('->'));
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const edge of remaining) {
+        const [source, target] = edge.split('->');
+        if (nodes.has(source) || nodes.has(target)) {
+          nodes.add(source); nodes.add(target); edges.push(edge); remaining.delete(edge); expanded = true;
+        }
+      }
+    }
+    const nodePaths = [...nodes].map(decodeURIComponent).sort((left, right) => left.localeCompare(right));
+    const changedPaths = changes.filter(c => ['modified', 'added', 'untracked', 'type-changed'].includes(c.kind) && nodePaths.includes(c.path)).map(c => c.path);
+    if (!changedPaths.length) continue;
+    let classification: BranchWatchCycleFinding['classification'] = 'introduced';
+    if (edges.every(e => oldEdges.has(e))) classification = 'existing-touched';
+    else if ([...nodes].some(n => oldNodes.has(n))) classification = 'aggravated';
+    const edgeKeys = edges.toSorted((left, right) => left.localeCompare(right));
+    findings.push({ classification, nodePaths, edgeKeys, changedPaths, relation: 'file-dependency', recommendation: 'review-design', limitations: [] });
+  }
+  return findings;
+}
+
+/**
+ * Import cycles the diff adds among `changedFiles` (introduced or aggravated), read from the whole
+ * head and base import graphs of a review: no file budget, unlike Branch Watch (#603).
+ */
+export function addedFileCycles(head: GraphEdge[], base: GraphEdge[], changedFiles: readonly string[]): FileCycleAnalysis['cycles'] {
+  // A deleted file is in no head edge, so it can never be a changed file of a head cycle.
+  const changes = changedFiles.map((file): BranchWatchChange => ({ path: normalizePath(file), kind: 'modified' }));
+  return classifyCycles(head, base, changes).flatMap(({ classification, nodePaths, changedPaths }) =>
+    classification === 'existing-touched' ? [] : [{ classification, files: nodePaths, changedFiles: changedPaths }]);
 }
 
 export function normalizeBranchWatchMaxFiles(value: number): number {
@@ -181,19 +224,6 @@ export class BranchWatchAnalyzer {
     return fileImpacts;
   }
 
-  /** Import cycles a diff against `baseRef` adds among `changedFiles`, for the review gate; a file gone from disk counts as deleted. */
-  async findFileCycles(changedFiles: string[], baseRef: string): Promise<FileCycleAnalysis> {
-    const changes = await Promise.all(changedFiles.map(async (file): Promise<BranchWatchChange> => ({
-      path: normalizePath(file),
-      kind: await fs.access(resolveReviewCallGraphPath(this.root, file)).then(() => 'modified' as const, () => 'deleted' as const),
-    })));
-    const limitations: string[] = [];
-    const { findings } = await this.buildCycles({ changes, mergeBaseSha: baseRef }, limitations);
-    const cycles = findings.flatMap(({ classification, nodePaths, changedPaths }) =>
-      classification === 'existing-touched' ? [] : [{ classification, files: nodePaths, changedFiles: changedPaths }]);
-    return { cycles, limitations };
-  }
-
   private async buildReview(snapshot: BranchWatchSnapshot, limitations: string[]): Promise<ReviewGateResult> {
     const emptyReview: ReviewGateResult = { baseRef: snapshot.mergeBaseSha, headRef: snapshot.headReference ?? 'HEAD', changedFiles: [],
       symbols: [], cycles: [], score: 0, risk: 'low', isPartial: false, limitations: [] };
@@ -224,7 +254,7 @@ export class BranchWatchAnalyzer {
     // A baseline is only needed to classify an existing cycle. When the current
     // affected graph has no cycle, loading every historical blob cannot change
     // the result and needlessly turns a bounded analysis into a repository scan.
-    const currentCycleEdges = detectCycleEdges(encodeEdges(current));
+    const currentCycleEdges = detectCycleEdges(encodeEdges(current.edges));
     limitations.push(...current.limitations);
     if (current.limitations.length || !currentCycleEdges.size) {
       return {
@@ -239,7 +269,7 @@ export class BranchWatchAnalyzer {
       limitations.push('Cycle cannot be determined completely: the current or baseline dependency graph is incomplete.');
       return { findings: [], summary: { detected: 0, scopeComplete: false } };
     }
-    const findings = this.classifyCycles(current, baseline, snapshot);
+    const findings = classifyCycles(current.edges, baseline.edges, snapshot.changes);
     return { findings, summary: { detected: this.countCycleComponents(current), scopeComplete: true } };
   }
 
@@ -317,7 +347,7 @@ export class BranchWatchAnalyzer {
   }
 
   private countCycleComponents(graph: FileGraph): number {
-    const edges = detectCycleEdges(encodeEdges(graph));
+    const edges = detectCycleEdges(encodeEdges(graph.edges));
     const groups: Array<Set<string>> = [];
     for (const edge of edges) {
       const [source, target] = edge.split('->');
@@ -543,38 +573,6 @@ export class BranchWatchAnalyzer {
       });
       child.stdin.end(shas.map(sha => `${sha}\n`).join(''));
     });
-  }
-
-  private classifyCycles(current: FileGraph, baseline: FileGraph, snapshot: CycleScope): BranchWatchCycleFinding[] {
-    const currentEdges = detectCycleEdges(encodeEdges(current));
-    const oldEdges = detectCycleEdges(encodeEdges(baseline));
-    const oldNodes = new Set([...oldEdges].flatMap(e => e.split('->')));
-    const remaining = new Set(currentEdges);
-    const findings: BranchWatchCycleFinding[] = [];
-    while (remaining.size) {
-      const edges = [remaining.values().next().value!];
-      remaining.delete(edges[0]);
-      const nodes = new Set(edges[0].split('->'));
-      let expanded = true;
-      while (expanded) {
-        expanded = false;
-        for (const edge of remaining) {
-          const [source, target] = edge.split('->');
-          if (nodes.has(source) || nodes.has(target)) {
-            nodes.add(source); nodes.add(target); edges.push(edge); remaining.delete(edge); expanded = true;
-          }
-        }
-      }
-      const nodePaths = [...nodes].map(decodeURIComponent).sort((left, right) => left.localeCompare(right));
-      const changedPaths = snapshot.changes.filter(c => ['modified', 'added', 'untracked', 'type-changed'].includes(c.kind) && nodePaths.includes(c.path)).map(c => c.path);
-      if (!changedPaths.length) continue;
-      let classification: BranchWatchCycleFinding['classification'] = 'introduced';
-      if (edges.every(e => oldEdges.has(e))) classification = 'existing-touched';
-      else if ([...nodes].some(n => oldNodes.has(n))) classification = 'aggravated';
-      const edgeKeys = edges.toSorted((left, right) => left.localeCompare(right));
-      findings.push({ classification, nodePaths, edgeKeys, changedPaths, relation: 'file-dependency', recommendation: 'review-design', limitations: [] });
-    }
-    return findings;
   }
 
   private async git(args: string[]): Promise<string> {
