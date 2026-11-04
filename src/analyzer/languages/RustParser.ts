@@ -165,6 +165,12 @@ export class RustParser implements ILanguageAnalyzer {
       // Ensure WASM parser is initialized
       await this.ensureInitialized();
 
+      // `#[path = "..."] mod x;` (see modSpecifier): a file, relative to the declaring file's directory.
+      if (moduleSpecifier.endsWith(".rs")) {
+        const file = path.resolve(path.dirname(extractFilePath(fromFile)), moduleSpecifier);
+        return (await this.fileExists(file)) ? normalizePath(file) : null;
+      }
+
       // Extract first component - if it's an external crate, return null
       const firstComponent = moduleSpecifier.split("::")[0];
       const externalCrates = new Set([
@@ -260,7 +266,7 @@ export class RustParser implements ILanguageAnalyzer {
     dependencies: Dependency[],
     seen: Set<string>,
     content: string,
-    _filePath: string,
+    filePath: string,
   ): void {
     // Check if this is a mod declaration (not an inline mod { ... })
     const hasBody = this.findChildByType(node, "declaration_list");
@@ -271,10 +277,7 @@ export class RustParser implements ILanguageAnalyzer {
     // Find the module name
     const nameNode = this.findChildByType(node, "identifier");
     if (nameNode) {
-      // Normalize: Rust module file names are always lowercase. `mod outer { mod x; }` loads `outer/x.rs`,
-      // so the enclosing inline modules prefix the name.
-      // shortcut: a `#[path = "..."]` attribute is ignored (the name is resolved), until a crate needs it.
-      const module = [...this.enclosingModules(node, content), this.getNodeText(nameNode, content)].join("::").toLowerCase();
+      const module = this.modSpecifier(node, nameNode, content, filePath);
 
       // A `use a::f` seen before `mod a;` names the same child: the declaration makes it containment.
       const used = dependencies.find((dependency) => dependency.module === module);
@@ -289,6 +292,32 @@ export class RustParser implements ILanguageAnalyzer {
         });
       }
     }
+  }
+
+  /**
+   * What `mod x;` loads. By name: Rust module file names are always lowercase, and `mod outer { mod x; }`
+   * loads `outer/x.rs`, so the enclosing inline modules prefix it. With `#[path = "p"]`: the file `p`, written
+   * relative to the declaring file's directory (resolvePath reads a `.rs` specifier as a file). As rustc does,
+   * inside inline modules `p` starts from the file's module directory and the inline modules.
+   */
+  private modSpecifier(node: Node, nameNode: Node, content: string, filePath: string): string {
+    const enclosing = this.enclosingModules(node, content);
+    const filePathAttribute = this.pathAttribute(node, content);
+    if (filePathAttribute === undefined) return [...enclosing, this.getNodeText(nameNode, content)].join("::").toLowerCase();
+    const file = extractFilePath(filePath);
+    const base = enclosing.length > 0 ? path.join(moduleDir(file), ...enclosing) : path.dirname(file);
+    return path.relative(path.dirname(file), path.resolve(base, filePathAttribute)).replaceAll("\\", "/");
+  }
+
+  /** The value of the `#[path = "..."]` attribute written above `node` (comments may sit between), if any. */
+  private pathAttribute(node: Node, content: string): string | undefined {
+    for (let item = node.previousNamedSibling; item && ATTRIBUTE_OR_COMMENT.has(item.type); item = item.previousNamedSibling) {
+      const attribute = this.findChildByType(item, "attribute");
+      const name = attribute ? this.findChildByType(attribute, "identifier") : null;
+      const value = attribute?.childForFieldName("value");
+      if (name && value && this.getNodeText(name, content) === "path") return this.getNodeText(value, content).replaceAll(/^r?#*"|"#*$/g, "");
+    }
+    return undefined;
   }
 
   /** Names of the inline modules around `node`, outermost first. */
@@ -580,6 +609,9 @@ const MODULE_DIR_FILES = new Set(["mod.rs", "lib.rs", "main.rs", "build.rs"]);
 const CRATE_ROOT_DIRS = new Set(["bin", "tests", "examples", "benches"]);
 
 /** Directory of the child modules of `filePath`: its own for `mod.rs` and crate roots, else `<dir>/<stem>`. */
+/** Nodes that can sit between an item and the attributes written above it. */
+const ATTRIBUTE_OR_COMMENT = new Set(["attribute_item", "line_comment", "block_comment"]);
+
 export function moduleDir(filePath: string): string {
   const dir = path.dirname(filePath);
   const base = path.basename(filePath);

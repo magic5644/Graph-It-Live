@@ -675,7 +675,7 @@ graph-it check-dependencies src/index.ts
 
 List confirmed circular-dependency cycles that involve a given file.
 
-A Rust `mod x;` declaration places `x` in the module tree: the graph keeps that edge (`type: mod` in `find_referencing_files`), but no cycle detector counts it, so a child module that uses an item of its parent is not a cycle. Cycles between modules that use each other are still reported. The architecture graph leaves `mod` declarations out, since folder groups already show the module tree.
+A Rust `mod x;` declaration places `x` in the module tree (the file named by a `#[path = "..."]` attribute when there is one, resolved as rustc does): the graph keeps that edge (`type: mod` in `find_referencing_files`), but no cycle detector counts it, so a child module that uses an item of its parent is not a cycle. Cycles between modules that use each other are still reported. The architecture graph leaves `mod` declarations out, since folder groups already show the module tree.
 
 ```
 graph-it cycles <file> [options]
