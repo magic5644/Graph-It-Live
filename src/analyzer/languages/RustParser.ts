@@ -271,10 +271,11 @@ export class RustParser implements ILanguageAnalyzer {
     // Find the module name
     const nameNode = this.findChildByType(node, "identifier");
     if (nameNode) {
-      let module = this.getNodeText(nameNode, content);
-      // Normalize: Rust module file names are always lowercase
-      module = module.toLowerCase();
-      
+      // Normalize: Rust module file names are always lowercase. `mod outer { mod x; }` loads `outer/x.rs`,
+      // so the enclosing inline modules prefix the name.
+      // shortcut: a `#[path = "..."]` attribute is ignored (the name is resolved), until a crate needs it.
+      const module = [...this.enclosingModules(node, content), this.getNodeText(nameNode, content)].join("::").toLowerCase();
+
       // A `use a::f` seen before `mod a;` names the same child: the declaration makes it containment.
       const used = dependencies.find((dependency) => dependency.module === module);
       if (used) used.type = "mod";
@@ -288,6 +289,16 @@ export class RustParser implements ILanguageAnalyzer {
         });
       }
     }
+  }
+
+  /** Names of the inline modules around `node`, outermost first. */
+  private enclosingModules(node: Node, content: string): string[] {
+    const names: string[] = [];
+    for (let parent = node.parent; parent; parent = parent.parent) {
+      const name = parent.type === "mod_item" ? this.findChildByType(parent, "identifier") : null;
+      if (name) names.unshift(this.getNodeText(name, content));
+    }
+    return names;
   }
 
   /**

@@ -65,6 +65,7 @@ describe('cycle detection', () => {
       ['/w/src/lib.rs', '/w/src/a.rs', '/w/src/b.rs'],
       ['/Users/me/w/src/lib.rs', '/Users/me/w/src/a.rs', '/Users/me/w/src/b.rs'],
       ['c:/w/src/lib.rs', 'c:/w/src/a.rs', 'c:/w/src/b.rs'],
+      [String.raw`C:\w\src\lib.rs`, String.raw`C:\w\src\a.rs`, String.raw`C:\w\src\b.rs`],
     ])('ignores a parent-child pair declared by mod, even with a use edge of the same pair (%s)', (lib, a, b) => {
       const edges = [
         { source: lib, target: a, relationType: 'containment' },

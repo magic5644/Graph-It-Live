@@ -256,7 +256,7 @@ export class BranchWatchAnalyzer {
           return graph;
         }
         if (resolution.value) {
-          graph.edges.push(fileEdge(file, { ...dependency, path: normalizePath(path.relative(root, resolution.value)) }));
+          graph.edges.push(fileEdge(file, normalizePath(path.relative(root, resolution.value)), dependency.type));
         } else if (this.isLocalModuleSpecifier(dependency.module)) {
           graph.limitations.push(`${file}: dependency '${dependency.module}' is not resolved locally; cycles may be incomplete.`);
         }
