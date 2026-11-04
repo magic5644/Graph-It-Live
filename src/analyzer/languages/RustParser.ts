@@ -114,6 +114,7 @@ export class RustParser implements ILanguageAnalyzer {
       const dependencies: Dependency[] = [];
       const seen = new Set<string>();
       const expressionPaths: Node[] = [];
+      const pathModules = new Map<string, string>();
 
       this.traverseTree(tree.rootNode, (node) => {
         // Handle: use path::to::module;
@@ -122,7 +123,7 @@ export class RustParser implements ILanguageAnalyzer {
         }
         // Handle: mod module_name;
         else if (node.type === "mod_item") {
-          this.extractModItem(node, dependencies, seen, content, filePath);
+          this.extractModItem(node, dependencies, seen, content, filePath, pathModules);
         }
         // Handle: extern crate crate_name;
         else if (node.type === "extern_crate_declaration") {
@@ -142,6 +143,13 @@ export class RustParser implements ILanguageAnalyzer {
           ? [fromFileModule(node.text, inlineModuleDepth(node)) ?? ""]
           : globs.map((glob) => `${glob}::${node.text}`);
         for (const scope of scopes) this.addDependency(scope, node, dependencies, seen);
+      }
+
+      // `use imp::f` names the file `#[path = "..."] mod imp;` loads, not `imp.rs`.
+      if (pathModules.size > 0) {
+        for (const dependency of dependencies) {
+          if (dependency.type !== "mod") dependency.module = throughPathModule(dependency.module, pathModules, actualPath);
+        }
       }
 
       // `mod` entries first: deduplication by resolved path keeps the first entry, so a child the file
@@ -166,8 +174,10 @@ export class RustParser implements ILanguageAnalyzer {
       await this.ensureInitialized();
 
       // `#[path = "..."] mod x;` (see modSpecifier): a file, relative to the declaring file's directory.
-      if (moduleSpecifier.endsWith(".rs")) {
+      // Checked against the workspace before any file I/O: the path comes from the source (CWE-22).
+      if (isFileSpecifier(moduleSpecifier)) {
         const file = path.resolve(path.dirname(extractFilePath(fromFile)), moduleSpecifier);
+        if (!isInsideDir(file, path.resolve(this.rootDir))) return null;
         return (await this.fileExists(file)) ? normalizePath(file) : null;
       }
 
@@ -267,6 +277,7 @@ export class RustParser implements ILanguageAnalyzer {
     seen: Set<string>,
     content: string,
     filePath: string,
+    pathModules: Map<string, string>,
   ): void {
     // Check if this is a mod declaration (not an inline mod { ... })
     const hasBody = this.findChildByType(node, "declaration_list");
@@ -278,6 +289,9 @@ export class RustParser implements ILanguageAnalyzer {
     const nameNode = this.findChildByType(node, "identifier");
     if (nameNode) {
       const module = this.modSpecifier(node, nameNode, content, filePath);
+      if (isFileSpecifier(module) && this.enclosingModules(node, content).length === 0) {
+        pathModules.set(this.getNodeText(nameNode, content).toLowerCase(), module);
+      }
 
       // A `use a::f` seen before `mod a;` names the same child: the declaration makes it containment.
       const used = dependencies.find((dependency) => dependency.module === module);
@@ -297,8 +311,9 @@ export class RustParser implements ILanguageAnalyzer {
   /**
    * What `mod x;` loads. By name: Rust module file names are always lowercase, and `mod outer { mod x; }`
    * loads `outer/x.rs`, so the enclosing inline modules prefix it. With `#[path = "p"]`: the file `p`, written
-   * relative to the declaring file's directory (resolvePath reads a `.rs` specifier as a file). As rustc does,
-   * inside inline modules `p` starts from the file's module directory and the inline modules.
+   * relative to the declaring file's directory, as `./p` or `../p` (resolvePath reads such a specifier as a file,
+   * which no Rust module path looks like). As rustc does, inside inline modules `p` starts from the file's
+   * module directory and the inline modules.
    */
   private modSpecifier(node: Node, nameNode: Node, content: string, filePath: string): string {
     const enclosing = this.enclosingModules(node, content);
@@ -306,16 +321,23 @@ export class RustParser implements ILanguageAnalyzer {
     if (filePathAttribute === undefined) return [...enclosing, this.getNodeText(nameNode, content)].join("::").toLowerCase();
     const file = extractFilePath(filePath);
     const base = enclosing.length > 0 ? path.join(moduleDir(file), ...enclosing) : path.dirname(file);
-    return path.relative(path.dirname(file), path.resolve(base, filePathAttribute)).replaceAll("\\", "/");
+    const relative = path.relative(path.dirname(file), path.resolve(base, filePathAttribute));
+    if (path.isAbsolute(relative)) return relative; // another Windows drive
+    const posix = relative.split(path.sep).join("/");
+    return posix.startsWith("../") ? posix : `./${posix}`;
   }
 
-  /** The value of the `#[path = "..."]` attribute written above `node` (comments may sit between), if any. */
+  /**
+   * The value of the `#[path = "..."]` attribute written above `node` (comments may sit between), if any.
+   * shortcut: `#[cfg_attr(cond, path = "...")]` and a `#[path]` on an inline `mod m { }` are ignored (the
+   * names are resolved), until a crate needs cfg-gated or inline-module paths.
+   */
   private pathAttribute(node: Node, content: string): string | undefined {
     for (let item = node.previousNamedSibling; item && ATTRIBUTE_OR_COMMENT.has(item.type); item = item.previousNamedSibling) {
       const attribute = this.findChildByType(item, "attribute");
       const name = attribute ? this.findChildByType(attribute, "identifier") : null;
       const value = attribute?.childForFieldName("value");
-      if (name && value && this.getNodeText(name, content) === "path") return this.getNodeText(value, content).replaceAll(/^r?#*"|"#*$/g, "");
+      if (name && value && this.getNodeText(name, content) === "path") return rustStringValue(value, content);
     }
     return undefined;
   }
@@ -608,10 +630,35 @@ const MODULE_DIR_FILES = new Set(["mod.rs", "lib.rs", "main.rs", "build.rs"]);
 /** Cargo's other crate roots: each file directly in these folders is its own crate. */
 const CRATE_ROOT_DIRS = new Set(["bin", "tests", "examples", "benches"]);
 
-/** Directory of the child modules of `filePath`: its own for `mod.rs` and crate roots, else `<dir>/<stem>`. */
 /** Nodes that can sit between an item and the attributes written above it. */
 const ATTRIBUTE_OR_COMMENT = new Set(["attribute_item", "line_comment", "block_comment"]);
 
+const RUST_ESCAPES: Record<string, string> = { n: "\n", r: "\r", t: "\t", "0": "\0" };
+
+/** The text of a Rust string literal: a raw string as written, a normal one with its escapes decoded. */
+function rustStringValue(node: Node, content: string): string {
+  const text = content.slice(node.startIndex, node.endIndex);
+  if (node.type === "raw_string_literal") return text.replaceAll(/^r#*"|"#*$/g, "");
+  return text.slice(1, -1).replaceAll(/\\(?:u\{([0-9a-fA-F]{1,6})\}|x([0-9a-fA-F]{2})|(.))/g,
+    (_match: string, unicode: string | undefined, hex: string | undefined, char: string) => {
+      const code = unicode ?? hex;
+      return code === undefined ? (RUST_ESCAPES[char] ?? char) : String.fromCodePoint(Number.parseInt(code, 16));
+    });
+}
+
+/** A `#[path]` mod specifier (see RustParser.modSpecifier): `./p`, `../p` or an absolute path. */
+function isFileSpecifier(specifier: string): boolean {
+  return specifier.startsWith("./") || specifier.startsWith("../") || path.isAbsolute(specifier);
+}
+
+/** `module` (`imp`, `self::imp::f`, from a crate root `crate::imp`) rebased on the file its `#[path] mod` loads. */
+function throughPathModule(module: string, pathModules: ReadonlyMap<string, string>, filePath: string): string {
+  let local = module.startsWith("self::") ? module.slice("self::".length) : module;
+  if (["lib.rs", "main.rs"].includes(path.basename(filePath)) && local.startsWith("crate::")) local = local.slice("crate::".length);
+  return pathModules.get(local.split("::")[0]) ?? module;
+}
+
+/** Directory of the child modules of `filePath`: its own for `mod.rs` and crate roots, else `<dir>/<stem>`. */
 export function moduleDir(filePath: string): string {
   const dir = path.dirname(filePath);
   const base = path.basename(filePath);

@@ -35,8 +35,16 @@ describe('Rust mod declarations are containment (#595)', () => {
     'pathattr/src/lib.rs': [
       '#[cfg(unix)]', '#[path = "sys/unix.rs"]', 'mod imp;', '#[path = r"Other_Name.rs"]', '// a comment between', 'pub mod other;',
       'mod outer { #[path = "deep.rs"] mod d; }', 'mod child;', '#[path = "missing.rs"]', 'mod gone;',
-      '#[path = "../../../../../outside.rs"]', 'mod escape;', 'pub struct Thing;', '',
+      // ws/pathattr/src -> ../../../outside.rs is next to the workspace, outside it.
+      '#[path = "../../../outside.rs"]', 'mod escape;', '#[path = "nors/plain"]', 'mod plain;',
+      String.raw`#[path = "\u{65}sc.rs"]`, 'mod esc;', '#[path = r#"raw.rs"#]', 'mod raw;',
+      'use imp::f;', 'pub struct Thing;', '',
     ].join('\n'),
+    // Name lookup would pick these: the #[path] attributes above load other files.
+    'pathattr/src/imp.rs': '',
+    'pathattr/src/nors/plain': '',
+    'pathattr/src/esc.rs': '',
+    'pathattr/src/raw.rs': '',
     'pathattr/src/sys/unix.rs': 'use crate::Thing;\npub fn f() -> Thing { Thing }\n',
     'pathattr/src/Other_Name.rs': '',
     'pathattr/src/outer/deep.rs': '',
@@ -49,13 +57,17 @@ describe('Rust mod declarations are containment (#595)', () => {
     'usage/src/a.rs': 'pub fn g() { crate::b::f(); }\n',
     'usage/src/b.rs': 'pub fn f() { crate::a::g(); }\n',
   };
+  let base = '';
   let root = '';
   let spider: Spider;
   const at = (rel: string) => path.join(root, ...rel.split('/'));
   const rel = (file: string) => normalizePath(path.relative(root, file)).replaceAll('\\', '/');
 
   beforeAll(async () => {
-    root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gitl-rust-mod-')));
+    base = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'gitl-rust-mod-')));
+    root = path.join(base, 'ws');
+    await fs.mkdir(root);
+    await fs.writeFile(path.join(base, 'outside.rs'), 'pub fn secret() {}\n', 'utf-8');
     await Promise.all(Object.entries(files).map(async ([file, content]) => {
       await fs.mkdir(path.dirname(at(file)), { recursive: true });
       await fs.writeFile(at(file), content, 'utf-8');
@@ -65,7 +77,7 @@ describe('Rust mod declarations are containment (#595)', () => {
   }, 120_000);
   afterAll(async () => {
     await spider?.dispose();
-    if (root) await fs.rm(root, { recursive: true, force: true });
+    if (base) await fs.rm(base, { recursive: true, force: true });
   });
 
   it('parses `mod x;` as a mod dependency listed first, and an inline `mod {}` as none', async () => {
@@ -116,15 +128,23 @@ describe('Rust mod declarations are containment (#595)', () => {
 
   it('resolves `#[path]` mod declarations the way rustc does, as containment', async () => {
     const lib = await spider.analyze(at('pathattr/src/lib.rs'));
+    // missing.rs is unresolved, and the file outside the workspace is never read nor linked.
     expect(lib.map((d) => [rel(d.path), d.type, d.module])).toEqual([
-      ['pathattr/src/sys/unix.rs', 'mod', 'sys/unix.rs'],
-      ['pathattr/src/Other_Name.rs', 'mod', 'Other_Name.rs'],
-      ['pathattr/src/outer/deep.rs', 'mod', 'outer/deep.rs'],
+      ['pathattr/src/sys/unix.rs', 'mod', './sys/unix.rs'],
+      ['pathattr/src/Other_Name.rs', 'mod', './Other_Name.rs'],
+      ['pathattr/src/outer/deep.rs', 'mod', './outer/deep.rs'],
       ['pathattr/src/child.rs', 'mod', 'child'],
+      ['pathattr/src/nors/plain', 'mod', './nors/plain'],
+      ['pathattr/src/esc.rs', 'mod', './esc.rs'],
+      ['pathattr/src/raw.rs', 'mod', './raw.rs'],
     ]);
+    // Branch Watch reads resolvePath without a boundary: the parser itself refuses the outside file.
+    const parser = new RustParser(root, process.cwd());
+    expect(await parser.resolvePath(at('pathattr/src/lib.rs'), '../../../outside.rs')).toBeNull();
+    expect(normalizePath((await parser.resolvePath(at('pathattr/src/lib.rs'), './sys/unix.rs'))!)).toBe(normalizePath(at('pathattr/src/sys/unix.rs')));
     const child = await spider.analyze(at('pathattr/src/child.rs'));
     expect(child.map((d) => [rel(d.path), d.module])).toEqual([
-      ['pathattr/src/child/inner/z.rs', 'child/inner/z.rs'],
+      ['pathattr/src/child/inner/z.rs', './child/inner/z.rs'],
       ['pathattr/sibling.rs', '../sibling.rs'],
     ]);
     const graph = await spider.crawl(at('pathattr/src/lib.rs'), { maxDepth: 10 });
