@@ -30,6 +30,19 @@ describe('Rust mod declarations are containment (#595)', () => {
     'expr/src/lib.rs': 'pub fn run() { crate::a::f(); }\nmod a;\nmod outer { mod x; }\n',
     'expr/src/a.rs': 'pub fn f() {}\n',
     'expr/src/outer/x.rs': 'pub fn x() {}\n',
+    // #[path] attributes (#595 follow-up): from a crate root, inline modules and a non-mod-rs file.
+    'pathattr/Cargo.toml': '[package]\nname = "pathattr"\nversion = "0.1.0"\n',
+    'pathattr/src/lib.rs': [
+      '#[cfg(unix)]', '#[path = "sys/unix.rs"]', 'mod imp;', '#[path = r"Other_Name.rs"]', '// a comment between', 'pub mod other;',
+      'mod outer { #[path = "deep.rs"] mod d; }', 'mod child;', '#[path = "missing.rs"]', 'mod gone;',
+      '#[path = "../../../../../outside.rs"]', 'mod escape;', 'pub struct Thing;', '',
+    ].join('\n'),
+    'pathattr/src/sys/unix.rs': 'use crate::Thing;\npub fn f() -> Thing { Thing }\n',
+    'pathattr/src/Other_Name.rs': '',
+    'pathattr/src/outer/deep.rs': '',
+    'pathattr/src/child.rs': 'mod inner { #[path = "z.rs"] mod z; }\n#[path = "../sibling.rs"]\nmod s;\n',
+    'pathattr/src/child/inner/z.rs': '',
+    'pathattr/sibling.rs': '',
     // A real usage cycle between two siblings.
     'usage/Cargo.toml': '[package]\nname = "usage"\nversion = "0.1.0"\n',
     'usage/src/lib.rs': 'mod a;\nmod b;\n',
@@ -99,6 +112,25 @@ describe('Rust mod declarations are containment (#595)', () => {
       const graph = await spider.getSymbolGraph(at(file));
       expect(detectCycles(graph.dependencies.map((d) => ({ source: d.sourceSymbolId, target: d.targetSymbolId }))).size).toBe(0);
     }
+  }, 60_000);
+
+  it('resolves `#[path]` mod declarations the way rustc does, as containment', async () => {
+    const lib = await spider.analyze(at('pathattr/src/lib.rs'));
+    expect(lib.map((d) => [rel(d.path), d.type, d.module])).toEqual([
+      ['pathattr/src/sys/unix.rs', 'mod', 'sys/unix.rs'],
+      ['pathattr/src/Other_Name.rs', 'mod', 'Other_Name.rs'],
+      ['pathattr/src/outer/deep.rs', 'mod', 'outer/deep.rs'],
+      ['pathattr/src/child.rs', 'mod', 'child'],
+    ]);
+    const child = await spider.analyze(at('pathattr/src/child.rs'));
+    expect(child.map((d) => [rel(d.path), d.module])).toEqual([
+      ['pathattr/src/child/inner/z.rs', 'child/inner/z.rs'],
+      ['pathattr/sibling.rs', '../sibling.rs'],
+    ]);
+    const graph = await spider.crawl(at('pathattr/src/lib.rs'), { maxDepth: 10 });
+    expect(graph.edges.map((e) => [rel(e.source), rel(e.target), e.relationType]))
+      .toContainEqual(['pathattr/src/sys/unix.rs', 'pathattr/src/lib.rs', undefined]);
+    expect(detectCircularDependencies(graph.edges)).toEqual([]);
   }, 60_000);
 
   it('keeps mod edges in the crawl, marked containment, and reports no facade cycle', async () => {
