@@ -11,7 +11,8 @@ import { LanguageService } from './LanguageService';
 import { hasSignatureAnalysis, REVIEW_GATE_MAX_FILES_LIMIT, ReviewGateAnalyzer, type FileCycleAnalysis, type ReviewGateResult, type SymbolDependentsProvider } from './ReviewGateAnalyzer';
 import { detectCycleEdges } from '../shared/cycleUtils';
 import type { GraphEdge } from '../shared/graph-types';
-import { fileEdge } from './spider/SpiderGraphCrawler';
+import { readTreeImports, treeAnalyzer } from './architecture/architectureReview';
+import type { AnalyzeFile } from './architecture/ArchitectureGraphBuilder';
 import { checkText, MAX_TEXT_FILE_BYTES, readWorkspaceText, resolveRegularFile } from './utils/workspaceText';
 
 const execFileAsync = promisify(execFile);
@@ -112,7 +113,7 @@ export interface BranchWatchResult {
   snapshot: BranchWatchSnapshot;
   fileImpacts: BranchWatchFileImpact[];
   cycles: BranchWatchCycleFinding[];
-  /** Number of cycle components found in the dependency scope reachable from changed files. */
+  /** Number of cycles through the changed files, and whether the head and base import graphs were read completely. */
   cycleSummary?: { detected: number; scopeComplete: boolean };
   review: ReviewGateResult;
   limitations: string[];
@@ -127,8 +128,8 @@ interface FileGraph {
 function encodeEdges(edges: readonly GraphEdge[]): GraphEdge[] {
   return edges.map(e => ({ ...e, source: encodeURIComponent(e.source), target: encodeURIComponent(e.target) }));
 }
-/** What the cycle analysis reads of a snapshot: the changed files and the base to compare with. */
-export type CycleScope = Pick<BranchWatchSnapshot, 'changes' | 'mergeBaseSha'>;
+/** What the cycle analysis reads of a snapshot: the changed files, the base to compare with, and an explicit head ref. */
+export type CycleScope = Pick<BranchWatchSnapshot, 'changes' | 'mergeBaseSha'> & Partial<Pick<BranchWatchSnapshot, 'headReference' | 'headSha'>>;
 export interface CycleAnalysis {
   findings: BranchWatchCycleFinding[];
   summary: { detected: number; scopeComplete: boolean };
@@ -168,7 +169,7 @@ function classifyCycles(current: GraphEdge[], baseline: GraphEdge[], changes: re
 
 /**
  * Import cycles the diff adds among `changedFiles` (introduced or aggravated), read from the whole
- * head and base import graphs of a review: no file budget, unlike Branch Watch (#603).
+ * head and base import graphs of a review: no file budget (#603), as Branch Watch reads them (#605).
  */
 export function addedFileCycles(head: GraphEdge[], base: GraphEdge[], changedFiles: readonly string[]): FileCycleAnalysis['cycles'] {
   // A deleted file is in no head edge, so it can never be a changed file of a head cycle.
@@ -184,7 +185,8 @@ export function normalizeBranchWatchMaxFiles(value: number): number {
 
 /** Local, read-only Git capture; independent of VS Code settings and runtime. */
 export class BranchWatchAnalyzer {
-  private baseline?: { sha: string; seedKey: string; scopeKey: string; graph: FileGraph };
+  /** Whole import graphs of committed trees by SHA: the merge base, and an explicit head ref. */
+  private readonly refGraphs = new Map<string, Promise<FileGraph>>();
   private readonly abortController = new AbortController();
   private maxFiles: number;
   constructor(readonly root: string, private readonly dependents?: SymbolDependentsProvider,
@@ -196,7 +198,6 @@ export class BranchWatchAnalyzer {
     const normalized = normalizeBranchWatchMaxFiles(maxFiles);
     if (normalized === this.maxFiles) return;
     this.maxFiles = normalized;
-    this.baseline = undefined;
   }
 
   dispose(): void {
@@ -246,121 +247,69 @@ export class BranchWatchAnalyzer {
     }
   }
 
-  async buildCycles(snapshot: CycleScope, limitations: string[]): Promise<CycleAnalysis> {
-    const empty: CycleAnalysis = { findings: [], summary: { detected: 0, scopeComplete: true } };
-    const seeds = snapshot.changes.filter(change => change.kind !== 'deleted' && LanguageService.isSupported(change.path)).map(change => change.path);
-    if (!seeds.length) return empty;
-    const current = await this.readGraphFromSeeds(this.root, seeds);
-    // A baseline is only needed to classify an existing cycle. When the current
-    // affected graph has no cycle, loading every historical blob cannot change
-    // the result and needlessly turns a bounded analysis into a repository scan.
-    const currentCycleEdges = detectCycleEdges(encodeEdges(current.edges));
-    limitations.push(...current.limitations);
-    if (current.limitations.length || !currentCycleEdges.size) {
-      return {
-        findings: [],
-        summary: { detected: 0, scopeComplete: current.limitations.length === 0 },
-      };
-    }
-    const cycleNodes = [...currentCycleEdges].flatMap(edge => edge.split('->').map(decodeURIComponent));
-    const baseline = await this.baselineGraph(snapshot.mergeBaseSha, seeds, cycleNodes);
-    limitations.push(...baseline.limitations);
-    if (baseline.limitations.length) {
-      limitations.push('Cycle cannot be determined completely: the current or baseline dependency graph is incomplete.');
-      return { findings: [], summary: { detected: 0, scopeComplete: false } };
-    }
-    const findings = classifyCycles(current.edges, baseline.edges, snapshot.changes);
-    return { findings, summary: { detected: this.countCycleComponents(current), scopeComplete: true } };
-  }
-
-  private async readGraphFromSeeds(root: string, seeds: string[]): Promise<FileGraph> {
-    const graph: FileGraph = { edges: [], limitations: [] };
-    const language = new LanguageService(root, undefined, this.extensionPath);
-    const reader = root === this.root ? this : new BranchWatchAnalyzer(root, undefined, this.extensionPath, this.gitPath, this.maxFiles);
-    const queue = await this.readGraphLevel([...new Set(seeds.map(seed => normalizePath(seed)))], new Set<string>(), graph,
-      file => this.readFileDependencies(root, file, language, reader));
-    if (queue.length) graph.limitations.push(`Cycle analysis reached the ${this.maxFiles}-file affected-scope limit.`);
-    return graph;
-  }
-
   /**
-   * One breadth-first level: picks the files a sequential walk would dequeue next (same order and
-   * file budget), reads them together, then merges their edges in that order. Returns the queue
-   * left when the walk stops, as the sequential walk would leave it.
+   * Cycles through the changed files, from the whole head import graph (the warmed index, or a copy of
+   * an explicit head ref) and the whole merge-base graph, as review-pr reads them (#603): no file budget.
    */
-  private async readGraphLevel(queue: string[], seen: Set<string>, graph: FileGraph,
-    read: (file: string) => Promise<FileGraph>): Promise<string[]> {
-    const level: string[] = [];
-    let index = 0;
-    while (index < queue.length && seen.size < this.maxFiles) {
-      const file = queue[index++];
-      if (seen.has(file) || !LanguageService.isSupported(file)) continue;
-      seen.add(file);
-      level.push(file);
+  async buildCycles(snapshot: CycleScope, limitations: string[]): Promise<CycleAnalysis> {
+    const changes = snapshot.changes.map(change => ({ ...change, path: normalizePath(change.path) }));
+    if (!changes.some(change => change.kind !== 'deleted' && LanguageService.isSupported(change.path))) {
+      return { findings: [], summary: { detected: 0, scopeComplete: true } };
     }
-    const rest = queue.slice(index);
-    if (!level.length) return rest;
-    const fileGraphs = await mapWithConcurrency(level, 8, read);
-    // Sequentially, only the level files read so far were seen: a later file of the level was still queued.
-    const position = new Map(level.map((file, at) => [file, at]));
-    for (const [at, fileGraph] of fileGraphs.entries()) {
-      graph.edges.push(...fileGraph.edges);
-      graph.limitations.push(...fileGraph.limitations);
-      for (const { target } of fileGraph.edges) {
-        if (!seen.has(target) || (position.get(target) ?? -1) > at) rest.push(target);
-      }
+    const explicitHead = snapshot.headReference ? snapshot.headSha : undefined;
+    // Only the refs of this snapshot stay cached: the base moves only with a commit, fetch, rebase or switch.
+    for (const sha of this.refGraphs.keys()) if (sha !== snapshot.mergeBaseSha && sha !== explicitHead) this.refGraphs.delete(sha);
+    const unknown: CycleAnalysis = { findings: [], summary: { detected: 0, scopeComplete: false } };
+    const head = await this.readGraph('head', () => explicitHead ? this.refGraph(explicitHead) : this.workspaceGraph(), limitations);
+    if (!head) return unknown;
+    // Without a head cycle through a changed file no base can change the result: skip copying and parsing it.
+    const cycleFiles = new Set([...detectCycleEdges(encodeEdges(head.edges))].flatMap(edge => edge.split('->').map(decodeURIComponent)));
+    if (!changes.some(change => cycleFiles.has(change.path))) {
+      return { findings: [], summary: { detected: 0, scopeComplete: head.limitations.length === 0 } };
     }
-    return this.readGraphLevel(rest, seen, graph, read);
+    const base = await this.readGraph('merge-base', () => this.refGraph(snapshot.mergeBaseSha), limitations);
+    if (!base) return unknown;
+    const findings = classifyCycles(head.edges, base.edges, changes);
+    return { findings, summary: { detected: findings.length, scopeComplete: !head.limitations.length && !base.limitations.length } };
   }
 
-  /** Edges and limitations of one file; on failure, the edges found before it plus a limitation. */
-  private async readFileDependencies(root: string, file: string, language: LanguageService,
-    reader: BranchWatchAnalyzer): Promise<FileGraph> {
-    const graph: FileGraph = { edges: [], limitations: [] };
-    const failed = `${file}: dependency graph could not be analyzed.`;
+  /** The graph `read` returns, its limitations added; undefined when it fails: an unreadable graph is never an empty, acyclic one. */
+  private async readGraph(side: string, read: () => Promise<FileGraph>, limitations: string[]): Promise<FileGraph | undefined> {
     try {
-      const absolute = await reader.resolveFile(file);
-      const parser = language.getAnalyzer(absolute);
-      const dependencies = await parser.parseImports(absolute);
-      const resolutions = await Promise.allSettled(dependencies.map(dependency => parser.resolvePath(absolute, dependency.module)));
-      for (const [index, dependency] of dependencies.entries()) {
-        const resolution = resolutions[index];
-        if (resolution.status === 'rejected') {
-          graph.limitations.push(failed);
-          return graph;
-        }
-        if (resolution.value) {
-          graph.edges.push(fileEdge(file, normalizePath(path.relative(root, resolution.value)), dependency.type));
-        } else if (this.isLocalModuleSpecifier(dependency.module)) {
-          graph.limitations.push(`${file}: dependency '${dependency.module}' is not resolved locally; cycles may be incomplete.`);
-        }
-      }
-    } catch {
-      graph.limitations.push(failed);
+      const graph = await read();
+      limitations.push(...graph.limitations);
+      return graph;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      limitations.push(`Cycle cannot be determined: the ${side} import graph could not be read. ${detail}`);
+      return undefined;
     }
+  }
+
+  /** The whole working-tree import graph, read from the dependents provider's warmed index when it has one. */
+  private async workspaceGraph(): Promise<FileGraph> {
+    // A Spider: analyzeFromIndex reads an unchanged file from the reverse index (no stat-and-reindex, no parse).
+    const index = this.dependents as { analyzeFromIndex?: AnalyzeFile; analyze?: AnalyzeFile } | undefined;
+    const analyze = index?.analyzeFromIndex ?? index?.analyze;
+    const analyzeFile: AnalyzeFile = analyze ? file => analyze.call(index, file) : treeAnalyzer(this.root, this.extensionPath);
+    const limitations: string[] = [];
+    const { imports } = await readTreeImports(this.root, 'the working tree', analyzeFile, limitations);
+    return { edges: imports, limitations };
+  }
+
+  /** The whole import graph of commit `sha`, parsed once from a copy of its tree and cached until the snapshot moves off it. */
+  private refGraph(sha: string): Promise<FileGraph> {
+    const cached = this.refGraphs.get(sha);
+    if (cached !== undefined) return cached;
+    const graph = this.withRefTree(sha, async (directory, copyLimitations) => {
+      const limitations = [...copyLimitations];
+      const { imports } = await readTreeImports(directory, sha, treeAnalyzer(directory, this.extensionPath), limitations);
+      return { edges: imports, limitations };
+    });
+    this.refGraphs.set(sha, graph);
+    // A failed read is retried on the next refresh, not cached.
+    graph.catch(() => { if (this.refGraphs.get(sha) === graph) this.refGraphs.delete(sha); });
     return graph;
-  }
-
-  private isLocalModuleSpecifier(module: string): boolean {
-    return module.startsWith('.') || module.startsWith('/') || module.startsWith('@/') || module.startsWith('~/')
-      || /^[A-Za-z]:[\\/]/.test(module);
-  }
-
-  private countCycleComponents(graph: FileGraph): number {
-    const edges = detectCycleEdges(encodeEdges(graph.edges));
-    const groups: Array<Set<string>> = [];
-    for (const edge of edges) {
-      const [source, target] = edge.split('->');
-      const matching = groups.filter(nodes => nodes.has(source) || nodes.has(target));
-      const group = matching[0] ?? new Set<string>();
-      group.add(source); group.add(target);
-      if (!matching.length) groups.push(group);
-      for (const other of matching.slice(1)) {
-        for (const node of other) group.add(node);
-        groups.splice(groups.indexOf(other), 1);
-      }
-    }
-    return groups.length;
   }
 
   private async fileImpact(change: BranchWatchChange, snapshot: BranchWatchSnapshot,
@@ -462,33 +411,6 @@ export class BranchWatchAnalyzer {
     const next = { path: relative, depth: current.depth + 1 };
     queue.push(next);
     result.dependents.push({ ...next, changed: snapshot.changes.some(c => c.path === relative) });
-  }
-
-  private async baselineGraph(sha: string, seeds: string[], scope?: readonly string[]): Promise<FileGraph> {
-    const seedKey = [...new Set(seeds)].sort((left, right) => left.localeCompare(right)).join('\0');
-    const scopeKey = scope ? [...new Set(scope)].sort((left, right) => left.localeCompare(right)).join('\0') : '';
-    if (this.baseline?.sha === sha && this.baseline.seedKey === seedKey && this.baseline.scopeKey === scopeKey) {
-      return this.baseline.graph;
-    }
-    const entries = await this.treeEntries(sha, file => LanguageService.isSupported(file) || CONFIG_FILES.test(file));
-    const scopedFiles = scope ? new Set([...scope, ...seeds].map(file => normalizePath(file))) : undefined;
-    const candidates = scopedFiles
-      ? entries.filter(entry => scopedFiles.has(entry.file) || CONFIG_FILES.test(entry.file))
-      : entries;
-    const selectedEntries = candidates.toSorted((left, right) => {
-      const leftPriority = scopedFiles?.has(left.file) ? 0 : 1;
-      const rightPriority = scopedFiles?.has(right.file) ? 0 : 1;
-      return leftPriority - rightPriority || left.file.localeCompare(right.file);
-    }).slice(0, this.maxFiles);
-    const limitations = selectedEntries.length < candidates.length ? [`Cycle analysis reached the ${this.maxFiles}-file baseline limit.`] : [];
-    const graph = await this.withBlobs(selectedEntries, async (directory, blobLimitations): Promise<FileGraph> => {
-      const baselineSeeds = seeds.filter(seed => selectedEntries.some(entry => entry.file === seed));
-      const parsed = await new BranchWatchAnalyzer(directory, undefined, this.extensionPath, this.gitPath, this.maxFiles)
-        .readGraphFromSeeds(directory, baselineSeeds);
-      return { edges: parsed.edges, limitations: [...limitations, ...blobLimitations, ...parsed.limitations] };
-    });
-    this.baseline = { sha, seedKey, scopeKey, graph };
-    return graph;
   }
 
   /** Runs `read` on a private copy of the tracked files of `ref`; the copy is removed afterwards. */

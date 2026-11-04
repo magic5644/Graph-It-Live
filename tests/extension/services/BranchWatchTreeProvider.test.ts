@@ -75,18 +75,18 @@ describe('BranchWatchTreeProvider', () => {
     tree.setState({ phase: 'ready', result: summarized });
     const rows = tree.getChildren();
     const cycles = rows.find(item => item.label === 'Cyclic dependencies');
-    expect(cycles?.children?.[0].label).toBe('Affected dependency scope: 2 cycle(s) detected');
+    expect(cycles?.children?.[0].label).toBe('Changed files: 2 cycle(s) detected');
     expect(rows.find(item => item.label === 'Limitations')?.children?.filter(item => item.label === 'same limitation')).toHaveLength(1);
     tree.dispose();
   });
 
-  it('keeps confidence medium when only the large-project cycle scope is truncated', () => {
+  it('keeps confidence medium when only the cycle graphs are incomplete', () => {
     const tree = new BranchWatchTreeProvider('/workspace');
     const partial = { ...result,
       snapshot: { ...result.snapshot, changes: [{ path: 'api.ts', kind: 'modified' as const }], readablePaths: ['api.ts'] },
       fileImpacts: [{ path: 'api.ts', availability: 'available' as const, limitations: [], dependents: [] }],
       cycleSummary: { detected: 1, scopeComplete: false },
-      limitations: ['Cycle analysis reached the 200-file affected-scope limit.'],
+      limitations: ['Cycle cannot be determined: the merge-base import graph could not be read. git failed'],
     };
     expect(branchWatchStatus({ phase: 'ready', result: partial }).text).toContain('confidence medium');
     tree.dispose();
