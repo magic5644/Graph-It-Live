@@ -149,7 +149,8 @@ function registerArchitectureFile(
 ): void {
   registerNode(acc, workspaceRoot, normalizedPath);
   for (const dep of dependencies) {
-    if (!isWithinWorkspace(dep.path, workspaceRoot)) {
+    // A Rust `mod x;` places x in the module tree, which the folder groups already show: not a dependency (#595).
+    if (dep.type === "mod" || !isWithinWorkspace(dep.path, workspaceRoot)) {
       continue;
     }
     const normalizedDependencyPath = normalizePath(dep.path);

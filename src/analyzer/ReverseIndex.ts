@@ -27,7 +27,7 @@ const log = getLogger('ReverseIndex');
  * Current version of the serialized index format
  * Increment when making breaking changes to the format
  */
-const INDEX_VERSION = 3;
+const INDEX_VERSION = 4;
 
 /**
  * ReverseIndex - Maintains a mapping from target files to their referencing files

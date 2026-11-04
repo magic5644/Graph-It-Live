@@ -239,7 +239,7 @@ function createVisibleEdges(
   edgesForProcessing: Array<{
     source: string;
     target: string;
-    relationType?: "dependency" | "call" | "reference";
+    relationType?: GraphData["edges"][number]["relationType"];
   }>,
   visibleNodes: Set<string>,
   cycleEdges: Set<string>,

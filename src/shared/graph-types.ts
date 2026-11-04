@@ -7,7 +7,8 @@
 export interface GraphEdge {
   source: string;
   target: string;
-  relationType?: "dependency" | "call" | "reference";
+  /** `containment`: a Rust `mod x;` declaration; drawn like a dependency, never part of a cycle. */
+  relationType?: "dependency" | "call" | "reference" | "containment";
 }
 
 /** File-graph community detection: `path` groups by folder (default), `louvain` by import structure. */

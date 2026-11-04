@@ -144,7 +144,9 @@ export class RustParser implements ILanguageAnalyzer {
         for (const scope of scopes) this.addDependency(scope, node, dependencies, seen);
       }
 
-      return dependencies;
+      // `mod` entries first: deduplication by resolved path keeps the first entry, so a child the file
+      // declares stays containment even when the file also uses it (`mod a; pub use self::a::f;`).
+      return dependencies.sort((a, b) => Number(b.type === "mod") - Number(a.type === "mod"));
     } catch (error) {
       throw SpiderError.fromError(error, filePath);
     }
@@ -273,11 +275,14 @@ export class RustParser implements ILanguageAnalyzer {
       // Normalize: Rust module file names are always lowercase
       module = module.toLowerCase();
       
-      if (module && !seen.has(module)) {
+      // A `use a::f` seen before `mod a;` names the same child: the declaration makes it containment.
+      const used = dependencies.find((dependency) => dependency.module === module);
+      if (used) used.type = "mod";
+      else if (module && !seen.has(module)) {
         seen.add(module);
         dependencies.push({
           path: "",
-          type: "import",
+          type: "mod",
           line: node.startPosition.row + 1,
           module,
         });

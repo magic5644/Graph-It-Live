@@ -22,7 +22,7 @@ export interface ReferencingFilesResult {
   nodeId: string;
   data: {
     nodes: string[];
-    edges: { source: string; target: string }[];
+    edges: GraphEdge[];
     parentCounts?: Record<string, number>;
     unusedEdges?: string[];
     nodeMetadata?: Record<string, GraphNodeMetadata>;
@@ -133,6 +133,7 @@ export class NodeInteractionService {
     const edges = referencingFiles.map((d) => ({
       source: d.path,
       target: nodeId,
+      ...(d.type === 'mod' ? { relationType: 'containment' as const } : {}),
     }));
 
     const parentCounts = await this.populateParentCounts(nodes);

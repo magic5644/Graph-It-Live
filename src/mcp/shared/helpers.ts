@@ -7,6 +7,7 @@
 
 import * as path from "node:path";
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from "../../shared/constants";
+import { withoutContainment } from "../../shared/cycleUtils";
 import {
   toWorkspaceRelativePath,
   validateFileExists,
@@ -243,12 +244,12 @@ function collectCyclesFrom(
  * Detect circular dependencies in the graph using DFS
  */
 export function detectCircularDependencies(
-  edges: { source: string; target: string }[],
+  edges: { source: string; target: string; relationType?: string }[],
 ): string[][] {
   const graph = new Map<string, Set<string>>();
 
   // Build adjacency list
-  for (const edge of edges) {
+  for (const edge of withoutContainment(edges)) {
     if (!graph.has(edge.source)) {
       graph.set(edge.source, new Set());
     }

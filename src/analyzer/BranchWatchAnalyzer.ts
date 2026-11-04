@@ -10,6 +10,8 @@ import { resolveReviewCallGraphPath } from '@/shared/reviewTarget';
 import { LanguageService } from './LanguageService';
 import { hasSignatureAnalysis, REVIEW_GATE_MAX_FILES_LIMIT, ReviewGateAnalyzer, type FileCycleAnalysis, type ReviewGateResult, type SymbolDependentsProvider } from './ReviewGateAnalyzer';
 import { detectCycleEdges } from '../shared/cycleUtils';
+import type { GraphEdge } from '../shared/graph-types';
+import { fileEdge } from './spider/SpiderGraphCrawler';
 import { checkText, MAX_TEXT_FILE_BYTES, readWorkspaceText, resolveRegularFile } from './utils/workspaceText';
 
 const execFileAsync = promisify(execFile);
@@ -73,8 +75,13 @@ export interface BranchWatchResult {
   analyzedAt: number;
 }
 interface FileGraph {
-  edges: Array<{ source: string; target: string }>;
+  edges: GraphEdge[];
   limitations: string[];
+}
+
+/** Encodes paths before the arrow-delimited cycle edge keys (Git filenames may contain arrows); keeps containment marks. */
+function encodeEdges(graph: FileGraph): GraphEdge[] {
+  return graph.edges.map(e => ({ ...e, source: encodeURIComponent(e.source), target: encodeURIComponent(e.target) }));
 }
 /** What the cycle analysis reads of a snapshot: the changed files and the base to compare with. */
 export type CycleScope = Pick<BranchWatchSnapshot, 'changes' | 'mergeBaseSha'>;
@@ -173,9 +180,7 @@ export class BranchWatchAnalyzer {
     // A baseline is only needed to classify an existing cycle. When the current
     // affected graph has no cycle, loading every historical blob cannot change
     // the result and needlessly turns a bounded analysis into a repository scan.
-    const currentCycleEdges = detectCycleEdges(current.edges.map(e => ({
-      source: encodeURIComponent(e.source), target: encodeURIComponent(e.target),
-    })));
+    const currentCycleEdges = detectCycleEdges(encodeEdges(current));
     limitations.push(...current.limitations);
     if (current.limitations.length || !currentCycleEdges.size) {
       return {
@@ -251,7 +256,7 @@ export class BranchWatchAnalyzer {
           return graph;
         }
         if (resolution.value) {
-          graph.edges.push({ source: file, target: normalizePath(path.relative(root, resolution.value)) });
+          graph.edges.push(fileEdge(file, { ...dependency, path: normalizePath(path.relative(root, resolution.value)) }));
         } else if (this.isLocalModuleSpecifier(dependency.module)) {
           graph.limitations.push(`${file}: dependency '${dependency.module}' is not resolved locally; cycles may be incomplete.`);
         }
@@ -268,7 +273,7 @@ export class BranchWatchAnalyzer {
   }
 
   private countCycleComponents(graph: FileGraph): number {
-    const edges = detectCycleEdges(graph.edges.map(e => ({ source: encodeURIComponent(e.source), target: encodeURIComponent(e.target) })));
+    const edges = detectCycleEdges(encodeEdges(graph));
     const groups: Array<Set<string>> = [];
     for (const edge of edges) {
       const [source, target] = edge.split('->');
@@ -439,10 +444,8 @@ export class BranchWatchAnalyzer {
   }
 
   private classifyCycles(current: FileGraph, baseline: FileGraph, snapshot: CycleScope): BranchWatchCycleFinding[] {
-    // Encode paths before using the legacy arrow-delimited edge keys (Git filenames may contain arrows).
-    const encode = (graph: FileGraph) => graph.edges.map(e => ({ source: encodeURIComponent(e.source), target: encodeURIComponent(e.target) }));
-    const currentEdges = detectCycleEdges(encode(current));
-    const oldEdges = detectCycleEdges(encode(baseline));
+    const currentEdges = detectCycleEdges(encodeEdges(current));
+    const oldEdges = detectCycleEdges(encodeEdges(baseline));
     const oldNodes = new Set([...oldEdges].flatMap(e => e.split('->')));
     const remaining = new Set(currentEdges);
     const findings: BranchWatchCycleFinding[] = [];

@@ -45,14 +45,31 @@ function findComponents(reverse: Map<string, string[]>, finishOrder: string[]): 
   return components;
 }
 
+interface CycleEdge {
+  source: string;
+  target: string;
+  relationType?: string;
+}
+
+/**
+ * Edges that can close a cycle: a pair with a `containment` edge (Rust `mod x;`) is dropped, even
+ * when a use edge of the same pair was recorded too, since Rust lets a parent and the child it
+ * declares reference each other.
+ */
+export function withoutContainment<E extends CycleEdge>(edges: readonly E[]): E[] {
+  const contained = new Set(edges.filter((e) => e.relationType === "containment").map((e) => `${e.source}\0${e.target}`));
+  return edges.filter((e) => !contained.has(`${e.source}\0${e.target}`));
+}
+
 /**
  * An edge belongs to a cycle exactly when its endpoints are in the same
  * strongly connected component. Iterative Kosaraju traversal keeps this
  * O(V + E) and avoids call-stack overflow on deep dependency graphs.
  */
 export function detectCycleEdges(
-  edges: Array<{ source: string; target: string }>,
+  allEdges: readonly CycleEdge[],
 ): Set<string> {
+  const edges = withoutContainment(allEdges);
   const adjacency = new Map<string, string[]>();
   const reverse = new Map<string, string[]>();
   for (const { source, target } of edges) {
@@ -77,7 +94,7 @@ export function detectCycleEdges(
  * Kept for backward compatibility with the ReactFlow file-level cycle renderer.
  */
 export function detectCycles(
-  edges: Array<{ source: string; target: string }>,
+  edges: readonly CycleEdge[],
 ): Set<string> {
   const cycleEdgeKeys = detectCycleEdges(edges);
   const cycleNodes = new Set<string>();
@@ -98,7 +115,7 @@ export function detectCycles(
  * @returns Array of edge identifiers (source+target+type) that form cycles
  */
 export function getCyclicEdgeIds(
-  edges: Array<{ source: string; target: string }>,
+  edges: readonly CycleEdge[],
   cycleNodes: Set<string>,
 ): string[] {
   const cycleEdges = detectCycleEdges(edges);

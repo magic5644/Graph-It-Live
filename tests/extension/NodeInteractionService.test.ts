@@ -77,6 +77,21 @@ describe('NodeInteractionService', () => {
     );
   });
 
+  it('getReferencingFiles marks a Rust mod referencer as containment (#595)', async () => {
+    (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { path: 'src/lib.rs', type: 'mod', line: 1, module: 'a' },
+      { path: 'src/b.rs', type: 'import', line: 1, module: 'crate::a' },
+    ]);
+    (spider.hasReverseIndex as ReturnType<typeof vi.fn>).mockReturnValue(false);
+
+    const result = await new NodeInteractionService(spider, logger).getReferencingFiles('src/a.rs');
+
+    expect(result.data.edges).toEqual([
+      { source: 'src/lib.rs', target: 'src/a.rs', relationType: 'containment' },
+      { source: 'src/b.rs', target: 'src/a.rs' },
+    ]);
+  });
+
   it('getReferencingFiles computes nodeMetadata over the full known+new node union (GH #122)', async () => {
     (spider.findReferencingFiles as ReturnType<typeof vi.fn>).mockResolvedValue([
       { path: 'src/analyzer/caller.ts' },
