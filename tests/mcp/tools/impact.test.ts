@@ -507,6 +507,25 @@ describe("createSpiderDependentsProvider", () => {
     expect(createSpiderDependentsProvider(spider as never, os.tmpdir()).findFileCycles).toBeTypeOf("function");
   });
 
+  it("checks the architecture rules only with the workspace root and a spider that analyzes files (#443)", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "review-architecture-"));
+    try {
+      execFileSync("git", ["init", "--initial-branch=main"], { cwd: workspace, stdio: "ignore" });
+      execFileSync("git", ["-c", "user.name=T", "-c", "user.email=t@example.com", "commit", "--allow-empty", "-m", "base"], { cwd: workspace, stdio: "ignore" });
+      await fs.writeFile(path.join(workspace, "graphit.architecture.json"), '{ "elements": { "src": { "path": "src/" } }, "rules": [] }');
+      await fs.mkdir(path.join(workspace, "src"));
+      await fs.writeFile(path.join(workspace, "src", "a.ts"), "export const a = 1;\n");
+      const spider = { getSymbolDependents: vi.fn(), analyze: vi.fn(async () => []) };
+      expect(createSpiderDependentsProvider({ getSymbolDependents: vi.fn() } as never, workspace).reviewArchitecture).toBeUndefined();
+      expect(createSpiderDependentsProvider(spider as never).reviewArchitecture).toBeUndefined();
+      const result = await createSpiderDependentsProvider(spider as never, workspace).reviewArchitecture?.(["graphit.architecture.json"], "main", "HEAD");
+      expect(result?.review).toMatchObject({ verdict: "unchanged", configChange: { elements: { added: ["src"] } } });
+      expect(spider.analyze).toHaveBeenCalledWith(expect.stringMatching(/src\/a\.ts$/));
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+
   /** Regression (#524): the CLI and MCP server built the cycle reader without the extension path, so its WASM parsers failed on Python files. */
   it("reads Python import cycles through the extension path", { timeout: 30_000 }, async () => {
     const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "review-py-cycle-"));

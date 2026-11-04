@@ -25,23 +25,26 @@ import type {
  * `extensionPath` locates the WASM parsers: without it, import cycles of Python, Rust, Go, Java and C# files cannot be read.
  */
 export function createSpiderDependentsProvider(
-  spider: Pick<Spider, "analyze" | "getSymbolDependents" | "getSymbolGraph" | "findUnusedSymbols" | "findReferencingFiles" | "findReferencingFilesWithFallback">,
+  spider: Pick<Spider, "getSymbolDependents" | "getSymbolGraph" | "findUnusedSymbols" | "findReferencingFiles" | "findReferencingFilesWithFallback">,
   rootDir?: string,
   extensionPath?: string,
 ): SymbolDependentsProvider {
+  // Read at runtime, not in the parameter type: every caller passes a full Spider, and the review
+  // gate rates a new required member of an exported signature as breaking.
+  const { analyze } = spider as Partial<Pick<Spider, "analyze">>;
   return {
     getSymbolDependents: (filePath, symbolName) => spider.getSymbolDependents(filePath, symbolName),
     getSymbolGraph: (filePath) => spider.getSymbolGraph(filePath),
     findUnusedSymbols: (filePath) => spider.findUnusedSymbols(filePath),
     findReferencingFiles: (filePath) => spider.findReferencingFiles(filePath),
     findReferencingFilesWithFallback: (filePath) => spider.findReferencingFilesWithFallback(filePath),
-    ...(rootDir && {
-      findFileCycles: (changedFiles, baseRef) => new BranchWatchAnalyzer(rootDir, undefined, extensionPath).findFileCycles(changedFiles, baseRef),
+    ...(rootDir && { findFileCycles: (changedFiles, baseRef) => new BranchWatchAnalyzer(rootDir, undefined, extensionPath).findFileCycles(changedFiles, baseRef) }),
+    ...(rootDir && analyze && {
       reviewArchitecture: (changedFiles, baseRef, headRef) => {
         const git = new BranchWatchAnalyzer(rootDir, undefined, extensionPath);
         return reviewArchitecture({
           workspaceRoot: rootDir,
-          analyzeFile: (filePath) => spider.analyze(filePath),
+          analyzeFile: (filePath) => analyze.call(spider, filePath),
           withRefTree: (ref, read) => git.withRefTree(ref, read),
           mergeBase: (base, head) => git.mergeBase(base, head),
           extensionPath,
