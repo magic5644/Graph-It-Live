@@ -25,7 +25,7 @@ interface FileChangeSchedulerOptions {
  * 
  * Key features:
  * - Per-file debouncing (not global)
- * - Event priority: delete > create > change
+ * - Coalescing: the later of delete and create wins; change never replaces them
  * - Re-schedules once if new event arrives during processing
  * - No event loss - all events eventually processed
  * - Cross-platform path normalization
@@ -46,8 +46,8 @@ export class FileChangeScheduler {
   }
 
   /**
-   * Enqueue a file change event. If a higher priority event arrives during
-   * the debounce window, it replaces the current scheduled event.
+   * Enqueue a file change event. A delete or create arriving during the debounce
+   * window replaces the current scheduled event.
    * If processing is in-flight, marks for re-schedule after completion.
    */
   enqueue(filePath: string, eventType: EventType): void {
@@ -61,17 +61,16 @@ export class FileChangeScheduler {
         `Job in-flight for ${normalizedPath}, marking for re-schedule with ${eventType}`
       );
       
-      // Replace with higher priority event
-      if (this.shouldReplaceEvent(existing.eventType, eventType)) {
+      if (this.shouldReplaceEvent(eventType)) {
         existing.eventType = eventType;
       }
       existing.needsReschedule = true;
       return;
     }
 
-    // Case 2: Timer pending - replace if higher priority
+    // Case 2: Timer pending - coalesce into one event
     if (existing?.timerId) {
-      const nextEventType = this.shouldReplaceEvent(existing.eventType, eventType)
+      const nextEventType = this.shouldReplaceEvent(eventType)
         ? eventType
         : existing.eventType;
       log.debug(
@@ -194,24 +193,11 @@ export class FileChangeScheduler {
   }
 
   /**
-   * Determine event priority: delete > create > change. A file created then written is still new:
-   * macOS reports one write as create then change (#433), and create also re-resolves its importers.
+   * Between delete and create the later event wins: the file's last state on disk (#600, git checkout, atomic save).
+   * A change never replaces either: a file created then written is still new, macOS reports one write as create
+   * then change (#433), and create also re-resolves its importers.
    */
-  private getEventPriority(eventType: EventType): number {
-    switch (eventType) {
-      case 'delete':
-        return 3;
-      case 'create':
-        return 2;
-      case 'change':
-        return 1;
-    }
-  }
-
-  /**
-   * Check if incoming event should replace current event
-   */
-  private shouldReplaceEvent(current: EventType, incoming: EventType): boolean {
-    return this.getEventPriority(incoming) > this.getEventPriority(current);
+  private shouldReplaceEvent(incoming: EventType): boolean {
+    return incoming !== 'change';
   }
 }

@@ -14,7 +14,7 @@
  */
 
 import { IndexCache } from "@/analyzer/cache/IndexCache";
-import { CallGraphIndexer, getSqlJsWasmPath } from "@/analyzer/callgraph/CallGraphIndexer";
+import { type CallGraphEdge, CallGraphIndexer, getSqlJsWasmPath } from "@/analyzer/callgraph/CallGraphIndexer";
 import { queryNeighbourhood } from "@/analyzer/callgraph/CallGraphQuery";
 import { collectChangedFiles, fileExtToLang, getQueryFreshnessCutoffs, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
@@ -345,6 +345,10 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
           return;
         }
       }
+
+      // A lost watcher event (#600) must not hide the active file's imports: index those missing or older than the disk.
+      await this.indexImportTargets(edges, workspaceRoot, indexer, extractor);
+      if (this.disposed) return;
 
       // Step 3: Resolve cross-file edges so that symbols from the active file
       // that INHERITS/IMPLEMENTS/CALLS symbols in the workspace DB (and vice versa)
@@ -711,6 +715,27 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     // shared by two files is extracted twice; each indexFile replaces the file atomically, so the last one wins.
     // A deleted file needs no importer pass: invalidateFile already dropped the edges to it.
     await Promise.all(jobs.map((job) => this.reindexImporters(job.filePath, indexer, extractor)));
+  }
+
+  /** Extract the workspace files the edges' `@@import:` stubs target when they are missing from the index or stale. */
+  private async indexImportTargets(
+    edges: readonly CallGraphEdge[],
+    workspaceRoot: string,
+    indexer: CallGraphIndexer,
+    extractor: GraphExtractor,
+  ): Promise<void> {
+    const targets = new Set<string>();
+    for (const { targetId } of edges) {
+      if (!targetId.startsWith("@@import:")) continue;
+      const target = normalizePath((JSON.parse(targetId.slice(9)) as [string, string])[0]);
+      // Same scope as the workspace pass: a file outside the root is never indexed.
+      if (target.startsWith(`${workspaceRoot}/`)) targets.add(target);
+    }
+    if (targets.size === 0) return;
+    const cutoffs = await getQueryFreshnessCutoffs(this.context.extensionPath);
+    // Unsupported languages and missing files are skipped there.
+    const { jobs } = await collectChangedFiles([...targets], (f) => indexer.getFileRecord(f), cutoffs, langFromPath, () => this.disposed);
+    await this.extractAndIndexBatches(jobs, indexer, extractor, { done: 0, total: jobs.length });
   }
 
   /** Extract files in parallel batches and insert them into the DB serially. */

@@ -20,6 +20,7 @@ import {
   getContextKey,
   getProjectFile,
   openCallGraphFor,
+  settleFileEvents,
   sleep,
 } from './_helpers';
 
@@ -103,20 +104,24 @@ suite('Call Graph Test Suite', () => {
       return (JSON.parse(part.value) as { callers: Array<{ sourceName: string }> }).callers.map(c => c.sourceName);
     };
     try {
-      await vscode.workspace.fs.writeFile(target, Buffer.from('export function aliasTarget432() { return 1; }\n'));
-      await vscode.workspace.fs.writeFile(caller, Buffer.from("import { aliasTarget432 } from '@e2e432/e2eAliasTarget432';\nexport function aliasCaller432() { return aliasTarget432(); }\n"));
-      await sleep(2000); // let the create events reach the index
+      // Let the create events reach the index.
+      await settleFileEvents([target, caller], async () => {
+        await vscode.workspace.fs.writeFile(target, Buffer.from('export function aliasTarget432() { return 1; }\n'));
+        await vscode.workspace.fs.writeFile(caller, Buffer.from("import { aliasTarget432 } from '@e2e432/e2eAliasTarget432';\nexport function aliasCaller432() { return aliasTarget432(); }\n"));
+      });
       assert.deepStrictEqual(await callerNames(), [], 'the alias is not configured yet');
 
-      await vscode.workspace.fs.writeFile(tsConfig, withAlias);
-      await sleep(3000); // let the config event re-index and drop the call graph
+      // Let the config event re-index and drop the call graph.
+      await settleFileEvents([tsConfig], () => vscode.workspace.fs.writeFile(tsConfig, withAlias));
       assert.ok((await callerNames()).includes('aliasCaller432'), 'the caller resolves through the new alias');
     } finally {
       await vscode.commands.executeCommand('workbench.action.closeActiveEditor');
-      await vscode.workspace.fs.writeFile(tsConfig, original);
-      await vscode.workspace.fs.delete(target).then(undefined, () => undefined);
-      await vscode.workspace.fs.delete(caller).then(undefined, () => undefined);
-      await sleep(1500); // let the config and delete events reach the index before the next test
+      // Let the config and delete events reach the index before the next test.
+      await settleFileEvents([tsConfig, target, caller], async () => {
+        await vscode.workspace.fs.writeFile(tsConfig, original);
+        await vscode.workspace.fs.delete(target).then(undefined, () => undefined);
+        await vscode.workspace.fs.delete(caller).then(undefined, () => undefined);
+      });
     }
   });
 

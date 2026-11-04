@@ -129,49 +129,35 @@ describe('FileChangeScheduler', () => {
     });
   });
 
-  describe('Event priority', () => {
+  describe('Event coalescing', () => {
+    // #600: between delete and create the later event wins (git checkout, atomic save, fixture rewrite).
     // #433: macOS reports one write of a new file as create then change; a create also re-resolves its importers.
     it.each([
-      ['change', 'delete', 'delete'],
-      ['create', 'change', 'create'],
-      ['change', 'create', 'create'],
-    ] as const)('processes %s then %s during debounce window as %s', async (first, second, processed) => {
+      [['change', 'delete'], 'delete'],
+      [['create', 'change'], 'create'],
+      [['change', 'create'], 'create'],
+      [['delete', 'create'], 'create'],
+      [['create', 'delete'], 'delete'],
+      [['delete', 'change'], 'delete'],
+      [['delete', 'change', 'create'], 'create'],
+      [['delete', 'create', 'change'], 'create'],
+      [['create', 'delete', 'create'], 'create'],
+      [['delete', 'create', 'delete'], 'delete'],
+    ] as const)('processes %j during debounce window as %s', async (events, processed) => {
       const processHandler = vi.fn().mockResolvedValue(undefined);
       const scheduler = new FileChangeScheduler({ processHandler, debounceDelay: 300 });
       const filePath = path.join(testRootDir, 'src', 'file.ts');
 
-      scheduler.enqueue(filePath, first);
-      await vi.advanceTimersByTimeAsync(100); // Still within debounce window
-      scheduler.enqueue(filePath, second);
+      for (const event of events) {
+        scheduler.enqueue(filePath, event);
+        await vi.advanceTimersByTimeAsync(100); // Still within debounce window
+      }
 
       expect(scheduler.getPendingCount()).toBe(1);
       await vi.advanceTimersByTimeAsync(300);
 
       expect(processHandler).toHaveBeenCalledTimes(1);
       expect(processHandler).toHaveBeenCalledWith(np(filePath), processed);
-
-      scheduler.dispose();
-    });
-
-    it('does not replace delete with lower priority events', async () => {
-      const processHandler = vi.fn().mockResolvedValue(undefined);
-      const scheduler = new FileChangeScheduler({
-        processHandler,
-        debounceDelay: 300,
-      });
-
-      const filePath = path.join(testRootDir, 'src', 'file.ts');
-
-      scheduler.enqueue(filePath, 'delete');
-      await vi.advanceTimersByTimeAsync(100);
-      scheduler.enqueue(filePath, 'change');
-      scheduler.enqueue(filePath, 'create');
-
-      await vi.advanceTimersByTimeAsync(300);
-
-      // Delete should still be processed (highest priority)
-      expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'delete');
 
       scheduler.dispose();
     });
@@ -219,42 +205,35 @@ describe('FileChangeScheduler', () => {
       scheduler.dispose();
     });
 
-    it('upgrades event type if higher priority arrives during processing', async () => {
-      let resolveProcessing: (() => void) | null = null;
+    it.each([
+      ['change', ['delete'], 'delete'],
+      ['delete', ['create'], 'create'],
+      ['create', ['delete'], 'delete'],
+      ['create', ['change'], 'create'],
+      ['delete', ['change'], 'delete'],
+      ['delete', ['create', 'change'], 'create'],
+      ['create', ['delete', 'create'], 'create'],
+    ] as const)('processes %s, then %j arriving during processing, as %s', async (first, arriving, rescheduled) => {
+      let resolveProcessing!: () => void;
       const processingPromise = new Promise<void>((resolve) => {
         resolveProcessing = resolve;
       });
+      const processHandler = vi.fn().mockImplementationOnce(() => processingPromise).mockResolvedValue(undefined);
+      const scheduler = new FileChangeScheduler({ processHandler, debounceDelay: 300 });
+      // Windows separators: the in-flight job is found through the normalized path.
+      const filePath = path.win32.join('C:\\project', 'src', 'file.ts');
 
-      const processHandler = vi.fn().mockImplementation(async () => {
-        await processingPromise;
-      });
+      scheduler.enqueue(filePath, first);
+      await vi.advanceTimersByTimeAsync(300);
+      expect(processHandler).toHaveBeenCalledWith(np(filePath), first);
 
-      const scheduler = new FileChangeScheduler({
-        processHandler,
-        debounceDelay: 300,
-      });
-
-      const filePath = path.join(testRootDir, 'src', 'file.ts');
-
-      // First event: change
-      scheduler.enqueue(filePath, 'change');
+      for (const event of arriving) scheduler.enqueue(filePath.replaceAll('\\', '/'), event);
+      resolveProcessing();
       await vi.advanceTimersByTimeAsync(300);
 
-      expect(processHandler).toHaveBeenCalledTimes(1);
-      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'change');
-
-      // Higher priority event arrives during processing
-      scheduler.enqueue(filePath, 'delete');
-
-      // Complete first processing
-      resolveProcessing!();
-      await vi.runAllTimersAsync();
-
-      await vi.advanceTimersByTimeAsync(300);
-
-      // Should re-schedule with delete (higher priority)
       expect(processHandler).toHaveBeenCalledTimes(2);
-      expect(processHandler).toHaveBeenCalledWith(np(filePath), 'delete');
+      expect(processHandler).toHaveBeenLastCalledWith(np(filePath), rescheduled);
+      expect(scheduler.getPendingCount()).toBe(0);
 
       scheduler.dispose();
     });

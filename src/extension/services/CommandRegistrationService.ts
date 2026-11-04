@@ -44,6 +44,7 @@ export class CommandRegistrationService {
       this.registerGetContextCommand(), // For E2E testing
       this.registerArchitectureControlsCommand(), // For E2E testing
       this.registerCallGraphClickCommand(), // For E2E testing
+      this.registerFileUpdatesIdleCommand(), // For E2E testing
     ];
   }
 
@@ -267,6 +268,11 @@ export class CommandRegistrationService {
       'graph-it-live.e2eCallGraphClick',
       (nodeId: unknown) => (typeof nodeId === 'string' ? this.provider.clickCallGraphNode(nodeId) : false)
     );
+  }
+
+  /** E2E test helper: resolves once the queued file events are processed, so tests wait on it instead of sleeping. */
+  private registerFileUpdatesIdleCommand(): vscode.Disposable {
+    return vscode.commands.registerCommand('graph-it-live.e2eFileUpdatesIdle', () => this.provider.fileChangeScheduler?.whenIdle());
   }
 
   private registerProviderCommand(

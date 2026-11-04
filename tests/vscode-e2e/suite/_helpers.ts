@@ -1,4 +1,5 @@
 import * as assert from 'node:assert';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 export type ViewMode = 'file' | 'list' | 'symbol' | 'architecture';
@@ -13,6 +14,37 @@ export function getProjectFile(projectName: string, ...pathSegments: string[]): 
 
 export async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Run `action`, wait until VS Code reports a file event for each of `files`, then until the extension has processed
+ * its queued file events. The extension's watcher shares this event stream. A watcher may drop an event: past
+ * `timeoutMs` the wait goes on to the idle signal, since the extension recovers a lost event (#600).
+ */
+export async function settleFileEvents(files: vscode.Uri[], action: () => Thenable<unknown>, timeoutMs = 10000): Promise<void> {
+  const pending = new Set(files.map(file => file.fsPath));
+  let seen!: () => void;
+  const allSeen = new Promise<void>(resolve => { seen = resolve; });
+  // path.relative ignores the drive letter case Windows may report differently.
+  const observe = (uri: vscode.Uri) => {
+    for (const file of pending) if (path.relative(file, uri.fsPath) === '') pending.delete(file);
+    if (pending.size === 0) seen();
+  };
+  const watcher = vscode.workspace.createFileSystemWatcher('**/*');
+  watcher.onDidCreate(observe);
+  watcher.onDidChange(observe);
+  watcher.onDidDelete(observe);
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await action();
+    const timedOut = new Promise<void>(resolve => { timer = setTimeout(resolve, timeoutMs); });
+    if (pending.size > 0) await Promise.race([allSeen, timedOut]);
+    if (pending.size > 0) console.warn(`No file event within ${timeoutMs} ms for ${[...pending].join(', ')}`);
+  } finally {
+    clearTimeout(timer);
+    watcher.dispose();
+  }
+  await vscode.commands.executeCommand('graph-it-live.e2eFileUpdatesIdle');
 }
 
 export async function getContextKey<T = unknown>(key: string): Promise<T | undefined> {
