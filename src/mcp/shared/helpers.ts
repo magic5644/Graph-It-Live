@@ -244,7 +244,7 @@ function collectCyclesFrom(
  * Detect circular dependencies in the graph using DFS
  */
 export function detectCircularDependencies(
-  edges: { source: string; target: string; relationType?: string }[],
+  edges: { source: string; target: string }[],
 ): string[][] {
   const graph = new Map<string, Set<string>>();
 

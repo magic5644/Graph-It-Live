@@ -10,7 +10,7 @@ import { SourceFileCollector } from './SourceFileCollector';
 import { extendsConfigFiles, resolverConfigFiles } from './cache/configFingerprint';
 import { SpiderCacheCoordinator } from './spider/SpiderCacheCoordinator';
 import { SpiderDependencyAnalyzer } from './spider/SpiderDependencyAnalyzer';
-import { SpiderGraphCrawler } from './spider/SpiderGraphCrawler';
+import { fileEdge, SpiderGraphCrawler } from './spider/SpiderGraphCrawler';
 import { SpiderIndexingCancellation } from './spider/SpiderIndexingCancellation';
 import { SpiderIndexingService } from './spider/SpiderIndexingService';
 import { SpiderReferenceLookup } from './spider/SpiderReferenceLookup';
@@ -740,8 +740,7 @@ export class Spider {
         seenResolvedPaths.add(dependencyPath);
         nodes.add(dependencyPath);
         edges.push({
-          source: normalizedFilePath,
-          target: dependencyPath,
+          ...fileEdge(normalizedFilePath, dependencyPath, imported.type),
           ...(imported.line > 0 ? { sourceLine: imported.line } : {}),
         });
 

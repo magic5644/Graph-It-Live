@@ -243,7 +243,7 @@ export type GraphNodeMetadataSchemaType = z.infer<typeof GraphNodeMetadataSchema
 export const GraphEdgeSchema = z.object({
   source: z.string(),
   target: z.string(),
-  relationType: z.enum(["dependency", "call", "reference"]).optional(),
+  relationType: z.enum(["dependency", "call", "reference", "containment"]).optional(),
 });
 
 /**

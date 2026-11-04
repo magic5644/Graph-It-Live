@@ -119,6 +119,18 @@ async function run() {
   await until(() => !!edge(b, c) && document.querySelectorAll('.react-flow__edge-text').length === 4, 'Separate cycles did not render');
   check(edge(b, c)?.querySelector('path')?.style.stroke !== edge(a, b)?.querySelector('path')?.style.stroke, 'One-way bridge was styled as cyclic');
 
+  // A Rust `mod x;` edge is drawn but never closes a cycle; a usage cycle between the children still does (#595).
+  const [lib, modA, modB] = ['lib', 'a', 'b'].map(name => `/p/crate/src/${name}.rs`);
+  const facade: GraphData = { nodes: [lib, modA, modB], edges: [
+    { source: lib, target: modA, relationType: 'containment' }, { source: modA, target: lib },
+    { source: lib, target: modB, relationType: 'containment' }, { source: modB, target: lib },
+  ] };
+  show(facade, 'rust-facade');
+  await until(() => !!edge(lib, modA) && !!edge(modA, lib) && !!edge(modB, lib), 'Rust mod edges did not render');
+  check(!badge() && document.querySelectorAll('.react-flow__edge-text').length === 0, 'A Rust mod declaration was reported as a cycle');
+  show({ ...facade, edges: [...facade.edges, { source: modA, target: modB }, { source: modB, target: modA }] }, 'rust-usage-cycle');
+  await until(() => !!badge()?.textContent?.includes('2 files in analyzed graph'), 'A Rust usage cycle was not reported');
+
   const cycleNodes = Array.from({ length: 3002 }, (_, i) => `/p/cycle/n${i}.ts`);
   show({ nodes: cycleNodes, edges: cycleNodes.map((source, i) => ({ source, target: cycleNodes[(i + 1) % cycleNodes.length] })) }, 'large-cycle', false);
   await until(() => !!badge()?.textContent?.includes('3002 files in analyzed graph'), 'Cycle detection was skipped above 3000 edges');

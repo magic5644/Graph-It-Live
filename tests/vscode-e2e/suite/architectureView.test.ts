@@ -35,7 +35,8 @@ interface ArchitectureRender {
   };
 }
 
-// Expected numbers from the E2E workspace (tests/fixtures), recorded with:
+// Expected numbers from the E2E workspace (tests/fixtures), recorded with (Rust `mod x;` declarations are not
+// architecture edges, #595):
 //   node dist/graph-it.js architecture --level units --format json -w tests/fixtures
 //   node dist/graph-it.js architecture --groups --communities louvain --format json -w tests/fixtures
 // Path mode draws the units (11 packages or (root), 9 unit edges, the 2 edges of the
@@ -48,7 +49,7 @@ const EXPECTED = {
   units: { groups: 11, groupEdges: 9, redEdges: 2, layers: 3, cycles: 1 },
   root: { groups: 18, groupEdges: 4 },
   graphql: { groups: 3, groupEdges: 2, evidenceOf: '(root)/graphql-project/queries' },
-  louvain: { groups: 25 + 1, groupEdges: 1 },
+  louvain: { groups: 24 + 1, groupEdges: 1 },
   // The first edge of @ws/web, its heaviest: apps/web → packages/ui.
   unitEvidence: {
     of: 'workspaces-project/apps/web',
@@ -60,9 +61,9 @@ const EXPECTED = {
   },
   // node dist/graph-it.js architecture --level units --matrix --format json -w tests/fixtures (and --folder "(root)", --communities louvain).
   matrix: {
-    units: { rows: 11, cells: 14, fileEdges: 214, upwardCells: 1, cycles: 1 },
-    root: { rows: 18, cells: 20, fileEdges: 198, upwardCells: 1, cycles: 1 },
-    louvain: { rows: 26, cells: 26, fileEdges: 214, upwardCells: 0, cycles: 0 },
+    units: { rows: 11, cells: 14, fileEdges: 210, upwardCells: 1, cycles: 1 },
+    root: { rows: 18, cells: 19, fileEdges: 194, upwardCells: 1, cycles: 1 },
+    louvain: { rows: 25, cells: 25, fileEdges: 210, upwardCells: 0, cycles: 0 },
   },
   // RULES_CONFIG written at the workspace root, then:
   //   node dist/graph-it.js check-architecture --format json -w tests/fixtures

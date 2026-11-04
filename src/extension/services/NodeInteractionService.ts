@@ -1,4 +1,5 @@
 import { Spider } from '../../analyzer/Spider';
+import { fileEdge } from '../../analyzer/spider/SpiderGraphCrawler';
 import { normalizePath } from '../../analyzer/types';
 import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
 import { collectReactReferencingPaths, enrichReactFramework } from '../../analyzer/ReactIdentity';
@@ -130,11 +131,7 @@ export class NodeInteractionService {
     }));
 
     const nodes = referencingFiles.map((d) => d.path);
-    const edges = referencingFiles.map((d) => ({
-      source: d.path,
-      target: nodeId,
-      ...(d.type === 'mod' ? { relationType: 'containment' as const } : {}),
-    }));
+    const edges = referencingFiles.map((d) => fileEdge(d.path, nodeId, d.type));
 
     const parentCounts = await this.populateParentCounts(nodes);
 

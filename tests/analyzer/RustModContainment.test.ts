@@ -9,7 +9,7 @@ import { RustParser } from '@/analyzer/languages/RustParser';
 import { Spider } from '@/analyzer/Spider';
 import { normalizePath } from '@/analyzer/types';
 import { detectCircularDependencies } from '@/mcp/shared/helpers';
-import { detectCycleEdges } from '@/shared/cycleUtils';
+import { detectCycleEdges, detectCycles } from '@/shared/cycleUtils';
 
 /** A Rust `mod x;` is containment, not a use: it never closes a file cycle (#595). */
 describe('Rust mod declarations are containment (#595)', () => {
@@ -25,6 +25,11 @@ describe('Rust mod declarations are containment (#595)', () => {
     // A use written before the declaration it names.
     'facade/src/late.rs': 'pub use inner::f;\nmod inner;\n',
     'facade/src/late/inner.rs': 'pub fn f() {}\n',
+    // An expression path into a child the file declares after it.
+    'expr/Cargo.toml': '[package]\nname = "expr"\nversion = "0.1.0"\n',
+    'expr/src/lib.rs': 'pub fn run() { crate::a::f(); }\nmod a;\nmod outer { mod x; }\n',
+    'expr/src/a.rs': 'pub fn f() {}\n',
+    'expr/src/outer/x.rs': 'pub fn x() {}\n',
     // A real usage cycle between two siblings.
     'usage/Cargo.toml': '[package]\nname = "usage"\nversion = "0.1.0"\n',
     'usage/src/lib.rs': 'mod a;\nmod b;\n',
@@ -67,6 +72,35 @@ describe('Rust mod declarations are containment (#595)', () => {
     expect(resolved.map((d) => [rel(d.path), d.type])).toEqual([['facade/src/late/inner.rs', 'mod']]);
   }, 60_000);
 
+  it.each([
+    ['a mod declared twice under #[cfg]', '#[cfg(unix)]\nmod imp;\n#[cfg(windows)]\nmod imp;\n', [['mod', 'imp']]],
+    ['a pub mod', 'pub mod x;\npub(crate) mod y;\n', [['mod', 'x'], ['mod', 'y']]],
+    ['a mod inside an inline mod', 'mod outer {\n  mod inner { mod x; }\n}\n', [['mod', 'outer::inner::x']]],
+    ['an extern crate of the same name', 'extern crate x;\nmod x;\n', [['mod', 'x']]],
+    ['an inline mod with a body only', 'mod tests {\n  fn t() {}\n}\n', []],
+  ])('parses %s', async (_case, content, expected) => {
+    const file = at(`edge/${expected.length}-${String(content.length)}.rs`);
+    await fs.mkdir(path.dirname(file), { recursive: true });
+    await fs.writeFile(file, content, 'utf-8');
+    const deps = await new RustParser(process.cwd()).parseImports(file);
+    expect(deps.filter((d) => d.type === 'mod').map((d) => [d.type, d.module])).toEqual(expected);
+  }, 60_000);
+
+  it('resolves an expression path and an inline-scoped mod to their children as containment', async () => {
+    const deps = await spider.analyze(at('expr/src/lib.rs'));
+    expect(deps.map((d) => [rel(d.path), d.type])).toEqual([['expr/src/a.rs', 'mod'], ['expr/src/outer/x.rs', 'mod']]);
+    const readOnly = await spider.getReadOnlyDependencyGraph(at('expr/src/lib.rs'));
+    expect(readOnly.edges.map((e) => [rel(e.source), rel(e.target), (e as { relationType?: string }).relationType]))
+      .toContainEqual(['expr/src/lib.rs', 'expr/src/a.rs', 'containment']);
+  }, 60_000);
+
+  it('gives the review gate no symbol cycle for the facade crate', async () => {
+    for (const file of ['facade/src/lib.rs', 'facade/src/a.rs']) {
+      const graph = await spider.getSymbolGraph(at(file));
+      expect(detectCycles(graph.dependencies.map((d) => ({ source: d.sourceSymbolId, target: d.targetSymbolId }))).size).toBe(0);
+    }
+  }, 60_000);
+
   it('keeps mod edges in the crawl, marked containment, and reports no facade cycle', async () => {
     const graph = await spider.crawl(at('facade/src/lib.rs'), { maxDepth: 10 });
     const edges = graph.edges.map((e) => [rel(e.source), rel(e.target), e.relationType]);
@@ -98,6 +132,7 @@ describe('Rust mod declarations are containment (#595)', () => {
     expect(edges).toContain('facade/src/net/tcp.rs->facade/src/net/mod.rs');
     expect(edges).not.toContain('facade/src/net/mod.rs->facade/src/net/tcp.rs');
     expect(edges).not.toContain('facade/src/lib.rs->facade/src/net/mod.rs');
+    expect(detectCycleEdges(graph.edges.filter((e) => e.sourceRelative.startsWith('facade/'))).size).toBe(0);
   }, 60_000);
 
   it('Branch Watch / review-pr cycles skip containment and keep usage cycles', async () => {

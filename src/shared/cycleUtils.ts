@@ -67,12 +67,12 @@ export function withoutContainment<E extends CycleEdge>(edges: readonly E[]): E[
  * O(V + E) and avoids call-stack overflow on deep dependency graphs.
  */
 export function detectCycleEdges(
-  allEdges: readonly CycleEdge[],
+  edges: Array<{ source: string; target: string }>,
 ): Set<string> {
-  const edges = withoutContainment(allEdges);
+  const usage = withoutContainment(edges);
   const adjacency = new Map<string, string[]>();
   const reverse = new Map<string, string[]>();
-  for (const { source, target } of edges) {
+  for (const { source, target } of usage) {
     if (!adjacency.has(source)) adjacency.set(source, []);
     if (!adjacency.has(target)) adjacency.set(target, []);
     adjacency.get(source)?.push(target);
@@ -84,7 +84,7 @@ export function detectCycleEdges(
   finishOrder.reverse();
   const components = findComponents(reverse, finishOrder);
 
-  return new Set(edges
+  return new Set(usage
     .filter(({ source, target }) => components.get(source) === components.get(target))
     .map(({ source, target }) => `${source}->${target}`));
 }
@@ -94,7 +94,7 @@ export function detectCycleEdges(
  * Kept for backward compatibility with the ReactFlow file-level cycle renderer.
  */
 export function detectCycles(
-  edges: readonly CycleEdge[],
+  edges: Array<{ source: string; target: string }>,
 ): Set<string> {
   const cycleEdgeKeys = detectCycleEdges(edges);
   const cycleNodes = new Set<string>();
@@ -115,7 +115,7 @@ export function detectCycles(
  * @returns Array of edge identifiers (source+target+type) that form cycles
  */
 export function getCyclicEdgeIds(
-  edges: readonly CycleEdge[],
+  edges: Array<{ source: string; target: string }>,
   cycleNodes: Set<string>,
 ): string[] {
   const cycleEdges = detectCycleEdges(edges);
