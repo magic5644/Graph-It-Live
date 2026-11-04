@@ -384,7 +384,7 @@ describe('Spider - Dead code behind a Rust crate root or Python package barrel (
 
   it('agrees with scanDeadCode', async () => {
     const { entries } = await project.spider.scanDeadCode();
-    const scanned = (name: string) => entries.find((e) => e.filePath === normalizePath(project.file(name)))?.unusedSymbols.map((s) => s.name);
+    const scanned = (name: string) => entries.find((e) => normalizePath(e.filePath) === normalizePath(project.file(name)))?.unusedSymbols.map((s) => s.name);
     expect(scanned('rs/src/a.rs')).toEqual(['dead']);
     expect(scanned('py/pkg/a.py')).toEqual(['dead']);
   });
