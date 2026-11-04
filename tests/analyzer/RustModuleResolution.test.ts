@@ -2,7 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { isInsideDir, moduleDir, RustParser } from '@/analyzer/languages/RustParser';
+import { fromFileModule, isInsideDir, libraryName, moduleDir, RustParser } from '@/analyzer/languages/RustParser';
 import { normalizePath } from '@/analyzer/types';
 
 /** `crate::`, `self::`, `super::` and item-suffixed paths resolve the way rustc finds module files (#521). */
@@ -17,6 +17,12 @@ describe('RustParser module resolution', () => {
     'app/src/a/b/c.rs',
     'app/src/bin/tool.rs',
     'app/src/bin/helper.rs',
+    'both/Cargo.toml',
+    'both/src/lib.rs',
+    'both/src/main.rs',
+    'both/src/m.rs',
+    'app/src/p/lib.rs',
+    'app/src/p/x.rs',
     'lone/x.rs',
     'lone/w.rs',
     '..x/k.rs',
@@ -54,12 +60,24 @@ describe('RustParser module resolution', () => {
     ['no Cargo.toml: a loose file finds its sibling', 'lone/x.rs', 'w', 'lone/w.rs'],
     ['a `..x` directory is inside the workspace', '..x/k.rs', 'crate::y', 'y.rs'],
     ['self:: in another crate root', 'app/src/bin/tool.rs', 'self::helper', 'app/src/bin/helper.rs'],
+    // #519: a path with no module file names an item of the module itself (`pub use` barrels live there).
+    ['crate:: item of the crate root', 'app/src/a/b.rs', 'crate::used', 'app/src/main.rs'],
+    ['bare crate (`use crate::{f}`)', 'app/src/a/b.rs', 'crate', 'app/src/main.rs'],
+    ['lib.rs is the crate root before main.rs', 'both/src/m.rs', 'crate::f', 'both/src/lib.rs'],
+    ['super:: item of a mod.rs module', 'app/src/a/x.rs', 'super::f', 'app/src/a/mod.rs'],
+    ['bare super', 'app/src/a/b.rs', 'super', 'app/src/a/mod.rs'],
+    ['super:: item of a non-mod module', 'app/src/a/b/c.rs', 'super::f', 'app/src/a/b.rs'],
+    ['super:: item of the crate root', 'app/src/top.rs', 'super::f', 'app/src/main.rs'],
   ])('%s', async (_case, from, specifier, expected) => {
     expect(await parser.resolvePath(at(from), specifier)).toBe(normalizePath(at(expected)));
   });
 
   it.each([
-    ['missing module', 'app/src/a/b.rs', 'crate::missing'],
+    ['self:: item of the file itself', 'app/src/a/b.rs', 'self::f'],
+    ['bare self in a crate root', 'app/src/main.rs', 'self'],
+    ['crate:: item with no crate root file', 'lone/x.rs', 'crate::f'],
+    ['super:: above the workspace root', 'app/src/a/b.rs', 'super::super::super::super::x'],
+    ['super:: item of a directory whose lib.rs is a plain module, not a crate root', 'app/src/p/x.rs', 'super::f'],
     ['super above nothing that exists', 'app/src/main.rs', 'super::nowhere'],
     ['external crate', 'app/src/main.rs', 'std::fmt'],
     ['sibling of a non-root file inside a crate (an extern crate there)', 'app/src/a/b.rs', 'x::f'],
@@ -100,5 +118,77 @@ describe('RustParser module resolution', () => {
     [path.join('src', 'a', 'b.rs'), path.join('src', 'a', 'b')],
   ])('moduleDir(%s) = %s', (file, expected) => {
     expect(moduleDir(file)).toBe(expected);
+  });
+
+  it.each([
+    ['super::helper', 0, 'super::helper'],
+    ['crate::a', 2, 'crate::a'],
+    ['inner::x', 1, 'inner::x'],
+    ['super::helper', 1, 'self::helper'],
+    ['super', 1, 'self'],
+    ['super::super::x', 1, 'self::super::x'],
+    ['super::x', 2, null],
+    ['self::x', 1, null],
+  ])('fromFileModule(%s, depth %i) = %s', (specifier, depth, expected) => {
+    expect(fromFileModule(specifier, depth)).toBe(expected);
+  });
+
+  it('keeps `super::` inside an inline `mod tests` in the file, not its parent (#519)', async () => {
+    const file = at('app/src/a/b.rs');
+    await fs.writeFile(file, 'mod tests {\n    use super::helper;\n    use super::c::f;\n    use super::super::x::g;\n    fn t() { super::helper(); self::y(); }\n}\n', 'utf-8');
+    try {
+      const deps = await parser.parseImports(file);
+      const resolved = await Promise.all(deps.map((dep) => parser.resolvePath(file, dep.module ?? '')));
+      const targets = new Set(resolved.filter((p): p is string => !!p).map((p) => path.relative(root, p).replaceAll('\\', '/')));
+      expect([...targets].sort()).toEqual(['app/src/a/b/c.rs', 'app/src/a/x.rs']);
+    } finally {
+      await fs.writeFile(file, '', 'utf-8');
+    }
+  });
+
+  it('resolves each `use` list item under its base path (#519)', async () => {
+    const file = at('app/src/a/b.rs');
+    await fs.writeFile(file, 'use crate::{used, top::f, a::{x::g}};\nuse super::{h as k};\nuse std::{fmt};\n', 'utf-8');
+    try {
+      const deps = await parser.parseImports(file);
+      const resolved = await Promise.all(deps.map((dep) => parser.resolvePath(file, dep.module ?? '')));
+      const targets = new Set(resolved.filter((p): p is string => !!p).map((p) => path.relative(root, p).replaceAll('\\', '/')));
+      expect([...targets].sort()).toEqual(['app/src/a/mod.rs', 'app/src/a/x.rs', 'app/src/main.rs', 'app/src/top.rs']);
+    } finally {
+      await fs.writeFile(file, '', 'utf-8');
+    }
+  });
+
+  it.each([
+    ['[package]\nname = "my-app"\n', 'my_app'],
+    ['[package]\nname = "pkg"\n\n[lib]\nname = "core_lib"\n', 'core_lib'],
+    ['[lib]\npath = "src/lib.rs"\n[package]\nname = "late"\n', 'late'],
+    ['[dependencies]\nserde = "1"\n', undefined],
+    ['', undefined],
+  ])('libraryName(%j) = %s', (toml, expected) => {
+    expect(libraryName(toml)).toBe(expected);
+  });
+
+  it('resolves `use <package>::f` from the binary to the library root, and only the package name (#519)', async () => {
+    const cargo = at('both/Cargo.toml');
+    await fs.writeFile(cargo, '[package]\nname = "my-app"\n', 'utf-8');
+    try {
+      expect(await parser.resolvePath(at('both/src/main.rs'), 'my_app::f')).toBe(normalizePath(at('both/src/lib.rs')));
+      expect(await parser.resolvePath(at('both/src/main.rs'), 'other_crate::f')).toBeNull();
+    } finally {
+      await fs.writeFile(cargo, '', 'utf-8');
+    }
+  });
+
+  it('resolves `self` in a `use` list to the list base (#519)', async () => {
+    const file = at('app/src/main.rs');
+    await fs.writeFile(file, 'use crate::{a::{self, x}};\n', 'utf-8');
+    try {
+      const modules = (await parser.parseImports(file)).map((dep) => dep.module);
+      expect(modules).toContain('crate::a');
+      expect(modules).toContain('crate::a::x');
+    } finally {
+      await fs.writeFile(file, '', 'utf-8');
+    }
   });
 });
