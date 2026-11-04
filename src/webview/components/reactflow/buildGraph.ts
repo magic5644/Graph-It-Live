@@ -3,6 +3,7 @@ import { detectCycleEdges } from "../../../shared/cycleUtils";
 import { getLogger } from "../../../shared/logger";
 import type {
   GraphData,
+  GraphEdge,
   SymbolDependency,
   SymbolInfo,
 } from "../../../shared/types";
@@ -236,11 +237,7 @@ function buildRelationshipMaps(
  * Filter and create edges for the visible nodes
  */
 function createVisibleEdges(
-  edgesForProcessing: Array<{
-    source: string;
-    target: string;
-    relationType?: GraphData["edges"][number]["relationType"];
-  }>,
+  edgesForProcessing: GraphEdge[],
   visibleNodes: Set<string>,
   cycleEdges: Set<string>,
   unusedEdges: string[],
