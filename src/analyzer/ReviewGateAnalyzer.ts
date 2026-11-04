@@ -142,8 +142,8 @@ export interface SymbolDependentsProvider {
   findReferencingFilesWithFallback?(filePath: string): Promise<Array<{ path: string }>>;
   getSymbolGraph?(filePath: string): Promise<{ symbols: SymbolInfo[]; dependencies: SymbolDependency[] }>;
   findUnusedSymbols?(filePath: string): Promise<SymbolInfo[]>;
-  /** Import cycles among `changedFiles` that the diff against `baseRef` adds; absent when the host cannot read the base. */
-  findFileCycles?(changedFiles: string[], baseRef: string): Promise<FileCycleAnalysis>;
+  /** Import cycles among `changedFiles` that the diff from `baseRef` to `headRef` adds; absent when the host cannot read the base. */
+  findFileCycles?(changedFiles: string[], baseRef: string, headRef: string): Promise<FileCycleAnalysis>;
   /** The architecture rules checked on the base and the head, compared; no review when neither has a config. */
   reviewArchitecture?(changedFiles: string[], baseRef: string, headRef: string): Promise<{ review?: ArchitectureReview; limitations: string[] }>;
 }
@@ -159,7 +159,7 @@ interface FileEvidence {
   unusedSymbols: Set<string>;
   testCandidates: string[];
   /** The file is in an import cycle the diff adds: every changed symbol of it is then in a cycle. */
-  inFileCycle: boolean;
+  inFileCycle: Promise<boolean>;
   /** Top-level functions of the changed file, read from its new content. */
   functions: SignatureInfo[];
 }
@@ -195,8 +195,8 @@ interface MoveIndex {
   grep: Map<string, Promise<string[] | string>>;
   /** Memoized head content of the candidate importers, shared by every exported name. */
   contents: Map<string, Promise<string | null>>;
-  /** Workspace-relative files that sit in an import cycle the diff adds. */
-  cycleFiles: ReadonlySet<string>;
+  /** Workspace-relative files that sit in an import cycle the diff adds; awaited only to score, so the files are analyzed meanwhile. */
+  cycleFiles: Promise<ReadonlySet<string>>;
 }
 
 /** The changed file whose removals are being matched against the other changed files. */
@@ -251,12 +251,11 @@ export class ReviewGateAnalyzer {
       limitations.push(`Analysis limited to ${maxFiles} changed files.`);
     }
 
-    // Settles (never rejects) while the files are analyzed.
+    // Both settle (never reject) while the files are analyzed: reading the whole head and base graphs takes seconds.
     const architecturePromise = this.collectArchitecture(changedFiles, options.baseRef, headRef);
+    const fileCyclesPromise = options.fileCycles === false ? Promise.resolve({ cycles: [], limitations: [] }) : this.collectFileCycles(changedFiles, options.baseRef, headRef);
+    const cycleFiles = fileCyclesPromise.then((analysis) => new Set(analysis.cycles.flatMap((cycle) => cycle.changedFiles.map((file) => normalizePath(file)))));
     const sources = await this.loadChangedSources(changedFiles, options.baseRef, headRef);
-    const fileCycles = options.fileCycles === false ? { cycles: [], limitations: [] } : await this.collectFileCycles(changedFiles, options.baseRef, headRef);
-    limitations.push(...fileCycles.limitations);
-    const cycleFiles = new Set(fileCycles.cycles.flatMap((cycle) => cycle.changedFiles.map((file) => normalizePath(file))));
     const moves: MoveIndex = { sources, targets: this.collectMoveTargets(sources), stale: new Map(), grep: new Map(), contents: new Map(), cycleFiles };
     // Each file gets its own limitations, merged in file order, so the report matches a sequential run.
     // The shared caches memoize promises, so files analyzed at the same time share one lookup.
@@ -265,6 +264,8 @@ export class ReviewGateAnalyzer {
       const fileSymbols = await this.analyzeChangedFile(relativePath, headRef, maxDepth, fileLimitations, analysisAvailability, changedFileSet, moves);
       return { fileSymbols, fileLimitations };
     });
+    const fileCycles = await fileCyclesPromise;
+    limitations.push(...fileCycles.limitations);
     for (const { fileSymbols, fileLimitations } of analyses) {
       symbols.push(...fileSymbols);
       limitations.push(...fileLimitations);
@@ -274,7 +275,8 @@ export class ReviewGateAnalyzer {
     }
 
     const architecture = await architecturePromise;
-    limitations.push(...architecture.limitations);
+    // Both checks read the same trees: their reading limitations are reported once.
+    limitations.push(...architecture.limitations.filter((limitation) => !fileCycles.limitations.includes(limitation)));
 
     symbols.sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath) || a.name.localeCompare(b.name));
     const symbolScore = symbols.reduce((highest, symbol) => Math.max(highest, symbol.score), 0);
@@ -298,10 +300,7 @@ export class ReviewGateAnalyzer {
       return { cycles: [], limitations: ["Import-cycle evidence unavailable: file-cycle provider is not configured."] };
     }
     try {
-      const analysis = await this.dependents.findFileCycles(changedFiles, baseRef);
-      // Cycles are read from the checked-out tree, which is the head only when no other ref is asked for.
-      const limitations = headRef === "HEAD" ? analysis.limitations : [...analysis.limitations, `Import cycles are read from the checked-out tree, not from ${headRef}.`];
-      return { cycles: analysis.cycles, limitations };
+      return await this.dependents.findFileCycles(changedFiles, baseRef, headRef);
     } catch {
       return { cycles: [], limitations: ["Import-cycle evidence unavailable: the dependency graph could not be compared with the base ref."] };
     }
@@ -418,7 +417,7 @@ export class ReviewGateAnalyzer {
     if (oldContent === null) return [];
     const fileEvidence = {
       ...await this.collectFileEvidence(absolutePath, relativePath, limitations, availability),
-      inFileCycle: moves.cycleFiles.has(relativePath),
+      inFileCycle: moves.cycleFiles.then((files) => files.has(relativePath)),
       functions: this.extractTopLevelFunctions(absolutePath, newContent),
     };
     const scope: MoveScope = { relativePath, absolutePath, oldContent, headRef, changedFiles, moves, limitations };
@@ -637,7 +636,7 @@ export class ReviewGateAnalyzer {
     );
     const staleImporters = comparison.staleImporters ?? [];
     const impact = await this.getContractImpact(comparison, errorBreakingChanges, absolutePath, maxDepth, fileEvidence, headRef);
-    const cycles = fileEvidence.inFileCycle || fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
+    const cycles = await fileEvidence.inFileCycle || fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
     // A dependents provider that actually ran and found zero live consumers (not just
     // "no provider configured", which also reports count: 0 but means unknown impact)
@@ -1418,7 +1417,7 @@ function markStale(standing: ConsumerStanding, staleImporters: string[]): Consum
 const MODULE_SYMBOL = "(module)";
 
 /** A deleted file has no head content to collect cycle, unused-export or test evidence from. */
-const DELETED_FILE_EVIDENCE: FileEvidence = { cycleSymbols: new Set(), unusedSymbols: new Set(), testCandidates: [], inFileCycle: false, functions: [] };
+const DELETED_FILE_EVIDENCE: FileEvidence = { cycleSymbols: new Set(), unusedSymbols: new Set(), testCandidates: [], inFileCycle: Promise.resolve(false), functions: [] };
 
 // `.d.ts` first: a declaration file is imported as `./types`, not `./types.d`.
 const MODULE_EXTENSION_REGEX = /(?:\.d)?\.(?:[cm]?[jt]sx?|vue|py)$/i;

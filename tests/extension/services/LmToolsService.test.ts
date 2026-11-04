@@ -149,6 +149,7 @@ function createProvider(overrides: Partial<{
     buildFullIndex: vi.fn().mockResolvedValue(undefined),
     getCacheStatsAsync: vi.fn().mockResolvedValue({ dependencyCache: { size: 0 } }),
     getSymbolDependents: vi.fn().mockResolvedValue([]),
+    analyze: vi.fn().mockResolvedValue([]),
     traceFunctionExecution: vi.fn().mockResolvedValue({ rootSymbol: { id: '', filePath: '', symbolName: '' }, callChain: [], visitedSymbols: [], maxDepthReached: false }),
   };
 

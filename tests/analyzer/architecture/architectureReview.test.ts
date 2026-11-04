@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   compareArchitecture,
   renderArchitectureMarkdown,
+  readReviewTrees,
   reviewArchitecture,
   treeAnalyzer,
   type ArchitectureReviewHost,
@@ -205,7 +206,7 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
   it("reports a new violation of the working tree, with its importing line, and a new unit cycle", async () => {
     const root = createWorkspace({});
     write(root, { "frontend/app.ts": IMPORTS_BACKEND, "backend/db.ts": 'import { app } from "../frontend/app";\nexport const db = 1;\nexport const used = app;\n' });
-    const { review, limitations } = await reviewArchitecture(host(root), ["backend/db.ts", "frontend/app.ts"], "main", "HEAD");
+    const { review, limitations } = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["backend/db.ts", "frontend/app.ts"]);
     expect(limitations).toEqual([]);
     expect(review).toMatchObject({ verdict: "degraded", newErrors: 1, configFile: "graphit.architecture.json" });
     expect(review?.configChange).toBeUndefined();
@@ -219,7 +220,7 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
   it("reports a violation the diff removes as resolved, and an untouched one as unchanged", async () => {
     const root = createWorkspace({ "frontend/app.ts": IMPORTS_BACKEND, "frontend/other.ts": 'import { db } from "../backend/db";\nexport const other = db;\n' });
     write(root, { "frontend/app.ts": "export const app = 2;\n" });
-    const { review } = await reviewArchitecture(host(root), ["frontend/app.ts"], "main", "HEAD");
+    const { review } = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["frontend/app.ts"]);
     expect(review).toMatchObject({ verdict: "improved", newErrors: 0 });
     expect(review?.rules[0]).toMatchObject({ unchanged: 1, newViolations: [], resolvedViolations: [{ source: "frontend/app.ts", target: "backend/db.ts", line: 1 }] });
   });
@@ -232,7 +233,7 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
       "graphit.architecture.json": JSON.stringify(config),
       "graphit.architecture.baseline.json": JSON.stringify({ version: 1, violations: [{ rule: "frontend-not-backend", source: "frontend/app.ts", target: "backend/db.ts" }] }),
     });
-    const { review } = await reviewArchitecture(host(root), ["frontend/app.ts", "graphit.architecture.baseline.json", "graphit.architecture.json"], "main", "HEAD");
+    const { review } = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["frontend/app.ts", "graphit.architecture.baseline.json", "graphit.architecture.json"]);
     expect(review).toMatchObject({ verdict: "degraded", newErrors: 0 });
     expect(review?.rules[0].newViolations).toMatchObject([{ accepted: true }]);
     expect(review?.configChange).toMatchObject({
@@ -244,21 +245,55 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
   it("checks a base without a config against the head config, and reads only the rules files once the head has none", async () => {
     const root = createWorkspace({ "frontend/app.ts": IMPORTS_BACKEND }, false);
     write(root, { "graphit.architecture.json": JSON.stringify(CONFIG) });
-    const added = await reviewArchitecture(host(root), ["graphit.architecture.json"], "main", "HEAD");
+    const added = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["graphit.architecture.json"]);
     expect(added.review).toMatchObject({ verdict: "unchanged", newErrors: 0, configChange: { rules: { added: ["backend-not-frontend", "frontend-not-backend"] } } });
     expect(added.review?.rules[0]).toMatchObject({ name: "frontend-not-backend", unchanged: 1 });
 
     git(root, "add", ".");
     git(root, "commit", "-m", "rules");
     write(root, { "graphit.architecture.json": null });
-    const removed = await reviewArchitecture(host(root), ["graphit.architecture.json"], "main", "HEAD");
+    const removed = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["graphit.architecture.json"]);
     expect(removed.review).toMatchObject({ verdict: "unchanged", rules: [], configChange: { rules: { removed: ["backend-not-frontend", "frontend-not-backend"] } } });
   });
 
   it("returns no review when neither side has a config", async () => {
     const root = createWorkspace({}, false);
     write(root, { "frontend/app.ts": IMPORTS_BACKEND });
-    expect(await reviewArchitecture(host(root), ["frontend/app.ts"], "main", "HEAD")).toEqual({ limitations: [] });
+    expect(reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["frontend/app.ts"])).toEqual({ limitations: [] });
+  });
+
+  it("reads the whole import graph of both trees, even without a config, for the import-cycle check (#603)", async () => {
+    const root = createWorkspace({ "frontend/app.ts": IMPORTS_BACKEND }, false);
+    write(root, { "backend/db.ts": 'import { app } from "../frontend/app";\nexport const db = app;\n' });
+    const trees = await readReviewTrees(host(root), "main", "HEAD");
+    const pairs = (side: ArchitectureSide) => (side.imports ?? []).map(({ source, target }) => `${normalizePath(source)}>${normalizePath(target)}`).sort();
+    expect(pairs(trees.base)).toEqual(["frontend/app.ts>backend/db.ts"]);
+    expect(pairs(trees.head)).toEqual(["backend/db.ts>frontend/app.ts", "frontend/app.ts>backend/db.ts"]);
+    expect(trees.head.check).toBeUndefined();
+    expect(trees.limitations).toEqual([]);
+  });
+
+  it("keeps an in-root Rust mod declaration as a containment edge, so the cycle check can drop its pair (#595)", async () => {
+    const root = createWorkspace({}, false);
+    const base = host(root);
+    const analyzeFile: ArchitectureReviewHost["analyzeFile"] = async (filePath) => filePath.endsWith("app.ts")
+      ? [{ path: path.join(root, "backend", "db.ts"), type: "mod", line: 1, module: "db" }, { path: path.join(root, "..", "outside.rs"), type: "mod", line: 2, module: "escape" }]
+      : [];
+    const { head } = await readReviewTrees({ ...base, analyzeFile }, "main", "HEAD");
+    expect(head.imports?.map(({ source, target, relationType }) => [normalizePath(source), normalizePath(target), relationType])).toEqual([
+      ["frontend/app.ts", "backend/db.ts", "containment"],
+    ]);
+  });
+
+  it("reports the files of a tree that could not be analyzed, and fails when a ref cannot be copied", async () => {
+    const root = createWorkspace({});
+    const base = host(root);
+    const analyzeFile: ArchitectureReviewHost["analyzeFile"] = async (filePath) => {
+      if (filePath.endsWith("app.ts")) throw new Error("parse error");
+      return [];
+    };
+    expect((await readReviewTrees({ ...base, analyzeFile }, "main", "HEAD")).limitations).toEqual(["Import graph at HEAD: 1 file(s) could not be analyzed."]);
+    await expect(readReviewTrees({ ...base, withRefTree: async () => { throw new Error("no such ref"); } }, "main", "HEAD")).rejects.toThrow("no such ref");
   });
 
   it("compares an explicit head ref with its merge base, as git diff base...head does", async () => {
@@ -270,7 +305,7 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
     // Fixed on main after the branch: invisible to the feature diff.
     write(root, { "backend/db.ts": "export const db = 2;\n" });
     git(root, "commit", "-am", "main moves on");
-    const { review } = await reviewArchitecture(host(root), ["frontend/app.ts"], "main", "feature");
+    const { review } = reviewArchitecture(await readReviewTrees(host(root), "main", "feature"), ["frontend/app.ts"]);
     expect(review).toMatchObject({ verdict: "degraded", newErrors: 1 });
     expect(review?.rules[0].newViolations).toMatchObject([{ source: "frontend/app.ts", target: "backend/db.ts" }]);
   });
@@ -278,6 +313,6 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
   it("names the ref whose rules file is invalid", async () => {
     const root = createWorkspace({ "graphit.architecture.json": "{ not json" });
     write(root, { "graphit.architecture.json": JSON.stringify(CONFIG) });
-    await expect(reviewArchitecture(host(root), ["graphit.architecture.json"], "main", "HEAD")).rejects.toThrow(/^main: graphit\.architecture\.json: \$: not valid JSON/);
+    await expect(readReviewTrees(host(root), "main", "HEAD")).rejects.toThrow(/^main: graphit\.architecture\.json: \$: not valid JSON/);
   });
 });

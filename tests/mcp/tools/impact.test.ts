@@ -3,6 +3,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { treeAnalyzer } from "../../../src/analyzer/architecture/architectureReview";
 import { normalizePath } from "../../../src/shared/path";
 import { workerState } from "../../../src/mcp/shared/state";
 import {
@@ -439,6 +440,7 @@ describe("impact tools", () => {
         ],
       })),
       findUnusedSymbols: vi.fn(async () => [{ name: "greet" }]),
+      analyze: vi.fn(async () => []),
     };
     setupWorkerState(spiderMock);
 
@@ -500,10 +502,11 @@ describe("createSpiderDependentsProvider", () => {
     expect(spider.findReferencingFiles).toHaveBeenCalledWith("/abs/src/a.ts");
   });
 
-  it("reads import cycles only when it knows the workspace root", () => {
-    const spider = { getSymbolDependents: vi.fn() };
+  it("reads import cycles only with the workspace root and a spider that analyzes files (#603)", () => {
+    const spider = { getSymbolDependents: vi.fn(), analyze: vi.fn() };
 
     expect(createSpiderDependentsProvider(spider as never).findFileCycles).toBeUndefined();
+    expect(createSpiderDependentsProvider({ getSymbolDependents: vi.fn() } as never, os.tmpdir()).findFileCycles).toBeUndefined();
     expect(createSpiderDependentsProvider(spider as never, os.tmpdir()).findFileCycles).toBeTypeOf("function");
   });
 
@@ -539,9 +542,9 @@ describe("createSpiderDependentsProvider", () => {
       git("add", ".");
       git("commit", "-m", "base");
       await fs.writeFile(path.join(workspace, "a.py"), "from b import a as b_a\n\ndef a():\n    return 1\n");
-      const spider = { getSymbolDependents: vi.fn() };
+      const spider = { getSymbolDependents: vi.fn(), analyze: treeAnalyzer(workspace, process.cwd()) };
 
-      const withWasm = await createSpiderDependentsProvider(spider as never, workspace, process.cwd()).findFileCycles?.(["a.py"], "main");
+      const withWasm = await createSpiderDependentsProvider(spider as never, workspace, process.cwd()).findFileCycles?.(["a.py"], "main", "HEAD");
 
       expect(withWasm?.cycles.map((cycle) => [...cycle.files].sort((x, y) => x.localeCompare(y)))).toEqual([["a.py", "b.py"]]);
       expect(withWasm?.limitations).toEqual([]);

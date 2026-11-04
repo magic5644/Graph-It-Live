@@ -3,7 +3,9 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BranchWatchAnalyzer } from "../../src/analyzer/BranchWatchAnalyzer";
+import { treeAnalyzer } from "../../src/analyzer/architecture/architectureReview";
+import { addedFileCycles } from "../../src/analyzer/BranchWatchAnalyzer";
+import { createSpiderDependentsProvider } from "../../src/mcp/tools/impact";
 import { ReviewGateAnalyzer, renderReviewMarkdown, riskForScore, type SymbolDependentsProvider } from "../../src/analyzer/ReviewGateAnalyzer";
 
 const temporaryDirectories: string[] = [];
@@ -1713,13 +1715,14 @@ describe("ReviewGateAnalyzer - import cycles added by the diff", { timeout: GIT_
   /** Index that answers every evidence query, so the only limitations are the file-cycle ones. */
   const completeIndex = () => ({ ...referenceIndex(), getSymbolGraph: async () => ({ symbols: [], dependencies: [] }), findUnusedSymbols: async () => [] });
 
-  async function review(base: Record<string, string>, head: Record<string, string | null>, options: { extensionPath?: string; provider?: boolean } = {}) {
-    const workspace = await workspaceWith(base, head);
-    const index = options.provider === false ? { ...completeIndex(), findFileCycles: undefined } : {
-      ...completeIndex(),
-      findFileCycles: (files: string[], baseRef: string) => new BranchWatchAnalyzer(workspace, undefined, options.extensionPath).findFileCycles(files, baseRef),
-    };
-    return new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main" });
+  /** The provider of review-pr: the head graph from the workspace imports, the base graph from a copy of the base ref. */
+  const cycleIndex = (workspace: string, extensionPath?: string) =>
+    createSpiderDependentsProvider({ ...completeIndex(), analyze: treeAnalyzer(workspace, extensionPath) } as never, workspace, extensionPath);
+
+  async function review(base: Record<string, string>, head: Record<string, string | null>, options: { extensionPath?: string; provider?: boolean; headRef?: string } = {}) {
+    const workspace = await workspaceWith(base, head, options.headRef !== undefined);
+    const index = options.provider === false ? { ...completeIndex(), findFileCycles: undefined } : cycleIndex(workspace, options.extensionPath);
+    return new ReviewGateAnalyzer(workspace, index).analyze({ baseRef: "main", headRef: options.headRef });
   }
 
   it.each([
@@ -1792,6 +1795,19 @@ describe("ReviewGateAnalyzer - import cycles added by the diff", { timeout: GIT_
     expect(result.limitations).toEqual(["Import-cycle evidence unavailable: the dependency graph could not be compared with the base ref."]);
   });
 
+  it("reports a limitation of the trees both checks read once, and keeps each check's own", async () => {
+    const workspace = await workspaceWith({ "src/cyc_p.ts": P }, { "src/cyc_p.ts": P_CYCLE });
+    await fs.writeFile(path.join(workspace, "graphit.architecture.json"), "{}");
+    const shared = "Import graph at main: 1 file(s) could not be analyzed.";
+    const result = await new ReviewGateAnalyzer(workspace, {
+      ...completeIndex(),
+      findFileCycles: async () => ({ cycles: [], limitations: [shared] }),
+      reviewArchitecture: async () => ({ limitations: [shared, "Architecture only."] }),
+    }).analyze({ baseRef: "main" });
+
+    expect(result.limitations).toEqual([shared, "Architecture only."]);
+  });
+
   it("does not look for cycles when the caller reports them itself", async () => {
     const workspace = await workspaceWith({ "src/cyc_p.ts": P }, { "src/cyc_p.ts": P_CYCLE });
     const findFileCycles = vi.fn();
@@ -1801,20 +1817,45 @@ describe("ReviewGateAnalyzer - import cycles added by the diff", { timeout: GIT_
     expect(result.limitations).toEqual([]);
   });
 
-  it("warns that cycles come from the checked-out tree when another head ref is reviewed", async () => {
-    const workspace = await workspaceWith({ "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_CYCLE }, true);
-    const findFileCycles = async () => ({ cycles: [], limitations: [] });
-    const result = await new ReviewGateAnalyzer(workspace, { ...completeIndex(), findFileCycles }).analyze({ baseRef: "main", headRef: "b1" });
+  it("reads the cycles of an explicit head ref from its commit, not from the checked-out tree", async () => {
+    const result = await review({ "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_CYCLE }, { headRef: "b1" });
+    expect(result.cycles).toEqual([expect.objectContaining({ classification: "introduced", files: ["src/cyc_p.ts", "src/cyc_q.ts"] })]);
+    expect(result.isPartial).toBe(false);
 
-    expect(result.limitations).toEqual(["Import cycles are read from the checked-out tree, not from b1."]);
+    // The cycle is committed on b1 only: back on main, the working tree has none, yet b1 still reports it.
+    const workspace = await workspaceWith({ "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_CYCLE }, true);
+    execFileSync("git", ["checkout", "main"], { cwd: workspace, stdio: "ignore" });
+    const fromMain = await new ReviewGateAnalyzer(workspace, cycleIndex(workspace)).analyze({ baseRef: "main", headRef: "b1" });
+    expect(fromMain.cycles).toEqual([expect.objectContaining({ files: ["src/cyc_p.ts", "src/cyc_q.ts"], changedFiles: ["src/cyc_p.ts"] })]);
   });
 
-  it("reads backslash paths as the same files and reports nothing for an empty diff", async () => {
-    const workspace = await workspaceWith({ "src/cyc_p.ts": P, "src/cyc_q.ts": Q }, { "src/cyc_p.ts": P_CYCLE });
-    const analyzer = new BranchWatchAnalyzer(workspace);
+  it("finds a cycle that spans more than 200 files without any file budget, and the review is complete (#603)", { timeout: 120_000 }, async () => {
+    const count = 250;
+    const name = (index: number) => `src/chain/f${String(index).padStart(3, "0")}.ts`;
+    const link = (index: number) => `import { v${index + 1} } from "./f${String(index + 1).padStart(3, "0")}";\nexport const v${index} = v${index + 1};\n`;
+    const base = Object.fromEntries(Array.from({ length: count }, (_, index) => [name(index), index === count - 1 ? `export const v${index} = 1;\n` : link(index)]));
+    const result = await review(base, { [name(count - 1)]: `import { v0 } from "./f000";\nexport const v${count - 1} = v0;\n` });
 
-    await expect(analyzer.findFileCycles(["src\\cyc_p.ts"], "main")).resolves.toMatchObject({ cycles: [{ files: ["src/cyc_p.ts", "src/cyc_q.ts"], changedFiles: ["src/cyc_p.ts"] }] });
-    await expect(analyzer.findFileCycles([], "main")).resolves.toEqual({ cycles: [], limitations: [] });
+    expect(result.cycles).toHaveLength(1);
+    expect(result.cycles[0]).toMatchObject({ classification: "introduced", changedFiles: [name(count - 1)] });
+    expect(result.cycles[0].files).toHaveLength(count);
+    expect(result.limitations).toEqual([]);
+    expect(result.isPartial).toBe(false);
+  });
+
+  it("classifies by the whole graphs: changed-file paths with Windows separators, untouched cycles left out", () => {
+    const edge = (source: string, target: string) => ({ source, target });
+    const base = [edge("src/a.ts", "src/b.ts"), edge("src/b.ts", "src/a.ts"), edge("src/x.ts", "src/y.ts"), edge("src/y.ts", "src/x.ts")];
+    const head = [...base, edge("src/b.ts", "src/c.ts"), edge("src/c.ts", "src/a.ts"), edge("src/p.ts", "src/q.ts"), edge("src/q.ts", "src/p.ts")];
+
+    expect(addedFileCycles(head, base, [String.raw`src\c.ts`, "src/q.ts", "src/x.ts"])).toEqual([
+      { classification: "aggravated", files: ["src/a.ts", "src/b.ts", "src/c.ts"], changedFiles: ["src/c.ts"] },
+      { classification: "introduced", files: ["src/p.ts", "src/q.ts"], changedFiles: ["src/q.ts"] },
+    ]);
+    expect(addedFileCycles(head, base, [])).toEqual([]);
+    // A Rust `mod` pair closes no cycle, even with a use edge of the same pair.
+    const mod = [edge("src/lib.rs", "src/m.rs"), { ...edge("src/lib.rs", "src/m.rs"), relationType: "containment" }, edge("src/m.rs", "src/lib.rs")];
+    expect(addedFileCycles(mod, [], ["src/m.rs"])).toEqual([]);
   });
 
   it("reports the cycles in the markdown rendering", async () => {
@@ -1822,6 +1863,19 @@ describe("ReviewGateAnalyzer - import cycles added by the diff", { timeout: GIT_
 
     expect(renderReviewMarkdown(result)).toContain("### Import cycles\n- introduced: src/cyc_p.ts <-> src/cyc_q.ts");
     expect(renderReviewMarkdown({ ...result, cycles: [] })).not.toContain("Import cycles");
+  });
+
+  it.each([
+    ["Go", { "go.mod": "module example.com/m\n\ngo 1.21\n", "a/a.go": "package a\n\nfunc A() int { return 1 }\n", "b/b.go": 'package b\n\nimport "example.com/m/a"\n\nfunc B() int { return a.A() }\n' },
+      { "a/a.go": 'package a\n\nimport "example.com/m/b"\n\nfunc A() int { return 1 }\n\nvar _ = b.B\n' }, ["a/a.go", "b/b.go"]],
+    ["Java", { "com/x/A.java": "package com.x;\n\npublic class A { }\n", "com/x/b/B.java": "package com.x.b;\n\nimport com.x.A;\n\npublic class B { A a; }\n" },
+      { "com/x/A.java": "package com.x;\n\nimport com.x.b.B;\n\npublic class A { B b; }\n" }, ["com/x/A.java", "com/x/b/B.java"]],
+    ["C#", { "A/Alpha.cs": "namespace X.A;\n\npublic class Alpha { }\n", "B/Beta.cs": "using X.A;\n\nnamespace X.B;\n\npublic class Beta { Alpha a; }\n" },
+      { "A/Alpha.cs": "using X.B;\n\nnamespace X.A;\n\npublic class Alpha { Beta b; }\n" }, ["A/Alpha.cs", "B/Beta.cs"]],
+  ])("reports a %s cycle from the whole graphs (#603)", async (_language, base, head, files) => {
+    const result = await review(base, head, { extensionPath: process.cwd() });
+
+    expect(result.cycles).toEqual([{ classification: "introduced", files, changedFiles: [files[0]] }]);
   });
 
   it("reports a Python cycle created by a relative import", async () => {

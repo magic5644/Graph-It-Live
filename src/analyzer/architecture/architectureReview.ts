@@ -6,9 +6,12 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
+import * as path from "node:path";
 import type { ArchitectureRuleSummary } from "../../shared/architecture-model";
+import type { GraphEdge } from "../../shared/graph-types";
 import { normalizePath } from "../../shared/path";
 import { LanguageService } from "../LanguageService";
+import { fileEdge } from "../spider/SpiderGraphCrawler";
 import { PathResolver } from "../utils/PathResolver";
 import { resolveFileImports } from "../utils/resolveFileImports";
 import { buildArchitectureGraph, type AnalyzeFile } from "./ArchitectureGraphBuilder";
@@ -76,10 +79,12 @@ export interface ArchitectureReview {
   configChange?: ArchitectureConfigChange;
 }
 
-/** The rules files of one tree, and its check when a config applies to it. */
+/** The rules files of one tree, its import graph, and its check when a config applies to it. */
 export interface ArchitectureSide {
   config?: ArchitectureConfig;
   baseline?: BaselineEntry[];
+  /** Every file import of the tree, workspace-relative; a Rust `mod x;` is a containment edge (#595). Absent when the tree was not analyzed. */
+  imports?: GraphEdge[];
   check?: {
     violations: ArchitectureViolation[];
     rules: ArchitectureRuleSummary[];
@@ -190,53 +195,72 @@ export function treeAnalyzer(root: string, extensionPath?: string): AnalyzeFile 
 }
 
 /**
- * The rules files of the tree at `root`, checked against its import graph with its own config,
- * or `fallback` when it has none. No graph is built without `analyzeFile` or rules.
+ * The rules files and the whole import graph of the tree at `root` (one parse of every file, shared by
+ * the import-cycle check and the rules), checked with the config `rulesFor` returns for its own.
  */
-async function readSide(root: string, ref: string, analyzeFile: AnalyzeFile | undefined, fallback: ArchitectureConfig | undefined, limitations: string[]): Promise<ArchitectureSide> {
+async function readSide(root: string, ref: string, analyzeFile: AnalyzeFile,
+  rulesFor: (config: ArchitectureConfig | undefined) => ArchitectureConfig | undefined, limitations: string[]): Promise<ArchitectureSide> {
   try {
     const configText = await readWorkspaceFile(root, ARCHITECTURE_CONFIG_FILE, MAX_CONFIG_BYTES);
     const baselineText = await readWorkspaceFile(root, ARCHITECTURE_BASELINE_FILE, MAX_BASELINE_BYTES);
     const config = configText === undefined ? undefined : parseArchitectureConfig(configText);
     const baseline = baselineText === undefined ? undefined : parseBaseline(baselineText);
-    const rules = config ?? fallback;
-    if (analyzeFile === undefined || rules === undefined) return { config, baseline };
-    const graph = await buildArchitectureGraph(root, analyzeFile);
-    if (graph.failedFiles.length > 0) limitations.push(`Architecture rules at ${ref}: ${graph.failedFiles.length} file(s) could not be analyzed.`);
+    const relative = (file: string) => normalizePath(path.relative(root, normalizePath(file)));
+    // The architecture graph leaves Rust `mod` edges out; the cycle check needs them to drop their pair.
+    const containment: GraphEdge[] = [];
+    const graph = await buildArchitectureGraph(root, async (filePath) => {
+      const dependencies = await analyzeFile(filePath);
+      for (const dependency of dependencies) {
+        const target = relative(dependency.path);
+        // Same in-root guard as the graph's own edges.
+        if (dependency.type === "mod" && !target.startsWith("..") && !path.isAbsolute(target)) containment.push(fileEdge(relative(filePath), target, "mod"));
+      }
+      return dependencies;
+    });
+    if (graph.failedFiles.length > 0) limitations.push(`Import graph at ${ref}: ${graph.failedFiles.length} file(s) could not be analyzed.`);
+    const imports = [...graph.edges.map((edge) => ({ source: edge.sourceRelative, target: edge.targetRelative })), ...containment];
+    const rules = rulesFor(config);
+    if (rules === undefined) return { config, baseline, imports };
     const { assignment, check } = checkGraphArchitecture(graph, root, rules, baseline);
-    return { config, baseline, check: { violations: check.violations, rules: check.rules, unitCycles: unitCyclePairs(graph, assignment) } };
+    return { config, baseline, imports, check: { violations: check.violations, rules: check.rules, unitCycles: unitCyclePairs(graph, assignment) } };
   } catch (error) {
     throw new Error(`${ref}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 }
 
+/** The head and base trees of one review, read once for the import-cycle check and the architecture rules. */
+export interface ReviewTrees {
+  head: ArchitectureSide;
+  base: ArchitectureSide;
+  limitations: string[];
+}
+
 /**
- * Checks the rules on the head (the working tree at "HEAD", else a copy of the ref) and on the
- * base (a copy of `baseRef`, or of its merge base with an explicit head, as `git diff` compares),
- * with the head config when the base has none, and compares them. Undefined when neither has a config.
+ * Reads the head (the working tree and its warmed imports at "HEAD", else a copy of the ref) and the
+ * base (a copy of `baseRef`, or of its merge base with an explicit head, as `git diff` compares). The
+ * rules are checked on both when the head has a config, with the head config when the base has none.
  *
- * ponytail: the base graph is built from scratch (every file parsed again); build it from the head
+ * shortcut: the base graph is built from scratch (every file parsed again); build it from the head
  * graph and the changed files only if review-pr gets slow on large repositories.
  */
-export async function reviewArchitecture(
-  host: ArchitectureReviewHost,
-  changedFiles: readonly string[],
-  baseRef: string,
-  headRef: string,
-): Promise<{ review?: ArchitectureReview; limitations: string[] }> {
+export async function readReviewTrees(host: ArchitectureReviewHost, baseRef: string, headRef: string): Promise<ReviewTrees> {
   const limitations: string[] = [];
   const head = headRef === "HEAD"
-    ? await readSide(host.workspaceRoot, headRef, host.analyzeFile, undefined, limitations)
+    ? await readSide(host.workspaceRoot, headRef, host.analyzeFile, (config) => config, limitations)
     : await host.withRefTree(headRef, (directory, copyLimitations) => {
       limitations.push(...copyLimitations);
-      return readSide(directory, headRef, treeAnalyzer(directory, host.extensionPath), undefined, limitations);
+      return readSide(directory, headRef, treeAnalyzer(directory, host.extensionPath), (config) => config, limitations);
     });
   const base = await host.withRefTree(headRef === "HEAD" ? baseRef : await host.mergeBase(baseRef, headRef), (directory, copyLimitations) => {
-    // Without a head config there is nothing to compare: only the rules files of the base are read.
-    if (head.config === undefined) return readSide(directory, baseRef, undefined, undefined, limitations);
     limitations.push(...copyLimitations);
-    return readSide(directory, baseRef, treeAnalyzer(directory, host.extensionPath), head.config, limitations);
+    // Without a head config there is nothing to compare: the base rules are not checked.
+    return readSide(directory, baseRef, treeAnalyzer(directory, host.extensionPath), (config) => head.config && (config ?? head.config), limitations);
   });
+  return { head, base, limitations };
+}
+
+/** Compares the rules of the head and base trees, with the limitations of reading them; no review when neither has a config. */
+export function reviewArchitecture({ head, base, limitations }: ReviewTrees, changedFiles: readonly string[]): { review?: ArchitectureReview; limitations: string[] } {
   if (head.config === undefined && base.config === undefined) return { limitations };
   const rulesFilesChanged = changedFiles.some((file) => [ARCHITECTURE_CONFIG_FILE, ARCHITECTURE_BASELINE_FILE].includes(normalizePath(file)));
   return { review: compareArchitecture(base, head, rulesFilesChanged), limitations };
