@@ -137,8 +137,8 @@ export class BranchWatchTreeProvider implements vscode.TreeDataProvider<BranchWa
         return file;
         })),
         this.group('Cyclic dependencies', [
-          ...(result.cycleSummary?.detected ? [this.row(`Affected dependency scope: ${result.cycleSummary.detected} cycle(s) detected`, 'warning')] : []),
-          ...(result.cycleSummary && !result.cycleSummary.scopeComplete ? [this.row('Cycle count is partial because the affected dependency scope is incomplete.', 'warning')] : []),
+          ...(result.cycleSummary?.detected ? [this.row(`Changed files: ${result.cycleSummary.detected} cycle(s) detected`, 'warning')] : []),
+          ...(result.cycleSummary && !result.cycleSummary.scopeComplete ? [this.row('Cycle count is partial because the head or base import graph is incomplete.', 'warning')] : []),
           ...result.cycles.map(cycle => {
           const label = { introduced: 'New cycle introduced', aggravated: 'Existing cycle expanded', 'existing-touched': 'Existing cycle touched' }[cycle.classification];
         const row = this.group(`${label}: ${cycle.nodePaths.map(visible).join(' ↔ ')}`, [

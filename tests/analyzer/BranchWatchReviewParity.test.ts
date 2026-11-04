@@ -154,3 +154,36 @@ describe("Branch Watch and review-pr review the same diff alike (#546)", { timeo
     if (expected.tests) expect(symbol!.testCandidates).toEqual(expected.tests);
   });
 });
+
+/** #605: Branch Watch read cycles in a walk bounded by maxFiles; it now reads the same whole graphs as review-pr. */
+describe("Branch Watch and review-pr report the same import cycles (#605)", { timeout: 60_000 }, () => {
+  const ring = (from: string, to: string) => `import { ${to} } from "./${to}";\nexport const ${from} = ${to};\n`;
+  it.each<{ name: string; base: Files; head: Files; expected: string }>([
+    {
+      name: "a cycle introduced across more files than maxFiles",
+      base: { "src/a.ts": ring("a", "b"), "src/b.ts": ring("b", "c"), "src/c.ts": "export const c = 1;\n" },
+      head: { "src/c.ts": ring("c", "a") },
+      expected: "introduced",
+    },
+    {
+      name: "an existing cycle aggravated by a modified file",
+      base: { "src/a.ts": ring("a", "b"), "src/b.ts": ring("b", "a"), "src/c.ts": "export const c = 1;\n" },
+      head: { "src/b.ts": `import { a } from "./a";\nimport { c } from "./c";\nexport const b = a + c;\n`, "src/c.ts": ring("c", "b") },
+      expected: "aggravated",
+    },
+  ])("$name", async ({ base, head, expected }) => {
+    const root = await scratch(base, head);
+    const spider = new Spider({ rootDir: root, extensionPath: process.cwd(), enableReverseIndex: true });
+    spiders.push(spider);
+    await spider.buildFullIndex();
+    const reviewPr = await new ReviewGateAnalyzer(root, createSpiderDependentsProvider(spider, root, process.cwd())).analyze({ baseRef: "main" });
+    const branchWatch = new BranchWatchAnalyzer(root, spider, process.cwd(), "git", 1);
+    const watched = await branchWatch.analyze(await branchWatch.capture("main"));
+    const watchedCycles = watched.cycles.filter((cycle) => cycle.classification !== "existing-touched")
+      .map(({ classification, nodePaths, changedPaths }) => ({ classification, files: nodePaths, changedFiles: changedPaths }));
+    expect(watchedCycles).toEqual(reviewPr.cycles);
+    expect(reviewPr.cycles.map((cycle) => cycle.classification)).toEqual([expected]);
+    expect(watched.cycleSummary).toEqual({ detected: 1, scopeComplete: true });
+    expect(watched.limitations.join(" ")).not.toMatch(/affected-scope limit|baseline limit/);
+  });
+});

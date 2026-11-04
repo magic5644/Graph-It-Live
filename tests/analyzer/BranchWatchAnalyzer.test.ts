@@ -6,7 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BRANCH_WATCH_MAX_FILES, BRANCH_WATCH_MAX_FILES_LIMIT, BranchWatchAnalyzer, BranchWatchError,
   normalizeBranchWatchMaxFiles, parseCatFileBatch } from '@/analyzer/BranchWatchAnalyzer';
 import { LanguageService } from '@/analyzer/LanguageService';
+import type { Dependency } from '@/analyzer/types';
 import { Spider } from '@/analyzer/Spider';
+import { normalizePath } from '@/shared/path';
 
 const roots: string[] = [];
 const git = (root: string, ...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
@@ -280,30 +282,10 @@ describe('BranchWatchAnalyzer findings', { timeout: GIT_TEST_TIMEOUT }, () => {
     git(root, 'add', 'large.ts'); git(root, 'commit', '-m', 'large baseline');
     await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
     const analyzer = new BranchWatchAnalyzer(root);
-    const baselineGraph = vi.spyOn(analyzer as any, 'baselineGraph');
+    const refGraph = vi.spyOn(analyzer as any, 'refGraph');
     const result = await analyzer.analyze(await analyzer.capture('main'));
-    expect(baselineGraph).not.toHaveBeenCalled();
+    expect(refGraph).not.toHaveBeenCalled();
     expect(result.limitations.join(' ')).not.toContain('Git could not read this repository');
-  });
-
-  it('never expands an incomplete historical cycle baseline beyond the configured budget', async () => {
-    const root = await workspace();
-    await fs.writeFile(path.join(root, 'api.ts'), "import { b } from './b'; export const value = b;\n");
-    await fs.writeFile(path.join(root, 'b.ts'), "import { c } from './c'; export const b = c;\n");
-    await fs.writeFile(path.join(root, 'c.ts'), "import { value } from './api'; export const c = value;\n");
-    await fs.writeFile(path.join(root, 'tsconfig.json'), '{}\n');
-    git(root, 'add', '.'); git(root, 'commit', '-m', 'cycle baseline');
-    await fs.appendFile(path.join(root, 'api.ts'), '// changed\n');
-    const analyzer = new BranchWatchAnalyzer(root, undefined, process.cwd(), 'git', 3);
-    const readBlobs = vi.spyOn(analyzer as any, 'readBlobs');
-
-    const result = await analyzer.analyze(await analyzer.capture('main'));
-
-    const blobReads = readBlobs.mock.calls.flatMap(([shas]) => shas as string[]);
-    expect(blobReads.length).toBeGreaterThan(0);
-    expect(blobReads.length).toBeLessThanOrEqual(3);
-    expect(result.cycleSummary).toEqual({ detected: 0, scopeComplete: false });
-    expect(result.limitations.join(' ')).toContain('3-file baseline limit');
   });
 
   it('keeps file impact for a body-only change and reports introduced versus historical file cycles', async () => {
@@ -433,45 +415,6 @@ describe('BranchWatchAnalyzer findings', { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(impact.limitations).toContain('api.ts: dependency index lookup failed; impact is incomplete.');
   });
 
-  it('keeps the affected-scope budget and leftover queue of a sequential cycle walk', async () => {
-    const root = await workspace();
-    await fs.writeFile(path.join(root, 'api.ts'), "import { b } from './b'; export const value = b;\n");
-    await fs.writeFile(path.join(root, 'b.ts'), "import { c } from './c'; export const b = c;\n");
-    await fs.writeFile(path.join(root, 'c.ts'), "import { value } from './api'; export const c = value;\n");
-    const chain = new BranchWatchAnalyzer(root, undefined, process.cwd(), 'git', 2);
-    const limitations: string[] = [];
-    const result = await chain.buildCycles({ changes: [{ path: 'api.ts', kind: 'modified' }], mergeBaseSha: 'HEAD' }, limitations);
-    expect(result.summary).toEqual({ detected: 0, scopeComplete: false });
-    expect(limitations).toEqual(['Cycle analysis reached the 2-file affected-scope limit.']);
-
-    // Both seeds fit the budget; a sequential walk still queued 'b.ts' (read after 'api.ts'), so the limit is reported.
-    const pair = new BranchWatchAnalyzer(root, undefined, process.cwd(), 'git', 2);
-    await fs.writeFile(path.join(root, 'b.ts'), "import { value } from './api'; export const b = value;\n");
-    const pairLimitations: string[] = [];
-    await pair.buildCycles({ changes: [{ path: 'api.ts', kind: 'modified' }, { path: 'b.ts', kind: 'modified' }], mergeBaseSha: 'HEAD' }, pairLimitations);
-    expect(pairLimitations).toEqual(['Cycle analysis reached the 2-file affected-scope limit.']);
-  });
-
-  it('keeps the edges read before a failed import resolution and reports the file', async () => {
-    const root = await workspace();
-    await fs.writeFile(path.join(root, 'b.ts'), 'export const b = 1;\n');
-    const resolvePath = vi.fn(async (_from: string, module: string) => {
-      if (module === './broken') throw new Error('resolver failed');
-      return path.join(root, 'b.ts');
-    });
-    const getAnalyzer = vi.spyOn(LanguageService.prototype, 'getAnalyzer').mockReturnValue({
-      parseImports: async () => [{ module: './b' }, { module: './broken' }, { module: './after' }],
-      resolvePath,
-    } as unknown as ReturnType<LanguageService['getAnalyzer']>);
-    try {
-      const limitations: string[] = [];
-      await new BranchWatchAnalyzer(root, undefined, process.cwd()).buildCycles(
-        { changes: [{ path: 'api.ts', kind: 'modified' }], mergeBaseSha: 'HEAD' }, limitations);
-      expect(limitations).toContain('api.ts: dependency graph could not be analyzed.');
-      expect(limitations.join(' ')).not.toContain("'./after'");
-    } finally { getAnalyzer.mockRestore(); }
-  });
-
   it('reserves a root lookup for every changed file after a large impact walk', async () => {
     const root = await workspace();
     await fs.writeFile(path.join(root, 'other.ts'), 'export const other = 1;\n');
@@ -487,5 +430,134 @@ describe('BranchWatchAnalyzer findings', { timeout: GIT_TEST_TIMEOUT }, () => {
     });
     const result = await analyzer.analyze(await analyzer.capture('main'));
     expect(result.fileImpacts.find(impact => impact.path === 'other.ts')?.dependents[0].path).toBe('other-consumer.ts');
+  });
+});
+
+describe('BranchWatchAnalyzer whole-graph cycles (#605)', { timeout: GIT_TEST_TIMEOUT }, () => {
+  /** api.ts -> b.ts -> c.ts -> api.ts in the working tree; `committed` commits it as the base. */
+  async function cycleWorkspace(committed: boolean) {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'api.ts'), "import { b } from './b'; export const value = b;\n");
+    await fs.writeFile(path.join(root, 'b.ts'), "import { c } from './c'; export const b = c;\n");
+    await fs.writeFile(path.join(root, 'c.ts'), committed ? "import { value } from './api'; export const c = value;\n" : 'export const c = 1;\n');
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'chain');
+    if (!committed) await fs.writeFile(path.join(root, 'c.ts'), "import { value } from './api'; export const c = value;\n");
+    return root;
+  }
+  const changed = (...files: string[]) => files.map(file => ({ path: file, kind: 'modified' as const }));
+
+  it('reports a cycle wider than maxFiles, with no scope limitation', async () => {
+    const root = await cycleWorkspace(false);
+    const analyzer = new BranchWatchAnalyzer(root, undefined, process.cwd(), 'git', 1);
+    const limitations: string[] = [];
+    const result = await analyzer.buildCycles({ changes: changed('c.ts'), mergeBaseSha: git(root, 'rev-parse', 'HEAD') }, limitations);
+    expect(result.findings).toEqual([expect.objectContaining({ classification: 'introduced', nodePaths: ['api.ts', 'b.ts', 'c.ts'], changedPaths: ['c.ts'] })]);
+    expect(result.summary).toEqual({ detected: 1, scopeComplete: true });
+    expect(limitations).toEqual([]);
+  });
+
+  it('builds the base graph once per merge base, and again when the merge base moves', async () => {
+    const root = await cycleWorkspace(true);
+    const analyzer = new BranchWatchAnalyzer(root, undefined, process.cwd());
+    const withRefTree = vi.spyOn(analyzer, 'withRefTree');
+    const first = git(root, 'rev-parse', 'HEAD');
+    await fs.appendFile(path.join(root, 'api.ts'), '// edit 1\n');
+    const touched = await analyzer.buildCycles({ changes: changed('api.ts'), mergeBaseSha: first }, []);
+    expect(touched.findings.map(finding => finding.classification)).toEqual(['existing-touched']);
+    await fs.appendFile(path.join(root, 'b.ts'), '// edit 2\n');
+    await analyzer.buildCycles({ changes: changed('api.ts', 'b.ts'), mergeBaseSha: first }, []);
+    expect(withRefTree).toHaveBeenCalledTimes(1);
+
+    // The base drops the back edge: the same head cycle is now introduced, from a freshly built base.
+    await fs.writeFile(path.join(root, 'c.ts'), 'export const c = 1;\n');
+    git(root, 'commit', '-qam', 'break cycle');
+    const second = git(root, 'rev-parse', 'HEAD');
+    await fs.writeFile(path.join(root, 'c.ts'), "import { value } from './api'; export const c = value;\n");
+    const introduced = await analyzer.buildCycles({ changes: changed('c.ts'), mergeBaseSha: second }, []);
+    expect(introduced.findings.map(finding => finding.classification)).toEqual(['introduced']);
+    expect(withRefTree.mock.calls.map(([ref]) => ref)).toEqual([first, second]);
+  });
+
+  it('reports an unreadable base as a limitation, not as an empty result, and retries it', async () => {
+    const root = await cycleWorkspace(true);
+    const analyzer = new BranchWatchAnalyzer(root, undefined, process.cwd());
+    const withRefTree = vi.spyOn(analyzer, 'withRefTree');
+    const missing = '0'.repeat(40);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const limitations: string[] = [];
+      // eslint-disable-next-line no-await-in-loop -- the second attempt checks that the failure was not cached
+      const result = await analyzer.buildCycles({ changes: changed('api.ts'), mergeBaseSha: missing }, limitations);
+      expect(result).toEqual({ findings: [], summary: { detected: 0, scopeComplete: false } });
+      expect(limitations.join(' ')).toContain('Cycle cannot be determined: the merge-base import graph could not be read.');
+    }
+    expect(withRefTree).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads the head graph from the index without parsing a workspace file', async () => {
+    const root = await cycleWorkspace(false);
+    const dependency = (file: string): Dependency => ({ path: path.join(root, file), type: 'import', line: 1, module: `./${file}` });
+    const indexed: Record<string, Dependency[]> = { 'api.ts': [dependency('b.ts')], 'b.ts': [dependency('c.ts')], 'c.ts': [dependency('api.ts')] };
+    const analyze = vi.fn(async (file: string) => indexed[path.basename(file)] ?? []);
+    const getAnalyzer = vi.spyOn(LanguageService.prototype, 'getAnalyzer');
+    try {
+      const analyzer = new BranchWatchAnalyzer(root, { getSymbolDependents: async () => [], analyze } as never, process.cwd());
+      const result = await analyzer.buildCycles({ changes: changed('c.ts'), mergeBaseSha: git(root, 'rev-parse', 'HEAD') }, []);
+      expect(result.findings.map(finding => finding.classification)).toEqual(['introduced']);
+      expect(analyze.mock.calls.map(([file]) => path.basename(file)).sort()).toEqual(['api.ts', 'b.ts', 'c.ts', 'removed.ts']);
+      const parsedInWorkspace = getAnalyzer.mock.calls.filter(([file]) => normalizePath(file).startsWith(normalizePath(root) + '/'));
+      expect(parsedInWorkspace).toEqual([]);
+    } finally { getAnalyzer.mockRestore(); }
+  });
+
+  it('prefers the reverse index (analyzeFromIndex) over analyze for the head graph', async () => {
+    const root = await cycleWorkspace(false);
+    const analyze = vi.fn(async () => []);
+    const analyzeFromIndex = vi.fn(async () => []);
+    await new BranchWatchAnalyzer(root, { getSymbolDependents: async () => [], analyze, analyzeFromIndex } as never, process.cwd())
+      .buildCycles({ changes: changed('c.ts'), mergeBaseSha: 'HEAD' }, []);
+    expect(analyzeFromIndex).toHaveBeenCalledTimes(4);
+    expect(analyze).not.toHaveBeenCalled();
+  });
+
+  it('does not build the base when no head cycle goes through a changed file', async () => {
+    const root = await cycleWorkspace(false);
+    const analyzer = new BranchWatchAnalyzer(root, undefined, process.cwd());
+    const withRefTree = vi.spyOn(analyzer, 'withRefTree');
+    const result = await analyzer.buildCycles({ changes: changed('removed.ts'), mergeBaseSha: git(root, 'rev-parse', 'HEAD') }, []);
+    expect(result).toEqual({ findings: [], summary: { detected: 0, scopeComplete: true } });
+    expect(withRefTree).not.toHaveBeenCalled();
+  });
+
+  it('reports a head file the index cannot analyze as a limitation', async () => {
+    const root = await cycleWorkspace(false);
+    const analyze = vi.fn(async (file: string) => { if (file.endsWith('b.ts')) throw new Error('not indexed'); return []; });
+    const limitations: string[] = [];
+    const result = await new BranchWatchAnalyzer(root, { getSymbolDependents: async () => [], analyze } as never, process.cwd())
+      .buildCycles({ changes: changed('c.ts'), mergeBaseSha: 'HEAD' }, limitations);
+    expect(result.summary).toEqual({ detected: 0, scopeComplete: false });
+    expect(limitations).toEqual(['Import graph at the working tree: 1 file(s) could not be analyzed.']);
+  });
+
+  it('matches Windows-style changed paths with the normalized graph paths', async () => {
+    const root = await workspace();
+    await fs.mkdir(path.join(root, 'src'));
+    await fs.writeFile(path.join(root, 'src', 'a.ts'), "import { b } from './b'; export const a = b;\n");
+    await fs.writeFile(path.join(root, 'src', 'b.ts'), "import { a } from './a'; export const b = a;\n");
+    const result = await new BranchWatchAnalyzer(root, undefined, process.cwd())
+      .buildCycles({ changes: [{ path: String.raw`src\a.ts`, kind: 'untracked' }], mergeBaseSha: git(root, 'rev-parse', 'HEAD') }, []);
+    expect(result.findings).toEqual([expect.objectContaining({ classification: 'introduced', nodePaths: ['src/a.ts', 'src/b.ts'], changedPaths: ['src/a.ts'] })]);
+  });
+
+  it('reads an explicit head ref from its committed tree, cached by its SHA', async () => {
+    const root = await cycleWorkspace(false);
+    const base = git(root, 'rev-parse', 'HEAD');
+    git(root, 'checkout', '-qb', 'feature'); git(root, 'commit', '-qam', 'cycle'); git(root, 'checkout', '-q', 'main');
+    const head = git(root, 'rev-parse', 'feature');
+    const analyzer = new BranchWatchAnalyzer(root, undefined, process.cwd());
+    const withRefTree = vi.spyOn(analyzer, 'withRefTree');
+    const scope = { changes: changed('c.ts'), mergeBaseSha: base, headReference: 'feature', headSha: head };
+    expect((await analyzer.buildCycles(scope, [])).findings.map(finding => finding.classification)).toEqual(['introduced']);
+    await analyzer.buildCycles(scope, []);
+    expect(withRefTree.mock.calls.map(([ref]) => ref)).toEqual([head, base]);
   });
 });

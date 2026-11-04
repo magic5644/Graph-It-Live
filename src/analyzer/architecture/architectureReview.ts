@@ -195,6 +195,28 @@ export function treeAnalyzer(root: string, extensionPath?: string): AnalyzeFile 
 }
 
 /**
+ * Every file import of the tree at `root`, workspace-relative (a Rust `mod x;` is a containment edge,
+ * #595), with the architecture graph it was read from; a file that cannot be analyzed is a limitation.
+ */
+export async function readTreeImports(root: string, ref: string, analyzeFile: AnalyzeFile, limitations: string[]) {
+  const relative = (file: string) => normalizePath(path.relative(root, normalizePath(file)));
+  // The architecture graph leaves Rust `mod` edges out; the cycle check needs them to drop their pair.
+  const containment: GraphEdge[] = [];
+  const graph = await buildArchitectureGraph(root, async (filePath) => {
+    const dependencies = await analyzeFile(filePath);
+    for (const dependency of dependencies) {
+      const target = relative(dependency.path);
+      // Same in-root guard as the graph's own edges.
+      if (dependency.type === "mod" && !target.startsWith("..") && !path.isAbsolute(target)) containment.push(fileEdge(relative(filePath), target, "mod"));
+    }
+    return dependencies;
+  });
+  if (graph.failedFiles.length > 0) limitations.push(`Import graph at ${ref}: ${graph.failedFiles.length} file(s) could not be analyzed.`);
+  const imports: GraphEdge[] = [...graph.edges.map((edge) => ({ source: edge.sourceRelative, target: edge.targetRelative })), ...containment];
+  return { graph, imports };
+}
+
+/**
  * The rules files and the whole import graph of the tree at `root` (one parse of every file, shared by
  * the import-cycle check and the rules), checked with the config `rulesFor` returns for its own.
  */
@@ -205,20 +227,7 @@ async function readSide(root: string, ref: string, analyzeFile: AnalyzeFile,
     const baselineText = await readWorkspaceFile(root, ARCHITECTURE_BASELINE_FILE, MAX_BASELINE_BYTES);
     const config = configText === undefined ? undefined : parseArchitectureConfig(configText);
     const baseline = baselineText === undefined ? undefined : parseBaseline(baselineText);
-    const relative = (file: string) => normalizePath(path.relative(root, normalizePath(file)));
-    // The architecture graph leaves Rust `mod` edges out; the cycle check needs them to drop their pair.
-    const containment: GraphEdge[] = [];
-    const graph = await buildArchitectureGraph(root, async (filePath) => {
-      const dependencies = await analyzeFile(filePath);
-      for (const dependency of dependencies) {
-        const target = relative(dependency.path);
-        // Same in-root guard as the graph's own edges.
-        if (dependency.type === "mod" && !target.startsWith("..") && !path.isAbsolute(target)) containment.push(fileEdge(relative(filePath), target, "mod"));
-      }
-      return dependencies;
-    });
-    if (graph.failedFiles.length > 0) limitations.push(`Import graph at ${ref}: ${graph.failedFiles.length} file(s) could not be analyzed.`);
-    const imports = [...graph.edges.map((edge) => ({ source: edge.sourceRelative, target: edge.targetRelative })), ...containment];
+    const { graph, imports } = await readTreeImports(root, ref, analyzeFile, limitations);
     const rules = rulesFor(config);
     if (rules === undefined) return { config, baseline, imports };
     const { assignment, check } = checkGraphArchitecture(graph, root, rules, baseline);
