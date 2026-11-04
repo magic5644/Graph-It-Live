@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectCycleEdges, detectCycles, getCyclicEdgeIds } from '@/shared/cycleUtils';
+import { detectCycleEdges, detectCycles, getCyclicEdgeIds, withoutContainment } from '@/shared/cycleUtils';
 
 describe('cycle detection', () => {
   const overlapping = [
@@ -57,5 +57,41 @@ describe('cycle detection', () => {
     expect(detectCycleEdges(edges).size).toBe(0);
     edges.push({ source: 'n20000', target: 'n0' });
     expect(detectCycles(edges).size).toBe(20001);
+  });
+
+  describe('containment edges (#595)', () => {
+    // Linux, macOS and Windows path forms of the same crate.
+    it.each([
+      ['/w/src/lib.rs', '/w/src/a.rs', '/w/src/b.rs'],
+      ['/Users/me/w/src/lib.rs', '/Users/me/w/src/a.rs', '/Users/me/w/src/b.rs'],
+      ['c:/w/src/lib.rs', 'c:/w/src/a.rs', 'c:/w/src/b.rs'],
+    ])('ignores a parent-child pair declared by mod, even with a use edge of the same pair (%s)', (lib, a, b) => {
+      const edges = [
+        { source: lib, target: a, relationType: 'containment' },
+        { source: lib, target: a },
+        { source: a, target: lib },
+        { source: lib, target: b, relationType: 'containment' },
+        { source: b, target: lib },
+      ];
+      expect(withoutContainment(edges)).toEqual([{ source: a, target: lib }, { source: b, target: lib }]);
+      expect(detectCycleEdges(edges).size).toBe(0);
+      expect(detectCycles(edges).size).toBe(0);
+      expect(getCyclicEdgeIds(edges, new Set([lib, a, b]))).toEqual([]);
+    });
+
+    it('keeps a usage cycle between the children of a containment parent', () => {
+      const edges = [
+        { source: 'lib', target: 'a', relationType: 'containment' },
+        { source: 'lib', target: 'b', relationType: 'containment' },
+        { source: 'a', target: 'b' },
+        { source: 'b', target: 'a' },
+      ];
+      expect([...detectCycleEdges(edges)].sort()).toEqual(['a->b', 'b->a']);
+    });
+
+    it('returns every edge when none is containment, and nothing for an empty list', () => {
+      expect(withoutContainment(overlapping)).toEqual(overlapping);
+      expect(withoutContainment([])).toEqual([]);
+    });
   });
 });

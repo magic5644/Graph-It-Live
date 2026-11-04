@@ -288,6 +288,18 @@ describe("MCP Worker Helpers", () => {
   });
 
   describe("detectCircularDependencies", () => {
+    it("ignores Rust mod containment edges but keeps usage cycles (#595)", () => {
+      const edges = [
+        { source: "C:/w/src/lib.rs", target: "C:/w/src/a.rs", relationType: "containment" },
+        { source: "C:/w/src/a.rs", target: "C:/w/src/lib.rs" },
+        { source: "C:/w/src/lib.rs", target: "C:/w/src/b.rs", relationType: "containment" },
+        { source: "C:/w/src/b.rs", target: "C:/w/src/lib.rs" },
+      ];
+      expect(detectCircularDependencies(edges)).toEqual([]);
+      edges.push({ source: "C:/w/src/a.rs", target: "C:/w/src/b.rs" }, { source: "C:/w/src/b.rs", target: "C:/w/src/a.rs" });
+      expect(detectCircularDependencies(edges)).toEqual([["C:/w/src/a.rs", "C:/w/src/b.rs", "C:/w/src/a.rs"]]);
+    });
+
     it("should detect simple cycle", () => {
       const edges = [
         { source: "A", target: "B" },

@@ -782,7 +782,7 @@ describe('RustParser Property-Based Tests', { timeout: 30_000 }, () => {
       );
     });
 
-    it('Feature: tree-sitter-wasm-migration, Property 4: For any Rust file, import type field is always "import"', async () => {
+    it('Feature: tree-sitter-wasm-migration, Property 4: For any Rust file, import type field is "import", or "mod" for a declared module', async () => {
       await fc.assert(
         fc.asyncProperty(
           rustFileWithImportsArbitrary(),
@@ -793,8 +793,9 @@ describe('RustParser Property-Based Tests', { timeout: 30_000 }, () => {
               await fs.writeFile(tempFilePath, rustFile.content);
               const deps = await parser.parseImports(tempFilePath);
 
-              // Verify all dependencies have type "import"
-              expect(deps.every((d) => d.type === 'import')).toBe(true);
+              // `mod x;` declarations are containment (#595); every other dependency is an import
+              const declared = new Set([...rustFile.content.matchAll(/\bmod\s+(\w+)\s*;/g)].map((m) => m[1].toLowerCase()));
+              for (const d of deps) expect(d.type).toBe(declared.has(d.module) ? 'mod' : 'import');
             } finally {
               try {
                 await fs.unlink(tempFilePath);

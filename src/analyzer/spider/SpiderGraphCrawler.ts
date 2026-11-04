@@ -3,8 +3,14 @@ import { normalizePath } from '../types';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { SpiderDependencyAnalyzer } from './SpiderDependencyAnalyzer';
 import { getLogger } from '../../shared/logger';
+import type { GraphEdge } from '../../shared/graph-types';
 
 const log = getLogger('SpiderGraphCrawler');
+
+/** A Rust `mod x;` edge is marked containment, so cycle detection skips it (#595). */
+export function fileEdge(source: string, dependency: Dependency): GraphEdge {
+  return dependency.type === 'mod' ? { source, target: dependency.path, relationType: 'containment' } : { source, target: dependency.path };
+}
 
 /**
  * Single responsibility: traverse the dependency graph and build (or extend) a graph view model.
@@ -18,9 +24,9 @@ export class SpiderGraphCrawler {
   async crawl(
     startPath: string,
     options?: { maxDepth?: number; signal?: AbortSignal },
-  ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
+  ): Promise<{ nodes: string[]; edges: GraphEdge[]; nodeLabels?: Record<string, string> }> {
     const nodes = new Set<string>();
-    const edges: { source: string; target: string }[] = [];
+    const edges: GraphEdge[] = [];
     const edgeIds = new Set<string>();
     const visited = new Set<string>();
     const nodeLabels: Record<string, string> = {};
@@ -62,7 +68,7 @@ export class SpiderGraphCrawler {
           const edgeId = `${normalizedFile}->${dep.path}`;
           if (!edgeIds.has(edgeId)) {
             edgeIds.add(edgeId);
-            edges.push({ source: normalizedFile, target: dep.path });
+            edges.push(fileEdge(normalizedFile, dep));
             log.debug(`Added edge: ${normalizedFile} -> ${dep.path}`);
           }
 
@@ -100,14 +106,14 @@ export class SpiderGraphCrawler {
     existingNodes: Set<string>,
     extraDepth: number = 10,
     options?: {
-      onBatch?: (batch: { nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }) => Promise<void> | void;
+      onBatch?: (batch: { nodes: string[]; edges: GraphEdge[]; nodeLabels?: Record<string, string> }) => Promise<void> | void;
       batchSize?: number;
       signal?: AbortSignal;
       totalHint?: number;
     }
-  ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
+  ): Promise<{ nodes: string[]; edges: GraphEdge[]; nodeLabels?: Record<string, string> }> {
     const newNodes = new Set<string>();
-    const newEdges: { source: string; target: string }[] = [];
+    const newEdges: GraphEdge[] = [];
     const visited = new Set<string>();
     const nodeLabels: Record<string, string> = {};
 
@@ -115,7 +121,7 @@ export class SpiderGraphCrawler {
     const normalizedStartNode = normalizePath(startNode);
 
     const batchNodes = new Set<string>();
-    const batchEdges: { source: string; target: string }[] = [];
+    const batchEdges: GraphEdge[] = [];
     const edgeIds = new Set<string>();
     const batchLabels: Record<string, string> = {};
     const batchSize = options?.batchSize ?? 200;
@@ -147,8 +153,8 @@ export class SpiderGraphCrawler {
       const edgeId = `${normalizedFile}->${dep.path}`;
       if (!edgeIds.has(edgeId)) {
         edgeIds.add(edgeId);
-        newEdges.push({ source: normalizedFile, target: dep.path });
-        batchEdges.push({ source: normalizedFile, target: dep.path });
+        newEdges.push(fileEdge(normalizedFile, dep));
+        batchEdges.push(fileEdge(normalizedFile, dep));
       }
 
       if (!visited.has(dep.path) && !normalizedExisting.has(dep.path)) {

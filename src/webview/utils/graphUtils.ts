@@ -1,4 +1,5 @@
 import { SUPPORTED_FILE_EXTENSIONS } from '../../shared/constants';
+import { withoutContainment } from '../../shared/cycleUtils';
 import { normalizePath } from '../../shared/path';
 import { GraphData, GraphNodeMetadata } from '../../shared/types';
 
@@ -175,6 +176,7 @@ export const mergeGraphData = (currentData: GraphData, newData: GraphData): Grap
 };
 
 export const detectCycles = (graphData: GraphData) => {
+    const cycleEdgesToScan = withoutContainment(graphData.edges);
     const cycleEdges = new Set<string>();
     const cycleNodes = new Set<string>();
     const visited = new Set<string>();
@@ -184,7 +186,7 @@ export const detectCycles = (graphData: GraphData) => {
         visited.add(node);
         recursionStack.add(node);
 
-        const edges = graphData.edges.filter(e => normalizePath(e.source) === node);
+        const edges = cycleEdgesToScan.filter(e => normalizePath(e.source) === node);
         for (const edge of edges) {
             const normalizedTarget = normalizePath(edge.target);
             if (recursionStack.has(normalizedTarget)) {
@@ -207,7 +209,7 @@ export const detectCycles = (graphData: GraphData) => {
 
     // Run detection starting from all nodes to cover disconnected components
     const allNodes = new Set<string>();
-    graphData.edges.forEach(e => {
+    cycleEdgesToScan.forEach(e => {
         allNodes.add(normalizePath(e.source));
         allNodes.add(normalizePath(e.target));
     });

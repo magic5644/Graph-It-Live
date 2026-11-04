@@ -675,6 +675,8 @@ graph-it check-dependencies src/index.ts
 
 List confirmed circular-dependency cycles that involve a given file.
 
+A Rust `mod x;` declaration places `x` in the module tree: the graph keeps that edge (`type: mod` in `find_referencing_files`), but no cycle detector counts it, so a child module that uses an item of its parent is not a cycle. Cycles between modules that use each other are still reported. The architecture graph leaves `mod` declarations out, since folder groups already show the module tree.
+
 ```
 graph-it cycles <file> [options]
 ```
@@ -1283,7 +1285,7 @@ A changed file that cannot be read safely at the base or the head (a symbolic li
 
 `--max-files` defaults to `200` and accepts values from `1` to `1000`. The default output is text. Markdown output includes a consumer table, a list of consumers to check and the moved symbols; JSON and TOON expose the complete structured result. Invalid refs and invalid limits exit non-zero.
 
-`cycles` lists the import cycles the diff creates (`introduced`) or enlarges (`aggravated`), with every file in the cycle; a cycle that already existed and that the diff leaves intact is not listed, and a cycle the diff removes is not reported. Type-only and dynamic `import()` edges count like any import, since the dependency graph records them. A file in such a cycle gives its changed symbols a `cycles` score factor; a cycle alone, with no changed signature, is reported without raising the risk. The base graph is rebuilt from the Git objects of `--base` (bounded to 200 files; `limitations` says when the bound is reached) and the head graph is read from the checked-out tree, so `limitations` says so when `--head` names another ref, and when the cycle data cannot be read at all. Side-effect-only imports (`import "./x"`) are recorded as edges of type `side-effect`, so they can close a cycle; `import "./x.css"` is an edge only when the file resolves.
+`cycles` lists the import cycles the diff creates (`introduced`) or enlarges (`aggravated`), with every file in the cycle; a cycle that already existed and that the diff leaves intact is not listed, and a cycle the diff removes is not reported. Type-only and dynamic `import()` edges count like any import, since the dependency graph records them. A file in such a cycle gives its changed symbols a `cycles` score factor; a cycle alone, with no changed signature, is reported without raising the risk. The base graph is rebuilt from the Git objects of `--base` (bounded to 200 files; `limitations` says when the bound is reached) and the head graph is read from the checked-out tree, so `limitations` says so when `--head` names another ref, and when the cycle data cannot be read at all. A Rust `mod x;` declaration never closes a cycle. Side-effect-only imports (`import "./x"`) are recorded as edges of type `side-effect`, so they can close a cycle; `import "./x.css"` is an edge only when the file resolves.
 
 The Action's PR comment lists `cycles` in an "Import cycles" section (classification and files, at most 20 cycles and 10 files each, escaped like the other values); the section is absent when there is none or when the CLI predates `cycles`. The risk and summary lines ignore it, so a cycle-only diff keeps its risk.
 

@@ -141,6 +141,21 @@ describe('graphUtils', () => {
     });
 
     describe('detectCycles', () => {
+        it('ignores Rust mod containment edges (#595)', () => {
+            const graphData: GraphData = {
+                nodes: ['/w/src/lib.rs', '/w/src/a.rs'],
+                edges: [
+                    { source: '/w/src/lib.rs', target: '/w/src/a.rs', relationType: 'containment' },
+                    { source: '/w/src/a.rs', target: '/w/src/lib.rs' },
+                ],
+            };
+
+            const { cycleEdges, cycleNodes } = detectCycles(graphData);
+
+            expect(cycleEdges.size).toBe(0);
+            expect(cycleNodes.size).toBe(0);
+        });
+
         it('should detect simple cycle', () => {
             const graphData: GraphData = {
                 nodes: ['A', 'B'],

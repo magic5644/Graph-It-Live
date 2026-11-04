@@ -147,6 +147,29 @@ describe("buildReactFlowGraph", () => {
   });
 
   describe("cycle detection", () => {
+    it("draws a Rust mod containment edge without marking a cycle (#595)", () => {
+      const data: GraphData = {
+        nodes: ["/w/src/lib.rs", "/w/src/a.rs"],
+        edges: [
+          { source: "/w/src/lib.rs", target: "/w/src/a.rs", relationType: "containment" },
+          { source: "/w/src/a.rs", target: "/w/src/lib.rs" },
+        ],
+      };
+
+      const result = buildReactFlowGraph({
+        data,
+        currentFilePath: "/w/src/lib.rs",
+        expandAll: true,
+        expandedNodes: new Set(),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+      });
+
+      expect(result.cycles.size).toBe(0);
+      expect(result.edges).toHaveLength(2);
+      expect(result.edges.some((e) => String(e.label ?? "").includes("cycle"))).toBe(false);
+    });
+
     it("should detect cycles in the graph", () => {
       const data: GraphData = {
         nodes: ["a.ts", "b.ts", "c.ts"],

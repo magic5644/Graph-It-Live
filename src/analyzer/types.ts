@@ -142,9 +142,10 @@ export class SpiderError extends Error {
 
 /**
  * Type of import/dependency statement. `side-effect` is a bare `import './x'`:
- * it runs the module but binds no symbol.
+ * it runs the module but binds no symbol. `mod` is a Rust `mod x;` declaration: it places `x`
+ * in the module tree (containment), so cycle detection ignores it.
  */
-export type DependencyType = "import" | "require" | "export" | "dynamic" | "side-effect";
+export type DependencyType = "import" | "require" | "export" | "dynamic" | "side-effect" | "mod";
 
 export interface Dependency {
   path: string;
