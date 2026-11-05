@@ -467,7 +467,7 @@ export class GraphExtractor {
       const resolver = new PathResolver(undefined, true, this.config.workspaceRoot);
       let importTargets: Map<number, string | null>;
       if (lang === "typescript" || lang === "javascript") {
-        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver, { references, declared, reads });
+        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver, { references, declared }, reads);
       } else if (lang === "python") {
         importTargets = await resolvePythonImportCalls(tree.rootNode, calls, normalizedPath, resolver);
       } else {

@@ -46,7 +46,11 @@ export interface ReExport {
  * `export * as ns from` is skipped: it exports a namespace object, not the names themselves.
  * ponytail: `import * as ns; export { ns }` and `export default x` of an import are not followed.
  */
-export const parseReExports: (filePath: string, content: string) => readonly ReExport[] = memoByContent((filePath, content) => {
+export function parseReExports(filePath: string, content: string): readonly ReExport[] {
+  return reExportsOf(filePath, content);
+}
+
+const reExportsOf = memoByContent((filePath, content): ReExport[] => {
   const sourceFile = parse(filePath, content);
   const imports = importBindings(sourceFile);
   const reExports: ReExport[] = [];
@@ -105,7 +109,11 @@ function importBindings(sourceFile: ts.SourceFile): Map<string, { specifier: str
 }
 
 /** Top-level `export * as alias from 'specifier'` declarations: a namespace object over the whole module. */
-export const parseNamespaceReExports: (filePath: string, content: string) => ReadonlyArray<{ specifier: string; alias: string }> = memoByContent((filePath, content) => {
+export function parseNamespaceReExports(filePath: string, content: string): ReadonlyArray<{ specifier: string; alias: string }> {
+  return namespaceReExportsOf(filePath, content);
+}
+
+const namespaceReExportsOf = memoByContent((filePath, content): Array<{ specifier: string; alias: string }> => {
   const sourceFile = parse(filePath, content);
   const namespaces: Array<{ specifier: string; alias: string }> = [];
   for (const statement of sourceFile.statements) {
