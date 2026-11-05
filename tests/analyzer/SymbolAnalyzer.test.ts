@@ -1,3 +1,4 @@
+import type { Project } from 'ts-morph';
 import { describe, expect, it } from 'vitest';
 import { SymbolAnalyzer } from '../../src/analyzer/SymbolAnalyzer';
 
@@ -547,6 +548,17 @@ describe('SymbolAnalyzer - symbols do not depend on the files analyzed before (#
       ['/ws/x.ts:helper', ['/ws/x.ts:use']],
     ]);
     expect([...after].map(([id, deps]) => [id, [...deps]])).toEqual([...alone].map(([id, deps]) => [id, [...deps]]));
+  });
+
+  it('never links an import to another loaded file, in TS or JS', () => {
+    for (const [x, y] of [['/ws/x.ts', '/ws/y.ts'], ['/ws/x.jsx', '/ws/y.js'], [String.raw`C:\ws\x.ts`, String.raw`C:\ws\y.ts`]]) {
+      const analyzer = new SymbolAnalyzer();
+      analyzer.analyzeFileContent(y, DEP);
+      analyzer.analyzeFileContent(x, 'import { yFn } from "./y";\nexport { yFn };');
+      const project = (analyzer as unknown as { project: Project }).project;
+
+      expect(project.getSourceFileOrThrow(x).getImportDeclarations()[0].getModuleSpecifierSourceFile()).toBeUndefined();
+    }
   });
 
   it('returns no symbols for an empty file or a file of re-exports only', () => {
