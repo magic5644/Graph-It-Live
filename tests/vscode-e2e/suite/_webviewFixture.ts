@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 export interface FixtureReport { ok: boolean; error?: string; theme?: string }
 
 /** The three theme kinds a webview must stay readable in: [theme, short name, body class]. */
-export const THEMES = [
+const THEMES = [
   ['Default Light Modern', 'light', 'vscode-light'],
   ['Default Dark Modern', 'dark', 'vscode-dark'],
   ['Default High Contrast', 'high-contrast', 'vscode-high-contrast'],
@@ -91,5 +91,23 @@ export async function runWebviewFixture<T extends FixtureReport>(
     panel.dispose();
     await config.update('colorTheme', previousTheme, vscode.ConfigurationTarget.Global);
     await fs.rm(directory, { recursive: true, force: true });
+  }
+}
+
+/**
+ * One test per theme kind: runs the fixture under it, checks the webview got that theme's body class, and names
+ * its local screenshot `<screenshot>-<theme>`.
+ */
+export function testInEveryTheme(
+  title: string,
+  options: { fixture: string; title: string; style: string; screenshot: string },
+): void {
+  for (const [theme, name, bodyClass] of THEMES) {
+    test(`${title} (${name})`, async function () {
+      this.timeout(60000);
+      await runWebviewFixture({ ...options, theme, screenshot: `${options.screenshot}-${name}` }, async (report) => {
+        assert.ok(report.theme?.split(' ').includes(bodyClass), `Expected ${bodyClass}, got ${report.theme}`);
+      });
+    });
   }
 }
