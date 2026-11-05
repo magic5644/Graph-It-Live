@@ -41,8 +41,7 @@ git commit --no-verify
 **Skips on**: Feature branches
 
 **Checks**:
-- ✅ Zero `.map` files in package (CRITICAL)
-- ✅ All 8 WASM files present
+- ✅ `npm run package:verify`: zero `.map` files (CRITICAL), the icon, and every WASM and query asset listed in `scripts/verify-package.mjs`
 - ✅ Package size reasonable (target ≤ 20 MB, warn if above)
 
 **Example Output**:
@@ -54,8 +53,10 @@ Building extension...
 Creating package...
 Checking for source maps...
 ✅ No source maps found
-Checking WASM files...
-✅ All 8 WASM files present
+Verifying package contents...
+✅ No .map files in package
+✅ Extension icon in package
+✅ WASM and query assets in package
 Checking package size...
 ✅ Package size OK: 15 MB
 
@@ -77,7 +78,7 @@ git push --no-verify
 
 **Checks**:
 - ✅ `dist/wasm/` directory exists
-- ✅ All 8 WASM files present
+- ✅ All 9 WASM files present
 - ✅ All 3 query files present
 - 📊 Lists built bundles with sizes
 
@@ -90,7 +91,7 @@ npm run build && bash scripts/hooks/post-build
 ```bash
 🔍 Post-build verification...
 Checking WASM files...
-✅ All 8 WASM files present
+✅ All 9 WASM files present
 Checking query files...
 ✅ All 3 query files present
 
@@ -188,13 +189,9 @@ If main/develop/release:
     ↓
 Run full package validation
     ↓
-Check .map files (CRITICAL)
+npm run package:verify (.map files, icon, WASM and query assets)
     ↓
-If found: BLOCK push
-    ↓
-Check WASM files (8 required)
-    ↓
-If missing: BLOCK push
+If it fails: BLOCK push
     ↓
 Check package size
     ↓
