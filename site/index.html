@@ -465,12 +465,45 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
           <li>Expand callers and callees with depth 1 to 5</li>
           <li>Calls numbered in invocation order</li>
           <li>Filter by symbol type or folder</li>
-          <li>TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, Java, GraphQL</li>
+          <li>TypeScript, JavaScript, React (JSX / TSX), Vue, Svelte, Python, Rust, C#, Go, Java, GraphQL</li>
         </ul>
       </div>
       <div class="frame">
         <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Live Call Graph</span></div>
         <img src="media/call-graph-view-example.png" alt="Graph-It-Live live call graph" loading="lazy">
+      </div>
+    </div>
+
+    <div class="shot rv" style="margin-bottom:64px">
+      <div class="shot-txt">
+        <h3>See React components for what they are</h3>
+        <p>In <code>.jsx</code> and <code>.tsx</code> files, a rendered component or a passed handler is a reference, not a call. Open any <code>.jsx</code> or <code>.tsx</code> file to see the React marks.</p>
+        <ul>
+          <li><code>&lt;Card /&gt;</code> and <code>onClick={save}</code> as <code>REFERENCES</code> edges</li>
+          <li>Resolved through aliases, barrels, default exports, <code>memo()</code>, <code>forwardRef()</code> and <code>lazy()</code></li>
+          <li>React icon and color in the file graph, Symbol View and call graph</li>
+          <li>The same edges in dead code, impact and <code>review-pr</code></li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>React components</span></div>
+        <img src="media/react-identity-views.png" alt="React test fixture in three views: file graph with App.tsx and Card.tsx marked React, Symbol View with the Card component, call graph where App and Card reference each other in a cycle" loading="lazy">
+      </div>
+    </div>
+
+    <div class="shot rev rv" style="margin-bottom:64px">
+      <div class="shot-txt">
+        <h3>Know what a view is waiting for</h3>
+        <p>Every view shares one loading state with the Graph-It-Live logo. You see it when a view opens before its data is ready, for example <em>Show Call Graph</em> on a workspace not indexed yet.</p>
+        <ul>
+          <li>What the view waits for: graph data, indexing, the Architecture build, the matrix</li>
+          <li>A progress bar once the percentage is known</li>
+          <li>Light, dark and high-contrast themes</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Loading state</span></div>
+        <img src="media/loading-state-views.png" alt="The four loading states: file and symbol views waiting for graph data, call graph indexing at 40 percent, Architecture view building 120 of 400 files, matrix building" loading="lazy">
       </div>
     </div>
 
@@ -753,8 +786,13 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       <p>
         <code>graph-it review-pr</code> runs a deterministic local diff review before CI: exported signature changes,
         bounded dependent-symbol impact, deleted and moved modules, import cycles the diff introduces, unused exports, test candidates and consumer standing.
+        With a <code>graphit.architecture.json</code>, it checks the rules on both sides and says whether the diff degrades or improves them; a new <code>error</code> violation fails the gate.
         The reusable GitHub Action is informational by default — set <code>fail-on-risk: high</code> to gate a pull request.
       </p>
+      <div class="frame" style="margin-top:20px">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>graph-it review-pr --base HEAD --format markdown</span></div>
+        <img src="media/review-pr-architecture-rules.png" alt="Rendered review-pr Markdown on the rules test fixture: Architecture rules DEGRADED, one new frontend-not-backend error violation from mfe/checkout to backend, one resolved violation from frontend, two unchanged unit cycles" loading="lazy">
+      </div>
     </div>
   </div>
 </section>
@@ -774,6 +812,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
         </thead>
         <tbody>
           <tr><td>TypeScript / JavaScript</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
+          <tr><td>React (JSX / TSX)</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
           <tr><td>Vue / Svelte</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
           <tr><td>Python</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
           <tr><td>Rust</td><td class="c yes">●</td><td class="c yes">●</td><td class="c yes">●</td></tr>
