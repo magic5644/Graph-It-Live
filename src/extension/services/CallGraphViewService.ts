@@ -18,6 +18,7 @@ import { type CallGraphEdge, CallGraphIndexer, getSqlJsWasmPath } from "@/analyz
 import { queryNeighbourhood } from "@/analyzer/callgraph/CallGraphQuery";
 import { collectChangedFiles, fileExtToLang, getQueryFreshnessCutoffs, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
+import type { DeclarationReads } from "@/analyzer/utils/declarations";
 import type {
   CallGraphExtensionMessage,
   CallGraphOpenFileCommand,
@@ -745,6 +746,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     extractor: GraphExtractor,
     progressState: { done: number; total: number },
   ): Promise<void> {
+    // One pass reads each module and resolves each barrel re-export once, whatever the number of importers.
+    const reads: DeclarationReads = new Map();
     for (let i = 0; i < jobs.length; i += EXTRACT_BATCH) {
       if (this.disposed) break;
       const batch = jobs.slice(i, i + EXTRACT_BATCH);
@@ -752,7 +755,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       const results = await Promise.all(
         batch.map(async (job) => {
           try {
-            return { job, extracted: await extractor.extractFile(job.filePath, job.lang, job.mtime), ok: true as const };
+            return { job, extracted: await extractor.extractFile(job.filePath, job.lang, job.mtime, reads), ok: true as const };
           } catch (err: unknown) {
             this.log(`[CallGraph] Skipping ${job.filePath}: ${errorMessage(err)}`);
             return { job, extracted: null, ok: false as const };

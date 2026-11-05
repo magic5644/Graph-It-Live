@@ -8,24 +8,28 @@ export interface ReExportTarget {
   name: string;
 }
 
-/** Parsed modules kept by `parseModule`: enough for the barrels every importer of a workspace resolves through. */
-const PARSED_MODULES_SIZE = 128;
-const parsedModules = new Map<string, { content: string; sourceFile: ts.SourceFile }>();
+/** Results kept per memoized helper: the barrels and declaration modules every importer of a workspace resolves through. */
+const MEMO_SIZE = 512;
 
 /**
- * `content` parsed as a module (parent pointers set), shared by the re-export and declaration helpers: each importer of
- * a barrel looks names up in it, and parsing it once per lookup made the cold call graph several times slower (#575).
- * Keyed by path and checked against the content, so an edited file is parsed again; least recently used out.
+ * `compute(filePath, content)`, memoized by path and checked against the content, so an edited file is computed again;
+ * least recently used out. Each importer of a barrel looks names up in it, and parsing it once per lookup made the
+ * cold call graph several times slower (#575). Results are small and read-only: no AST is kept.
  */
-export function parseModule(filePath: string, content: string): ts.SourceFile {
-  const key = normalizePath(filePath);
-  const cached = parsedModules.get(key);
-  parsedModules.delete(key);
-  const sourceFile = cached?.content === content ? cached.sourceFile : ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true);
-  parsedModules.set(key, { content, sourceFile });
-  if (parsedModules.size > PARSED_MODULES_SIZE) parsedModules.delete(parsedModules.keys().next().value!);
-  return sourceFile;
+export function memoByContent<T>(compute: (filePath: string, content: string) => T): (filePath: string, content: string) => T {
+  const cache = new Map<string, { content: string; value: T }>();
+  return (filePath, content) => {
+    const key = normalizePath(filePath);
+    const cached = cache.get(key);
+    cache.delete(key);
+    const value = cached?.content === content ? cached.value : compute(filePath, content);
+    cache.set(key, { content, value });
+    if (cache.size > MEMO_SIZE) cache.delete(cache.keys().next().value!);
+    return value;
+  };
 }
+
+const parse = (filePath: string, content: string) => ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, false);
 
 export interface ReExport {
   specifier: string;
@@ -38,8 +42,8 @@ export interface ReExport {
  * `export * as ns from` is skipped: it exports a namespace object, not the names themselves.
  * ponytail: `import * as ns; export { ns }` and `export default x` of an import are not followed.
  */
-export function parseReExports(filePath: string, content: string): ReExport[] {
-  const sourceFile = parseModule(filePath, content);
+export const parseReExports: (filePath: string, content: string) => readonly ReExport[] = memoByContent((filePath, content) => {
+  const sourceFile = parse(filePath, content);
   const imports = importBindings(sourceFile);
   const reExports: ReExport[] = [];
   for (const statement of sourceFile.statements) {
@@ -53,7 +57,7 @@ export function parseReExports(filePath: string, content: string): ReExport[] {
     }
   }
   return reExports;
-}
+});
 
 /** `export * from` / `export { a as b } from`; `export * as ns from` is not a name re-export. */
 function reExportFrom(specifier: string, clause: ts.NamedExportBindings | undefined): ReExport | null {
@@ -97,8 +101,8 @@ function importBindings(sourceFile: ts.SourceFile): Map<string, { specifier: str
 }
 
 /** Top-level `export * as alias from 'specifier'` declarations: a namespace object over the whole module. */
-export function parseNamespaceReExports(filePath: string, content: string): Array<{ specifier: string; alias: string }> {
-  const sourceFile = parseModule(filePath, content);
+export const parseNamespaceReExports: (filePath: string, content: string) => ReadonlyArray<{ specifier: string; alias: string }> = memoByContent((filePath, content) => {
+  const sourceFile = parse(filePath, content);
   const namespaces: Array<{ specifier: string; alias: string }> = [];
   for (const statement of sourceFile.statements) {
     if (!ts.isExportDeclaration(statement)) continue;
@@ -108,7 +112,7 @@ export function parseNamespaceReExports(filePath: string, content: string): Arra
     }
   }
   return namespaces;
-}
+});
 
 /** `export * ...` or `export { ... }`, with or without `from` (the local form re-exports imports). */
 const REEXPORT_FROM = /\bexport\s*(?:type\s+)?[*{]/;
@@ -116,8 +120,9 @@ const EXPORT_DEFAULT = /\bexport\s+default\s/;
 
 /** What a module re-exports: names (`export ... from`, import-then-export) and `export * as ns from`. */
 export interface ModuleReExports {
-  reExports: ReExport[];
-  namespaces: Array<{ specifier: string; alias: string }>;
+  /** Read-only: memoized results are shared by every caller. */
+  readonly reExports: readonly ReExport[];
+  readonly namespaces: ReadonlyArray<{ specifier: string; alias: string }>;
   /** Python `__all__`: the names `from m import *` takes from this module (absent: every public name). */
   starNames?: string[];
 }
@@ -141,23 +146,28 @@ export function mayReExport(content: string): boolean {
  * ponytail: destructured `export const { a } = obj` is not recognised; add binding patterns if barrels use it.
  */
 export function declaresExport(filePath: string, content: string, name: string): boolean {
-  const sourceFile = parseModule(filePath, content);
-  return sourceFile.statements.some((statement) => {
-    if (ts.isExportDeclaration(statement)) {
-      const clause = statement.exportClause;
-      return !statement.moduleSpecifier && !!clause && ts.isNamedExports(clause)
-        && clause.elements.some((element) => element.name.text === name);
-    }
-    const modifiers = ts.getModifiers(statement as ts.HasModifiers) ?? [];
-    // `export default function a` exports `default`, not `a`.
-    if (modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) return false;
-    if (!modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) return false;
-    if (ts.isVariableStatement(statement)) {
-      return statement.declarationList.declarations.some((declaration) => ts.isIdentifier(declaration.name) && declaration.name.text === name);
-    }
-    return 'name' in statement && ts.isIdentifier(statement.name as ts.Node) && (statement.name as ts.Identifier).text === name;
-  });
+  return ownExports(filePath, content).has(name);
 }
+
+/** The names `declaresExport` accepts: local `export { name }` and exported declarations, defaults excluded. */
+const ownExports = memoByContent((filePath, content) => new Set(parse(filePath, content).statements.flatMap(exportedNamesOf)));
+
+/** The names one top-level statement exports by itself. */
+function exportedNamesOf(statement: ts.Statement): string[] {
+  if (ts.isExportDeclaration(statement)) {
+    const clause = statement.exportClause;
+    return !statement.moduleSpecifier && clause && ts.isNamedExports(clause) ? clause.elements.map((element) => element.name.text) : [];
+  }
+  const modifiers = ts.getModifiers(statement as ts.HasModifiers) ?? [];
+  // `export default function a` exports `default`, not `a`.
+  if (modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.DefaultKeyword)) return [];
+  if (!modifiers.some((modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword)) return [];
+  if (ts.isVariableStatement(statement)) {
+    return statement.declarationList.declarations.flatMap((declaration) => ts.isIdentifier(declaration.name) ? [declaration.name.text] : []);
+  }
+  return 'name' in statement && ts.isIdentifier(statement.name as ts.Node) ? [(statement.name as ts.Identifier).text] : [];
+}
+
 
 /**
  * Whether `name` is only the local name of the module's default export (`export default function name`),

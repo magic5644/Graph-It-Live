@@ -3,7 +3,7 @@ import { ts } from "ts-morph";
 import { normalizePath } from "@/shared/path";
 import { isInIgnoredDirectory } from "./PathPredicates";
 import type { PathResolver } from "./PathResolver";
-import { declaresExport, exportsOnlyAsDefault, mayReExport, parseModule, parseReExports, type ReExport, type ReExportTarget } from "./reExports";
+import { declaresExport, exportsOnlyAsDefault, mayReExport, memoByContent, parseReExports, type ReExport, type ReExportTarget } from "./reExports";
 
 /** `findDeclaration` result for a module that exports `name` only as the local name of its default export. */
 export const DEFAULT_ONLY = "default-only";
@@ -67,8 +67,11 @@ const MAY_EXPORT_DEFAULT = /\bexport\s+default\b|\bas\s+default\b/;
  */
 export function defaultExportName(filePath: string, content: string): string | undefined {
   if (!MAY_EXPORT_DEFAULT.test(content)) return undefined;
-  return defaultExportNameOf(parseModule(filePath, content));
+  return declaredDefaultExport(filePath, content);
 }
+
+const declaredDefaultExport = memoByContent((filePath, content) =>
+  defaultExportNameOf(ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true)));
 
 /** `defaultExportName` of an already parsed module (parent pointers set). */
 export function defaultExportNameOf(sourceFile: ts.SourceFile): string | undefined {

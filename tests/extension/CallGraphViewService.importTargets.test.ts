@@ -137,4 +137,26 @@ describe("CallGraphViewService.show() indexes the active file's import targets w
       indexer.dispose();
     }
   });
+
+  it("shares one module read cache across the files of a bulk pass, never across passes", async () => {
+    const { internals, indexer, extractor, edges } = await passedService({ "src/Card.tsx": CARD });
+    try {
+      const bulk = (internals as unknown as {
+        extractAndIndexBatches(jobs: Array<{ filePath: string; lang: "typescript"; mtime: number }>, indexer: CallGraphIndexer,
+          extractor: GraphExtractor, progress: { done: number; total: number }): Promise<void>;
+      }).extractAndIndexBatches.bind(internals);
+      const extracted = vi.mocked(extractor.extractFile);
+      extracted.mockClear();
+      const jobs = [file("src/Page.tsx"), file("src/Card.tsx")].map((filePath) => ({ filePath, lang: "typescript" as const, mtime: 2 }));
+      await bulk(jobs, indexer, extractor, { done: 0, total: 2 });
+      await bulk(jobs, indexer, extractor, { done: 0, total: 2 });
+      const reads = extracted.mock.calls.map((call) => call[3]);
+      expect(reads[0]).toBeInstanceOf(Map);
+      expect(reads[1]).toBe(reads[0]);
+      expect(reads[2]).not.toBe(reads[0]);
+      expect(reads[3]).toBe(reads[2]);
+      indexer.resolveExternalEdges();
+      expect(edges()).toEqual(LINKED);
+    } finally { indexer.dispose(); }
+  });
 });
