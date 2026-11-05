@@ -48,6 +48,14 @@ function blobBatches(entries: readonly TreeEntry[]): TreeEntry[][] {
   return batches;
 }
 
+/** Names of the links in a node_modules folder (`lib`, `@scope/lib`); none when it does not exist. */
+async function linkNames(modules: string, scope = ''): Promise<string[]> {
+  const entries = await fs.readdir(modules, { withFileTypes: true }).catch(() => []);
+  const scoped = await Promise.all(entries.filter(entry => !scope && entry.isDirectory() && entry.name.startsWith('@'))
+    .map(entry => linkNames(path.join(modules, entry.name), `${entry.name}/`)));
+  return [...entries.filter(entry => entry.isSymbolicLink()).map(entry => scope + entry.name), ...scoped.flat()];
+}
+
 /** The blobs of `git cat-file --batch` output: `<sha> blob <size>\n<content>\n` each, in request order. */
 export function parseCatFileBatch(output: Buffer): Buffer[] {
   const blobs: Buffer[] = [];
@@ -447,8 +455,50 @@ export class BranchWatchAnalyzer {
   async withRefTree<T>(ref: string, read: (directory: string, limitations: string[]) => Promise<T>): Promise<T> {
     // Every file: an import may resolve to any (a stylesheet, an .mts module) and unit roles read
     // manifests such as a Dockerfile; only a source or config file that cannot be copied is a limitation.
-    return this.withBlobs(await this.treeEntries(ref, () => true), read,
-      file => LanguageService.isSupported(file) || CONFIG_FILES.test(file) || ROOT_FILES.test(file));
+    const entries = await this.treeEntries(ref, () => true);
+    return this.withBlobs(entries, async (directory, limitations) => {
+      const unlinked = await this.linkWorkspacePackages(directory, entries);
+      return read(directory, [...limitations, ...unlinked].sort((left, right) => left.localeCompare(right)));
+    }, file => LanguageService.isSupported(file) || CONFIG_FILES.test(file) || ROOT_FILES.test(file));
+  }
+
+  /**
+   * Recreates in the copy `directory` the workspace's node_modules links to its own packages: Git
+   * holds no node_modules, so without them an import by package name (`@acme/ui`) resolves on disk
+   * but not in the copy, and every rule or cycle through it would read as new. A link points to the
+   * same folder in the copy, so each side resolves the package to its own contents.
+   * Returns a limitation per link that could not be recreated, since its imports stay unresolved there.
+   * shortcut: a package renamed between the ref and the workspace resolves under the workspace's name.
+   */
+  private async linkWorkspacePackages(directory: string, entries: readonly TreeEntry[]): Promise<string[]> {
+    const root = await fs.realpath(this.root);
+    const insideWorkspace = (relative: string) => relative !== '' && !path.isAbsolute(relative)
+      && !relative.split(/[\\/]/).some(segment => segment === '..' || segment === 'node_modules');
+    const packageDirs = entries.filter(entry => path.posix.basename(entry.file) === 'package.json')
+      .map(entry => path.posix.dirname(entry.file)).filter(dir => dir === '.' || insideWorkspace(dir));
+    const unlinked = await mapWithConcurrency(packageDirs, 8, async dir => {
+      const modules = path.join(root, dir, 'node_modules');
+      return mapWithConcurrency(await linkNames(modules), 16, async name => {
+        const source = path.join(modules, name);
+        // readlink first: a relative link into node_modules (pnpm's .pnpm store) is an installed package, no realpath needed.
+        const linked = await fs.readlink(source).catch(() => undefined);
+        if (linked === undefined || (!path.isAbsolute(linked) && linked.split(/[\\/]/).includes('node_modules'))) return null;
+        const target = await fs.realpath(source).catch(() => undefined);
+        const relative = target === undefined ? '' : path.relative(root, target);
+        if (!insideWorkspace(relative)) return null;
+        const at = path.posix.join(dir, 'node_modules', name);
+        try {
+          const link = resolveReviewCallGraphPath(directory, at);
+          await fs.mkdir(path.dirname(link), { recursive: true });
+          // A junction needs no privilege on Windows; other platforms ignore the type.
+          await fs.symlink(resolveReviewCallGraphPath(directory, relative), link, 'junction');
+        } catch {
+          return `${at}: baseline workspace package link could not be recreated.`;
+        }
+        return null;
+      });
+    });
+    return unlinked.flat().filter((limitation): limitation is string => limitation !== null);
   }
 
   /** The commit `git diff base...head` compares `head` with. */
