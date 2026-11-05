@@ -114,6 +114,7 @@ The Live Call Graph shows cross-file symbol relationships in a Cytoscape.js pane
 - Highlight self-recursion and mutual recursion.
 - Filter by symbol type or folder.
 - Refresh automatically after file saves.
+- Show runtime references that are not calls as `REFERENCES` edges: a passed function (`register(save)`, `items.map(format)`) in every language, and in `.jsx` and `.tsx` files a rendered component (`<Card />`) or an attribute value (`onClick={save}`). An edge appears only when the name resolves to an import or to one declaration in the file. Imports resolve through aliases, barrels, default exports, `lazy(() => import('./literal'))`, and `memo()` or `forwardRef()` around a component name. Identified React components carry the React icon and color here, in the file graph and in the Symbol View.
 
 <div align="center">
   <img src="media/call-graph-view-example.png" alt="Graph-It-Live live call graph" width="800"/>

@@ -105,7 +105,7 @@ independent incoming-reference/dependent evidence, including type-only reference
 available capability supports them. Use `get_impact_analysis` (runtime and type-only dependents)
 only if the installed CLI inventory advertises it and its supported parameters are known; for MCP,
 use only the connected host's exact tool name and input schema. `query_call_graph` callers, when
-available, describe call sites and are not a complete reference check. For a file candidate, check incoming file references
+available, describe call sites and resolved runtime references (`REFERENCES`: callbacks, JSX components) and are not a complete reference check. For a file candidate, check incoming file references
 with an advertised equivalent capability and separately rule out entry points/public API use.
 
 - **Zero call sites alone** → unconfirmed, never a deletion basis
@@ -114,7 +114,7 @@ with an advertised equivalent capability and separately rule out entry points/pu
 - **No relevant incoming references confirmed** → candidate for manual safety review, not automatic deletion
 - **Package-scoped index in a monorepo, no monorepo-root check** → unconfirmed for sibling-package use; say so
 
-Do not use `query_call_graph` callers alone for this check: they are call sites only, so a symbol passed as a callback, re-exported, or used as a type reports 0 callers while still in use.
+Do not use `query_call_graph` callers alone for this check: they hold calls and resolved references only, so a symbol re-exported, passed through a name the graph cannot resolve, or used as a type (MCP and CLI leave `USES` out without `includeTypeOnly`) reports 0 callers while still in use.
 
 A ghost file may contain multiple symbols. Do not recommend deleting it until incoming-reference
 checks, entry-point checks, and external/public-use review are complete.
