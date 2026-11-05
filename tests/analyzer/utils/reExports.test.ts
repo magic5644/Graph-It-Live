@@ -49,7 +49,11 @@ describe('declaresExport', () => {
     'export class a {}',
     'export const a = 1, b = 2;',
     'export interface a {}',
+    'export enum a {}',
+    'export type a = string;',
+    'export const b = 2, a = 1;',
     'const x = 1;\nexport { x as a };',
+    'const a = 1;\nexport { a };',
   ])('finds a declared export in %s', (content) => {
     expect(declaresExport('/x/m.ts', content, 'a')).toBe(true);
   });
@@ -59,6 +63,9 @@ describe('declaresExport', () => {
     expect(declaresExport('/x/m.ts', 'function a() {}', 'a')).toBe(false);
     expect(declaresExport('/x/m.ts', 'export function b() {}', 'a')).toBe(false);
     expect(declaresExport('/x/m.ts', 'export default function a() {}', 'a')).toBe(false);
+    expect(declaresExport('/x/m.ts', 'const a = 1;\nexport { a as b };', 'a')).toBe(false);
+    expect(declaresExport('/x/m.ts', 'export * as a from "./m";', 'a')).toBe(false);
+    expect(declaresExport('/x/m.ts', 'export const { a } = obj;', 'a')).toBe(false);
   });
 });
 
@@ -131,7 +138,9 @@ describe('memoByContent', () => {
     const memo = memoByContent(compute);
     expect(memo('/ws/a.ts', 'abc')).toBe(3);
     expect(memo(String.raw`\ws\a.ts`, 'abc')).toBe(3);
-    expect(compute).toHaveBeenCalledTimes(1);
+    expect(memo(String.raw`C:\ws\a.ts`, 'abc')).toBe(3);
+    expect(memo('c:/ws/a.ts', 'abc')).toBe(3);
+    expect(compute).toHaveBeenCalledTimes(2);
   });
 
   it('computes an edited file again, so a lookup never reads stale content', () => {

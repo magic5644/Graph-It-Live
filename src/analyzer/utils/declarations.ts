@@ -97,7 +97,11 @@ function reExportedAs(names: ReExport["names"], name: string): string | undefine
   return names.find((entry) => entry.exported === name)?.imported;
 }
 
-/** Re-export specifiers resolved during one resolution, by the `reads` they belong to: they live and die with it. */
+/**
+ * Re-export specifiers resolved during one resolution, by the `reads` they belong to: they live and die with it.
+ * shortcut: a pass sharing one `reads` resolves a module edited during it against its first read; the file watcher
+ * re-indexes the edited file afterwards, but not its importers. Re-queue importers on change if a long pass shows it.
+ */
 const resolutions = new WeakMap<DeclarationReads, Map<string, Promise<string | null>>>();
 
 /** `resolver.resolve(fromFile, specifier)`, once per `reads`: every name looked up in a barrel walks the same `export *` chain. */
@@ -110,7 +114,11 @@ function resolveOnce(fromFile: string, specifier: string, resolver: PathResolver
   const key = `${normalizePath(fromFile)}\0${specifier}`;
   let target = resolved.get(key);
   if (!target) {
-    target = resolver.resolve(fromFile, specifier).catch(() => null);
+    // A failure is not kept: the next lookup resolves again, as when nothing was cached.
+    target = resolver.resolve(fromFile, specifier).catch(() => {
+      resolved.delete(key);
+      return null;
+    });
     resolved.set(key, target);
   }
   return target;

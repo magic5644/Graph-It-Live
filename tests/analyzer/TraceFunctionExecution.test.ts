@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import * as path from 'node:path';
 import { Spider } from '../../src/analyzer/Spider';
 import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
@@ -146,5 +146,48 @@ describe('Spider - Trace Function Execution', () => {
     // formatUser has no external dependencies
     expect(trace.rootSymbol.symbolName).toBe('formatUser');
     expect(trace.visitedSymbols).toContain(`${formatterPath}:formatUser`);
+  });
+});
+
+describe('Spider - Trace reads each module graph once (#575)', () => {
+  const root = path.resolve(process.cwd(), 'tests/fixtures/bench-permanent');
+  const layer1 = path.join(root, 'src/layers/layer1.ts');
+  let spider: Spider;
+  type Service = { getSymbolGraph(file: string): Promise<unknown> };
+  const service = () => (spider as unknown as { symbolService: Service }).symbolService;
+
+  beforeAll(async () => {
+    spider = new SpiderBuilder().withRootDir(root).withReverseIndex(true).build();
+    await spider.buildFullIndex();
+  }, 60_000);
+
+  it('reads every module once per trace, with the same call chain', async () => {
+    const expected = await spider.traceFunctionExecution(layer1, 'layer1Entry', 10);
+    expect(expected.callChain.length).toBeGreaterThan(2);
+    const read = vi.spyOn(service(), 'getSymbolGraph');
+    try {
+      const trace = await spider.traceFunctionExecution(layer1, 'layer1Entry', 10);
+      expect(trace).toEqual(expected);
+      const files = read.mock.calls.map(([file]) => normalizePath(file));
+      expect(files).toHaveLength(new Set(files).size);
+      // Another trace reads again: nothing outlives a trace.
+      await spider.traceFunctionExecution(layer1, 'layer1Entry', 10);
+      expect(read.mock.calls).toHaveLength(2 * files.length);
+    } finally { read.mockRestore(); }
+  });
+
+  it('keeps no failed read: the trace degrades as before and the next one is complete', async () => {
+    const expected = await spider.traceFunctionExecution(layer1, 'layer1Entry', 10);
+    const graph = service().getSymbolGraph.bind(service());
+    const read = vi.spyOn(service(), 'getSymbolGraph').mockImplementation(async (file: string) => {
+      if (file.endsWith('layer2.ts') && read.mock.calls.filter(([f]) => f.endsWith('layer2.ts')).length === 1) throw new Error('index unavailable');
+      return graph(file);
+    });
+    try {
+      const degraded = await spider.traceFunctionExecution(layer1, 'layer1Entry', 10);
+      expect(degraded.rootSymbol).toEqual(expected.rootSymbol);
+      expect(degraded.callChain.length).toBeLessThan(expected.callChain.length);
+      expect(await spider.traceFunctionExecution(layer1, 'layer1Entry', 10)).toEqual(expected);
+    } finally { read.mockRestore(); }
   });
 });

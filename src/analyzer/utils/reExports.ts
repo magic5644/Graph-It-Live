@@ -8,7 +8,11 @@ export interface ReExportTarget {
   name: string;
 }
 
-/** Results kept per memoized helper: the barrels and declaration modules every importer of a workspace resolves through. */
+/**
+ * Results kept per memoized helper: the barrels and declaration modules every importer of a workspace resolves through.
+ * Each entry retains its content string and a small result, for the process lifetime: at most 4 helpers x 512
+ * module sources (about 2 MB on nestjs/nest, whose 2 047 files hold 2 MB).
+ */
 const MEMO_SIZE = 512;
 
 /**
@@ -167,7 +171,6 @@ function exportedNamesOf(statement: ts.Statement): string[] {
   }
   return 'name' in statement && ts.isIdentifier(statement.name as ts.Node) ? [(statement.name as ts.Identifier).text] : [];
 }
-
 
 /**
  * Whether `name` is only the local name of the module's default export (`export default function name`),
