@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Graph-It-Live">
+  <defs>
+    <linearGradient id="gil-blue" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2f86e0"/>
+      <stop offset="1" stop-color="#17469a"/>
+    </linearGradient>
+    <linearGradient id="gil-orange" x1="1" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffab2e"/>
+      <stop offset="1" stop-color="#ec4f12"/>
+    </linearGradient>
+    <path id="gil-star" d="M0-1Q.16-.16 1 0Q.16 .16 0 1Q-.16 .16-1 0Q-.16-.16 0-1Z"/>
+  </defs>
+  <g stroke-width="9" stroke-linecap="round">
+    <g stroke="#1a4c9c">
+      <path d="M181 183 350 168M184 183 187 307M187 307 348 324M187 307 350 168"/>
+    </g>
+    <g stroke="#f7931e">
+      <path d="M181 183 348 324M348 168V324"/>
+    </g>
+  </g>
+  <circle cx="181" cy="183" r="36" fill="url(#gil-blue)"/>
+  <circle cx="187" cy="307" r="36" fill="url(#gil-blue)"/>
+  <rect x="320" y="140" width="60" height="57" rx="6" fill="url(#gil-blue)"/>
+  <rect x="314" y="291" width="68" height="66" rx="6" fill="url(#gil-orange)"/>
+  <g fill="#2f86e0">
+    <use href="#gil-star" transform="translate(106 244) scale(23)"/>
+    <use href="#gil-star" transform="translate(396 122) scale(13)"/>
+    <use href="#gil-star" transform="translate(426 156) scale(19)"/>
+  </g>
+  <g fill="#f9a325">
+    <use href="#gil-star" transform="translate(133 276) scale(12)"/>
+    <use href="#gil-star" transform="translate(115 303) scale(7)"/>
+    <use href="#gil-star" transform="translate(444 188) scale(12)"/>
+  </g>
+</svg>
