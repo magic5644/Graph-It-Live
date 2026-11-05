@@ -15,7 +15,7 @@ export const THEMES = [
 ] as const;
 
 /** Optional local screenshots from the actual Electron workbench, via its loopback debugging port. */
-export async function screenshot(name: string): Promise<void> {
+async function screenshot(name: string): Promise<void> {
   const output = process.env.E2E_SCREENSHOT_DIR;
   if (!output) return;
   const port = process.env.E2E_CDP_PORT;
@@ -49,13 +49,17 @@ export async function screenshot(name: string): Promise<void> {
 
 /**
  * Bundles a fixture from `tests/vscode-e2e/fixtures/`, runs it in a real webview panel under `theme`, and hands
- * its single report to `inspect` while the panel is still shown. Restores the theme and closes the panel after.
+ * its single report to `inspect` while the panel is still shown. With `screenshot` and `E2E_SCREENSHOT_DIR` set,
+ * captures the workbench after `inspect`. Restores the theme and closes the panel after: suites share one
+ * workbench, so the layout stays as found (hidden side bars broke later layout tests).
  */
 export async function runWebviewFixture<T extends FixtureReport>(
-  options: { fixture: string; title: string; theme: string; style: string },
+  options: { fixture: string; title: string; theme: string; style: string; screenshot?: string },
   inspect: (report: T) => Promise<void> = async () => {},
 ): Promise<void> {
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+  const shot = process.env.E2E_SCREENSHOT_DIR ? options.screenshot : undefined;
+  await vscode.commands.executeCommand('notifications.clearAll');
   const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-webview-'));
   const config = vscode.workspace.getConfiguration('workbench');
   const previousTheme = config.inspect<string>('colorTheme')?.globalValue;
@@ -79,6 +83,10 @@ export async function runWebviewFixture<T extends FixtureReport>(
     const report = await result;
     assert.strictEqual(report.ok, true, report.error);
     await inspect(report);
+    if (shot !== undefined) {
+      await vscode.commands.executeCommand('notifications.clearAll');
+      await screenshot(shot);
+    }
   } finally {
     panel.dispose();
     await config.update('colorTheme', previousTheme, vscode.ConfigurationTarget.Global);

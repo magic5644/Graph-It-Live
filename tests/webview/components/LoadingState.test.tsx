@@ -36,6 +36,14 @@ describe("LoadingState", () => {
     expect(screen.getByRole("progressbar").getAttribute("value")).toBe("0");
   });
 
+  it("shows 100% as a full progress bar", () => {
+    render(<LoadingState message="Building" percent={100} />);
+
+    expect(screen.getByText("Building (100%)")).toBeTruthy();
+    expect(screen.getByRole("progressbar", { name: "Building (100%)" }).getAttribute("value")).toBe("100");
+  });
+
+  // An empty message from the extension carries nothing to read: the default replaces it.
   it.each([undefined, ""])("falls back to a default message for %j", (message) => {
     render(<LoadingState message={message} />);
 
