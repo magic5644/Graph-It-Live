@@ -1,7 +1,7 @@
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { analyzeReactIdentity, collectReactReferencingPaths, enrichReactFramework, enrichReactSymbols, readReactJsxImportSource } from '@/analyzer/ReactIdentity';
 import type { GraphData } from '@/shared/graph-types';
 import { normalizePath } from '@/shared/path';
@@ -83,6 +83,47 @@ describe('file graph React enrichment', () => {
     expect(nodes.some(node => graph.nodeMetadata?.[normalizePath(node)]?.framework)).toBe(false);
     await enrichReactSymbols(symbols, path.join(root, 'Card.ts'), [path.join(root, 'App.tsx')], root);
     expect(symbols.some(symbol => symbol.framework)).toBe(false);
+  });
+
+  it.each(['ts', 'mts', 'cts', 'TS', 'd.ts'])('finds no JSX target in a .%s file, where <X> is a type assertion', (extension) => {
+    const identity = analyzeReactIdentity(`/ws/Use.${extension}`, `import React from 'react'; import { Card } from './Card'; export const use = () => <Card>null;`);
+    expect(identity.jsxImports).toEqual([]);
+  });
+
+  it('reads JSX-capable importers only, and the graph files whatever their extension', async () => {
+    root = await fs.mkdtemp(path.join(os.tmpdir(), 'gil-react-importers-'));
+    const card = path.join(root, 'Card.ts');
+    const render = `import React from 'react'; import { Card } from './Card'; export const App = () => <Card />;`;
+    const files: Record<string, string> = {
+      'Card.ts': `export function Card() { return null; }`,
+      'App.tsx': render,
+      'Main.js': render,
+      'Use.ts': `import React from 'react'; import { Card } from './Card'; export const use = () => <Card>null;`,
+      'Use.mts': `import { Card } from './Card'; export const use = Card;`,
+      'Use.CTS': `import { Card } from './Card'; export const use = Card;`,
+    };
+    await Promise.all(Object.entries(files).map(([name, source]) => fs.writeFile(path.join(root!, name), source)));
+    const read = vi.spyOn(fs, 'readFile');
+    try {
+      for (const importer of ['App.tsx', 'Main.js']) {
+        const graph: GraphData = { nodes: [card], edges: [], nodeMetadata: { [normalizePath(card)]: { hubScore: 0 } } };
+        await enrichReactFramework(graph, root, [path.join(root, importer)]);
+        expect(graph.nodeMetadata?.[normalizePath(card)]?.framework).toBe('react');
+      }
+      read.mockClear();
+      const tsImporters = ['Use.ts', 'Use.mts', 'Use.CTS'].map(name => path.join(root!, name));
+      const graph: GraphData = { nodes: [card], edges: [], nodeMetadata: { [normalizePath(card)]: { hubScore: 0 } } };
+      await enrichReactFramework(graph, root, tsImporters);
+      expect(graph.nodeMetadata?.[normalizePath(card)]?.framework).toBeUndefined();
+      const readPaths = read.mock.calls.map(([filePath]) => normalizePath(String(filePath)));
+      expect(readPaths.filter(filePath => tsImporters.some(importer => normalizePath(importer) === filePath))).toEqual([]);
+      // A .ts graph file is still read: its own evidence may prove it a component.
+      const symbols: Array<{ name: string; line: number; framework?: 'react' }> = [{ name: 'Card', line: 1 }];
+      await enrichReactSymbols(symbols, card, [...tsImporters, path.join(root, 'App.tsx')], root);
+      expect(symbols[0].framework).toBe('react');
+    } finally {
+      read.mockRestore();
+    }
   });
 });
 
