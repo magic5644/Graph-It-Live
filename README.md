@@ -120,7 +120,13 @@ The Live Call Graph shows cross-file symbol relationships in a Cytoscape.js pane
   <img src="media/call-graph-view-example.png" alt="Graph-It-Live live call graph" width="800"/>
 </div>
 
-The Live Call Graph supports TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, Java, and GraphQL. C#, Go, Java, and GraphQL are supported in the file graph and Live Call Graph; Symbol View support is currently limited to TypeScript, JavaScript, Python, and Rust. In GraphQL, operations and fragments call the fragments they spread; an operation's default root type (`Query`, `Mutation`, `Subscription`), type conditions, field, argument and variable types, and union members are type-only references (`USES`, shown with `includeTypeOnly`); `implements` is an `IMPLEMENTS` edge.
+<div align="center">
+  <img src="media/react-identity-views.png" alt="React test fixture in three views: file graph with App.tsx and Card.tsx marked React, Symbol View with the Card component, call graph where App and Card reference each other in a cycle" width="800"/>
+</div>
+
+*React components on a test fixture: the file graph marks `.tsx` files that declare components, the Symbol View marks the `Card` component, and the call graph shows `App` and `Card` rendering each other: two `REFERENCES` edges, red because they form a cycle. Open any `.jsx` or `.tsx` file; the React badge in each view's legend names the mark.*
+
+The Live Call Graph supports TypeScript, JavaScript, React (JSX and TSX, parsed with the TSX grammar), Vue, Svelte, Python, Rust, C#, Go, Java, and GraphQL. C#, Go, Java, and GraphQL are supported in the file graph and Live Call Graph; Symbol View support is currently limited to TypeScript, JavaScript, Python, and Rust. In GraphQL, operations and fragments call the fragments they spread; an operation's default root type (`Query`, `Mutation`, `Subscription`), type conditions, field, argument and variable types, and union members are type-only references (`USES`, shown with `includeTypeOnly`); `implements` is an `IMPLEMENTS` edge.
 
 ### Architecture view
 
@@ -206,6 +212,14 @@ Declare your intended architecture in `graphit.architecture.json` at the workspa
   <img src="media/demo-filter-hide-mode.gif" alt="Unused dependencies hidden from the graph" width="600"/>
   <img src="media/demo-filter-dim-mode.gif" alt="Unused dependencies dimmed in the graph" width="600"/>
 </div>
+
+### While a view loads
+
+<div align="center">
+  <img src="media/loading-state-views.png" alt="The four loading states: file and symbol views waiting for graph data, call graph indexing at 40 percent, Architecture view building 120 of 400 files, matrix building" width="800"/>
+</div>
+
+*Every view shows the same loading state with the Graph-It-Live logo: what it waits for, and a progress bar once the percentage is known (call graph indexing, Architecture build). You see it when a view opens before its data is ready, for example *Show Call Graph* on a workspace not indexed yet.*
 
 ## Standalone CLI
 
@@ -426,6 +440,12 @@ The `graph-it review-pr` command performs a deterministic local Git diff review 
 
 By default, `--base <ref>` is compared with the current working tree, including staged and unstaged file contents. Pass `--head <ref>` to compare two Git refs. Use `--depth` and `--max-files` to bound impact traversal and changed-file analysis. See the [`review-pr` CLI reference](docs/CLI.md#review-pr) for scoring thresholds, output formats, limitations, and examples.
 
+<div align="center">
+  <img src="media/review-pr-architecture-rules.png" alt="Rendered review-pr Markdown on the rules test fixture: Architecture rules DEGRADED, one new frontend-not-backend error violation from mfe/checkout to backend, one resolved violation from frontend, two unchanged unit cycles" width="800"/>
+</div>
+
+*`graph-it review-pr --base HEAD --format markdown` on the rules test fixture, rendered as the Review Gate Action posts it: the diff moves a backend import from `frontend` to `mfe/checkout`, so one violation is resolved and one new `error` violation fails the gate; the two existing unit cycles stay unchanged.*
+
 The reusable GitHub Action is informational by default. Set `fail-on-risk: high` or `critical` to gate a pull request. Add it to a consumer workflow with [`docs/examples/graph-it-review-gate.yml`](docs/examples/graph-it-review-gate.yml).
 
 Use `pull_request`, not `pull_request_target`, for untrusted pull requests. The action analyzes the consumer checkout in an isolated temporary directory and sends only a sanitized report to GitHub.
@@ -435,6 +455,7 @@ Use `pull_request`, not `pull_request_target`, for untrusted pull requests. The 
 | Language | File graph | Symbol View | Live Call Graph |
 | --- | :---: | :---: | :---: |
 | TypeScript / JavaScript | Yes | Yes | Yes |
+| React (JSX / TSX) | Yes | Yes | Yes |
 | Vue / Svelte | Yes | Yes | Yes |
 | Python | Yes | Yes | Yes |
 | Rust | Yes | Yes | Yes |
