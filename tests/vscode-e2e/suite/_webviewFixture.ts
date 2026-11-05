@@ -8,7 +8,7 @@ import * as vscode from 'vscode';
 export interface FixtureReport { ok: boolean; error?: string; theme?: string }
 
 /** The three theme kinds a webview must stay readable in: [theme, short name, body class]. */
-const THEMES = [
+export const THEMES = [
   ['Default Light Modern', 'light', 'vscode-light'],
   ['Default Dark Modern', 'dark', 'vscode-dark'],
   ['Default High Contrast', 'high-contrast', 'vscode-high-contrast'],
@@ -55,7 +55,7 @@ async function screenshot(name: string): Promise<void> {
  */
 export async function runWebviewFixture<T extends FixtureReport>(
   options: { fixture: string; title: string; theme: string; style: string; screenshot?: string },
-  inspect: (report: T) => Promise<void> = async () => {},
+  inspect: (report: T) => void | Promise<void> = () => {},
 ): Promise<void> {
   await vscode.commands.executeCommand('workbench.action.closeAllEditors');
   const shot = process.env.E2E_SCREENSHOT_DIR ? options.screenshot : undefined;
@@ -95,19 +95,17 @@ export async function runWebviewFixture<T extends FixtureReport>(
 }
 
 /**
- * One test per theme kind: runs the fixture under it, checks the webview got that theme's body class, and names
- * its local screenshot `<screenshot>-<theme>`.
+ * A test body for one theme kind: runs the fixture under it, checks the webview got that theme's body class, and
+ * names its local screenshot `<screenshot>-<theme>`.
  */
-export function testInEveryTheme(
-  title: string,
+export function fixtureInTheme(
+  [theme, name, bodyClass]: (typeof THEMES)[number],
   options: { fixture: string; title: string; style: string; screenshot: string },
-): void {
-  for (const [theme, name, bodyClass] of THEMES) {
-    test(`${title} (${name})`, async function () {
-      this.timeout(60000);
-      await runWebviewFixture({ ...options, theme, screenshot: `${options.screenshot}-${name}` }, async (report) => {
-        assert.ok(report.theme?.split(' ').includes(bodyClass), `Expected ${bodyClass}, got ${report.theme}`);
-      });
+): Mocha.AsyncFunc {
+  return async function () {
+    this.timeout(60000);
+    await runWebviewFixture({ ...options, theme, screenshot: `${options.screenshot}-${name}` }, (report) => {
+      assert.ok(report.theme?.split(' ').includes(bodyClass), `Expected ${bodyClass}, got ${report.theme}`);
     });
-  }
+  };
 }
