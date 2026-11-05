@@ -195,9 +195,9 @@ export interface SymbolAnalyzerOptions {
 }
 
 /**
- * Exported names of a file whose declaration is in that file. `getExportedDeclarations()` also follows
- * re-exports (`export *`, `export { x } from`, `import x; export { x }`) into the other files of the
- * shared in-memory project, so it would list them only if those files were analyzed before (#541).
+ * Exported names of a file whose declaration is in that file. Imports are not resolved (see createProject),
+ * but `getExportedDeclarations()` can still reach another loaded file through an ambient `declare module`
+ * or a global script, so it would list them only if those files were analyzed before (#541).
  * A symbol belongs to the file that declares it; re-exports are followed by `reExports.ts`.
  */
 function localExportedDeclarations(sourceFile: SourceFile): Map<string, Node[]> {
@@ -221,8 +221,8 @@ function defaultExportListedName(sourceFile: SourceFile): string {
 }
 
 /**
- * `import y = require()` or `import A = Ns.B` with `Ns` taken from another file: a re-export that ts-morph
- * returns only once its target is loaded. `import A = N.B` of a namespace declared in the file stays local.
+ * `import y = require()` or `import A = Ns.B` with `Ns` taken from another file: a re-export, whose target
+ * ts-morph could reach through an ambient module or a global script once that file is loaded. `import A = N.B` of a namespace declared in the file stays local.
  */
 function isForeignAlias(decl: Node, sourceFile: SourceFile): boolean {
   if (!Node.isImportEqualsDeclaration(decl)) return false;
@@ -266,7 +266,13 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         target: 99, // ESNext
         module: 99, // ESNext
         allowJs: true,
+        // No @typescript/lib-* package can exist in the in-memory file system.
+        libReplacement: false,
+        // Nor any @types package: no automatic type reference to look for.
+        types: [],
       },
+      // Symbols keep the file's own declarations only (#541): resolving imports would only cost time.
+      resolutionHost: () => ({ resolveModuleNames: (moduleNames) => moduleNames.map(() => undefined) }),
     });
   }
 
