@@ -27,6 +27,7 @@ import {
 import { AtomicSymbolGraph } from "./components/AtomicSymbolGraph";
 import { ArchitectureGraph } from "./components/architecture/ArchitectureGraph";
 import { CytoscapeGraph } from "./components/cytoscape/CytoscapeGraph";
+import { LoadingState } from "./components/LoadingState";
 import ReactFlowGraph from "./components/ReactFlowGraph";
 import SymbolCardView from "./components/SymbolCardView";
 import { mergeGraphDataUnion } from "./utils/graphMerge";
@@ -833,51 +834,15 @@ const App: React.FC = () => {
   // The architecture view is workspace-wide: it needs no file graph.
   if (!graphData && viewMode !== "architecture") {
     return (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100vh",
-          color: "var(--vscode-editor-foreground)",
-          fontFamily: "var(--vscode-font-family)",
-          padding: "20px",
-          textAlign: "center",
-          gap: "12px",
-        }}
-      >
-        <div
-          style={{
-            fontSize: "24px",
-            fontWeight: "600",
-            marginBottom: "8px",
-          }}
-        >
-          📊 Graph-It-Live
-        </div>
-        <div
-          style={{
-            fontSize: "14px",
-            color: "var(--vscode-descriptionForeground)",
-            maxWidth: "400px",
-          }}
-        >
-          {emptyStateMessage || "Waiting for graph data..."}
-        </div>
-        {emptyStateMessage && (
-          <div
-            style={{
-              fontSize: "12px",
-              color: "var(--vscode-descriptionForeground)",
-              marginTop: "8px",
-              opacity: 0.8,
-            }}
-          >
-            💡 Tip: Open a TypeScript, JavaScript, Vue, or Svelte file to see
-            its dependency graph
-          </div>
-        )}
+      <div style={{ height: "100vh" }}>
+        <LoadingState message={emptyStateMessage || "Waiting for graph data..."}>
+          {emptyStateMessage && (
+            <div style={{ fontSize: "12px", marginTop: "8px", opacity: 0.8 }}>
+              💡 Tip: Open a TypeScript, JavaScript, Vue, or Svelte file to see
+              its dependency graph
+            </div>
+          )}
+        </LoadingState>
       </div>
     );
   }

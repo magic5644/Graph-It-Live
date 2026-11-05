@@ -83,3 +83,24 @@ describe("App — find referencing files", () => {
     });
   });
 });
+
+describe("App — waiting screen", () => {
+  it("shows the shared loading state with the logo before any graph data", () => {
+    render(React.createElement(App));
+
+    expect(screen.getByRole("status").textContent).toContain("Waiting for graph data...");
+    expect(screen.getByTestId("graph-it-live-logo")).toBeTruthy();
+    expect(screen.queryByText(/Tip:/)).toBeNull();
+  });
+
+  it("shows the extension's empty-state message with the tip", () => {
+    render(React.createElement(App));
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", { data: { command: "emptyState", message: "No file open" } }));
+    });
+
+    expect(screen.getByText("No file open")).toBeTruthy();
+    expect(screen.getByText(/Tip: Open a TypeScript/)).toBeTruthy();
+  });
+});

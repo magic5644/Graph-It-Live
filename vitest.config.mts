@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
@@ -6,6 +7,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 export default defineConfig({
+  plugins: [
+    {
+      // Mirrors esbuild's `with { type: "text" }` import of the inlined logo.
+      name: "svg-as-text",
+      enforce: "pre",
+      load(id) {
+        return id.endsWith(".svg") ? `export default ${JSON.stringify(readFileSync(id, "utf8"))};` : null;
+      },
+    },
+  ],
   test: {
     globals: true,
     environment: "node",

@@ -19,6 +19,9 @@
     "webview": {
       "path": "src/webview/"
     },
+    "assets": {
+      "path": "media/"
+    },
     "tooling": {
       "path": [
         "tests/",
@@ -30,6 +33,13 @@
     }
   },
   "rules": [
+    {
+      "name": "assets-are-leaves",
+      "from": "assets",
+      "allowOnly": [],
+      "severity": "error",
+      "reason": "media/ holds images and the logo the webview bundles inline as text; an asset imports nothing."
+    },
     {
       "name": "shared-is-a-leaf",
       "from": "shared",
