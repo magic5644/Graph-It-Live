@@ -1,5 +1,51 @@
 # Changelog
 
+## v1.22.0
+
+Minor release. React (JSX / TSX) joins the supported languages: `.jsx` and `.tsx` files are parsed with the TSX grammar and components are analyzed as such in every interface (#567); rendering a component or passing a function is a new `REFERENCES` relation, not a call. `graph-it review-pr` checks the architecture rules of `graphit.architecture.json` and says whether a diff degrades or improves them (#443). Every view has one loading state with the logo (#611). Import cycles in `review-pr` and Branch Watch are read on whole graphs instead of the files around the diff (#603, #605), and the cold call graph is back to v1.21.3 times (#607, #612). No VS Code command, CLI command or MCP tool is removed. The only changed setting is the maximum of `graph-it-live.branchWatch.maxFiles`, raised from 1000 to 2000.
+
+### Breaking / Behavior changes
+
+- **Caches rebuilt once on first launch**: the call-graph cache schema moves from version 11 to 15 (React references and receiver types, among others), and the reverse index from version 3 to 4 (Rust `mod` edges). Caches written by v1.21.3 are discarded and rebuilt the first time the extension, CLI or MCP server opens the workspace. No action is needed.
+- **New `REFERENCES` relation, returned by default** (#575): `query_call_graph`, the `get_symbol_callers` Copilot tool (`#graphCallers`), `trace_function_execution` and `get_impact_analysis` now return runtime references that are not calls: `<Card />`, `onClick={save}`, `register(save)`, `items.map(format)`. Each entry is labelled `relation: "REFERENCES"`, so a callback or a rendered component is no longer missing from "who uses X". Clients that switch on every relation type must accept the new value. `query_call_graph` returns calls only with `relationTypes: ["CALLS"]`. The other tools have no relation filter: read the `relation` field.
+- **The Review Gate fails on a new architecture `error` violation** (#443): with a `graphit.architecture.json` in the head, a diff that adds an `error` violation the baseline does not accept raises the risk and fails the Review Gate Action, even without `fail-on-risk`. This is the same violation `graph-it check-architecture` already fails on. A repository without the config is unchanged.
+- **Rust `mod x;` is containment, not a dependency** (#595): a module declaration is a `mod` import type (`relationType: "containment"` in graph edges) and never closes an import cycle, so a parent module that `use`s its child is no longer reported as a cycle.
+
+### Changed
+
+- **React components, rendered and passed** (#567, #574–#577, #591): `.jsx` and `.tsx` files are parsed with the TSX grammar. A rendered component (`<Card />`, `<UI.Card />`) or a function passed as a value (`onClick={save}`, `render={Row}`) is a `REFERENCES` edge in the call graph, trace, dependents, dead code, impact and `review-pr`. In the call graph, passed functions get the same edge in every language: `register(save)`, `items.map(format)`, Python `cb=save`, Java `this::save`, C# `Register(Save)`; trace, dependents, dead code and impact follow them in TypeScript, JavaScript, Python and Rust. Imports resolve through import aliases (`import { Card as Tile }`), tsconfig paths, barrels, default exports, `memo()` and `forwardRef()` around a component name, and `lazy(() => import('./literal'))`. Unresolved or ambiguous names stay unresolved and are never guessed. Identified components carry the React icon and color in the file graph, the Symbol View and the call graph. Open any `.tsx` file to see them.
+
+  ![React test fixture in three views: file graph with App.tsx and Card.tsx marked React, Symbol View with the Card component, call graph where App and Card reference each other in a cycle](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/react-identity-views.png)
+
+- **Architecture rules in `review-pr`** (#443): with a `graphit.architecture.json`, `review-pr` checks the rules on the base and on the head and reports new, resolved and unchanged violations per rule, unit cycles and edits of the rules files. In npm, yarn and pnpm workspaces, imports by package name (`@acme/shared-ui`) resolve on the base too: its Git copy gets the workspace's package links (#616). The Markdown report adds an "Architecture rules" section, and `--format sarif` lists the new violations on their importing line.
+
+  ```bash
+  graph-it review-pr --base origin/main --format markdown
+  ```
+
+  ![Rendered review-pr Markdown on the rules test fixture: Architecture rules DEGRADED, one new frontend-not-backend error violation from mfe/checkout to backend, one resolved violation from frontend, two unchanged unit cycles](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/review-pr-architecture-rules.png)
+
+- **One loading state in every view** (#611): the file graph, Symbol View, call graph, Architecture view and matrix show the Graph-It-Live logo, what they wait for and a progress bar once the percentage is known.
+
+  ![The four loading states: file and symbol views waiting for graph data, call graph indexing at 40 percent, Architecture view building 120 of 400 files, matrix building](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/loading-state-views.png)
+
+- **Whole-graph import cycles** (#603, #605): `review-pr` reads file cycles from the whole head and base graphs instead of the 200 files around the diff. Branch Watch does the same: it reads the head from the warmed index, parses the merge base once per commit, and compares only the edited files on each file event. `graph-it-live.branchWatch.maxFiles` now bounds only the changed files and the impact walk, up to 2000.
+- **Faster cold call graph** (#607, #612): each barrel is parsed and its re-exports resolved once per pass, and React evidence reads only JSX-capable importers. On large TypeScript workspaces, the cold call graph (3.7× slower since #575) is back below its v1.21.3 time, and the first VS Code call graph is back to it.
+
+### Fixed
+
+- **Same-name methods** (#505): a call such as `repo.save()` links to the `save` method of the receiver's type in the same file, not to the first method named `save`.
+- **Calls attributed to their enclosing declaration** (#505): a call belongs to the declaration that encloses it, not to one that starts where the file or a block does. An untyped loop, `catch`, lambda or parameter binding shadows an outer typed receiver instead of borrowing its type. C# `foreach` variables are typed.
+- **Rust items re-exported with `pub use`** (#519): dead-code scans follow crate-root and parent-module items, `use` lists and the package name, so they are no longer reported as unused. `#[path = "..."]` module declarations resolve the way rustc does.
+- **Destructured parameters in `review-pr`** (#585): adding a field to a destructured parameter is no longer reported as `parameter-removed`. Parameters are compared by position, and nested, quoted and rest-free fields are keyed.
+- **Files created outside the editor** (#591, #600): the call graph indexes files created, changed or deleted on disk by another tool, and a delete followed by a create keeps the file. The active file's import targets are indexed when the view opens.
+- **Declared types compared in canonical form** (#607): `review-pr` read a type longer than 200 characters as `unknown`, so an optional trailing option could be rated a high-risk breaking change. Types are now compared in one canonical form, without comments, line breaks or length limit, so a reformatted or commented type is no longer a change.
+
+### Tests
+
+- CLI, MCP and LM tools are checked to return the same React references. The React call graph and the file-event indexing have VS Code E2E coverage (#591).
+- Tests that build a real index have a 30 s test and 60 s hook timeout floor sized for slow CI runners. E2E suites run in any order, on a shared workbench whose layout they restore.
+
 ## v1.21.3
 
 Patch release. The REPL changes fix results navigation that did not work in 1.21.x (arrows and the mouse wheel recalled history, long lines broke the layout) and finish it; the `check-architecture` text report replaces an unreadable field dump. No VS Code setting, VS Code command or MCP tool is added or removed; the CLI gains one flag (`check-architecture --verbose`) and one REPL command (`/mouse`).
