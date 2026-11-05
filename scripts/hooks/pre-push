@@ -22,36 +22,14 @@ if [[ "$CURRENT_BRANCH" =~ ^(main|develop|release/.*)$ ]]; then
   echo "Creating package..."
   npm run package > /dev/null 2>&1
   
-  # Check for .map files (CRITICAL)
-  echo "Checking for source maps..."
-  MAPS=$(npx vsce ls 2>/dev/null | grep "\.map$" || true)
-  if [ -n "$MAPS" ]; then
+  # No .map files, icon, and every WASM and query asset the runtime loads (one list, in verify-package.mjs)
+  echo "Verifying package contents..."
+  if ! npm run package:verify; then
     echo ""
-    echo "❌ FAIL: .map files found in package"
-    echo ""
-    echo "$MAPS"
-    echo ""
-    echo "Fix: Update .vscodeignore to exclude **/*.map"
-    echo "Then re-package: npm run package"
+    echo "Fix: .vscodeignore for .map files, esbuild.js wasmFiles for WASM, then npm run build"
     echo ""
     exit 1
   fi
-  echo "✅ No source maps found"
-  
-  # Check WASM files
-  echo "Checking WASM files..."
-  WASM_COUNT=$(npx vsce ls 2>/dev/null | grep "\.wasm$" | wc -l | tr -d ' ')
-  if [ "$WASM_COUNT" -ne 8 ]; then
-    echo ""
-    echo "❌ FAIL: Expected 8 WASM files, found $WASM_COUNT"
-    echo "Expected: tree-sitter runtime + 6 language WASMs + sqljs.wasm (dist/wasm/)"
-    echo ""
-    echo "Fix: Check esbuild.js copyWasmFiles() function"
-    echo "Then re-build: npm run build"
-    echo ""
-    exit 1
-  fi
-  echo "✅ All 8 WASM files present"
   
   # Check package size
   echo "Checking package size..."
