@@ -510,6 +510,17 @@ export class SpiderSymbolService {
     const callChain: TraceCallEntry[] = [];
     const visitedSymbols = new Set<string>();
     const reads: DeclarationReads = new Map();
+    // The walk and the edge resolution read the same modules' graphs: once per trace, same object, same error.
+    const graphs = new Map<string, Promise<SymbolGraph>>();
+    const graphOf = (file: string): Promise<SymbolGraph> => {
+      const key = normalizePath(file);
+      let graph = graphs.get(key);
+      if (!graph) {
+        graph = this.getSymbolGraph(file);
+        graphs.set(key, graph);
+      }
+      return graph;
+    };
     let maxDepthReached = false;
 
     const trace = async (currentFilePath: string, currentSymbolName: string, depth: number): Promise<void> => {
@@ -525,13 +536,13 @@ export class SpiderSymbolService {
       visitedSymbols.add(currentId);
 
       try {
-        const { symbols, dependencies } = await this.getSymbolGraph(currentFilePath);
+        const { symbols, dependencies } = await graphOf(currentFilePath);
         const currentSymbol = symbols.find((s) => s.name === currentSymbolName);
         if (!currentSymbol) return;
 
         // Type-only references do not execute.
         const symbolDeps = dependencies.filter((d) => d.sourceSymbolId === currentSymbol.id && !d.isTypeOnly);
-        const targets = await Promise.all(symbolDeps.map((dep) => this.resolveTraceTarget(currentFilePath, dep, reads)));
+        const targets = await Promise.all(symbolDeps.map((dep) => this.resolveTraceTarget(currentFilePath, dep, reads, graphOf)));
         // Repeated uses add no new edge, even through another import of the same declaration.
         const seen = new Set<string>();
         for (const [i, dep] of symbolDeps.entries()) {
@@ -580,7 +591,8 @@ export class SpiderSymbolService {
   private async resolveTraceTarget(
     fromFilePath: string,
     dep: SymbolDependency,
-    reads: DeclarationReads
+    reads: DeclarationReads,
+    graphOf: (file: string) => Promise<SymbolGraph>,
   ): Promise<{ resolvedFilePath: string | null; name: string }> {
     const name = this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId);
     let modulePath: string | null;
@@ -591,23 +603,24 @@ export class SpiderSymbolService {
       return { resolvedFilePath: null, name };
     }
     // A same-file dependency (`<Row />`, `fibonacci()`) names a local declaration, imported by nobody.
-    const local = modulePath && normalizePath(modulePath) === normalizePath(fromFilePath);
-    if (!modulePath || local || name === '*' || !JS_TS_MODULE.test(modulePath) || isInIgnoredDirectory(normalizePath(modulePath))) {
+    // modulePath is normalized above: normalizePath is idempotent, and a trace calls this once per edge (#575).
+    const local = modulePath === normalizePath(fromFilePath);
+    if (!modulePath || local || name === '*' || !JS_TS_MODULE.test(modulePath) || isInIgnoredDirectory(modulePath)) {
       return { resolvedFilePath: modulePath, name };
     }
     // The module's own exports (its cached symbol graph) answer most imports without reading it again; a symbol
     // that is also the default export may be exported by name or not, so findDeclaration tells.
-    const { symbols } = await this.getSymbolGraph(modulePath);
+    const { symbols } = await graphOf(modulePath);
     const exported = symbols.filter((s) => s.isExported);
     const own = name === 'default' ? exported.find((s) => s.isDefaultExport) : exported.find((s) => s.name === name && !s.isDefaultExport);
-    if (own) return { resolvedFilePath: normalizePath(modulePath), name: own.name };
+    if (own) return { resolvedFilePath: modulePath, name: own.name };
     const declared = await findDeclaration(modulePath, name, this.resolver, reads);
     // A barrel or default export led elsewhere; a module returned as is still has to export `name`.
-    const followed = declared && declared !== DEFAULT_ONLY && (declared.filePath !== normalizePath(modulePath) || declared.name !== name);
+    const followed = declared && declared !== DEFAULT_ONLY && (declared.filePath !== modulePath || declared.name !== name);
     if (followed) return { resolvedFilePath: declared.filePath, name: declared.name };
     // An ES module or barrel that exports other names but not this one (removed, renamed, default-only) is no
     // target; a module without ES exports (CommonJS) stays the target, as its exports cannot be read.
-    const content = await reads.get(normalizePath(modulePath));
+    const content = await reads.get(modulePath);
     const esModule = exported.length > 0 || (!!content && mayReExport(content));
     const unresolved = declared === DEFAULT_ONLY || (esModule && !exported.some((s) => s.name === name));
     return { resolvedFilePath: unresolved ? null : modulePath, name };
