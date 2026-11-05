@@ -93,8 +93,12 @@ describe("findDeclaration", () => {
 
   it("treats a failed re-export resolution as no declaration", async () => {
     const failing = resolver();
-    vi.spyOn(failing, "resolve").mockRejectedValue(new Error("resolver failed"));
-    expect(await findDeclaration(path.join(root, "index.ts"), "Card", failing, new Map())).toBeNull();
+    const resolve = vi.spyOn(failing, "resolve").mockRejectedValueOnce(new Error("resolver failed"));
+    const reads = new Map();
+    expect(await findDeclaration(path.join(root, "diamondA.ts"), "Card", failing, reads)).toBeNull();
+    // Not kept: the next lookup of the same pass resolves again and finds it.
+    expect(await findDeclaration(path.join(root, "diamondA.ts"), "Card", failing, reads)).toEqual({ filePath: file("Card.tsx"), name: "Card" });
+    expect(resolve).toHaveBeenCalledTimes(2);
   });
 
   it.each([

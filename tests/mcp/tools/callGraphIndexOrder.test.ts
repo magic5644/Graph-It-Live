@@ -58,4 +58,18 @@ describe.skipIf(!wasmBuilt)("call graph build write order", { timeout: 60_000 },
     expect(started.filter((file) => file.includes("/src/f"))).toHaveLength(FILE_COUNT);
     expect(written.filter((file) => file.includes("/src/f"))).toEqual(jobOrder.filter((file) => !file.endsWith("/f3.ts")));
   });
+
+  it("shares one module read cache across every window of a build", async () => {
+    const reads: unknown[] = [];
+    const extract = GraphExtractor.prototype.extractFile;
+    vi.spyOn(GraphExtractor.prototype, "extractFile").mockImplementation(async function (this: GraphExtractor, ...args) {
+      if (normalizePath(args[0]).includes("/src/f")) reads.push(args[3]);
+      return extract.apply(this, args);
+    });
+    ({ tmpDir, runtime } = await indexWorkspace("callgraph-reads-", files));
+    await executeQueryCallGraph({ filePath: path.join(tmpDir, "src/f0.ts"), symbolName: "fn0", direction: "callers", depth: 1 });
+    expect(reads).toHaveLength(FILE_COUNT);
+    expect(reads[0]).toBeInstanceOf(Map);
+    expect(new Set(reads).size).toBe(1);
+  });
 });

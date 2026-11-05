@@ -510,13 +510,15 @@ export class SpiderSymbolService {
     const callChain: TraceCallEntry[] = [];
     const visitedSymbols = new Set<string>();
     const reads: DeclarationReads = new Map();
-    // The walk and the edge resolution read the same modules' graphs: once per trace, same object, same error.
+    // The walk and the edge resolution read the same modules' graphs: once per trace, a snapshot for its duration.
+    // A failed read is not kept: the next lookup reads again, as when nothing was cached.
     const graphs = new Map<string, Promise<SymbolGraph>>();
     const graphOf = (file: string): Promise<SymbolGraph> => {
       const key = normalizePath(file);
       let graph = graphs.get(key);
       if (!graph) {
         graph = this.getSymbolGraph(file);
+        graph.catch(() => graphs.delete(key));
         graphs.set(key, graph);
       }
       return graph;
