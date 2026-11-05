@@ -70,6 +70,7 @@ import {
 import { ArchitectureMatrix, type DependentMark, type MatrixPaint } from "./ArchitectureMatrix";
 import { applyElkLayout, applyRoutes, type EdgeRoute, toElkGraph } from "./elkLayout";
 import { createElk, type ElkRunner } from "./elkWorker";
+import { LoadingState } from "../LoadingState";
 import { parseColor, type Rgba, themeKindOf } from "./unitColors";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
@@ -1087,15 +1088,19 @@ function Breadcrumb(props: Readonly<BreadcrumbProps>) {
   );
 }
 
+/** Covers the whole view, header included: the canvas under it is hidden but keeps its size. */
+const LOADING_COVER: React.CSSProperties = { position: "absolute", inset: 0 };
+
 function StatePanel({ state, onRetry, onSettings }: Readonly<{ state: ArchitectureStateMessage; onRetry: () => void; onSettings: () => void }>) {
+  if (state.status === "building") {
+    return (
+      <div style={LOADING_COVER}>
+        <LoadingState message={state.message ?? "Building architecture…"} percent={state.percent} />
+      </div>
+    );
+  }
   return (
     <output style={{ display: "block", padding: 16, fontSize: 12 }}>
-      {state.status === "building" && (
-        <>
-          <div>{state.message ?? "Building architecture…"}{state.percent === undefined ? "" : ` (${state.percent}%)`}</div>
-          <progress max={100} value={state.percent} style={{ width: "100%" }} />
-        </>
-      )}
       {state.status === "empty" && (
         <>
           <div>{state.message ?? "No supported source file in the workspace folder."}</div>
@@ -2137,7 +2142,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const shownPanel = shownPanelOf(panel, evidence !== null, dependents !== null);
   const tabs = evidence && dependents && shownPanel ? <PanelTabs panel={shownPanel} onPanel={setPanel} /> : undefined;
   return (
-    <div ref={rootRef} style={{ display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
+    <div ref={rootRef} style={{ position: "relative", display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
       {state && (
         <StatePanel state={state} onRetry={refresh} onSettings={() => postMessageRef.current({ command: "architectureOpenSettings" })} />
       )}
@@ -2201,7 +2206,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
           )}
         </div>
         <output id={LIVE_REGION} aria-live="polite" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)" }} />
-        {!state && view === "matrix" && !matrix && <output style={{ display: "block", padding: 16, fontSize: 12 }}>Building the matrix…</output>}
+        {!state && view === "matrix" && !matrix && <div style={LOADING_COVER}><LoadingState message="Building the matrix…" /></div>}
         {!state && view === "matrix" && matrix && (
           <ArchitectureMatrix
             matrix={matrix.matrix}

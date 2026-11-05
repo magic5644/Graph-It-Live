@@ -29,6 +29,7 @@ import type {
 } from "../../../shared/callgraph-types";
 import { buildCallGraphStylesheet } from "./CytoscapeTheme";
 import { GraphLegend } from "./GraphLegend";
+import { LoadingState } from "../LoadingState";
 import { frameworkName, ReactBadge } from "../reactflow/LanguageIcon";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
@@ -262,6 +263,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
 
   const [isLoading, setIsLoading] = useState(false);
   const [loadingMessage, setLoadingMessage] = useState("Analyzing…");
+  const [loadingPercent, setLoadingPercent] = useState<number | undefined>(undefined);
   const [isEmpty, setIsEmpty] = useState(false);
   const [hiddenNodeCount, setHiddenNodeCount] = useState(0);
 
@@ -435,6 +437,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
           setIsLoading(true);
           setIsEmpty(false);
           setLoadingMessage(msg.message ?? "Analyzing…");
+          setLoadingPercent(msg.percent);
         } else if (msg.status === "complete" || msg.status === "error") {
           setIsLoading(false);
           if (msg.status === "error") {
@@ -530,6 +533,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
     // layout.run() one frame lets React paint the overlay BEFORE fcose blocks.
     setIsLoading(true);
     setLoadingMessage("Calculating layout…");
+    setLoadingPercent(undefined);
 
     const layout = cy.layout({
       name: "fcose",
@@ -773,17 +777,13 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
           style={{
             position: "absolute",
             inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            background: "rgba(0,0,0,0.45)",
-            color: "var(--vscode-foreground, #ccc)",
-            fontSize: "14px",
+            // Veils the graph under it in the theme's own background, light or dark.
+            background: "color-mix(in srgb, var(--vscode-editor-background, #1e1e1e) 85%, transparent)",
             zIndex: 10,
           }}
           data-testid="loading-overlay"
         >
-          <span>{loadingMessage}</span>
+          <LoadingState message={loadingMessage} percent={loadingPercent} />
         </div>
       )}
 

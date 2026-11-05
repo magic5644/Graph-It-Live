@@ -221,7 +221,12 @@ describe("ArchitectureGraph", () => {
     expect(postMessage).toHaveBeenCalledWith({ command: "architectureMounted" });
     send({ type: "architectureState", status: "building", message: "Building architecture: 3 of 10 files", percent: 30 });
     expect(screen.getByText("Building architecture: 3 of 10 files (30%)")).toBeTruthy();
-    expect(screen.getByRole("progressbar")).toBeTruthy();
+    expect(screen.getByRole("progressbar").getAttribute("value")).toBe("30");
+    expect(screen.getByTestId("graph-it-live-logo")).toBeTruthy();
+    // No message: the view's own default, still with the logo and no progress bar.
+    send({ type: "architectureState", status: "building" });
+    expect(screen.getByText("Building architecture…")).toBeTruthy();
+    expect(screen.queryByRole("progressbar")).toBeNull();
   });
 
   it("renders the header from the summary and reports what was drawn", () => {
@@ -1542,6 +1547,7 @@ describe("ArchitectureGraph", () => {
         fireEvent.click(screen.getByRole("button", { name: "Matrix" }));
         expect(lastOf(postMessage, "architectureMatrix")).toEqual({ command: "architectureMatrix", revision: "r1", folder: undefined, unit: undefined });
         expect(screen.getByText("Building the matrix…")).toBeTruthy();
+        expect(screen.getByTestId("graph-it-live-logo")).toBeTruthy();
         expect(screen.queryByRole("textbox", { name: "Find group" })).toBeNull();
         send(unitsMatrix);
         await nextFrame();

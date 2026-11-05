@@ -330,4 +330,25 @@ suite('Webview Protocol - Context Value Side Effects', () => {
       assert.strictEqual(viewMode, 'file', 'View mode context should work for Python');
     });
   });
+
+  // ============================================================================
+  // Loading State Logo (#611)
+  // ============================================================================
+  suite('Loading State Logo', () => {
+    test('Both webview bundles carry the Graph-It-Live logo inline, with no logo asset to load', async function() {
+      this.timeout(10000);
+
+      const ext = vscode.extensions.getExtension('magic5644.graph-it-live');
+      assert.ok(ext, 'Extension should exist');
+      // A path of the logo drawing, as written in media/graph-it-live-logo.svg.
+      const logoPath = 'M181 183 350 168';
+      for (const bundle of ['webview.js', 'callgraph.js']) {
+        const source = new TextDecoder().decode(
+          await vscode.workspace.fs.readFile(vscode.Uri.joinPath(ext.extensionUri, 'dist', bundle)),
+        );
+        assert.ok(source.includes(logoPath), `dist/${bundle} should inline the logo`);
+        assert.ok(!/["'`][^"'`\s]*graph-it-live-logo\.svg/.test(source), `dist/${bundle} should not load the logo as an asset`);
+      }
+    });
+  });
 });
