@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { declaresExport, exportsOnlyAsDefault, mayReExport, parseModule, parseNamespaceReExports, parseReExports } from '../../../src/analyzer/utils/reExports';
+import { describe, it, expect, vi } from 'vitest';
+import { declaresExport, exportsOnlyAsDefault, mayReExport, memoByContent, parseNamespaceReExports, parseReExports } from '../../../src/analyzer/utils/reExports';
 
 describe('parseReExports', () => {
   it('reads named, renamed and wildcard re-exports', () => {
@@ -125,30 +125,35 @@ describe('parseReExports - import then export', () => {
   });
 });
 
-describe('parseModule', () => {
-  it('parses a path and content once, under any spelling of the path, with parent pointers', () => {
-    const content = 'export const a = 1;\n';
-    const first = parseModule('/ws/cache-hit.ts', content);
-    expect(parseModule(String.raw`\ws\cache-hit.ts`, content)).toBe(first);
-    expect(first.statements[0].parent).toBe(first);
+describe('memoByContent', () => {
+  it('computes a path and content once, under any spelling of the path', () => {
+    const compute = vi.fn((_file: string, content: string) => content.length);
+    const memo = memoByContent(compute);
+    expect(memo('/ws/a.ts', 'abc')).toBe(3);
+    expect(memo(String.raw`\ws\a.ts`, 'abc')).toBe(3);
+    expect(compute).toHaveBeenCalledTimes(1);
   });
 
-  it('parses an edited file again, so a lookup never reads stale content', () => {
-    const before = parseModule('/ws/edited.ts', 'export const a = 1;\n');
-    expect(declaresExport('/ws/edited.ts', 'export const a = 1;\n', 'a')).toBe(true);
-    const after = parseModule('/ws/edited.ts', 'export const b = 1;\n');
-    expect(after).not.toBe(before);
-    expect(declaresExport('/ws/edited.ts', 'export const b = 1;\n', 'a')).toBe(false);
-    expect(declaresExport('/ws/edited.ts', 'export const b = 1;\n', 'b')).toBe(true);
+  it('computes an edited file again, so a lookup never reads stale content', () => {
+    const before = parseReExports('/ws/edited.ts', 'export * from "./a";\n');
+    expect(parseReExports('/ws/edited.ts', 'export * from "./a";\n')).toBe(before);
+    expect(parseReExports('/ws/edited.ts', 'export * from "./b";\n')).toEqual([{ specifier: './b', names: 'all' }]);
+    expect(declaresExport('/ws/edited-decl.ts', 'export const a = 1;\n', 'a')).toBe(true);
+    expect(declaresExport('/ws/edited-decl.ts', 'export const b = 1;\n', 'a')).toBe(false);
   });
 
-  it('keeps the 128 most recently used modules', () => {
-    const content = 'export const x = 1;\n';
-    const oldest = parseModule('/ws/lru-0.ts', content);
-    const kept = parseModule('/ws/lru-1.ts', content);
-    for (let index = 2; index <= 128; index++) parseModule(`/ws/lru-${index}.ts`, content);
-    expect(parseModule('/ws/lru-1.ts', content)).toBe(kept);
-    parseModule('/ws/lru-129.ts', content);
-    expect(parseModule('/ws/lru-0.ts', content)).not.toBe(oldest);
+  it('keeps the 512 most recently used modules', () => {
+    const compute = vi.fn((file: string) => file);
+    const memo = memoByContent(compute);
+    memo('/ws/lru-0.ts', 'x');
+    memo('/ws/lru-1.ts', 'x');
+    for (let index = 2; index <= 512; index++) memo(`/ws/lru-${index}.ts`, 'x');
+    memo('/ws/lru-1.ts', 'x');
+    memo('/ws/lru-513.ts', 'x');
+    const calls = compute.mock.calls.length;
+    memo('/ws/lru-1.ts', 'x');
+    expect(compute).toHaveBeenCalledTimes(calls);
+    memo('/ws/lru-0.ts', 'x');
+    expect(compute).toHaveBeenCalledTimes(calls + 1);
   });
 });
