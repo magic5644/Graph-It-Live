@@ -71,6 +71,58 @@ describe('BranchWatchAnalyzer ref tree', { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(await analyzer.mergeBase('main', 'HEAD')).toBe(git(root, 'rev-parse', 'HEAD'));
   });
 
+  it('recreates the node_modules links to workspace packages in the copy, and no other link (#616)', async () => {
+    const root = await fs.realpath(await workspace(false));
+    const outside = await fs.mkdtemp(path.join(os.tmpdir(), 'branch-watch-outside-'));
+    roots.push(outside);
+    const files: Record<string, string> = {
+      '.gitignore': 'node_modules/\n', 'package.json': '{"workspaces":["libs/*","apps/*"]}',
+      'libs/ui/package.json': '{"name":"@acme/ui"}', 'libs/ui/index.ts': 'export const ui = 1;\n',
+      'libs/util/package.json': '{"name":"util"}', 'libs/util/index.ts': 'export const util = 1;\n',
+      'apps/web/package.json': '{"name":"web"}', 'apps/web/index.ts': 'export const web = 1;\n',
+      'node_modules/.pnpm/dep@1.0.0/node_modules/dep/index.js': '', 'node_modules/real/index.js': '',
+    };
+    for (const [file, content] of Object.entries(files)) {
+      await fs.mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await fs.writeFile(path.join(root, file), content);
+    }
+    const link = (target: string, at: string) => fs.symlink(target, path.join(root, at), 'junction');
+    await fs.mkdir(path.join(root, 'node_modules', '@acme'));
+    await fs.mkdir(path.join(root, 'apps', 'web', 'node_modules'));
+    await link(path.join(root, 'libs', 'ui'), path.join('node_modules', '@acme', 'ui')); // absolute, like a Windows junction
+    await link(path.join('..', 'libs', 'util'), path.join('node_modules', 'util')); // relative, like npm
+    await link(path.join(root, 'libs', 'util'), path.join('apps', 'web', 'node_modules', 'util')); // per package, like pnpm
+    await link(path.join('.pnpm', 'dep@1.0.0', 'node_modules', 'dep'), path.join('node_modules', 'dep')); // installed (pnpm store)
+    await link(outside, path.join('node_modules', 'outside')); // outside the workspace
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'base');
+    await fs.writeFile(path.join(root, 'libs', 'ui', 'index.ts'), 'export const ui = 2;\n');
+
+    const copied = await new BranchWatchAnalyzer(root).withRefTree('HEAD', async directory => {
+      const resolved = (at: string) => fs.realpath(path.join(directory, at)).then(target => normalizePath(path.relative(directory, target)), () => null);
+      return {
+        ui: await resolved('node_modules/@acme/ui'), util: await resolved('node_modules/util'), web: await resolved('apps/web/node_modules/util'),
+        uiContent: await fs.readFile(path.join(directory, 'node_modules/@acme/ui/index.ts'), 'utf8'),
+        others: await Promise.all(['dep', 'outside', 'real'].map(name => fs.lstat(path.join(directory, 'node_modules', name)).then(() => name, () => null))),
+      };
+    });
+    expect(copied).toEqual({ ui: 'libs/ui', util: 'libs/util', web: 'libs/util', uiContent: 'export const ui = 1;\n', others: [null, null, null] });
+  });
+
+  it('reports a workspace package link it cannot recreate as a limitation (#616)', async () => {
+    const root = await fs.realpath(await workspace(false));
+    await fs.mkdir(path.join(root, 'libs', 'ui'), { recursive: true });
+    await fs.mkdir(path.join(root, 'app'));
+    await fs.writeFile(path.join(root, 'libs', 'ui', 'package.json'), '{"name":"ui"}');
+    await fs.writeFile(path.join(root, 'app', 'package.json'), '{"name":"app"}');
+    await fs.writeFile(path.join(root, 'app', 'node_modules'), 'a tracked file where the workspace now has a folder\n');
+    git(root, 'add', '.'); git(root, 'commit', '-m', 'base');
+    await fs.rm(path.join(root, 'app', 'node_modules'));
+    await fs.mkdir(path.join(root, 'app', 'node_modules'));
+    await fs.symlink(path.join(root, 'libs', 'ui'), path.join(root, 'app', 'node_modules', 'ui'), 'junction');
+    const limitations = await new BranchWatchAnalyzer(root).withRefTree('HEAD', async (_directory, found) => found);
+    expect(limitations).toEqual(['app/node_modules/ui: baseline workspace package link could not be recreated.']);
+  });
+
   it('rejects a ref Git cannot read', async () => {
     const root = await workspace();
     await expect(new BranchWatchAnalyzer(root).withRefTree('no-such-ref', async () => undefined)).rejects.toThrow(BranchWatchError);

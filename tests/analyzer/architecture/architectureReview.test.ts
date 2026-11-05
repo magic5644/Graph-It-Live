@@ -14,6 +14,7 @@ import {
 } from "@/analyzer/architecture/architectureReview";
 import { parseArchitectureConfig, type ArchitectureViolation } from "@/analyzer/architecture/architectureRules";
 import { BranchWatchAnalyzer } from "@/analyzer/BranchWatchAnalyzer";
+import { createRulesWorkspace } from "./rulesWorkspace";
 import type { ArchitectureRuleSummary } from "@/shared/architecture-model";
 import { normalizePath } from "@/shared/path";
 
@@ -260,6 +261,21 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
     const root = createWorkspace({}, false);
     write(root, { "frontend/app.ts": IMPORTS_BACKEND });
     expect(reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["frontend/app.ts"])).toEqual({ limitations: [] });
+  });
+
+  it("resolves imports by workspace package name on the base copy too: an untouched cycle stays unchanged (#616)", async () => {
+    const root = createRulesWorkspace();
+    workspaces.push(root);
+    fs.writeFileSync(path.join(root, ".gitignore"), "node_modules/\n");
+    git(root, "init", "--initial-branch=main");
+    git(root, "config", "user.email", "test@example.com");
+    git(root, "config", "user.name", "Test");
+    git(root, "add", ".");
+    git(root, "commit", "-m", "base");
+    fs.appendFileSync(path.join(root, "backend/src/api.ts"), "// note\n");
+    const { review } = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["backend/src/api.ts"]);
+    expect(review).toMatchObject({ verdict: "unchanged", newErrors: 0 });
+    expect(review?.unitCycles).toMatchObject({ newViolations: [], resolvedViolations: [], unchanged: 2 });
   });
 
   it("reads the whole import graph of both trees, even without a config, for the import-cycle check (#603)", async () => {
