@@ -28,6 +28,8 @@ const IDENTITY_CACHE_LIMIT = 20_000;
 const identityCache = new Map<string, { mtimeMs: number; size: number; runtime?: string; identity: ReactIdentity }>();
 const COMPONENT_FACTORY = /^(?:memo|forwardRef|lazy)$/;
 const JS_TS_FILE = /\.[cm]?[jt]sx?$/i;
+/** TypeScript reads `<X>` as a type assertion in .ts, .mts and .cts files: they cannot render JSX. */
+const NO_JSX_FILE = /\.[cm]?ts$/i;
 
 function importBindings(sourceFile: ts.SourceFile): Map<string, ImportBinding> {
   const bindings = new Map<string, ImportBinding>();
@@ -189,7 +191,9 @@ function isInside(root: string, filePath: string): boolean {
 }
 
 /** Recomputed per graph request, so removed JSX/imports cannot leave stale framework badges. */
-async function graphReactEvidence(filePaths: readonly string[], workspaceRoot: string) {
+async function graphReactEvidence(graphPaths: readonly string[], referencingPaths: readonly string[], workspaceRoot: string) {
+  // Importers count only for the JSX they render: one that cannot hold JSX is not read.
+  const filePaths = [...graphPaths, ...referencingPaths.filter(filePath => !NO_JSX_FILE.test(filePath))];
   const root = normalizePath(path.resolve(workspaceRoot));
   const realRoot = await fs.realpath(root).catch(() => root);
   const jsxImportSource = await readReactJsxImportSource(root);
@@ -236,7 +240,7 @@ async function readIdentityEntry(filePath: string, root: string, runtime: string
 /** Recomputed per graph request, so removed JSX/imports cannot leave stale framework badges. */
 export async function enrichReactFramework(graphData: GraphData, workspaceRoot: string, referencingPaths: readonly string[] = []): Promise<void> {
   if (!workspaceRoot) return;
-  const { entries, targets } = await graphReactEvidence([...graphData.nodes, ...referencingPaths], workspaceRoot);
+  const { entries, targets } = await graphReactEvidence(graphData.nodes, referencingPaths, workspaceRoot);
   const proven = new Set(entries.flatMap(entry => entry?.identity.components.length ? [entry.filePath] : []));
   for (const filePath of graphData.nodes) {
     const key = normalizePath(filePath);
@@ -256,7 +260,7 @@ export async function enrichReactSymbols(
 ): Promise<void> {
   if (!workspaceRoot) return;
   const key = normalizePath(filePath);
-  const { entries, targets } = await graphReactEvidence([filePath, ...referencingPaths], workspaceRoot);
+  const { entries, targets } = await graphReactEvidence([filePath], referencingPaths, workspaceRoot);
   const identity = entries.find(entry => entry?.filePath === key)?.identity;
   for (const symbol of symbols) {
     delete symbol.framework;
