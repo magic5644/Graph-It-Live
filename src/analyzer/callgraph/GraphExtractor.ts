@@ -41,7 +41,7 @@ import { isComponentFactory, type DeclarationReads } from "@/analyzer/utils/decl
 import { LOCAL_ONLY, resolvePythonImportCalls } from "./pythonImportBindings";
 import { extractGraphQL } from "./graphqlExtractor";
 import { definitionOwner, QUALIFIED_PREFIX, resolveQualifiedCalls, workspaceFolder } from "./qualifiedCalls";
-import { enclosingType, methodOwner, TYPE_SCOPES, typeNameOf, variableType } from "./receiverTypes";
+import { enclosingType, methodOwner, objectType, TYPE_SCOPES, type ScopeTypes } from "./receiverTypes";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -235,12 +235,12 @@ function ownMembers(node: TreeNode, candidates: string[] | undefined): string[] 
 const IMPLICIT_THIS_CALLS = new Set(["method_invocation", "invocation_expression"]);
 
 /** One file's same-file definitions by node id, and the declarations of each scope read so far (by scope node id). */
-interface HomonymContext { definitions: Map<string, TreeNode>; declarations: Map<number, TreeNode[]> }
+interface HomonymContext { definitions: Map<string, TreeNode>; declarations: ScopeTypes }
 
 /** Type of the receiver of a member call: `this`/`self`, a variable, a type (`B.m()`) or a construction (`new B()`). */
-function receiverType(node: TreeNode, object: TreeNode, declarations: Map<number, TreeNode[]>): string | null {
+function receiverType(node: TreeNode, object: TreeNode, declarations: ScopeTypes): string | null {
   if (isSelfObject(node.parent?.type, object)) return enclosingType(object);
-  return object.type === "identifier" ? variableType(object, declarations) : typeNameOf(object);
+  return objectType(object, declarations);
 }
 
 /**
@@ -249,7 +249,7 @@ function receiverType(node: TreeNode, object: TreeNode, declarations: Map<number
  * never linked to an arbitrary homonym. A single candidate is kept as is.
  * shortcut: a method inherited from a same-file base type, `super.m()`/`base.m()`, a call on a returned value
  * (`B::new().m()`) and a Rust trait default method calling `self.m()` link nowhere; upgrade with INHERITS edges
- * and receiver types (#499).
+ * and return-type inference. A receiver of a type declared in another file: #499 (importBindings, qualifiedCalls).
  */
 function homonymTargets(node: TreeNode, candidates: string[] | undefined, context: HomonymContext): string[] | null | undefined {
   if (!candidates || candidates.length < 2) return candidates;
@@ -603,7 +603,7 @@ export class GraphExtractor {
   ): CallGraphEdge[] {
     const edges: CallGraphEdge[] = [];
     const seenEdges = new Map<string, CallGraphEdge>();
-    const homonyms: HomonymContext = { definitions, declarations: new Map() };
+    const homonyms: HomonymContext = { definitions, declarations: {} };
 
     for (const capture of captures) {
       const relationType = captureNameToRelationType(capture.name);

@@ -52,6 +52,9 @@
 (class_declaration
   name: (type_identifier) @def.class)
 
+(abstract_class_declaration
+  name: (type_identifier) @def.class)
+
 ; Method definitions inside classes
 (method_definition
   name: (property_identifier) @def.method)

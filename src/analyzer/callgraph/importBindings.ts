@@ -4,6 +4,7 @@ import type { ReExportTarget } from "@/analyzer/utils/reExports";
 import { mapWithConcurrency } from "@/shared/concurrency";
 import { normalizePath } from "@/shared/path";
 import type { Node as TreeNode } from "web-tree-sitter";
+import { objectType, type ScopeTypes } from "./receiverTypes";
 
 const NAMESPACE_CALL_CONCURRENCY = 8;
 
@@ -49,11 +50,19 @@ function enclosingScope(node: TreeNode, functionOnly: boolean): TreeNode {
   return scope;
 }
 
+/** Where `name` imported from `modulePath` is declared (the barrel's real declaration); null when nothing is exported under it. */
+function declarationOf(declared: ReExportTarget | typeof DEFAULT_ONLY | null, modulePath: string, name: string): ReExportTarget | null {
+  return declared === DEFAULT_ONLY ? null : { filePath: declared?.filePath ?? normalizePath(modulePath), name: declared?.name ?? name };
+}
+
 /** `@@import:` stub reaching `name` in `modulePath` (or the barrel's real declaration); null when nothing is exported under it. */
 function importStub(declared: ReExportTarget | typeof DEFAULT_ONLY | null, modulePath: string, name: string): string | null {
-  if (declared === DEFAULT_ONLY) return null;
-  return `@@import:${JSON.stringify([declared?.filePath ?? normalizePath(modulePath), declared?.name ?? name])}`;
+  const declaration = declarationOf(declared, modulePath, name);
+  return declaration && `@@import:${JSON.stringify([declaration.filePath, declaration.name])}`;
 }
+
+/** A named or default import: where it is declared, and whether only its type is imported (`import type`). */
+interface ImportedDeclaration extends ReExportTarget { typeOnly: boolean }
 
 /** Local name and imported name of each binding of an import statement: `import Panel, { Card as C } from`. */
 function importedNames(statement: TreeNode): Array<{ local: TreeNode; imported: string; isType: boolean }> {
@@ -70,8 +79,9 @@ function importedNames(statement: TreeNode): Array<{ local: TreeNode; imported: 
 }
 
 /**
- * Named and default import bindings: local name -> `@@import:` stub, or null when it links nowhere. Only bindings
- * that a capture names (`used`) are resolved: the others stay null, so a module nothing calls is never resolved.
+ * Named and default import bindings: local name -> its declaration, or null when it links nowhere. Only bindings
+ * that a capture or a receiver type names (`used`) are resolved: the others stay null, so a module nothing calls is
+ * never resolved.
  */
 async function collectNamedImports(
   root: TreeNode,
@@ -79,19 +89,19 @@ async function collectNamedImports(
   resolver: PathResolver,
   reads: DeclarationReads,
   used: Set<string>,
-): Promise<Map<string, string | null>> {
+): Promise<Map<string, ImportedDeclaration | null>> {
   const statements = root.namedChildren.filter(node => node.type === "import_statement");
-  const bindings = await Promise.all(statements.map(async (statement): Promise<Array<[string, string | null]>> => {
+  const bindings = await Promise.all(statements.map(async (statement): Promise<Array<[string, ImportedDeclaration | null]>> => {
     const names = importedNames(statement);
     const moduleName = statement.childForFieldName("source")?.namedChildren[0]?.text;
     const typeOnly = statement.children.some(node => node.type === "type");
-    const needed = !typeOnly && moduleName && names.some(({ local, isType }) => !isType && used.has(local.text));
+    const needed = moduleName && names.some(({ local }) => used.has(local.text));
     const targetPath = needed ? await resolver.resolve(filePath, moduleName) : null;
     // Bindings are independent (own visited set, shared read cache): resolve them concurrently, in order.
-    return Promise.all(names.map(async ({ local, imported, isType }): Promise<[string, string | null]> => {
-      if (!targetPath || isType || !used.has(local.text)) return [local.text, null];
-      const declared = await findDeclaration(targetPath, imported, resolver, reads);
-      return [local.text, importStub(declared, targetPath, imported)];
+    return Promise.all(names.map(async ({ local, imported, isType }): Promise<[string, ImportedDeclaration | null]> => {
+      if (!targetPath || !used.has(local.text)) return [local.text, null];
+      const declaration = declarationOf(await findDeclaration(targetPath, imported, resolver, reads), targetPath, imported);
+      return [local.text, declaration && { ...declaration, typeOnly: typeOnly || isType }];
     }));
   }));
   return new Map(bindings.flat());
@@ -147,17 +157,22 @@ function collectShadows(root: TreeNode, imports: { has(name: string): boolean })
 type Shadows = ReturnType<typeof collectShadows>;
 
 /** Innermost local declaration of `node.text` whose scope contains `node`, if any. */
-function findShadow(shadows: Shadows, node: TreeNode) {
+function findShadow(shadows: Shadows, node: Pick<TreeNode, "text" | "startIndex" | "endIndex">) {
   return shadows.get(node.text)
     ?.filter(({ scope }) => scope.startIndex <= node.startIndex && scope.endIndex >= node.endIndex)
     .sort((a, b) => b.scope.startIndex - a.scope.startIndex || a.scope.endIndex - b.scope.endIndex)[0];
 }
 
-/** The namespace identifier of a static `ns.member()` call whose member is `call`, if any. */
-function namespaceObject(call: TreeNode): TreeNode | null {
+/** The object of a `obj.member()` call whose member is `call`, if any. */
+function memberObject(call: TreeNode): TreeNode | null {
   const member = call.parent;
   if (member?.type !== "member_expression" || member.childForFieldName("property")?.id !== call.id) return null;
-  const object = member.childForFieldName("object");
+  return member.childForFieldName("object");
+}
+
+/** The namespace identifier of a static `ns.member()` call whose member is `call`, if any. */
+function namespaceObject(call: TreeNode): TreeNode | null {
+  const object = memberObject(call);
   return object?.type === "identifier" ? object : null;
 }
 
@@ -182,6 +197,44 @@ async function resolveLazyImport(specifier: TreeNode, filePath: string, resolver
   return modulePath ? importStub(await findDeclaration(modulePath, "default", resolver, reads), modulePath, "default") : null;
 }
 
+/** `@@import:` stub of a call on an imported binding; null for a type-only import or one that links nowhere. */
+function callStub(declaration: ImportedDeclaration | null | undefined): string | null {
+  return declaration && !declaration.typeOnly ? `@@import:${JSON.stringify([declaration.filePath, declaration.name])}` : null;
+}
+
+/**
+ * Types of the receivers of member calls that an import binds (#499): `c.compute()` with `c: Calc`,
+ * `new Calc().compute()`, `Calc.create()`; by call node id.
+ */
+function importedReceiverTypes(root: TreeNode, calls: TreeNode[]): Map<number, string> {
+  const types = new Map<number, string>();
+  const imported = new Set(root.namedChildren.filter(node => node.type === "import_statement")
+    .flatMap(importedNames).map(({ local }) => local.text));
+  if (imported.size === 0) return types;
+  const objects = calls.flatMap(call => {
+    const object = call.type === "property_identifier" ? memberObject(call) : null;
+    return object ? [{ call, object, identifier: object.type === "identifier" ? object.text : null }] : [];
+  });
+  const declarations: ScopeTypes = { wanted: new Set(objects.flatMap(({ identifier }) => identifier ?? [])) };
+  for (const { call, object, identifier } of objects) {
+    // `Calc.create()`: a local binding of that name is a shadow, checked with the stub.
+    const type = identifier && imported.has(identifier) ? identifier : objectType(object, declarations);
+    if (type && imported.has(type)) types.set(call.id, type);
+  }
+  return types;
+}
+
+/**
+ * `@@import:` stub of a method call on a receiver of an imported class, alias or barrel included: the module
+ * declaring the class, the method and the class's declared name. A type-only import (`import type { C }`) types a
+ * receiver as well. Undefined when a local declaration shadows the type name or the import does not resolve.
+ */
+function classMethodStub(call: TreeNode, type: string | undefined, imports: Map<string, ImportedDeclaration | null>, shadows: Shadows): string | undefined {
+  if (type === undefined || findShadow(shadows, { text: type, startIndex: call.startIndex, endIndex: call.endIndex })) return undefined;
+  const declaration = imports.get(type);
+  return declaration ? `@@import:${JSON.stringify([declaration.filePath, call.text, declaration.name])}` : undefined;
+}
+
 /**
  * Resolve named, default and namespace imports, and `lazy()` module specifiers (`string_fragment` nodes), before
  * the AST is freed; unknown bindings never fall back to global names. A reference (`references`: `<Card />`,
@@ -197,7 +250,8 @@ export async function resolveNamedImportCalls(
   /** Shared by the files of one indexing pass, whose contents do not change during it; per call by default. */
   reads: DeclarationReads = new Map(),
 ): Promise<Map<number, string | null>> {
-  const used = new Set(calls.filter(call => call.type === "identifier").map(call => call.text));
+  const receiverTypes = importedReceiverTypes(root, calls);
+  const used = new Set([...calls.filter(call => call.type === "identifier").map(call => call.text), ...receiverTypes.values()]);
   const [imports, namespaces] = await Promise.all([
     collectNamedImports(root, filePath, resolver, reads, used),
     collectNamespaceImports(root, filePath, resolver),
@@ -215,9 +269,12 @@ export async function resolveNamedImportCalls(
     if (call.type === "identifier" && (imports.has(call.text) || references.has(call.id))) {
       const shadow = findShadow(shadows, call);
       if (shadow) return `${filePath}:${call.text}:${shadow.binding.startPosition.row}`;
-      return imports.has(call.text) ? imports.get(call.text)! : null;
+      return callStub(imports.get(call.text));
     }
-    return resolveNamespaceCall(call, namespaces, shadows, resolver, reads);
+    // null (a namespace member that links nowhere) is kept: only an undefined result is no namespace call.
+    const namespaced = await resolveNamespaceCall(call, namespaces, shadows, resolver, reads);
+    if (namespaced !== undefined) return namespaced;
+    return classMethodStub(call, receiverTypes.get(call.id), imports, shadows);
   });
   calls.forEach((call, index) => {
     if (stubs[index] !== undefined) targets.set(call.id, stubs[index]);

@@ -4,14 +4,14 @@ import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
 import { GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
-import { QUALIFIED_PREFIX, qualifiedCandidates, type QualifiedMember, workspaceFolder } from "@/analyzer/callgraph/qualifiedCalls";
+import { type FileDeclaration, ownedMethod, QUALIFIED_PREFIX, qualifiedCandidates, type QualifiedMember, workspaceFolder } from "@/analyzer/callgraph/qualifiedCalls";
 import type { SupportedLang } from "@/shared/callgraph-types";
 import { normalizePath } from "@/shared/path";
 
 const LANG_OF_EXT: Record<string, SupportedLang> = {
-  ".go": "go", ".rs": "rust", ".java": "java", ".cs": "csharp", ".py": "python", ".ts": "typescript",
+  ".go": "go", ".rs": "rust", ".java": "java", ".cs": "csharp", ".py": "python", ".ts": "typescript", ".js": "javascript",
 };
-const WASMS = ["go", "rust", "java", "c_sharp", "python", "typescript"];
+const WASMS = ["go", "rust", "java", "c_sharp", "python", "typescript", "javascript"];
 const QUERIES = ["go", "rust", "java", "csharp", "python", "typescript"];
 const SQL_WASM = path.resolve("node_modules/sql.js/dist/sql-wasm.wasm");
 
@@ -248,19 +248,19 @@ describe("qualified calls (#507)", () => {
         "other.ts": "export function add(a: number) { return -a; }\n",
         "forms.ts": "import { add as sum } from './math';\nexport function aliased() { return sum(1); }\n",
       }, ["forms.ts#aliased -> math.ts#add"]],
-      ["TypeScript: a method call on a typed receiver links nowhere (receiver types are #499)", {
+      ["TypeScript: links a method call on a typed receiver (#499)", {
         "calc.ts": "export class Calc { compute(x: number) { return x; } }\n",
         "forms.ts": "import { Calc } from './calc';\nexport function method(c: Calc) { return c.compute(1); }\n",
-      }, []],
+      }, ["forms.ts#method -> calc.ts#compute"]],
       ["Python: links an aliased from-import", {
         "math_mod.py": "def add(a):\n    return a\n",
         "other.py": "def add(a):\n    return -a\n",
         "forms.py": "from math_mod import add as sum_\n\ndef aliased():\n    return sum_(1)\n",
       }, ["forms.py#aliased -> math_mod.py#add"]],
-      ["Python: a method call on a typed receiver links nowhere (receiver types are #499)", {
+      ["Python: links a method call on a typed receiver (#499)", {
         "calc.py": "class Calc:\n    def compute(self, x):\n        return x\n",
         "forms.py": "from calc import Calc\n\ndef method(c: Calc):\n    return c.compute(1)\n",
-      }, []],
+      }, ["forms.py#method -> calc.py#compute"]],
       ["Go: links a method call on a typed receiver", {
         "calc.go": "package p\n\ntype Calc struct{}\n\nfunc (Calc) Compute(x int) int { return x }\n",
         "forms.go": "package p\n\nfunc Method(c Calc) int { return c.Compute(1) }\n",
@@ -269,10 +269,10 @@ describe("qualified calls (#507)", () => {
         "Calc.java": "class Calc { int compute(int x) { return x; } }\n",
         "Forms.java": "class Forms { int method(Calc c) { return c.compute(1); } }\n",
       }, ["Forms.java#method -> Calc.java#compute"]],
-      ["C#: a method call on a typed receiver links nowhere (receiver types are #499)", {
+      ["C#: links a method call on a typed receiver (#499)", {
         "Calc.cs": "class Calc { public int Compute(int x) { return x; } }\n",
         "Forms.cs": "class Forms { int Method(Calc c) { return c.Compute(1); } }\n",
-      }, []],
+      }, ["Forms.cs#Method -> Calc.cs#Compute"]],
       ["C#: a using alias of a type links its static call", {
         "Calc.cs": "namespace N { class Calc { public static int Compute(int x) { return x; } } }\n",
         "Other.cs": "class Other { public static int Compute(int x) { return -x; } }\n",
@@ -287,6 +287,111 @@ describe("qualified calls (#507)", () => {
         "Forms.cs": "using L = System.Collections.Generic.List<int>;\nusing C = Calc;\nclass Forms { int Method(int C) { return L.Compute(1) + C.Compute(1); } }\n",
       }, []],
     ]);
+  });
+
+  describe("receiver types across files (#499)", () => {
+    // Two classes declare `compute`: a call reaches the one its receiver is proven to be, never the other.
+    const ts = (forms: string, extra: Files = {}): Files => ({
+      "service.ts": "export class Calculator {\n  compute(x: number) { return x * 2; }\n  static create() { return 0; }\n}\n"
+        + "export class OtherCalculator { compute(x: number) { return x * 3; } }\n",
+      "decoy.ts": "export function compute(x: number) { return x; }\nexport function get(k: string) { return k; }\nexport function log(m: string) { return m; }\n",
+      ...extra,
+      "forms.ts": forms,
+    });
+    const calculator = "import { Calculator, OtherCalculator } from './service';\n";
+    const py = (forms: string, extra: Files = {}): Files => ({
+      "service.py": "class Calculator:\n    def compute(self, x):\n        return x * 2\n\n    @staticmethod\n    def create():\n        return 0\n\n"
+        + "class OtherCalculator:\n    def compute(self, x):\n        return x * 3\n",
+      "decoy.py": "def compute(x):\n    return x\n",
+      ...extra,
+      "forms.py": forms,
+    });
+    const pyImport = "from service import Calculator, OtherCalculator\n\n";
+
+    check([
+      ["TS: a typed parameter reaches its class's method", ts(`${calculator}export function m(c: Calculator) { return c.compute(3); }\n`),
+        ["forms.ts#m -> service.ts#compute:1"]],
+      ["TS: an aliased import keeps its class apart from a same-named one", ts(
+        "import { Calculator as Calc, OtherCalculator as Other } from './service';\nexport function m(a: Calc, b: Other) { return a.compute(1) + b.compute(2); }\n"),
+        ["forms.ts#m -> service.ts#compute:1", "forms.ts#m -> service.ts#compute:4"]],
+      ["TS: a construction, an inferred variable, a static call and a type-only import", ts(
+        "import { Calculator } from './service';\nimport type { OtherCalculator } from './service';\n"
+        + "export function m(o: OtherCalculator) { const c = new Calculator(); return new Calculator().compute(1) + c.compute(2) + o.compute(3) + Calculator.create().compute(4); }\n"),
+        ["forms.ts#m -> service.ts#Calculator:0", "forms.ts#m -> service.ts#compute:1", "forms.ts#m -> service.ts#compute:4", "forms.ts#m -> service.ts#create:2"]],
+      ["TS: follows a barrel re-export and a default-exported class", ts(
+        "import { Calculator } from './index';\nimport Calc from './calc';\nexport function m(a: Calculator, b: Calc) { return a.compute(1) + b.compute(2); }\n", {
+          "index.ts": "export { Calculator } from './service';\n",
+          "calc.ts": "export default class Calc { compute(x: number) { return x; } }\n",
+        }), ["forms.ts#m -> calc.ts#compute:0", "forms.ts#m -> service.ts#compute:1"]],
+      ["TS: an abstract class's own method", ts("import { Base } from './base';\nexport function m(b: Base) { return b.compute(1); }\n", {
+        "base.ts": "export abstract class Base { compute(x: number) { return x; } }\n",
+      }), ["forms.ts#m -> base.ts#compute:0"]],
+      ["TS: no method edge for a union, an unknown or untyped receiver, or a rebinding", ts(
+        `${calculator}export function m(u: Calculator | OtherCalculator, x: Unknown, y, z = 1) {\n`
+        + "  let r = new Calculator();\n  r = make();\n  return u.compute(1) + x.compute(2) + y.compute(3) + r.compute(4);\n}\n"),
+        ["forms.ts#m -> service.ts#Calculator:0"]],
+      ["TS: no edge when a local binding shadows the imported class", ts(
+        `${calculator}export function m(Calculator: any) { return Calculator.compute(1); }\n`), []],
+      ["TS: no edge for an inherited method (inheritance is not followed)", ts(
+        "import { Sub } from './sub';\nexport function m(s: Sub) { return s.compute(1); }\n", {
+          "sub.ts": "import { Calculator } from './service';\nexport class Sub extends Calculator { other() { return 1; } }\n",
+        }), []],
+      ["TS: builtin and global receivers never reach a user function", ts(
+        "export function m(map: Map<string, number>) { console.log('x'); return map.get('k') + Math.round(1); }\n"), []],
+      ["Python: a typed parameter, an alias, a construction and a static method", py(
+        "from service import Calculator, OtherCalculator as Other\n\ndef m(c: Calculator, o: Other):\n"
+        + "    return c.compute(1) + o.compute(2) + Calculator().compute(3) + Calculator.create()\n"),
+        ["forms.py#m -> service.py#Calculator:0", "forms.py#m -> service.py#compute:1", "forms.py#m -> service.py#compute:9", "forms.py#m -> service.py#create:5"]],
+      ["Python: an annotated assignment and a class instance variable", py(
+        `${pyImport}def m():\n    c: Calculator = make()\n    o = OtherCalculator()\n    return c.compute(1) + o.compute(2)\n`),
+        ["forms.py#m -> service.py#OtherCalculator:8", "forms.py#m -> service.py#compute:1", "forms.py#m -> service.py#compute:9"]],
+      ["Python: the last definition of a redefined method, never a nested function of the same name", py(
+        "from calc import Calc\n\ndef m(c: Calc):\n    return c.compute(1)\n", {
+          "calc.py": "class Calc:\n    def compute(self):\n        return 1\n\n    def compute(self):\n        def compute():\n            return 0\n        return 2\n",
+        }), ["forms.py#m -> calc.py#compute:4"]],
+      ["Python: no method edge for a union, Optional, an untyped or rebound receiver", py(
+        `${pyImport}def m(u: Calculator | OtherCalculator, o: Optional[Calculator], y, c: Calculator):\n`
+        + "    c = OtherCalculator()\n    return u.compute(1) + o.compute(2) + y.compute(3) + c.compute(4)\n"),
+        ["forms.py#m -> service.py#OtherCalculator:8"]],
+      ["Python: no edge when a local name shadows the imported class, or for a module-qualified type", py(
+        `import service\n${pyImport}def m(c: Calculator, s: service.Calculator):\n    Calculator = make()\n    return c.compute(1) + s.compute(2)\n`), []],
+      ["Java: a typed parameter reaches its class, never the other one", {
+        "Calculator.java": "class Calculator { int compute(int x) { return x * 2; } }\n",
+        "OtherCalculator.java": "class OtherCalculator { int compute(int x) { return x * 3; } }\n",
+        "Forms.java": "class Forms { int m(Calculator c, String s) { s.length(); return c.compute(1); } }\n",
+      }, ["Forms.java#m -> Calculator.java#compute:0"]],
+      ["C#: a typed parameter and a var reach their class, never the other one", {
+        "Calculator.cs": "class Calculator { public int Compute(int x) { return x * 2; } }\n",
+        "OtherCalculator.cs": "class OtherCalculator { public int Compute(int x) { return x * 3; } }\n",
+        "Forms.cs": "class Forms { int M(Calculator c) { var o = new OtherCalculator(); return c.Compute(1) + o.Compute(2); } }\n",
+      }, ["Forms.cs#M -> Calculator.cs#Compute:0", "Forms.cs#M -> OtherCalculator.cs#Compute:0"]],
+      ["Go: a typed receiver reaches its type's method, a package call a function only", {
+        "go.mod": "module example.com/probe\n",
+        "calc.go": "package p\n\ntype Calc struct{}\n\nfunc (c *Calc) Compute(x int) int { return x }\n",
+        "other.go": "package p\n\ntype Other struct{}\n\nfunc (Other) Compute(x int) int { return -x }\n",
+        "lib/l.go": "package lib\n\ntype T struct{}\n\nfunc (T) Compute() int { return 0 }\n",
+        "forms.go": "package p\n\nimport \"example.com/probe/lib\"\n\nfunc M(c *Calc) int { o := Other{}; return c.Compute(1) + o.Compute(2) + lib.Compute() }\n",
+      }, ["forms.go#M -> calc.go#Compute:4", "forms.go#M -> other.go#Compute:4"]],
+      ["JS: a constructed variable reaches its class; an untyped parameter links nowhere", {
+        "service.js": "export class Calculator { compute(x) { return x * 2; } }\nexport class OtherCalculator { compute(x) { return x * 3; } }\n",
+        "forms.js": "import { Calculator } from './service.js';\nexport function m(d) { const c = new Calculator(); return c.compute(1) + d.compute(2); }\n",
+      }, ["forms.js#m -> service.js#Calculator:0", "forms.js#m -> service.js#compute:0"]],
+      ["TS: a file with no import links no member call", ts("export function m(c) { return c.compute(1) + Calculator.compute(2); }\n"), []],
+      ["Java: no edge for a variable of unknown type or a rebound parameter, never by name", {
+        "Calculator.java": "class Calculator { int compute(int x) { return x * 2; } }\n",
+        "OtherCalculator.java": "class OtherCalculator { int compute(int x) { return x * 3; } }\n",
+        "Forms.java": "class Forms { int m(Calculator c) { var x = make(); c = other(); return x.compute(1) + c.compute(2); } }\n",
+      }, []],
+      ["C#: no edge for a variable of unknown type or a rebound parameter", {
+        "Calculator.cs": "class Calculator { public int Compute(int x) { return x * 2; } }\n",
+        "OtherCalculator.cs": "class OtherCalculator { public int Compute(int x) { return x * 3; } }\n",
+        "Forms.cs": "class Forms { int M(Calculator c) { var x = Make(); c = Other(); return x.Compute(1) + c.Compute(2); } }\n",
+      }, []],
+      ["Go: no edge for a variable of unknown type or a rebound parameter, never by name", {
+        "calc.go": "package p\n\ntype Calc struct{}\n\nfunc (Calc) Compute(x int) int { return x }\n",
+        "forms.go": "package p\n\nfunc M(c Calc) int { x := make(); c = other(); return x.Compute(1) + c.Compute(2) }\n",
+      }, []],
+    ], true);
   });
 
   describe("Java", () => {
@@ -472,6 +577,45 @@ describe("qualified calls (#507)", () => {
 
     it("returns nothing when the container has no member of that name", () => {
       expect(qualifiedCandidates(stub("type", "T"), () => [], () => [])).toEqual([]);
+    });
+
+    it("matches a Go package call to functions only, a typed receiver call to its type's methods only (#499)", () => {
+      const members = [member({ id: "fn", folder: "p" }), member({ id: "calc", folder: "p", owner: "Calc" }), member({ id: "other", folder: "p", owner: "Other" })];
+      const owned = `${QUALIFIED_PREFIX}${JSON.stringify(["folder", "p", "f", ["Calc"]])}`;
+      expect(ids(qualifiedCandidates(stub("folder", "p"), () => members, () => []))).toEqual(["fn"]);
+      expect(ids(qualifiedCandidates(owned, () => members, () => []))).toEqual(["calc"]);
+    });
+  });
+
+  describe("ownedMethod (#499)", () => {
+    const decl = (id: string, name: string, type: string, startLine: number, endLine: number): FileDeclaration => ({ id, name, type, startLine, endLine });
+    const calc = decl("Calc", "Calc", "class", 0, 20);
+
+    it("picks the method the class declares, not another class's homonym", () => {
+      const declarations = [calc, decl("own", "compute", "method", 1, 2), decl("Other", "Other", "class", 21, 30), decl("other", "compute", "method", 22, 23)];
+      expect(ownedMethod(declarations, "Calc", "compute")).toBe("own");
+      expect(ownedMethod(declarations, "Other", "compute")).toBe("other");
+    });
+
+    it("picks the last declaration (Python redefinition, TS overload implementation), Python functions included", () => {
+      expect(ownedMethod([calc, decl("first", "compute", "function", 1, 2), decl("last", "compute", "function", 5, 9)], "Calc", "compute")).toBe("last");
+    });
+
+    it("skips a function nested in a method and a method of an inner class", () => {
+      const declarations = [calc, decl("method", "run", "function", 1, 6), decl("nested", "compute", "function", 2, 3),
+        decl("Inner", "Inner", "class", 10, 14), decl("inner", "compute", "method", 11, 12)];
+      expect(ownedMethod(declarations, "Calc", "compute")).toBeNull();
+      expect(ownedMethod(declarations, "Inner", "compute")).toBe("inner");
+    });
+
+    it("keeps a method declared on the class's own line (one-line class)", () => {
+      expect(ownedMethod([decl("A", "A", "class", 3, 3), decl("m", "compute", "method", 3, 3)], "A", "compute")).toBe("m");
+    });
+
+    it("returns null for a missing or twice-declared class, or an inherited method", () => {
+      expect(ownedMethod([decl("m", "compute", "method", 1, 2)], "Calc", "compute")).toBeNull();
+      expect(ownedMethod([calc, decl("Calc2", "Calc", "class", 30, 40), decl("m", "compute", "method", 1, 2)], "Calc", "compute")).toBeNull();
+      expect(ownedMethod([calc, decl("m", "other", "method", 1, 2)], "Calc", "compute")).toBeNull();
     });
   });
 });

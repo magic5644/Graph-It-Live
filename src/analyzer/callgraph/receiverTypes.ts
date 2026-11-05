@@ -34,6 +34,7 @@ const VARIABLE_DECLARATIONS = [
   "for_each_statement", "catch_declaration", // C#
   "range_clause", // Go
   "for_expression", "closure_parameters", // Rust
+  "assignment_expression", "assignment_statement", // a rebinding (`b = other`): TS/JS, Java, C#, Rust; Go
 ];
 
 /** Bindings whose value is not the variable's own (`for (b of items)`, `catch (e)`): only a declared type types them. */
@@ -115,45 +116,79 @@ function itemsOf(node: TreeNode | null | undefined): TreeNode[] {
   return node.type === "expression_list" ? node.namedChildren.filter(item => item !== null) : [node];
 }
 
-/** Types a declaration gives `name`: its declared type, else (`var`, none) the type its value constructs; null when untyped. */
-function declaredTypes(declaration: TreeNode, name: string): (string | null)[] {
+/**
+ * Names a declaration binds, each with the type it gives: its declared type, else (`var`, none) the type its value
+ * constructs; null when untyped. Nothing when it binds none of the `wanted` names.
+ */
+function declaredBindings(declaration: TreeNode, wanted?: ReadonlySet<string>): Array<[string, string | null]> {
   if (UNTYPED_PARAMETERS.has(declaration.type)) {
-    return declaration.namedChildren.some(child => child?.type === "identifier" && child.text === name) ? [null] : [];
+    return declaration.namedChildren.filter(child => child?.type === "identifier").map(child => [child.text, null]);
   }
   const names = ["name", "pattern", "left"].flatMap(field => declaration.childrenForFieldName(field)).flatMap(itemsOf);
   // C# variable_declarator and Python typed_parameter name no field: their first child is the identifier.
   const first = declaration.firstNamedChild;
   if (names.length === 0 && first?.type === "identifier") names.push(first);
-  const index = names.findIndex(node => node.text.replace(/^mut\s+/, "") === name);
-  if (index < 0) return [];
-  if (UNTYPED_BINDINGS.has(declaration.type)) return [null];
+  if (names.length === 0) return [];
+  const texts = names.map(node => node.text.replace(/^mut\s+/, ""));
+  if (wanted && !texts.some(name => wanted.has(name))) return [];
+  if (UNTYPED_BINDINGS.has(declaration.type)) return texts.map(name => [name, null]);
   // Java and C# declare the type once for every declarator: `B a = x, b = y;`.
   const declared = typeNameOf(declaration.childForFieldName("type") ?? declaration.parent?.childForFieldName("type"));
-  if (declared && declared !== "var") return [declared];
-  if (NO_VALUE.has(declaration.type)) return [null];
+  if (declared && declared !== "var") return texts.map(name => [name, declared]);
+  if (NO_VALUE.has(declaration.type)) return texts.map(name => [name, null]);
   const values = itemsOf(declaration.childForFieldName("value") ?? declaration.childForFieldName("right")
     ?? declaration.namedChildren.find(child => child?.type === "equals_value_clause"));
-  return [typeNameOf(values.length === names.length ? values[index] : values[0])];
+  return texts.map((name, index) => [name, typeNameOf(values.length === names.length ? values[index] : values[0])]);
+}
+
+/**
+ * One file's declarations, read once: each name with the start of every declaration binding it and the type it
+ * gives. `wanted`: the only names looked up, when known, so the types of the others are never read.
+ */
+export interface ScopeTypes { byName?: Map<string, Array<[number, string | null]>>; wanted?: ReadonlySet<string> }
+
+function bindingsOf(root: TreeNode, wanted?: ReadonlySet<string>): Map<string, Array<[number, string | null]>> {
+  const byName = new Map<string, Array<[number, string | null]>>();
+  for (const declaration of root.descendantsOfType(VARIABLE_DECLARATIONS)) {
+    if (!declaration) continue;
+    for (const [name, type] of declaredBindings(declaration, wanted)) {
+      const found = byName.get(name) ?? [];
+      found.push([declaration.startIndex, type]);
+      byName.set(name, found);
+    }
+  }
+  return byName;
 }
 
 /**
  * Type of the variable `receiver` names, from the declarations of its enclosing functions, innermost
  * first, then of the file; the name itself when nothing declares it (a type: `B.m()`, a Rust unit struct).
  * A binding with no readable type (untyped parameter, loop or catch variable) leaves it unresolved.
- * `declarations` caches each scope's declaration nodes, by scope node id, for one file.
+ * `scopes` caches the declarations of one file.
+ * A rebinding (`b = other`) counts as a declaration, so a variable given two types is unresolved.
  * shortcut: a scope's nested functions and blocks count as the scope, so one name declared with two types
- * in them is unresolved; fields (`this.b.m()`) and inferred values (`make().m()`) are not typed; upgrade with #499.
+ * in them is unresolved; fields (`this.b.m()`) and inferred values (`make().m()`, `identity(b).m()`) are not
+ * typed; upgrade with field and return-type propagation.
  */
-export function variableType(receiver: TreeNode, declarations: Map<number, TreeNode[]>): string | null {
+export function variableType(receiver: TreeNode, scopes: ScopeTypes): string | null {
+  scopes.byName ??= bindingsOf(receiver.tree.rootNode, scopes.wanted);
+  const bindings = scopes.byName.get(receiver.text);
+  if (!bindings) return receiver.text; // a global or a type: no scope walk
+  // One type everywhere in the file: every scope gives it, no walk.
+  if (bindings.every(([, type]) => type === bindings[0][1])) return bindings[0][1];
   for (let scope = receiver.parent; scope; scope = scope.parent) {
     if (scope.parent && !FUNCTION_SCOPES.has(scope.type)) continue;
-    let nodes = declarations.get(scope.id);
-    if (!nodes) {
-      nodes = scope.descendantsOfType(VARIABLE_DECLARATIONS).filter(node => node !== null);
-      declarations.set(scope.id, nodes);
-    }
-    const types = new Set(nodes.flatMap(declaration => declaredTypes(declaration, receiver.text)));
+    const { startIndex, endIndex } = scope;
+    const types = new Set(bindings.filter(([index]) => startIndex <= index && index < endIndex).map(([, type]) => type));
     if (types.size > 0) return types.size === 1 ? [...types][0] : null;
   }
   return receiver.text;
+}
+
+/**
+ * Type of the object of a member call: a variable's type, a type itself (`B.m()`), a construction (`new B()`);
+ * null when unproven. `this`/`self` are no variable: the caller reads their enclosing type.
+ */
+export function objectType(object: TreeNode, scopes: ScopeTypes): string | null {
+  return object.type === "identifier" ? variableType(object, scopes) : typeNameOf(object);
 }
