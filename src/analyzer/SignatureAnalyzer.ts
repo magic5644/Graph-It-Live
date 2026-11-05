@@ -12,7 +12,7 @@
  * - Optional → required parameter changes
  */
 
-import { Node, Project, SourceFile, SyntaxKind, type BindingElement, type InterfaceDeclaration, type ParameterDeclaration, type TypeLiteralNode } from 'ts-morph';
+import { Node, Project, SourceFile, SyntaxKind, ts, type BindingElement, type InterfaceDeclaration, type ParameterDeclaration, type TypeLiteralNode } from 'ts-morph';
 import * as path from 'node:path';
 import { mapWithConcurrency } from '../shared/concurrency';
 import { normalizePath } from '../shared/path';
@@ -295,7 +295,7 @@ export class SignatureAnalyzer {
         name: typeAlias.getName(),
         type: this.safeGetTypeNodeText(typeNode, 'unknown'),
         typeParameters: typeAlias.getTypeParameters().map(tp => this.safeGetText(tp)),
-        ...(Node.isUnionTypeNode(typeNode) ? { unionMembers: typeNode.getTypeNodes().map((member) => this.safeGetText(member)) } : {}),
+        ...(Node.isUnionTypeNode(typeNode) ? { unionMembers: typeNode.getTypeNodes().map((member) => this.safeGetTypeNodeText(member, this.safeGetText(member))) } : {}),
       });
     }
 
@@ -1394,8 +1394,7 @@ export class SignatureAnalyzer {
   private safeGetTypeNodeText(typeNode: { getText?: () => string } | undefined, fallback: string): string {
     if (!typeNode) return fallback;
     try {
-      const text = typeNode.getText?.() ?? '';
-      return text.length <= 200 ? text || fallback : fallback;
+      return canonicalTypeText(typeNode) || fallback;
     } catch {
       return fallback;
     }
@@ -1606,6 +1605,19 @@ export class SignatureAnalyzer {
       }
     }
   }
+}
+
+const TYPE_PRINTER = ts.createPrinter({ removeComments: true });
+
+/**
+ * The declared type as compared and shown: printed without comments, on one line, at any length. The raw text made a
+ * reformatted or commented type look changed, and a type over 200 characters read as `unknown` (#607).
+ */
+function canonicalTypeText(typeNode: { getText?: () => string }): string {
+  if (!Node.isNode(typeNode)) return (typeNode.getText?.() ?? '').replaceAll(/\s+/g, ' ').trim();
+  // The printer ends every member with `;`: `{ a: string; }` reads as written, `{ a: string }`.
+  return TYPE_PRINTER.printNode(ts.EmitHint.Unspecified, typeNode.compilerNode, typeNode.getSourceFile().compilerNode)
+    .replaceAll(/\s+/g, ' ').replaceAll('; }', ' }').trim();
 }
 
 /**

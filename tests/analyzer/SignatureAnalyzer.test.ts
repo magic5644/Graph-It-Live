@@ -1261,4 +1261,48 @@ describe('SignatureAnalyzer - members added to unions and enums (#546)', () => {
       { name: 'B', type: 'string', typeParameters: [] },
     ]);
   });
+
+  describe('type text compared in canonical form (#607)', () => {
+    const changes = (oldSource: string, newSource: string) => new SignatureAnalyzer().analyzeBreakingChanges('/x/a.ts', oldSource, newSource)
+      .flatMap((result) => result.breakingChanges.map((change) => `${change.type}: ${change.description}`));
+    const longType = `{ ${Array.from({ length: 12 }, (_, i) => `field${i}?: ReadonlySet<string>`).join('; ')} }`;
+
+    it('sees an optional property that takes a type past 200 characters as non-breaking', () => {
+      const shortType = longType.replace(/; field(?:[5-9]|1[01])\?: ReadonlySet<string>/g, '');
+      expect(shortType.length).toBeLessThanOrEqual(200);
+      expect(changes(`export function f(options: ${shortType}): void {}\n`, `export function f(options: ${longType}): void {}\n`)).toEqual([]);
+    });
+
+    it('sees no change in a type longer than 200 characters', () => {
+      expect(longType.length).toBeGreaterThan(200);
+      const source = `export function f(options: ${longType}): void {}\n`;
+      expect(changes(source, source.replace('(options', '(\n  options'))).toEqual([]);
+    });
+
+    it('sees no change when a type is only reformatted or commented', () => {
+      const before = 'export function f(options: { a?: string; b?: number }): void {}\n';
+      const after = 'export function f(options: {\n  /** The a. */\n  a?: string;\n  b?: number; // the b\n}): void {}\n';
+      expect(changes(before, after)).toEqual([]);
+    });
+
+    it('reports a real change in a long type with its full text, never as unknown', () => {
+      const before = `export function f(options: ${longType}): void {}\n`;
+      const after = `export function f(options: ${longType.replace('field0?: ReadonlySet<string>', 'field0: number')}): void {}\n`;
+      const reported = changes(before, after);
+      expect(reported).toHaveLength(1);
+      expect(reported[0]).toContain('parameter-type-changed');
+      expect(reported[0]).toContain('field0: number');
+      expect(reported[0]).not.toContain("'unknown'");
+    });
+
+    it('keeps an optional option added to a commented, multi-line destructured parameter non-breaking', () => {
+      const before = 'export function f(root: string, { a = 1, b = 2 }: { a?: number; b?: number } = {}): void {}\n';
+      const comment = '/** A new option, shared by every call of one pass; its comment alone pushes the declared type text past the two hundred characters the analyzer once read as unknown. */';
+      const after = `export function f(root: string, { a = 1, b = 2, c = 3 }: {\n  a?: number; b?: number;\n  ${comment}\n  c?: number;\n} = {}): void {}\n`;
+      expect(after.slice(after.indexOf(': {') + 2, after.indexOf('} =') + 1).length).toBeGreaterThan(200);
+      expect(changes(before, after)).toEqual([]);
+      const nonBreaking = new SignatureAnalyzer().analyzeBreakingChanges('/x/a.ts', before, after).flatMap((result) => result.nonBreakingChanges);
+      expect(nonBreaking).toEqual(expect.arrayContaining([expect.stringContaining("gained field 'c'"), expect.stringContaining('gained optional properties')]));
+    });
+  });
 });
