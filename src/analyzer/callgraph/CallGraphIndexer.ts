@@ -46,6 +46,8 @@ export interface CallGraphNode {
    * C#: dotted namespaces and types enclosing the declaration (`namespace A { class B { void F() {} } }` -> `A.B` for `F`). Absent elsewhere.
    */
   owner?: string;
+  /** TS/JS and Python: the return annotation as written (`Calculator`, `this`), so a change re-links the callers that chain on it (#623). */
+  returns?: string;
 }
 
 export interface CallGraphEdge {
@@ -108,6 +110,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     start_col   INTEGER  NOT NULL,
     is_exported INTEGER  NOT NULL DEFAULT 0,
     owner       TEXT     NOT NULL DEFAULT '',
+    returns     TEXT     NOT NULL DEFAULT '',
     framework   TEXT     CHECK (framework IS NULL OR framework = 'react'),
     react_eligible INTEGER NOT NULL DEFAULT 1,
     indexed_at  INTEGER  NOT NULL,
@@ -164,8 +167,10 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v15: a call reaches the same-file method of its receiver's type, never the first same-named one (#505).
  * v16: a call on a receiver of proven type reaches that type's method across files; Go methods retain their receiver
  *      type (`nodes.owner`); TS abstract classes are class nodes (#499).
+ * v17: a method called on a returned value reaches the method of the annotated return type; TS/JS and Python
+ *      declarations retain their return annotation (`nodes.returns`) (#623).
  */
-const CURRENT_SCHEMA_VERSION = 16;
+const CURRENT_SCHEMA_VERSION = 17;
 
 /**
  * Optional FTS5 schema for fast symbol name search.
@@ -347,8 +352,8 @@ export class CallGraphIndexer {
       // Insert all nodes (old nodes were cascade-deleted by file_index upsert)
       const nodeStmt = db.prepare(
         `INSERT OR REPLACE INTO nodes
-           (id, name, type, lang, path, folder, start_line, end_line, start_col, is_exported, owner, indexed_at, framework, react_eligible)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           (id, name, type, lang, path, folder, start_line, end_line, start_col, is_exported, owner, returns, indexed_at, framework, react_eligible)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const n of nodes) {
         nodeStmt.run([
@@ -363,6 +368,7 @@ export class CallGraphIndexer {
           n.startCol,
           n.isExported ? 1 : 0,
           n.owner ?? "",
+          n.returns ?? "",
           now,
           n.framework ?? null,
           Number(n.reactEligible !== false),

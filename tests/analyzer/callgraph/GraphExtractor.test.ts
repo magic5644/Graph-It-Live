@@ -185,6 +185,7 @@ describe("GraphExtractor", () => {
         endPosition: { row: 8, column: 1 },
         parent: null,
         type: "function_declaration",
+        childForFieldName: () => null,
       };
       mockCapturesResult = [
         {
@@ -329,6 +330,7 @@ describe("GraphExtractor", () => {
         startPosition: { row: 2, column: 2 },
         endPosition: { row: 2, column: 13 },
         type: "member_expression",
+        childForFieldName: () => null,
         parent: funcDeclNode,
       };
 
@@ -370,6 +372,7 @@ describe("GraphExtractor", () => {
         endPosition: { row: 20, column: 1 },
         parent: null,
         type: "class_declaration",
+        childForFieldName: () => null,
       };
 
       const barMethodNode = {
@@ -395,6 +398,7 @@ describe("GraphExtractor", () => {
         startPosition: { row: 6, column: 4 },
         endPosition: { row: 6, column: 12 },
         type: "member_expression",
+        childForFieldName: () => null,
         parent: classNode, // nested inside class body
       };
 

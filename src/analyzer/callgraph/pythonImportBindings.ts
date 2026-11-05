@@ -1,6 +1,8 @@
 import type { PathResolver } from "@/analyzer/utils/PathResolver";
 import type { Node as TreeNode } from "web-tree-sitter";
+import type { DeclarationReads } from "@/analyzer/utils/declarations";
 import { objectType, type ScopeTypes } from "./receiverTypes";
+import { resolveName, returnedReceiverStub, type ChainContext, type ChainMemo } from "./returnedTypes";
 
 /**
  * Call target for a bare Python name with no visible import: it can only be a same-file
@@ -182,6 +184,10 @@ export async function resolvePythonImportCalls(
   calls: TreeNode[],
   filePath: string,
   resolver: PathResolver,
+  /** Annotations of another file (#623); without it, a method called on a returned value keeps the rules below. */
+  parse?: ChainContext["parse"],
+  /** Shared by the files of one indexing pass; per call by default. */
+  reads: DeclarationReads = new Map(),
 ): Promise<Map<number, string | null>> {
   const { bindings, wildcard } = await collectBindings(root, filePath, resolver);
   const targets = new Map<number, string | null>();
@@ -190,8 +196,53 @@ export async function resolvePythonImportCalls(
     const target = callTarget(call, bindings, wildcard, filePath, declarations);
     if (target !== undefined) targets.set(call.id, target);
   }
+  // A method called on a returned value (`make().m()`, `B().set_x().build().m()`, #623): only those calls read annotations.
+  const chained = parse ? calls.filter(call => call.parent?.type === "attribute" && call.parent.childForFieldName("object")?.type === "call") : [];
+  if (parse && chained.length > 0) {
+    // The declarations already read for the receivers above (#499) serve the chains.
+    const context = returnedChain(root, filePath, { resolver, reads, parse, declarations }, bindings);
+    const memo: ChainMemo = new Map();
+    const stubs = await Promise.all(chained.map(call => returnedReceiverStub(call, call.parent?.childForFieldName("object"), context, memo)));
+    chained.forEach((call, index) => {
+      const stub = stubs[index];
+      // `C().m()` on a class of this file: the same-file rule (#505) already reaches the method of `C`.
+      const constructed = call.parent?.childForFieldName("object")?.childForFieldName("function")?.text;
+      if (stub && stub !== `@@import:${JSON.stringify([filePath, call.text, constructed])}`) targets.set(call.id, stub);
+    });
+  }
   return targets;
 }
+
+/** What a file needs to type the values its calls return (#623): a name binds its single visible binding. */
+function returnedChain(
+  root: TreeNode,
+  filePath: string,
+  pass: Pick<ChainContext, "resolver" | "reads" | "parse" | "declarations">,
+  bindings: Map<string, Entry[]>,
+): ChainContext {
+  const single = (name: string, node: TreeNode) => {
+    const found = visibleEntries(bindings, name, node);
+    return found.length === 1 ? found[0] : undefined;
+  };
+  const context: ChainContext = {
+    ...pass, root, filePath, lang: "python",
+    bound: (name, node) => {
+      const entry = single(name, node);
+      // A `def` or `class` of the module, or a `from m import` symbol: anything else binds a value of unknown type.
+      if (entry && !entry.binding) return Promise.resolve(entry.scope.id === root.id && TOP_LEVEL_DEFINITIONS.has(entry.node.parent?.type ?? "") ? { filePath, name } : null);
+      if (entry?.binding?.kind !== "symbol" || !entry.binding.stub) return Promise.resolve(null);
+      const [modulePath, imported] = JSON.parse(entry.binding.stub.slice("@@import:".length)) as [string, string];
+      return resolveName(modulePath, imported, context);
+    },
+    module: (object) => {
+      const binding = object.type === "identifier" ? single(object.text, object)?.binding : undefined;
+      return binding?.kind === "module" ? binding.path : null;
+    },
+  };
+  return context;
+}
+
+const TOP_LEVEL_DEFINITIONS = new Set(["function_definition", "class_definition"]);
 
 /** Target of one call; undefined when the call is left to the extractor's own rules. */
 function callTarget(
