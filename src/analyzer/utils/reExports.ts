@@ -1,10 +1,30 @@
 import { ts } from 'ts-morph';
+import { normalizePath } from '@/shared/path';
 import { isPythonOrRust, pyRsReExports } from './pyRsImports';
 
 /** A module path and the export name it is reached by. */
 export interface ReExportTarget {
   filePath: string;
   name: string;
+}
+
+/** Parsed modules kept by `parseModule`: enough for the barrels every importer of a workspace resolves through. */
+const PARSED_MODULES_SIZE = 128;
+const parsedModules = new Map<string, { content: string; sourceFile: ts.SourceFile }>();
+
+/**
+ * `content` parsed as a module (parent pointers set), shared by the re-export and declaration helpers: each importer of
+ * a barrel looks names up in it, and parsing it once per lookup made the cold call graph several times slower (#575).
+ * Keyed by path and checked against the content, so an edited file is parsed again; least recently used out.
+ */
+export function parseModule(filePath: string, content: string): ts.SourceFile {
+  const key = normalizePath(filePath);
+  const cached = parsedModules.get(key);
+  parsedModules.delete(key);
+  const sourceFile = cached?.content === content ? cached.sourceFile : ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true);
+  parsedModules.set(key, { content, sourceFile });
+  if (parsedModules.size > PARSED_MODULES_SIZE) parsedModules.delete(parsedModules.keys().next().value!);
+  return sourceFile;
 }
 
 export interface ReExport {
@@ -19,7 +39,7 @@ export interface ReExport {
  * ponytail: `import * as ns; export { ns }` and `export default x` of an import are not followed.
  */
 export function parseReExports(filePath: string, content: string): ReExport[] {
-  const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, false);
+  const sourceFile = parseModule(filePath, content);
   const imports = importBindings(sourceFile);
   const reExports: ReExport[] = [];
   for (const statement of sourceFile.statements) {
@@ -78,7 +98,7 @@ function importBindings(sourceFile: ts.SourceFile): Map<string, { specifier: str
 
 /** Top-level `export * as alias from 'specifier'` declarations: a namespace object over the whole module. */
 export function parseNamespaceReExports(filePath: string, content: string): Array<{ specifier: string; alias: string }> {
-  const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, false);
+  const sourceFile = parseModule(filePath, content);
   const namespaces: Array<{ specifier: string; alias: string }> = [];
   for (const statement of sourceFile.statements) {
     if (!ts.isExportDeclaration(statement)) continue;
@@ -121,7 +141,7 @@ export function mayReExport(content: string): boolean {
  * ponytail: destructured `export const { a } = obj` is not recognised; add binding patterns if barrels use it.
  */
 export function declaresExport(filePath: string, content: string, name: string): boolean {
-  const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, false);
+  const sourceFile = parseModule(filePath, content);
   return sourceFile.statements.some((statement) => {
     if (ts.isExportDeclaration(statement)) {
       const clause = statement.exportClause;

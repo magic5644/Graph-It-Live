@@ -3,7 +3,7 @@ import { ts } from "ts-morph";
 import { normalizePath } from "@/shared/path";
 import { isInIgnoredDirectory } from "./PathPredicates";
 import type { PathResolver } from "./PathResolver";
-import { declaresExport, exportsOnlyAsDefault, mayReExport, parseReExports, type ReExport, type ReExportTarget } from "./reExports";
+import { declaresExport, exportsOnlyAsDefault, mayReExport, parseModule, parseReExports, type ReExport, type ReExportTarget } from "./reExports";
 
 /** `findDeclaration` result for a module that exports `name` only as the local name of its default export. */
 export const DEFAULT_ONLY = "default-only";
@@ -67,7 +67,7 @@ const MAY_EXPORT_DEFAULT = /\bexport\s+default\b|\bas\s+default\b/;
  */
 export function defaultExportName(filePath: string, content: string): string | undefined {
   if (!MAY_EXPORT_DEFAULT.test(content)) return undefined;
-  return defaultExportNameOf(ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true));
+  return defaultExportNameOf(parseModule(filePath, content));
 }
 
 /** `defaultExportName` of an already parsed module (parent pointers set). */
@@ -94,6 +94,25 @@ function reExportedAs(names: ReExport["names"], name: string): string | undefine
   return names.find((entry) => entry.exported === name)?.imported;
 }
 
+/** Re-export specifiers resolved during one resolution, by the `reads` they belong to: they live and die with it. */
+const resolutions = new WeakMap<DeclarationReads, Map<string, Promise<string | null>>>();
+
+/** `resolver.resolve(fromFile, specifier)`, once per `reads`: every name looked up in a barrel walks the same `export *` chain. */
+function resolveOnce(fromFile: string, specifier: string, resolver: PathResolver, reads: DeclarationReads): Promise<string | null> {
+  let resolved = resolutions.get(reads);
+  if (!resolved) {
+    resolved = new Map();
+    resolutions.set(reads, resolved);
+  }
+  const key = `${normalizePath(fromFile)}\0${specifier}`;
+  let target = resolved.get(key);
+  if (!target) {
+    target = resolver.resolve(fromFile, specifier).catch(() => null);
+    resolved.set(key, target);
+  }
+  return target;
+}
+
 function readModule(filePath: string, reads: DeclarationReads): Promise<string | null> {
   const key = normalizePath(filePath);
   let content = reads.get(key);
@@ -109,7 +128,7 @@ function readModule(filePath: string, reads: DeclarationReads): Promise<string |
  * `default` export to its declared name (`export default function Panel` → `Panel`), so a use through a barrel or
  * a default import links to the real symbol. A module without re-exports imported directly is returned as is. Null when
  * no module of a re-export chain declares `name`: the caller keeps the imported module as target. `DEFAULT_ONLY` when the module itself exports `name` only as its default export's local name.
- * `reads` caches module contents for one resolution pass; its keys are the files the result was read from.
+ * `reads` caches module contents and re-export resolutions for one resolution pass; its keys are the files the result was read from.
  */
 export async function findDeclaration(
   filePath: string,
@@ -155,7 +174,7 @@ async function followReExports(
   visited: Set<string>,
 ): Promise<ReExportTarget | null> {
   const reExports = parseReExports(filePath, content);
-  const follow = (specifier: string, wanted: string) => resolver.resolve(filePath, specifier).catch(() => null)
+  const follow = (specifier: string, wanted: string) => resolveOnce(filePath, specifier, resolver, reads)
     .then(next => next ? findDeclaration(next, wanted, resolver, reads, visited, false) : null);
   for (const { specifier, names } of reExports.filter(entry => entry.names !== "all")) {
     const wanted = reExportedAs(names, name);

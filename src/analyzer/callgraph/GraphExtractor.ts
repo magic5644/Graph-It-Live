@@ -37,7 +37,7 @@ import type { Node as TreeNode } from "web-tree-sitter";
 import { Query } from "web-tree-sitter";
 import type { CallGraphEdge, CallGraphNode } from "./CallGraphIndexer";
 import { resolveNamedImportCalls } from "./importBindings";
-import { isComponentFactory } from "@/analyzer/utils/declarations";
+import { isComponentFactory, type DeclarationReads } from "@/analyzer/utils/declarations";
 import { LOCAL_ONLY, resolvePythonImportCalls } from "./pythonImportBindings";
 import { extractGraphQL } from "./graphqlExtractor";
 import { definitionOwner, QUALIFIED_PREFIX, resolveQualifiedCalls, workspaceFolder } from "./qualifiedCalls";
@@ -394,6 +394,7 @@ export class GraphExtractor {
     filePath: string,
     lang: SupportedLang,
     _mtime?: number,
+    reads?: DeclarationReads,
   ): Promise<ExtractionResult> {
     let source = await fs.readFile(filePath, "utf8");
 
@@ -403,12 +404,14 @@ export class GraphExtractor {
       source = extractScriptFromSFC(source);
     }
 
-    return this.extractSource(filePath, lang, source);
+    return this.extractSource(filePath, lang, source, reads);
   }
+  /** `reads`: module contents and re-export resolutions shared by the files of one indexing pass (per file when absent). */
   async extractSource(
     filePath: string,
     lang: SupportedLang,
     source: string,
+    reads?: DeclarationReads,
   ): Promise<ExtractionResult> {
     const normalizedPath = normalizePath(filePath);
     // No tree-sitter grammar ships for GraphQL: it has its own scanner.
@@ -464,7 +467,7 @@ export class GraphExtractor {
       const resolver = new PathResolver(undefined, true, this.config.workspaceRoot);
       let importTargets: Map<number, string | null>;
       if (lang === "typescript" || lang === "javascript") {
-        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver, { references, declared });
+        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver, { references, declared, reads });
       } else if (lang === "python") {
         importTargets = await resolvePythonImportCalls(tree.rootNode, calls, normalizedPath, resolver);
       } else {
