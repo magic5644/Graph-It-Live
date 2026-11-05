@@ -75,3 +75,47 @@ describe("CallGraphViewService save refresh re-links importers when node ids mov
     expect(edges).toEqual([]);
   });
 });
+
+describe("CallGraphViewService save refresh re-links the callers of a changed return annotation (#623)", () => {
+  let harness: Awaited<ReturnType<typeof createTreeSitterHarness>>;
+
+  beforeAll(async () => {
+    harness = await createTreeSitterHarness("gil-refresh-returns-");
+  });
+  afterAll(() => harness.dispose());
+
+  const SERVICE = "export class Calculator { compute() { return 1; } }\nexport class OtherCalculator { compute() { return 2; } }\n";
+  const factory = (type: string) => `import { Calculator, OtherCalculator } from './service';\nexport function make(): ${type} { return new ${type}(); }\n`;
+
+  it.each([
+    ["Calculator", "OtherCalculator", ["src/use.ts#run -> src/service.ts:compute:1"], 1],
+    ["Calculator", "Calculator", ["src/use.ts#run -> src/service.ts:compute:0"], 0],
+  ])("make(): %s saved as make(): %s", async (from, to, expected, lookups) => {
+    const indexer = await harness.newIndexer();
+    await harness.indexInto(indexer, {
+      "src/service.ts": SERVICE,
+      "src/factory.ts": factory(from),
+      "src/use.ts": "import { make } from './factory';\nexport function run() { return make().compute(); }\n",
+    });
+    const lookup = vi.fn(async () => [path.join(harness.root, "src/use.ts")]);
+    const service = new CallGraphViewService({ subscriptions: [], extensionPath: harness.root } as never, lookup);
+    const internals = service as unknown as Internals;
+    internals.indexer = indexer;
+    const factoryPath = normalizePath(path.join(harness.root, "src/factory.ts"));
+    internals.currentFilePath = factoryPath;
+    try {
+      await fs.writeFile(factoryPath, factory(to));
+      await internals.refreshFile(factoryPath, "typescript", harness.root);
+      const { nodes, edges } = indexer.getIndexSnapshot();
+      const byId = new Map(nodes.map((node) => [node.id, node]));
+      const rel = (file: string) => path.relative(harness.root, file).replaceAll("\\", "/");
+      expect(edges.filter((edge) => byId.get(edge.targetId)?.name === "compute")
+        .map((edge) => `${rel(byId.get(edge.sourceId)?.path ?? "")}#run -> ${rel(byId.get(edge.targetId)?.path ?? "")}:compute:${byId.get(edge.targetId)?.startLine}`))
+        .toEqual(expected);
+      expect(lookup).toHaveBeenCalledTimes(lookups);
+    } finally {
+      internals.indexer = null;
+      indexer.dispose();
+    }
+  });
+});

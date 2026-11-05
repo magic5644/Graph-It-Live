@@ -1070,9 +1070,10 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     }
   }
 
-  private nodeIdsOf(indexer: CallGraphIndexer, filePath: string): Set<string> {
-    const rows = indexer.getDb().exec("SELECT id FROM nodes WHERE path = ?", [filePath])[0]?.values ?? [];
-    return new Set(rows.map((row) => String(row[0])));
+  /** Each declaration of a file with its return annotation: what its importers' edges depend on. */
+  private nodeKeysOf(indexer: CallGraphIndexer, filePath: string): Set<string> {
+    const rows = indexer.getDb().exec("SELECT id, returns FROM nodes WHERE path = ?", [filePath])[0]?.values ?? [];
+    return new Set(rows.map((row) => `${String(row[0])}\0${String(row[1])}`));
   }
 
   private async reindexImporters(filePath: string, indexer: CallGraphIndexer, extractor: GraphExtractor): Promise<void> {
@@ -1099,13 +1100,16 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
 
     const extractor = this.ensureExtractor(workspaceRoot);
     const mtime = Date.now();
-    const before = this.nodeIdsOf(indexer, filePath);
+    const before = this.nodeKeysOf(indexer, filePath);
     const { nodes, edges } = await extractor.extractFile(filePath, lang, mtime);
     if (this.disposed) return;
     indexer.indexFile(nodes, edges, filePath, lang, mtime);
     // A declaration added, removed or moved changes the file's node ids: indexFile dropped the importers'
-    // edges to the old ids, so the importers are extracted again to link to the new ones.
-    if (nodes.length !== before.size || nodes.some((node) => !before.has(node.id))) {
+    // edges to the old ids, so the importers are extracted again to link to the new ones. A changed return
+    // annotation changes what a method called on a returned value reaches (#623).
+    // shortcut: a callee that keeps its annotation but imports the type from elsewhere leaves its importers'
+    // edges stale until they are saved; compare the resolved type if that shows up.
+    if (nodes.length !== before.size || nodes.some((node) => !before.has(`${node.id}\0${node.returns ?? ""}`))) {
       await this.reindexImporters(filePath, indexer, extractor);
       if (this.disposed) return;
     }

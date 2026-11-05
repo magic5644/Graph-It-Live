@@ -39,6 +39,7 @@ import type { CallGraphEdge, CallGraphNode } from "./CallGraphIndexer";
 import { resolveNamedImportCalls } from "./importBindings";
 import { isComponentFactory, type DeclarationReads } from "@/analyzer/utils/declarations";
 import { LOCAL_ONLY, resolvePythonImportCalls } from "./pythonImportBindings";
+import { fileReturns, type FileReturns } from "./returnedTypes";
 import { extractGraphQL } from "./graphqlExtractor";
 import { definitionOwner, QUALIFIED_PREFIX, resolveQualifiedCalls, workspaceFolder } from "./qualifiedCalls";
 import { enclosingType, methodOwner, objectType, TYPE_SCOPES, type ScopeTypes } from "./receiverTypes";
@@ -231,6 +232,16 @@ function ownMembers(node: TreeNode, candidates: string[] | undefined): string[] 
   });
 }
 
+/** Languages whose return annotations type a returned value (#623). */
+const RETURN_ANNOTATED = new Set<SupportedLang>(["typescript", "javascript", "python"]);
+
+/** Return annotation of a definition (its name node) as written: `: C` of a function or method, of `const f = (): C =>`. */
+function returnAnnotation(name: TreeNode): string | undefined {
+  const declaration = name.parent;
+  const fn = declaration?.type === "variable_declarator" ? declaration.childForFieldName("value") : declaration;
+  return fn?.childForFieldName("return_type")?.text;
+}
+
 /** Bare calls that reach a method of the enclosing type, as `this.m()` does: Java and C# invocations. */
 const IMPLICIT_THIS_CALLS = new Set(["method_invocation", "invocation_expression"]);
 
@@ -248,8 +259,8 @@ function receiverType(node: TreeNode, object: TreeNode, declarations: ScopeTypes
  * C#, a method of the enclosing type) for a bare call. Null, so no edge, unless exactly one matches: a call is
  * never linked to an arbitrary homonym. A single candidate is kept as is.
  * shortcut: a method inherited from a same-file base type, `super.m()`/`base.m()`, a call on a returned value
- * (`B::new().m()`) and a Rust trait default method calling `self.m()` link nowhere; upgrade with INHERITS edges
- * and return-type inference. A receiver of a type declared in another file: #499 (importBindings, qualifiedCalls).
+ * outside TS/JS and Python (`B::new().m()`, see returnedTypes, #623) and a Rust trait default method calling
+ * `self.m()` link nowhere; upgrade with INHERITS edges and return types read on the index side. A receiver of a type declared in another file: #499 (importBindings, qualifiedCalls).
  */
 function homonymTargets(node: TreeNode, candidates: string[] | undefined, context: HomonymContext): string[] | null | undefined {
   if (!candidates || candidates.length < 2) return candidates;
@@ -466,16 +477,41 @@ export class GraphExtractor {
       const references = new Set(captures.filter(c => REFERENCE_CAPTURES.has(c.name)).map(c => c.node.id));
       const resolver = new PathResolver(undefined, true, this.config.workspaceRoot);
       let importTargets: Map<number, string | null>;
+      const passReads = reads ?? new Map();
+      const parse = (calleePath: string) => this.readReturns(calleePath, passReads);
       if (lang === "typescript" || lang === "javascript") {
-        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver, { references, declared }, reads);
+        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver, { references, declared, parse }, passReads);
       } else if (lang === "python") {
-        importTargets = await resolvePythonImportCalls(tree.rootNode, calls, normalizedPath, resolver);
+        importTargets = await resolvePythonImportCalls(tree.rootNode, calls, normalizedPath, resolver, parse, passReads);
       } else {
         importTargets = await resolveQualifiedCalls(tree.rootNode, calls, lang, normalizedPath, normalizePath(this.config.workspaceRoot));
       }
       const jsxImportSource = lang === 'typescript' || lang === 'javascript'
         ? await this.readJsxImportSource() : undefined;
       return this.processCaptures(captures, normalizedPath, lang, source, importTargets, jsxImportSource);
+    } finally {
+      tree.delete();
+    }
+  }
+
+  /**
+   * Return annotations of a file another file calls into (#623), as strings: parsed once per pass (the caller
+   * caches the result) and freed at once. Null for a language without annotations read or an unreadable file.
+   */
+  private async readReturns(filePath: string, reads: DeclarationReads): Promise<FileReturns | null> {
+    const lang = fileExtToLang(filePath);
+    if (lang !== "typescript" && lang !== "javascript" && lang !== "python") return null;
+    // A content the pass already holds is reused; any other is read and dropped: only the annotations are kept.
+    const content = await (reads.get(normalizePath(filePath)) ?? fs.readFile(filePath, "utf8").catch(() => null));
+    if (content === null) return null;
+    const ext = path.extname(filePath).toLowerCase();
+    const source = ext === ".vue" || ext === ".svelte" ? extractScriptFromSFC(content) : content;
+    const grammar = grammarOf(lang, filePath);
+    const parser = await WasmParserFactory.getInstance().getParser(grammar, path.join(this.config.extensionPath, "dist", "wasm", this.langToWasmFileName(grammar)));
+    const tree = parser.parse(source);
+    if (!tree) return null;
+    try {
+      return fileReturns(tree.rootNode, lang === "python" ? "python" : "typescript");
     } finally {
       tree.delete();
     }
@@ -577,6 +613,8 @@ export class GraphExtractor {
       };
       const owner = definitionOwner(lang, node);
       if (owner) cgNode.owner = owner;
+      const returns = RETURN_ANNOTATED.has(lang) ? returnAnnotation(node) : undefined;
+      if (returns) cgNode.returns = returns;
       nodeMap.set(nodeId, cgNode);
       definitions.set(nodeId, node);
       // Store the containing DECLARATION node's position for AST ancestor walking.

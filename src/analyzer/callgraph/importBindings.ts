@@ -4,7 +4,8 @@ import type { ReExportTarget } from "@/analyzer/utils/reExports";
 import { mapWithConcurrency } from "@/shared/concurrency";
 import { normalizePath } from "@/shared/path";
 import type { Node as TreeNode } from "web-tree-sitter";
-import { objectType, type ScopeTypes } from "./receiverTypes";
+import { objectType } from "./receiverTypes";
+import { chainNames, importedNames, returnedReceiverStub, resolveName, type ChainContext, type ChainMemo } from "./returnedTypes";
 
 const NAMESPACE_CALL_CONCURRENCY = 8;
 
@@ -63,20 +64,6 @@ function importStub(declared: ReExportTarget | typeof DEFAULT_ONLY | null, modul
 
 /** A named or default import: where it is declared, and whether only its type is imported (`import type`). */
 interface ImportedDeclaration extends ReExportTarget { typeOnly: boolean }
-
-/** Local name and imported name of each binding of an import statement: `import Panel, { Card as C } from`. */
-function importedNames(statement: TreeNode): Array<{ local: TreeNode; imported: string; isType: boolean }> {
-  const clause = statement.namedChildren.find(node => node.type === "import_clause");
-  const defaultBinding = clause?.namedChildren.find(node => node.type === "identifier");
-  const names = defaultBinding ? [{ local: defaultBinding, imported: "default", isType: false }] : [];
-  for (const specifier of statement.descendantsOfType("import_specifier")) {
-    const imported = specifier.childForFieldName("name");
-    if (!imported) continue;
-    const isType = specifier.children.some(node => node.type === "type");
-    names.push({ local: specifier.childForFieldName("alias") ?? imported, imported: imported.text, isType });
-  }
-  return names;
-}
 
 /**
  * Named and default import bindings: local name -> its declaration, or null when it links nowhere. Only bindings
@@ -206,16 +193,16 @@ function callStub(declaration: ImportedDeclaration | null | undefined): string |
  * Types of the receivers of member calls that an import binds (#499): `c.compute()` with `c: Calc`,
  * `new Calc().compute()`, `Calc.create()`; by call node id.
  */
-function importedReceiverTypes(root: TreeNode, calls: TreeNode[]): Map<number, string> {
+function importedReceiverTypes(root: TreeNode, members: Map<number, TreeNode>, calls: TreeNode[], declarations: { wanted: Set<string> }): Map<number, string> {
   const types = new Map<number, string>();
   const imported = new Set(root.namedChildren.filter(node => node.type === "import_statement")
     .flatMap(importedNames).map(({ local }) => local.text));
   if (imported.size === 0) return types;
   const objects = calls.flatMap(call => {
-    const object = call.type === "property_identifier" ? memberObject(call) : null;
+    const object = members.get(call.id);
     return object ? [{ call, object, identifier: object.type === "identifier" ? object.text : null }] : [];
   });
-  const declarations: ScopeTypes = { wanted: new Set(objects.flatMap(({ identifier }) => identifier ?? [])) };
+  for (const { identifier } of objects) if (identifier) declarations.wanted.add(identifier);
   for (const { call, object, identifier } of objects) {
     // `Calc.create()`: a local binding of that name is a shadow, checked with the stub.
     const type = identifier && imported.has(identifier) ? identifier : objectType(object, declarations);
@@ -236,6 +223,35 @@ function classMethodStub(call: TreeNode, type: string | undefined, imports: Map<
 }
 
 /**
+ * What a file needs to type the values its calls return (#623): a name binds its innermost declaration, a
+ * top-level one or an import of this file (`imports`: those already resolved for its calls); a shadowed namespace
+ * is no module.
+ */
+function returnedChain(
+  root: TreeNode,
+  filePath: string,
+  pass: Pick<ChainContext, "resolver" | "reads" | "parse" | "declarations">,
+  bindings: { namespaces: Map<string, string>; imports: (name: string) => ImportedDeclaration | null | undefined },
+  shadows: () => Shadows,
+): { context: ChainContext; memo: ChainMemo } {
+  const { namespaces, imports } = bindings;
+  const shadowed = (node: Pick<TreeNode, "text" | "startIndex" | "endIndex">) => findShadow(shadows(), node);
+  const context: ChainContext = {
+    ...pass, root, filePath, lang: "typescript",
+    bound: (name, node) => {
+      const shadow = shadowed({ text: name, startIndex: node.startIndex, endIndex: node.endIndex });
+      if (shadow && shadow.scope.id !== root.id) return Promise.resolve(null);
+      // An import already resolved for this file's calls is not resolved again.
+      const imported = shadow ? undefined : imports(name);
+      if (imported !== undefined) return Promise.resolve(imported && { filePath: imported.filePath, name: imported.name });
+      return resolveName(filePath, name, context);
+    },
+    module: (object) => (object.type === "identifier" && !shadowed(object) ? namespaces.get(object.text) ?? null : null),
+  };
+  return { context, memo: new Map() };
+}
+
+/**
  * Resolve named, default and namespace imports, and `lazy()` module specifiers (`string_fragment` nodes), before
  * the AST is freed; unknown bindings never fall back to global names. A reference (`references`: `<Card />`,
  * `register(save)`) that no import binds resolves through its scope: the innermost declaration of its name, so a
@@ -246,11 +262,25 @@ export async function resolveNamedImportCalls(
   calls: TreeNode[],
   filePath: string,
   resolver: PathResolver,
-  { references = new Set(), declared = new Set() }: { references?: ReadonlySet<number>; declared?: ReadonlySet<string> } = {},
+  { references = new Set(), declared = new Set(), parse }: {
+    references?: ReadonlySet<number>;
+    declared?: ReadonlySet<string>;
+    /** Annotations of another file (#623); without it, a method called on a returned value is left to the extractor. */
+    parse?: ChainContext["parse"];
+  } = {},
   /** Shared by the files of one indexing pass, whose contents do not change during it; per call by default. */
   reads: DeclarationReads = new Map(),
 ): Promise<Map<number, string | null>> {
-  const receiverTypes = importedReceiverTypes(root, calls);
+  // The object of each member call, read once for the receivers of #499 and the returned values of #623.
+  const members = new Map(calls.flatMap((call): Array<[number, TreeNode]> => {
+    const object = call.type === "property_identifier" ? memberObject(call) : null;
+    return object ? [[call.id, object]] : [];
+  }));
+  // Only a file calling a method on a returned value (`make().m()`, #623) reads its own annotations.
+  const chained = parse ? [...members.values()].filter(object => object.type === "call_expression") : [];
+  // One read of the file's declarations serves the receivers of both.
+  const declarations = { wanted: chainNames(chained, "typescript") };
+  const receiverTypes = importedReceiverTypes(root, members, calls, declarations);
   const used = new Set([...calls.filter(call => call.type === "identifier").map(call => call.text), ...receiverTypes.values()]);
   const [imports, namespaces] = await Promise.all([
     collectNamedImports(root, filePath, resolver, reads, used),
@@ -260,8 +290,14 @@ export async function resolveNamedImportCalls(
   const isReference = (call: TreeNode) => call.type === "identifier" && references.has(call.id);
   // Only a passed name this file declares needs its scope: an import is bound, any other name links nowhere.
   const referenceNames = new Set(calls.filter(call => isReference(call) && declared.has(call.text)).map(call => call.text));
-  if (imports.size === 0 && namespaces.size === 0 && referenceNames.size === 0 && !calls.some(call => call.type === "string_fragment")) return targets;
-  const shadows = collectShadows(root, { has: (name) => imports.has(name) || namespaces.has(name) || referenceNames.has(name) });
+  const chain = parse && chained.length > 0
+    ? returnedChain(root, filePath, { resolver, reads, parse, declarations }, { namespaces, imports: (name) => (used.has(name) ? imports.get(name) : undefined) }, () => shadows)
+    : undefined;
+  if (imports.size === 0 && namespaces.size === 0 && referenceNames.size === 0 && !chain && !calls.some(call => call.type === "string_fragment")) return targets;
+  // A chain's head may be any declaration of this file: its scope tells a top-level one from a local one.
+  const shadows = collectShadows(root, {
+    has: (name) => imports.has(name) || namespaces.has(name) || referenceNames.has(name) || (chain !== undefined && declared.has(name)),
+  });
   // Calls are independent (own visited set, shared read cache); a file can hold many, so bound the reads in flight.
   const stubs = await mapWithConcurrency(calls, NAMESPACE_CALL_CONCURRENCY, async (call): Promise<string | null | undefined> => {
     if (call.type === "string_fragment") return resolveLazyImport(call, filePath, resolver, reads);
@@ -274,7 +310,8 @@ export async function resolveNamedImportCalls(
     // null (a namespace member that links nowhere) is kept: only an undefined result is no namespace call.
     const namespaced = await resolveNamespaceCall(call, namespaces, shadows, resolver, reads);
     if (namespaced !== undefined) return namespaced;
-    return classMethodStub(call, receiverTypes.get(call.id), imports, shadows);
+    return classMethodStub(call, receiverTypes.get(call.id), imports, shadows)
+      ?? (chain && returnedReceiverStub(call, members.get(call.id), chain.context, chain.memo));
   });
   calls.forEach((call, index) => {
     if (stubs[index] !== undefined) targets.set(call.id, stubs[index]);

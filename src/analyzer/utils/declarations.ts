@@ -105,7 +105,7 @@ function reExportedAs(names: ReExport["names"], name: string): string | undefine
 const resolutions = new WeakMap<DeclarationReads, Map<string, Promise<string | null>>>();
 
 /** `resolver.resolve(fromFile, specifier)`, once per `reads`: every name looked up in a barrel walks the same `export *` chain. */
-function resolveOnce(fromFile: string, specifier: string, resolver: PathResolver, reads: DeclarationReads): Promise<string | null> {
+export function resolveOnce(fromFile: string, specifier: string, resolver: PathResolver, reads: DeclarationReads): Promise<string | null> {
   let resolved = resolutions.get(reads);
   if (!resolved) {
     resolved = new Map();

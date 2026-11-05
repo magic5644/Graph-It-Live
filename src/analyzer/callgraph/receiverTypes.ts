@@ -167,8 +167,8 @@ function bindingsOf(root: TreeNode, wanted?: ReadonlySet<string>): Map<string, A
  * `scopes` caches the declarations of one file.
  * A rebinding (`b = other`) counts as a declaration, so a variable given two types is unresolved.
  * shortcut: a scope's nested functions and blocks count as the scope, so one name declared with two types
- * in them is unresolved; fields (`this.b.m()`) and inferred values (`make().m()`, `identity(b).m()`) are not
- * typed; upgrade with field and return-type propagation.
+ * in them is unresolved; fields (`this.b.m()`) are not typed, nor a variable holding a returned value
+ * (`const b = make()`); upgrade with field and variable propagation. A call's own value: returnedTypes (#623).
  */
 export function variableType(receiver: TreeNode, scopes: ScopeTypes): string | null {
   scopes.byName ??= bindingsOf(receiver.tree.rootNode, scopes.wanted);
