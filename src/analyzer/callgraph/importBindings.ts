@@ -193,9 +193,12 @@ export async function resolveNamedImportCalls(
   calls: TreeNode[],
   filePath: string,
   resolver: PathResolver,
-  { references = new Set(), declared = new Set() }: { references?: ReadonlySet<number>; declared?: ReadonlySet<string> } = {},
+  { references = new Set(), declared = new Set(), reads = new Map() }: {
+    references?: ReadonlySet<number>; declared?: ReadonlySet<string>;
+    /** Shared by the files of one indexing pass, whose contents do not change during it; per call by default. */
+    reads?: DeclarationReads;
+  } = {},
 ): Promise<Map<number, string | null>> {
-  const reads: DeclarationReads = new Map();
   const used = new Set(calls.filter(call => call.type === "identifier").map(call => call.text));
   const [imports, namespaces] = await Promise.all([
     collectNamedImports(root, filePath, resolver, reads, used),

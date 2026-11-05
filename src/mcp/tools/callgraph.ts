@@ -10,6 +10,7 @@
 
 import type { IndexCache } from "@/analyzer/cache/IndexCache";
 import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
+import type { DeclarationReads } from "@/analyzer/utils/declarations";
 import type { ExtractorConfig } from "@/analyzer/callgraph/GraphExtractor";
 import {
   collectChangedFiles,
@@ -339,7 +340,8 @@ async function indexCallGraphJobs(
 ): Promise<void> {
   indexer.beginBatch();
   try {
-    await indexCallGraphWindow(indexer, extractor, jobs, 0);
+    // One pass reads each module and resolves each barrel re-export once, whatever the number of importers.
+    await indexCallGraphWindow(indexer, extractor, jobs, 0, new Map());
     indexer.commitBatch();
   } catch (err) {
     indexer.rollbackBatch();
@@ -356,12 +358,13 @@ async function indexCallGraphWindow(
   extractor: GraphExtractor,
   jobs: CallGraphJob[],
   start: number,
+  reads: DeclarationReads,
 ): Promise<void> {
   if (start >= jobs.length) return;
   const window = jobs.slice(start, start + CALL_GRAPH_WINDOW);
-  const extracted = await mapWithConcurrency(window, 8, (job) => extractCallGraphJob(extractor, job));
+  const extracted = await mapWithConcurrency(window, 8, (job) => extractCallGraphJob(extractor, job, reads));
   window.forEach((job, index) => indexCallGraphJob(indexer, job, extracted[index]));
-  return indexCallGraphWindow(indexer, extractor, jobs, start + CALL_GRAPH_WINDOW);
+  return indexCallGraphWindow(indexer, extractor, jobs, start + CALL_GRAPH_WINDOW, reads);
 }
 
 type ExtractedCallGraphJob = Awaited<ReturnType<GraphExtractor["extractFile"]>> & { mtime: number };
@@ -369,10 +372,11 @@ type ExtractedCallGraphJob = Awaited<ReturnType<GraphExtractor["extractFile"]>> 
 async function extractCallGraphJob(
   extractor: GraphExtractor,
   job: CallGraphJob,
+  reads: DeclarationReads,
 ): Promise<ExtractedCallGraphJob | null> {
   try {
     const stat = await fs.stat(job.filePath);
-    const result = await extractor.extractFile(job.filePath, job.lang, stat.mtimeMs);
+    const result = await extractor.extractFile(job.filePath, job.lang, stat.mtimeMs, reads);
     return { ...result, mtime: stat.mtimeMs };
   } catch {
     // Skip files that fail to parse (binary files, encoding issues, etc.)

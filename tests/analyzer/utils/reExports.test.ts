@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { declaresExport, exportsOnlyAsDefault, mayReExport, parseNamespaceReExports, parseReExports } from '../../../src/analyzer/utils/reExports';
+import { declaresExport, exportsOnlyAsDefault, mayReExport, parseModule, parseNamespaceReExports, parseReExports } from '../../../src/analyzer/utils/reExports';
 
 describe('parseReExports', () => {
   it('reads named, renamed and wildcard re-exports', () => {
@@ -122,5 +122,33 @@ describe('parseReExports - import then export', () => {
   it('ignores local declarations and unknown names exported without `from`', () => {
     expect(parseReExports('/x/m.ts', 'const a = 1; export { a, missing };')).toEqual([]);
     expect(parseReExports('/x/m.ts', 'import * as ns from "./m"; export { ns };')).toEqual([]);
+  });
+});
+
+describe('parseModule', () => {
+  it('parses a path and content once, under any spelling of the path, with parent pointers', () => {
+    const content = 'export const a = 1;\n';
+    const first = parseModule('/ws/cache-hit.ts', content);
+    expect(parseModule(String.raw`\ws\cache-hit.ts`, content)).toBe(first);
+    expect(first.statements[0].parent).toBe(first);
+  });
+
+  it('parses an edited file again, so a lookup never reads stale content', () => {
+    const before = parseModule('/ws/edited.ts', 'export const a = 1;\n');
+    expect(declaresExport('/ws/edited.ts', 'export const a = 1;\n', 'a')).toBe(true);
+    const after = parseModule('/ws/edited.ts', 'export const b = 1;\n');
+    expect(after).not.toBe(before);
+    expect(declaresExport('/ws/edited.ts', 'export const b = 1;\n', 'a')).toBe(false);
+    expect(declaresExport('/ws/edited.ts', 'export const b = 1;\n', 'b')).toBe(true);
+  });
+
+  it('keeps the 128 most recently used modules', () => {
+    const content = 'export const x = 1;\n';
+    const oldest = parseModule('/ws/lru-0.ts', content);
+    const kept = parseModule('/ws/lru-1.ts', content);
+    for (let index = 2; index <= 128; index++) parseModule(`/ws/lru-${index}.ts`, content);
+    expect(parseModule('/ws/lru-1.ts', content)).toBe(kept);
+    parseModule('/ws/lru-129.ts', content);
+    expect(parseModule('/ws/lru-0.ts', content)).not.toBe(oldest);
   });
 });

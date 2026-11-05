@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { DEFAULT_ONLY, defaultExportName, findDeclaration, isComponentFactory } from "@/analyzer/utils/declarations";
 import { PathResolver } from "@/analyzer/utils/PathResolver";
 import { normalizePath } from "@/shared/path";
@@ -73,6 +73,29 @@ describe("findDeclaration", () => {
     });
   });
   afterAll(() => fs.rm(root, { recursive: true, force: true }));
+
+  it("resolves each barrel re-export once per reads, with the results of fresh reads (#575)", async () => {
+    const lookups: Array<[string, string]> = [["index.ts", "Card"], ["index.ts", "Button"], ["index.ts", "Panel"], ["index.ts", "Anon"],
+      ["index.ts", "Missing"], ["twoStars.ts", "Card"], ["namedWins.ts", "Card"], ["diamond.ts", "Card"], ["cycle-a.ts", "x"]];
+    const fresh = await Promise.all(lookups.map(([relative, name]) => find(relative, name)));
+    const shared = resolver();
+    const resolve = vi.spyOn(shared, "resolve");
+    const reads = new Map();
+    // eslint-disable-next-line no-await-in-loop -- sequential, so a later lookup can reuse an earlier resolution
+    for (const [index, [relative, name]] of lookups.entries()) expect(await findDeclaration(path.join(root, relative), name, shared, reads)).toEqual(fresh[index]);
+    const calls = resolve.mock.calls.map(([from, specifier]) => `${normalizePath(from)}|${specifier}`);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(new Set(calls).size).toBe(calls.length);
+    // Another pass resolves again: nothing outlives its reads.
+    await findDeclaration(path.join(root, "index.ts"), "Card", shared, new Map());
+    expect(resolve.mock.calls.length).toBeGreaterThan(calls.length);
+  });
+
+  it("treats a failed re-export resolution as no declaration", async () => {
+    const failing = resolver();
+    vi.spyOn(failing, "resolve").mockRejectedValue(new Error("resolver failed"));
+    expect(await findDeclaration(path.join(root, "index.ts"), "Card", failing, new Map())).toBeNull();
+  });
 
   it.each([
     ["a named declaration", "Card.tsx", "Card", { file: "Card.tsx", name: "Card" }],
