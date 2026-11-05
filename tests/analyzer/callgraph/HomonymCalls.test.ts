@@ -44,8 +44,8 @@ const SHADOWING: Case[] = [
   ...shadowing("Java", "A.java", JAVA_PREFIX, [
     ["a field links (control)", "class C { B b = new B(); int r() { return b.compute(); } }\n", ["r:2 -> compute:1"]],
     ["a foreach variable shadows it", "class C { B b = new B(); void r(java.util.List<A> items) { for (var b : items) b.compute(); } }\n", []],
-    ["a lambda parameter shadows it", "class C { B b = new B(); void r(java.util.List<A> items) { items.forEach(b -> b.compute()); } }\n",
-      ["r:2 -> @@external:forEach"]],
+    // `items` is declared with a type not read (qualified generic): `forEach` links nowhere either (#499).
+    ["a lambda parameter shadows it", "class C { B b = new B(); void r(java.util.List<A> items) { items.forEach(b -> b.compute()); } }\n", []],
     ["a catch parameter shadows it", "class C { B b = new B(); void r() { try { } catch (RuntimeException b) { b.compute(); } } }\n", []],
   ]),
   ...shadowing("C#", "A.cs", CS_PREFIX, [
@@ -119,23 +119,24 @@ describe("calls to same-named methods (#505)", () => {
       "class A { int compute() { return 1; } int go() { return this.compute() + compute(); } }\n" +
       "class B { int compute() { return 2; } int run(A a) { var b = new B(); A c = a; return b.compute() + c.compute() + new A().compute(); } }\n",
       ["go:0 -> compute:0", "run:1 -> compute:0", "run:1 -> compute:1"]],
-    ["Java: no edge for an unknown receiver", "A.java",
+    // A type declared in no file of its own reaches only its own members through the index (#499).
+    ["Java: a receiver of another file's type reaches only that type", "A.java",
       "class A { int compute() { return 1; } }\nclass B { int compute() { return 2; } int run(Other o) { return o.compute(); } }\n",
-      []],
+      ['run:1 -> @@qualified:["type","Other","compute"]']],
     ["C#: this, implicit this, new X() and typed variables (var included)", "A.cs",
       "class A { int Compute() { return 1; } int Go() { return this.Compute() + Compute(); } }\n" +
       "class B { int Compute() { return 2; } int Run(A a) { var b = new B(); A c = a; return b.Compute() + c.Compute() + new A().Compute(); } }\n",
       ["Go:0 -> Compute:0", "Run:1 -> Compute:0", "Run:1 -> Compute:1"]],
-    ["C#: no edge for an unknown receiver", "A.cs",
+    ["C#: a receiver of another file's type reaches only that type", "A.cs",
       "class A { int Compute() { return 1; } }\nclass B { int Compute() { return 2; } int Run(Other o) { return o.Compute(); } }\n",
-      []],
+      ['Run:1 -> @@qualified:["type","Other","Compute"]']],
     ["Go: method receiver, composite literal, pointer and var", "a.go",
       "package p\n\ntype A struct{}\ntype B struct{}\n\nfunc (a A) Compute() int { return 1 }\nfunc (b *B) Compute() int { return 2 }\n" +
       "func (a A) Go() int { return a.Compute() }\nfunc Run() int { b := &B{}; c := A{}; var d B; return b.Compute() + c.Compute() + d.Compute() }\n",
       ["Go:7 -> Compute:5", "Run:8 -> Compute:5", "Run:8 -> Compute:6"]],
-    ["Go: no edge for an unknown receiver", "a.go",
+    ["Go: a receiver of another file's type reaches only that type", "a.go",
       "package p\n\ntype A struct{}\ntype B struct{}\n\nfunc (A) Compute() int { return 1 }\nfunc (B) Compute() int { return 2 }\nfunc Run(x X) int { return x.Compute() }\n",
-      []],
+      ['Run:7 -> @@qualified:["folder","","Compute",["X"]]']],
     ["Rust: self, Self:: and a struct literal", "a.rs",
       "struct A;\nstruct B;\nimpl A { fn compute(&self) -> i32 { 1 } fn go(&self) -> i32 { self.compute() + Self::compute(self) } }\n" +
       "impl B { fn compute(&self) -> i32 { 2 } }\nfn run() -> i32 { let b = B {}; b.compute() + (B {}).compute() }\n",

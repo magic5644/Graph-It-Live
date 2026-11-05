@@ -1,5 +1,6 @@
 import type { PathResolver } from "@/analyzer/utils/PathResolver";
 import type { Node as TreeNode } from "web-tree-sitter";
+import { objectType, type ScopeTypes } from "./receiverTypes";
 
 /**
  * Call target for a bare Python name with no visible import: it can only be a same-file
@@ -184,15 +185,22 @@ export async function resolvePythonImportCalls(
 ): Promise<Map<number, string | null>> {
   const { bindings, wildcard } = await collectBindings(root, filePath, resolver);
   const targets = new Map<number, string | null>();
+  const declarations: ScopeTypes = {};
   for (const call of calls) {
-    const target = callTarget(call, bindings, wildcard, filePath);
+    const target = callTarget(call, bindings, wildcard, filePath, declarations);
     if (target !== undefined) targets.set(call.id, target);
   }
   return targets;
 }
 
 /** Target of one call; undefined when the call is left to the extractor's own rules. */
-function callTarget(call: TreeNode, bindings: Map<string, Entry[]>, wildcard: boolean, filePath: string): string | null | undefined {
+function callTarget(
+  call: TreeNode,
+  bindings: Map<string, Entry[]>,
+  wildcard: boolean,
+  filePath: string,
+  declarations: ScopeTypes,
+): string | null | undefined {
   const parent = call.parent;
   const argument = isArgumentValue(call);
   if (parent?.type === "call" || argument) return bareNameTarget(call, bindings, wildcard, filePath, argument);
@@ -201,8 +209,22 @@ function callTarget(call: TreeNode, bindings: Map<string, Entry[]>, wildcard: bo
   const found = object?.type === "identifier" ? visibleEntries(bindings, object.text, object) : [];
   if (found.length > 1) return null;
   const binding = found[0]?.binding;
-  if (binding?.kind !== "module") return undefined;
-  return binding.path ? `@@import:${JSON.stringify([binding.path, call.text])}` : null;
+  if (binding?.kind === "module") return binding.path ? `@@import:${JSON.stringify([binding.path, call.text])}` : null;
+  return object ? classMethodTarget(call, object, bindings, declarations) : undefined;
+}
+
+/**
+ * `@@import:` stub of a method call on a receiver of an imported class (#499): `c.compute()` with `c: Calc`,
+ * `Calc().compute()`, `Calc.create()`, aliases included. Undefined, so the extractor's rules apply, when the
+ * receiver's type is unproven or the name in scope is no single `from m import Calc` binding.
+ */
+function classMethodTarget(call: TreeNode, object: TreeNode, bindings: Map<string, Entry[]>, declarations: ScopeTypes): string | undefined {
+  const type = objectType(object, declarations);
+  const found = type ? visibleEntries(bindings, type, call) : [];
+  const binding = found.length === 1 ? found[0].binding : undefined;
+  if (binding?.kind !== "symbol" || !binding.stub) return undefined;
+  const [modulePath, className] = JSON.parse(binding.stub.slice("@@import:".length)) as [string, string];
+  return `@@import:${JSON.stringify([modulePath, call.text, className])}`;
 }
 
 /** Target of a bare name, called (`save()`) or passed (`register(save)`), from the bindings in scope. */

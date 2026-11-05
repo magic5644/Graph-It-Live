@@ -2,6 +2,7 @@ import { normalizePath } from "@/shared/path";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Node as TreeNode } from "web-tree-sitter";
+import { methodOwner, variableType, type ScopeTypes } from "./receiverTypes";
 
 /**
  * Call target for a qualified call (`pkg.F()`, `Type::f()`, `Util.f()`) whose qualifier is a
@@ -13,7 +14,10 @@ export const QUALIFIED_PREFIX = "@@qualified:";
 /** `folder`: Go package directory; `type`: enclosing class (Java, C#); `module`: Rust module file or impl type. */
 type Mode = "folder" | "type" | "module";
 
-/** `owners`: dotted containers (C# namespaces and types), innermost first; the first one declaring the `type` key wins. */
+/**
+ * `owners`: for `type`, dotted containers (C# namespaces and types), innermost first, the first one declaring the
+ * `type` key wins; for `folder`, the Go type whose method is called (none: a package function).
+ */
 function stub(mode: Mode, key: string, name: string, owners?: string[]): string {
   return `${QUALIFIED_PREFIX}${JSON.stringify(owners ? [mode, key, name, owners] : [mode, key, name])}`;
 }
@@ -116,11 +120,61 @@ function csharpUsingAliases(root: TreeNode): Map<string, CsharpAlias> {
   return aliases;
 }
 
+/** Names of the types a file declares (`declarationTypes`: their node types). */
+function declaredTypeNames(root: TreeNode, declarationTypes: string[]): Set<string> {
+  return new Set(root.descendantsOfType(declarationTypes).map(type => type.childForFieldName("name")?.text ?? ""));
+}
+
+/**
+ * Type a Java/C#/Go call receiver is declared with, when proven (#499) and declared in another file: a type of
+ * this file is left to the same-file method lookup (#505). Undefined when nothing declares the receiver (a static
+ * type, a package, an inherited field), null when its declarations give no single type.
+ */
+function declaredReceiverType(receiver: TreeNode | null, declarations: ScopeTypes, local: () => Set<string>, declared: Set<string>): string | null | undefined {
+  // `declared` (every variable and parameter name of the file) spares reading the declarations for the others.
+  if (receiver?.type !== "identifier" || !declared.has(receiver.text)) return undefined;
+  const type = variableType(receiver, declarations);
+  return type === receiver.text || (type && local().has(type)) ? undefined : type;
+}
+
+/** What a Java/C# file declares, read once for all its calls. */
+interface TypeContext {
+  java: boolean;
+  declared: Set<string>;
+  aliases: Map<string, CsharpAlias>;
+  declarations: ScopeTypes;
+  local: () => Set<string>;
+}
+
+/**
+ * Stub of a Java/C# call whose qualifier is a type: the type its receiver is declared with (#499), else a
+ * capitalised qualifier no variable of the file declares (a static type); null when a variable does.
+ * Undefined, so no entry, for any other call.
+ */
+function typeCallTarget(call: TreeNode, context: TypeContext): string | null | undefined {
+  const { java, declared, aliases } = context;
+  const receiver = java
+    ? receiverOf(call, "method_invocation", "name", "object")
+    : receiverOf(call, "member_access_expression", "name", "expression");
+  const type = declaredReceiverType(receiver, context.declarations, context.local, declared);
+  const [qualifiedType, nameField] = java ? ["field_access", "field"] : ["member_access_expression", "name"];
+  // A local variable of unknown or ambiguous type (`var x = make()`, rebound) links nowhere, never by name.
+  if (type === null) return null;
+  const qualifier = type ?? lastSegment(receiver, qualifiedType, nameField)?.text;
+  if (!qualifier || !TYPE_NAME.test(qualifier)) return undefined;
+  if (type === undefined && declared.has(qualifier)) return null;
+  const alias = aliases.get(qualifier);
+  return stub("type", alias?.name ?? qualifier, call.text, alias?.owners);
+}
+
 /**
  * Qualifier of a Java/C# call when it names a static type: capitalised and not declared as a
- * variable of the file. A lowercase or declared qualifier is a receiver, which needs its type (#499).
+ * variable of the file. A receiver declared with a type reaches the methods of that type (#499).
  * shortcut: scope-insensitive (a variable named like a type anywhere in the file blocks the
  * call), the namespace/import of the type is not checked; upgrade with a real symbol table.
+ * A receiver this file declares with an unknown or ambiguous type links nowhere.
+ * shortcut: a receiver this file does not declare (an inherited field, an untyped lambda parameter) keeps the
+ * by-name match, and a type name declared in two Java packages reaches the nearer one; upgrade with imports.
  */
 function typeTargets(root: TreeNode, calls: TreeNode[], lang: "java" | "csharp"): Map<number, string | null> {
   const java = lang === "java";
@@ -131,21 +185,23 @@ function typeTargets(root: TreeNode, calls: TreeNode[], lang: "java" | "csharp")
       : ["variable_declarator", "parameter", "property_declaration", "for_each_statement"],
     ["name", "left"],
   );
-  const aliases = java ? new Map<string, CsharpAlias>() : csharpUsingAliases(root);
+  let localTypes: Set<string> | undefined;
+  const context: TypeContext = {
+    java,
+    declared,
+    aliases: java ? new Map() : csharpUsingAliases(root),
+    declarations: {},
+    local: () => localTypes ??= declaredTypeNames(root, java
+      ? ["class_declaration", "interface_declaration", "enum_declaration", "record_declaration"]
+      : ["class_declaration", "interface_declaration", "enum_declaration", "record_declaration", "struct_declaration", "record_struct_declaration"]),
+  };
   const targets = new Map<number, string | null>();
   for (const call of calls) {
     // A passed name is a method group of this type, unless a variable or parameter holds it.
     if (isPassedVariable(call, declared)) targets.set(call.id, null);
     if (isBareArgument(call)) continue;
-    const receiver = java
-      ? receiverOf(call, "method_invocation", "name", "object")
-      : receiverOf(call, "member_access_expression", "name", "expression");
-    const qualifier = java
-      ? lastSegment(receiver, "field_access", "field")
-      : lastSegment(receiver, "member_access_expression", "name");
-    if (!qualifier || !TYPE_NAME.test(qualifier.text)) continue;
-    const alias = aliases.get(qualifier.text);
-    targets.set(call.id, declared.has(qualifier.text) ? null : stub("type", alias?.name ?? qualifier.text, call.text, alias?.owners));
+    const target = typeCallTarget(call, context);
+    if (target !== undefined) targets.set(call.id, target);
   }
   return targets;
 }
@@ -179,9 +235,10 @@ export function rustImplOwner(methodName: TreeNode): string | null {
   return [container.childForFieldName("type"), container.childForFieldName("trait")].map(rustTypeName).filter(Boolean).join(",") || null;
 }
 
-/** `nodes.owner` of a definition (its name node): Rust impl type and trait, C# enclosing namespaces and types. */
+/** `nodes.owner` of a definition (its name node): Rust impl type and trait, Go receiver type, C# enclosing namespaces and types. */
 export function definitionOwner(lang: string, name: TreeNode): string | null {
   if (lang === "rust") return rustImplOwner(name);
+  if (lang === "go") return methodOwner(name);
   return lang === "csharp" && name.parent ? csharpContainer(name.parent) || null : null;
 }
 
@@ -209,7 +266,7 @@ function rustUseAliases(root: TreeNode): Map<string, UseAlias> {
  * Type of the receiver of `recv.f()`: the type the enclosing function declares for it (parameter or
  * annotated `let`), or the receiver itself when it is a capitalised name nothing declares (unit struct).
  * shortcut: no inference (`let c = Calc::new()`, closures, fields, `self`) and a name declared with
- * two types in one function is skipped; upgrade with receiver types (#499).
+ * two types in one function is skipped; upgrade with return-type inference.
  */
 function rustReceiverType(receiver: TreeNode | null, call: TreeNode): string | null {
   if (receiver?.type !== "identifier") return null;
@@ -308,23 +365,34 @@ async function goPackageFolder(importPath: string, filePath: string, workspaceRo
 }
 
 /**
+ * `pkg.F()` reaches a function of an imported package, `x.M()` the method of the type `x` is declared with in
+ * this package (#499).
  * shortcut: the package name is taken from the import path (alias or last segment), not from the
  * package clause of the imported files, and `replace`/`go.work` redirects are not followed.
+ * A receiver this file declares with an unknown or ambiguous type links nowhere.
+ * shortcut: a receiver of another package's type (`c mathx.Calc`) or that this file does not declare (a package
+ * variable) keeps the by-name match; one of an interface type and a method promoted from an embedded struct link nowhere.
  */
 async function goTargets(root: TreeNode, calls: TreeNode[], filePath: string, workspaceRoot: string): Promise<Map<number, string | null>> {
   const targets = new Map<number, string | null>();
   const imports = goImports(root);
   const bare = calls.filter(isBareArgument);
-  if (imports.size === 0 && bare.length === 0) return targets;
   // shortcut: file-wide, a local `pkg := ...` in one function blocks the package in every function.
   const declared = declaredNames(root, ["var_spec", "const_spec", "parameter_declaration", "short_var_declaration", "range_clause"], ["name", "left"]);
   // A bare passed name is a declaration of this package (the file's folder), unless a local variable holds it.
   const ownFolder = workspaceFolder(filePath, workspaceRoot);
   for (const call of bare) targets.set(call.id, declared.has(call.text) ? null : stub("folder", ownFolder, call.text));
+  const declarations: ScopeTypes = {};
+  let localTypes: Set<string> | undefined;
+  const local = () => localTypes ??= declaredTypeNames(root, ["type_spec"]);
   const used = calls.flatMap((call) => {
     const operand = receiverOf(call, "selector_expression", "field", "operand");
     const importPath = operand?.type === "identifier" ? imports.get(operand.text) : undefined;
-    return operand && importPath !== undefined ? [{ call, operand, importPath }] : [];
+    if (operand && importPath !== undefined) return [{ call, operand, importPath }];
+    const type = declaredReceiverType(operand, declarations, local, declared);
+    // A local variable of unknown or ambiguous type (`x := make()`, rebound) links nowhere, never by name.
+    if (type !== undefined) targets.set(call.id, type && stub("folder", ownFolder, call.text, [type]));
+    return [];
   });
   const folders = new Map(await Promise.all([...new Set(used.map(({ importPath }) => importPath))]
     .map(async (importPath) => [importPath, await goPackageFolder(importPath, filePath, workspaceRoot)] as const)));
@@ -376,14 +444,39 @@ export function qualifiedCandidates(
   types: (name: string) => QualifiedType[],
 ): QualifiedMember[] {
   const [mode, key, name, owners] = JSON.parse(target.slice(QUALIFIED_PREFIX.length)) as [Mode, string, string, string[]?];
-  const candidates = members(name);
-  if (mode === "folder") return candidates.filter(member => member.folder === key);
+  // A Go method belongs to its receiver type: a package call (no owner) reaches a function only.
+  if (mode === "folder") return members(name).filter(member => member.folder === key && member.owner === (owners?.[0] ?? ""));
   // A Rust method belongs to the type of its `impl` block, wherever that block is; a function, to its file's module.
-  if (mode === "module") return candidates.filter(member => member.owner ? member.owner.split(",").includes(key) : rustModuleName(member.path) === key);
+  if (mode === "module") return members(name).filter(member => member.owner ? member.owner.split(",").includes(key) : rustModuleName(member.path) === key);
+  // A type the workspace does not declare (`String`, `List`) has no member: its members are not read.
   const named = types(key);
+  if (named.length === 0) return [];
+  const candidates = members(name);
   // C# binds the qualifier in the innermost scope that declares it, never in an outer one too.
   const owner = owners?.find(scope => named.some(type => type.owner === scope));
   const declaring = owners ? named.filter(type => type.owner === owner) : named;
   return candidates.filter(member => declaring.some(type => type.path === member.path &&
     type.startLine <= member.startLine && member.endLine <= type.endLine));
+}
+
+/** A class, function or method of one file, as the index records it. */
+export interface FileDeclaration { id: string; name: string; type: string; startLine: number; endLine: number }
+
+/**
+ * The method `name` that the only class `className` of a file declares in its own body (#499), for a call on a
+ * receiver of that imported class: its last declaration, the one a Python redefinition or a TypeScript overload
+ * implementation leaves. Null when the class is missing or declared twice, or holds no such method: an inherited
+ * method (base class, mixin) is not looked up, so no other class's homonym is ever picked.
+ * shortcut: lines only, so a nested function or class must start on a later line than its container to be told apart.
+ */
+export function ownedMethod(declarations: FileDeclaration[], className: string, name: string): string | null {
+  const classes = declarations.filter(declaration => declaration.type === "class" && declaration.name === className);
+  if (classes.length !== 1) return null;
+  const [owner] = classes;
+  const holds = (outer: FileDeclaration, inner: FileDeclaration) => outer.startLine < inner.startLine && inner.endLine <= outer.endLine;
+  // Python methods are recorded as functions; one nested in a method or an inner class is no member of `owner`.
+  const members = declarations.filter(member => member.name === name && member.type !== "class" && member !== owner
+    && owner.startLine <= member.startLine && member.endLine <= owner.endLine
+    && !declarations.some(inner => inner !== owner && inner !== member && holds(inner, member) && owner.startLine <= inner.startLine && inner.endLine <= owner.endLine));
+  return members.reduce<FileDeclaration | null>((last, member) => !last || member.startLine > last.startLine ? member : last, null)?.id ?? null;
 }

@@ -18,7 +18,7 @@ import { detectCycleEdges } from "@/shared/cycleUtils";
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { Database, SqlJsStatic } from "sql.js";
-import { QUALIFIED_PREFIX, qualifiedCandidates, type QualifiedMember } from "./qualifiedCalls";
+import { type FileDeclaration, ownedMethod, QUALIFIED_PREFIX, qualifiedCandidates, type QualifiedMember } from "./qualifiedCalls";
 
 // ---------------------------------------------------------------------------
 // Input types (used by GraphExtractor / callers)
@@ -162,8 +162,10 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v13: JSX components, attribute values and functions passed as arguments are REFERENCES edges (every language); default imports and memo/forwardRef/lazy resolve (#575).
  * v14: persist local React identity, competing-runtime exclusion and JSX-specific target evidence (#577).
  * v15: a call reaches the same-file method of its receiver's type, never the first same-named one (#505).
+ * v16: a call on a receiver of proven type reaches that type's method across files; Go methods retain their receiver
+ *      type (`nodes.owner`); TS abstract classes are class nodes (#499).
  */
-const CURRENT_SCHEMA_VERSION = 15;
+const CURRENT_SCHEMA_VERSION = 16;
 
 /**
  * Optional FTS5 schema for fast symbol name search.
@@ -546,11 +548,37 @@ export class CallGraphIndexer {
     const db = this.getDb();
     const rows = db.exec("SELECT rowid, target_id FROM edges WHERE target_id LIKE '@@import:%'")[0]?.values ?? [];
     const lookup = db.prepare("SELECT id FROM nodes WHERE path = ? AND name = ? AND is_exported = 1 ORDER BY id LIMIT 2");
+    const declarationsStmt = db.prepare("SELECT id, name, type, start_line, end_line FROM nodes WHERE path = ? AND type IN ('class','function','method')");
     const update = db.prepare("UPDATE OR IGNORE edges SET target_id = ? WHERE rowid = ?");
+    // Many calls reach one module: read its declarations once.
+    const declarations = new Map<string, FileDeclaration[]>();
+    const declarationsOf = (modulePath: string) => {
+      let found = declarations.get(modulePath);
+      if (!found) {
+        found = [];
+        declarationsStmt.bind([modulePath]);
+        while (declarationsStmt.step()) {
+          const [id, name, type, startLine, endLine] = declarationsStmt.get();
+          found.push({ id: String(id), name: String(name), type: String(type), startLine: Number(startLine), endLine: Number(endLine) });
+        }
+        declarationsStmt.reset();
+        declarations.set(modulePath, found);
+      }
+      return found;
+    };
     let resolved = 0;
     try {
       for (const [rowid, target] of rows) {
-        const [modulePath, name] = JSON.parse(String(target).slice(9)) as [string, string];
+        const [modulePath, name, className] = JSON.parse(String(target).slice(9)) as [string, string, string?];
+        // A method call on a receiver of an imported class (#499): the method that class declares.
+        if (className !== undefined) {
+          const id = ownedMethod(declarationsOf(modulePath), className, name);
+          if (id) {
+            update.run([id, rowid]);
+            resolved += db.getRowsModified();
+          }
+          continue;
+        }
         lookup.bind([modulePath, name]);
         if (!lookup.step()) continue;
         const id = lookup.get()[0];
@@ -561,6 +589,7 @@ export class CallGraphIndexer {
       }
     } finally {
       lookup.free();
+      declarationsStmt.free();
       update.free();
     }
     db.run("DELETE FROM edges WHERE target_id LIKE '@@import:%'");
@@ -597,6 +626,9 @@ export class CallGraphIndexer {
       }
       return found;
     };
+    // Every declared type name, read at once: a stub on a type the workspace lacks (`String`, `List`) needs no scan.
+    const typeNames = new Set((db.exec("SELECT DISTINCT name || char(0) || lang FROM nodes WHERE type IN ('class','interface','type')")[0]?.values ?? [])
+      .map(([key]) => String(key)));
     // Many calls share one stub (`Util.add` from every caller): look each up once.
     const known = new Map<string, QualifiedMember[]>();
     const candidatesOf = (target: string, lang: string) => {
@@ -607,7 +639,7 @@ export class CallGraphIndexer {
           target,
           (name) => all(memberStmt, name, lang).map(([id, path, folder, startLine, endLine, isExported, owner]) =>
             ({ id: String(id), path: String(path), folder: String(folder), startLine: Number(startLine), endLine: Number(endLine), isExported: Number(isExported), owner: String(owner) })),
-          (name) => all(typeStmt, name, lang).map(([path, startLine, endLine, owner]) =>
+          (name) => (typeNames.has(`${name}\0${lang}`) ? all(typeStmt, name, lang) : []).map(([path, startLine, endLine, owner]) =>
             ({ path: String(path), startLine: Number(startLine), endLine: Number(endLine), owner: String(owner) })),
         );
         known.set(key, found);
