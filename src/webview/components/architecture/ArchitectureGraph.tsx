@@ -1088,7 +1088,7 @@ function Breadcrumb(props: Readonly<BreadcrumbProps>) {
   );
 }
 
-/** Covers the whole view, header included: the canvas under it is hidden but keeps its size. */
+/** Covers its positioned parent: the whole view while building (header included), the canvas while the matrix loads. */
 const LOADING_COVER: React.CSSProperties = { position: "absolute", inset: 0 };
 
 function StatePanel({ state, onRetry, onSettings }: Readonly<{ state: ArchitectureStateMessage; onRetry: () => void; onSettings: () => void }>) {

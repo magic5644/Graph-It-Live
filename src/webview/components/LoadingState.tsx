@@ -25,7 +25,9 @@ export interface LoadingStateProps {
 export function LoadingState({ message, percent, children }: Readonly<LoadingStateProps>): React.ReactElement {
   // useId holds characters (":", "«") that break `url(#id)` references.
   const prefix = `gil${useId().replaceAll(/[^\w-]/g, "")}`;
+  // `||`: an empty message from the extension carries nothing to read either.
   const text = message || DEFAULT_MESSAGE;
+  const label = percent === undefined ? text : `${text} (${percent}%)`;
   return (
     <output
       aria-live="polite"
@@ -50,9 +52,9 @@ export function LoadingState({ message, percent, children }: Readonly<LoadingSta
         style={{ display: "block", width: 64, height: 64 }}
         dangerouslySetInnerHTML={{ __html: logoMarkup(prefix) }}
       />
-      <span style={{ maxWidth: 400 }}>{percent === undefined ? text : `${text} (${percent}%)`}</span>
+      <span style={{ maxWidth: 400 }}>{label}</span>
       {percent !== undefined && (
-        <progress max={100} value={percent} style={{ width: 200, accentColor: "var(--vscode-progressBar-background)" }} />
+        <progress max={100} value={percent} aria-label={label} style={{ width: 200, accentColor: "var(--vscode-progressBar-background)" }} />
       )}
       {children}
     </output>
