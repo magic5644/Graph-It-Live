@@ -15,7 +15,7 @@ const executors = vi.hoisted(() => {
     "executeGetSymbolGraph", "executeInvalidateFiles", "executeQueryCallGraph", "executeReviewPr", "executeRebuildIndex",
     "executeResolveModulePath", "executeScanDeadCode", "executeTraceFunctionExecution",
     "executeVerifyDependencyUsage", "executeQueryNaturalLanguage", "executeGenerateWiki",
-    "executeExploreArchitecture",
+    "executeExploreArchitecture", "executeExportArchitectureDiagram",
   ];
   return Object.fromEntries(names.map((name) => [name, vi.fn(async () => ({ ok: name }))]));
 });
@@ -88,6 +88,7 @@ describe("invokeTool", () => {
       ["graph_context", "executeGraphContext", { question: "q" }],
       ["query_natural_language", "executeQueryNaturalLanguage", { question: "q" }],
       ["explore_architecture", "executeExploreArchitecture", { from: "api", to: "db" }],
+      ["export_architecture_diagram", "executeExportArchitectureDiagram", { view: "matrix" }],
     ] as const) {
       expect((await call(tool, params)).type).toBe("result");
       expect(executors[executor]).toHaveBeenCalledTimes(1);
@@ -100,6 +101,12 @@ describe("invokeTool", () => {
 
     const absolute = await call("generate_wiki", { outputDir: inRoot("wiki") });
     expect(absolute).toMatchObject({ type: "error", error: expect.stringContaining("relative to the workspace") });
+  });
+
+  it("keeps the diagram output relative: the executor validates it against the workspace", async () => {
+    await call("export_architecture_diagram", { output: "docs/units.svg", rules: true });
+    expect(executors.executeExportArchitectureDiagram.mock.calls[0][0]).toEqual({ output: "docs/units.svg", rules: true });
+    expect((await call("export_architecture_diagram", { output: "/etc/units.svg" })).type).toBe("error");
   });
 
   it("rejects a relative path that leaves the workspace as a security error", async () => {

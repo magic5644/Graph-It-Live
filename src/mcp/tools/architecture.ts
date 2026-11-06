@@ -5,14 +5,19 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
+import * as fs from "node:fs";
+import * as nodePath from "node:path";
 import { exploreArchitecture, exploreArchitectureCheck, exploreMatrix, exploreUnitEvidence, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
-import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder";
+import { buildArchitectureGraph, type AnalyzeFile } from "../../analyzer/architecture/ArchitectureGraphBuilder";
 import { groupMatrix, unitMatrix } from "../../analyzer/architecture/architectureMatrix";
 import { checkWorkspaceArchitecture, loadDeclaredRoles } from "../../analyzer/architecture/architectureRules";
 import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation";
+import { renderWorkspaceDiagram } from "../../analyzer/diagram/workspaceDiagram";
+import { getRelativePath } from "../../shared/path";
+import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { workerState } from "../shared/state";
-import type { CheckArchitectureParams, ExploreArchitectureParams } from "../types";
+import type { CheckArchitectureParams, ExploreArchitectureParams, ExportArchitectureDiagramParams } from "../types";
 
 /**
  * Progressive exploration of the grouped architecture: a bounded summary, one group with
@@ -55,4 +60,48 @@ export async function executeCheckArchitecture(params: CheckArchitectureParams, 
   const graph = await buildArchitectureGraph(rootDir, (filePath) => workerState.getSpider().analyze(filePath), { signal });
   const check = await checkWorkspaceArchitecture(graph, rootDir, { config: params.config, baseline: params.baseline });
   return exploreArchitectureCheck(check, params);
+}
+
+/** Markup returned inline up to this many characters (about 15k tokens); a larger diagram is written to a file. */
+export const INLINE_DIAGRAM_MAX_CHARS = 60_000;
+
+/**
+ * The static architecture diagram, inline when it fits the cap and no output is asked for, else
+ * written under the workspace and returned as a workspace-relative path. Shared by the MCP tool
+ * and its VS Code language model tool.
+ */
+export async function exportArchitectureDiagram(
+  rootDir: string,
+  analyze: AnalyzeFile,
+  params: ExportArchitectureDiagramParams,
+  signal?: AbortSignal,
+) {
+  const format = params.diagramFormat ?? "svg";
+  // Refused before any work (CWE-22): the output stays in the workspace, as the rules files do.
+  const target = params.output === undefined ? undefined : validateWorkspacePath(nodePath.resolve(rootDir, params.output), rootDir);
+  // Keys use "/" on every OS: an agent may pass app\core.
+  const folder = params.folder?.replaceAll("\\", "/");
+  const { markup, counts } = await renderWorkspaceDiagram(rootDir, analyze, {
+    view: params.view ?? (folder === undefined ? "units" : "folder"),
+    folder,
+    format,
+    theme: params.theme ?? "light",
+    rules: params.rules ? { config: params.config, baseline: params.baseline } : undefined,
+    signal,
+  });
+  if (target === undefined && markup.length <= INLINE_DIAGRAM_MAX_CHARS) return { format, counts, markup };
+
+  const file = target ?? nodePath.join(rootDir, `architecture.${format}`);
+  await fs.promises.mkdir(nodePath.dirname(file), { recursive: true });
+  await fs.promises.writeFile(file, markup);
+  return { format, counts, path: getRelativePath(file, rootDir), characters: markup.length };
+}
+
+export function executeExportArchitectureDiagram(params: ExportArchitectureDiagramParams, signal?: AbortSignal) {
+  return exportArchitectureDiagram(
+    workerState.getConfig().rootDir,
+    (filePath) => workerState.getSpider().analyze(filePath),
+    params,
+    signal,
+  );
 }

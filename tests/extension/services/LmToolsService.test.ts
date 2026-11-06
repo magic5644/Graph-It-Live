@@ -20,6 +20,7 @@ const { registeredTools, registerToolFn } = vi.hoisted(() => {
 });
 
 const executeGraphContextWithIndexes = vi.hoisted(() => vi.fn());
+const exportArchitectureDiagram = vi.hoisted(() => vi.fn());
 const { reviewAnalyze, reviewGateCtor, queryEngineQuery, queryEngineCtor } = vi.hoisted(() => ({
   reviewAnalyze: vi.fn(),
   reviewGateCtor: vi.fn(),
@@ -104,6 +105,7 @@ vi.mock('@/shared/path', async (importOriginal) => ({
 }));
 
 vi.mock('../../../src/mcp/tools/graphContext.js', () => ({ executeGraphContextWithIndexes }));
+vi.mock('../../../src/mcp/tools/architecture.js', () => ({ exportArchitectureDiagram }));
 
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
@@ -197,13 +199,13 @@ describe('LmToolsService', () => {
   // ─── registerAll ──────────────────────────────────────────────────────────
 
   describe('registerAll', () => {
-    it('registers 24 tools and returns 24 disposables', () => {
+    it('registers 25 tools and returns 25 disposables', () => {
       const provider = createProvider();
       const service = new LmToolsService({ provider, logger });
       const disposables = service.registerAll();
 
-      expect(disposables).toHaveLength(24);
-      expect(registerToolFn).toHaveBeenCalledTimes(24);
+      expect(disposables).toHaveLength(25);
+      expect(registerToolFn).toHaveBeenCalledTimes(25);
     });
 
     it('returns empty array when vscode.lm.registerTool is unavailable', () => {
@@ -230,6 +232,7 @@ describe('LmToolsService', () => {
       'graph-it-live_graph_context',
       'graph-it-live_review_pr',
       'graph-it-live_query_natural_language',
+      'graph-it-live_export_architecture_diagram',
     ])('registers %s', (toolName) => {
       const provider = createProvider();
       const service = new LmToolsService({ provider, logger });
@@ -462,6 +465,48 @@ describe('LmToolsService', () => {
       const result = await invokeTool(TOOL, { baseRef: '--output=x' }) as { error: string };
 
       expect(result.error).toContain('baseRef');
+    });
+  });
+
+  // ─── export_architecture_diagram ─────────────────────────────────────────
+
+  describe('export_architecture_diagram', () => {
+    const TOOL = 'graph-it-live_export_architecture_diagram';
+
+    beforeEach(() => {
+      exportArchitectureDiagram.mockReset();
+    });
+
+    it('draws the diagram of the first workspace folder through the live spider', async () => {
+      exportArchitectureDiagram.mockResolvedValueOnce({ format: 'svg', counts: '2 units', markup: '<svg />' });
+      const provider = createProvider();
+      new LmToolsService({ provider, logger }).registerAll();
+
+      const result = await invokeTool(TOOL, { folder: 'src', rules: true });
+
+      expect(exportArchitectureDiagram).toHaveBeenCalledWith('/workspace', expect.any(Function), { folder: 'src', rules: true });
+      const analyze = exportArchitectureDiagram.mock.calls[0][1] as (file: string) => Promise<unknown>;
+      await analyze('/workspace/src/a.ts');
+      expect(vi.mocked(provider.getSpiderForLmTools)()?.analyze).toHaveBeenCalledWith('/workspace/src/a.ts');
+      expect(result).toEqual({ format: 'svg', counts: '2 units', markup: '<svg />' });
+    });
+
+    it('rejects input that fails the MCP schema, an absolute output among them, without drawing', async () => {
+      new LmToolsService({ provider: createProvider(), logger }).registerAll();
+
+      expect(await invokeTool(TOOL, { view: 'folder' })).toEqual({ error: expect.stringContaining('pass folder') });
+      expect(await invokeTool(TOOL, { output: '/etc/diagram.svg' })).toEqual({ error: expect.stringContaining('relative to the workspace') });
+      expect(exportArchitectureDiagram).not.toHaveBeenCalled();
+    });
+
+    it('returns an error when the dependency index is not ready, or the export fails', async () => {
+      const provider = createProvider();
+      new LmToolsService({ provider, logger }).registerAll();
+      exportArchitectureDiagram.mockRejectedValueOnce(new Error('File path is outside workspace: ../x.svg'));
+      expect(await invokeTool(TOOL, { output: '../x.svg' })).toEqual({ error: 'File path is outside workspace: ../x.svg' });
+
+      vi.mocked(provider.getSpiderForLmTools).mockReturnValue(undefined);
+      expect(await invokeTool(TOOL, {})).toEqual({ error: expect.stringContaining('not initialized') });
     });
   });
 

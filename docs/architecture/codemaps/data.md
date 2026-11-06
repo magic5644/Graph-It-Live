@@ -377,7 +377,7 @@ type ExtensionMessage =
 
 ```typescript
 // MCP Server ↔ MCP Client (AI/LLM)
-// MCP registers 24 tools (prefixed graphitlive_): 23 below plus get_session_stats.
+// MCP registers 25 tools (prefixed graphitlive_): 24 below plus get_session_stats.
 type McpToolName =
   | "set_workspace"          // Set workspace directory (rate-limited: 5 calls/10s)
   | "graph_context"          // Token-bounded subgraph answering a question
@@ -401,7 +401,8 @@ type McpToolName =
   | "query_natural_language" // Subgraph relevant to a plain-language question
   | "generate_wiki"          // Navigable Markdown wiki from the call graph index
   | "explore_architecture"  // Grouped architecture summary, group boundary, edge evidence
-  | "check_architecture";  // Declared architecture rules checked against the imports
+  | "check_architecture"   // Declared architecture rules checked against the imports
+  | "export_architecture_diagram"; // Static architecture diagram as SVG or HTML
 
 interface McpToolRequest {
   toolName: McpToolName;

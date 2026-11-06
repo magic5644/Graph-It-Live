@@ -1,0 +1,138 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { Parser } from "@/analyzer/Parser";
+import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
+import { PathResolver } from "@/analyzer/utils/PathResolver";
+import { run as runDiagram } from "@/cli/commands/diagram";
+import type { CliRuntime } from "@/cli/runtime";
+import { workerState } from "@/mcp/shared/state";
+import { executeExportArchitectureDiagram, INLINE_DIAGRAM_MAX_CHARS } from "@/mcp/tools/architecture";
+import { ExportArchitectureDiagramParamsSchema } from "@/mcp/types";
+import { createRulesWorkspace } from "../analyzer/architecture/rulesWorkspace";
+
+// Stands in for a diagram over the inline cap: no fixture is large enough within MAX_DIAGRAM_NODES.
+const oversized = vi.hoisted(() => ({ markup: undefined as string | undefined }));
+vi.mock("@/analyzer/diagram/workspaceDiagram", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/analyzer/diagram/workspaceDiagram")>();
+  return {
+    ...original,
+    renderWorkspaceDiagram: (...args: Parameters<typeof original.renderWorkspaceDiagram>) =>
+      oversized.markup === undefined ? original.renderWorkspaceDiagram(...args) : Promise.resolve({ markup: oversized.markup, counts: "big" }),
+  };
+});
+
+/** A drawn edge of that stroke: the legend samples carry no arrow. */
+const edgeOf = (stroke: string) => new RegExp(`class="edge ${stroke}"[^>]*marker-end`);
+
+describe("export_architecture_diagram schema", () => {
+  it.each([
+    [{}],
+    [{ view: "units", diagramFormat: "html" }],
+    [{ folder: "mfe/cart" }],
+    [{ view: "matrix" }],
+    [{ view: "matrix", folder: "mfe/cart", theme: "dark" }],
+    [{ rules: true, config: "rules/a.json", baseline: "rules/b.json", output: "docs/a.svg" }],
+  ])("accepts %j", (params) => {
+    expect(ExportArchitectureDiagramParamsSchema.safeParse(params).success).toBe(true);
+  });
+
+  it.each([
+    [{ view: "folder" }, "view folder draws the groups of one unit or folder"],
+    [{ view: "units", folder: "apps" }, "view units draws every unit"],
+    [{ diagramFormat: "html", theme: "dark" }, "theme sets the colours of diagramFormat svg"],
+    [{ format: "svg" }, "format"],
+    [{ config: "rules.json" }, "config and baseline apply to the rules overlay"],
+    [{ rules: false, baseline: "b.json" }, "config and baseline apply to the rules overlay"],
+    [{ view: "graph" }, "view"],
+    [{ diagramFormat: "png" }, "diagramFormat"],
+    [{ output: "/etc/diagram.svg" }, "Must be relative to the workspace"],
+    [{ output: String.raw`C:\diagram.svg` }, "Must be relative to the workspace"],
+    [{ output: "" }, "output"],
+    [{ unknown: true }, "unknown"],
+  ])("refuses %j", (params, message) => {
+    const result = ExportArchitectureDiagramParamsSchema.safeParse(params);
+    expect(result.success).toBe(false);
+    expect(JSON.stringify(result.error?.issues)).toContain(message);
+  });
+});
+
+describe("export_architecture_diagram", { timeout: 60_000 }, () => {
+  let root: string;
+  let runtime: CliRuntime;
+
+  beforeAll(() => {
+    root = createRulesWorkspace();
+    workerState.parser = new Parser();
+    workerState.resolver = new PathResolver(undefined, true, root);
+    workerState.spider = new SpiderBuilder().withRootDir(root).withExcludeNodeModules(true).build();
+    workerState.config = { rootDir: root, excludeNodeModules: true, maxDepth: 50 };
+    workerState.isReady = true;
+    runtime = { workspaceRoot: root, ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null } as unknown as CliRuntime;
+  });
+
+  afterEach(() => {
+    oversized.markup = undefined;
+  });
+
+  afterAll(() => {
+    workerState.reset();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("returns the units as an inline SVG, the same markup graph-it diagram writes", async () => {
+    const result = await executeExportArchitectureDiagram({});
+    expect(result).toMatchObject({ format: "svg", counts: expect.stringMatching(/^\d+ units · \d+ layers · 1 cycle · 0 violations$/) });
+    expect(result).not.toHaveProperty("path");
+    expect(result.markup).toMatch(/^<svg /);
+    expect(result.markup).not.toContain(root.replaceAll("\\", "/"));
+    expect(result.markup).toBe(await runDiagram(["--output", "-"], runtime, "svg"));
+    expect(fs.existsSync(path.join(root, "architecture.svg"))).toBe(false);
+  });
+
+  it("draws an HTML page, the rules overlay, the matrix and a folder key given with \\", async () => {
+    expect((await executeExportArchitectureDiagram({ diagramFormat: "html" })).markup).toMatch(/^<!doctype html>/);
+    const rules = await executeExportArchitectureDiagram({ rules: true, theme: "dark" });
+    expect(rules.markup).toMatch(edgeOf("error"));
+    expect(rules.markup).toContain("--bg:#0d1117");
+    expect(rules.markup).toBe(await runDiagram(["--rules", "--theme", "dark", "--output", "-"], runtime, "svg"));
+    const matrix = await executeExportArchitectureDiagram({ view: "matrix", folder: String.raw`mfe\cart`, diagramFormat: "html" });
+    expect(matrix.markup).toContain("folder mfe/cart");
+    expect(matrix.markup).toContain('class="frame"');
+  });
+
+  it("writes the diagram to output, creating its folders, and returns the workspace-relative path", async () => {
+    const result = await executeExportArchitectureDiagram({ output: path.join("docs", "diagrams", "units.svg") });
+    expect(result).toEqual({ format: "svg", counts: expect.any(String), path: "docs/diagrams/units.svg", characters: expect.any(Number) });
+    const written = fs.readFileSync(path.join(root, "docs", "diagrams", "units.svg"), "utf8");
+    expect(written).toMatch(/^<svg /);
+    expect(written).toHaveLength((result as { characters: number }).characters);
+  });
+
+  it("writes a diagram over the inline cap to architecture.<format>, and keeps one at the cap inline", async () => {
+    oversized.markup = "x".repeat(INLINE_DIAGRAM_MAX_CHARS);
+    expect(await executeExportArchitectureDiagram({})).toMatchObject({ markup: oversized.markup });
+    expect(fs.existsSync(path.join(root, "architecture.svg"))).toBe(false);
+
+    oversized.markup += "x";
+    expect(await executeExportArchitectureDiagram({ diagramFormat: "html" })).toEqual({
+      format: "html", counts: "big", path: "architecture.html", characters: INLINE_DIAGRAM_MAX_CHARS + 1,
+    });
+    expect(fs.readFileSync(path.join(root, "architecture.html"), "utf8")).toBe(oversized.markup);
+  });
+
+  it.each([
+    ["a parent path", () => path.join("..", "outside.svg")],
+    ["a nested parent path", () => path.join("docs", "..", "..", "outside.svg")],
+    ["an absolute path", () => path.join(path.dirname(root), "outside.svg")],
+  ])("refuses an output outside the workspace given as %s, before any work", async (_kind, outside) => {
+    oversized.markup = "never drawn";
+    await expect(executeExportArchitectureDiagram({ output: outside() })).rejects.toThrow("outside workspace");
+    expect(fs.existsSync(path.join(path.dirname(root), "outside.svg"))).toBe(false);
+  });
+
+  it("refuses rules files outside the workspace and an unknown folder", async () => {
+    await expect(executeExportArchitectureDiagram({ rules: true, config: "../rules.json" })).rejects.toThrow("outside workspace");
+    await expect(executeExportArchitectureDiagram({ folder: "nowhere" })).rejects.toThrow('No file below folder "nowhere"');
+  });
+});

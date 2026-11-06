@@ -990,6 +990,8 @@ At most 60 units or groups are drawn, the largest ones; a note counts the others
 
 **Exit code**: 0 when the file is written. An invalid `--view` or `--theme`, a `--folder` without files, `--view folder` without `--folder`, `--view units` with `--folder`, `--theme` with `--format html`, `--config` or `--baseline` without `--rules`, a missing rules file or a missing named baseline exit 1. An `--output`, `--config` or `--baseline` outside the workspace exits 5, and any other `--format` exits 4.
 
+**MCP and VS Code**: the `graphitlive_export_architecture_diagram` MCP tool and the `graph-it-live_export_architecture_diagram` Language Model tool (`#graphArchitectureDiagram`) draw the same diagram from `view`, `folder`, `diagramFormat` (default `svg`), `theme`, `rules`, `config` and `baseline`. They return the markup inline up to 60,000 characters; with `output`, or for a larger diagram, they write it to that workspace file (default `architecture.<diagramFormat>`) and return its workspace-relative path. With `rules` and no `baseline`, they read `graphit.architecture.baseline.json` when it exists, as `check_architecture` does. An `output` outside the workspace is refused before any work.
+
 ### check
 
 Find unused exported symbols (dead code) — either workspace-wide, scoped to a directory, or for a single file.
@@ -1585,7 +1587,7 @@ graph-it export --format html --communities louvain
 
 ### tool
 
-Invoke any of the 19 MCP analysis tools by name (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)). The other five MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
+Invoke any of the 19 MCP analysis tools by name (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)). The other six MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
 
 ```
 graph-it tool <name> [--<param>=<value> | --<param> <value>...] [options]
@@ -1838,7 +1840,7 @@ Requires an active internet connection and `npm` in `PATH`.
 
 ## MCP Tools Reference (via `graph-it tool`)
 
-The `graph-it tool` command invokes the 19 MCP analysis tools by name. The MCP server exposes 24 tools in total; the five that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
+The `graph-it tool` command invokes the 19 MCP analysis tools by name. The MCP server exposes 25 tools in total; the six that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `export_architecture_diagram` → `diagram`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
 
 ### Tool Details
 
@@ -2327,12 +2329,12 @@ graph-it tool verify_dependency_usage \
 
 ## Tool Count: CLI vs MCP
 
-The CLI exposes **19 tools** via `graph-it tool --list`, and the MCP server provides **24 tools** in total. All 19 CLI tools are MCP analysis tools:
+The CLI exposes **19 tools** via `graph-it tool --list`, and the MCP server provides **25 tools** in total. All 19 CLI tools are MCP analysis tools:
 
 | Context | Tool count | Notes |
 |---------|-----------|-------|
 | `graph-it tool --list` | 19 | 19 shared analysis tools |
-| MCP server (`graph-it serve`) | 24 | 19 shared analysis tools + 5 excluded from `tool --list` (see below) |
+| MCP server (`graph-it serve`) | 25 | 19 shared analysis tools + 6 excluded from `tool --list` (see below) |
 
 v1.20.0 removed the five transition aliases that v1.17.0 had already dropped from the MCP server. `graph-it tool <alias>` now exits non-zero and names the replacement:
 
@@ -2345,9 +2347,9 @@ v1.20.0 removed the five transition aliases that v1.17.0 had already dropped fro
 
 The VS Code Language Model tools of the same names (`graph-it-live_get_symbol_callers`, …) are unaffected.
 
-The 5 MCP tools excluded from `tool --list` fall into two groups:
+The 6 MCP tools excluded from `tool --list` fall into two groups:
 
 - **`set_workspace`** — a **server management tool**. It tells a running MCP server instance which directory to analyze. In CLI context this is handled by the `--workspace` flag (or auto-detection from `cwd`), so it is intentionally excluded from the CLI tool list.
-- **`review_pr`, `query_natural_language`, `generate_wiki`, `get_session_stats`** — each has a dedicated, first-class CLI command instead of being invoked generically via `tool`: [`review-pr`](#review-pr), [`query`](#query), [`wiki`](#wiki), [`stats`](#stats).
+- **`review_pr`, `query_natural_language`, `generate_wiki`, `export_architecture_diagram`, `get_session_stats`** — each has a dedicated, first-class CLI command instead of being invoked generically via `tool`: [`review-pr`](#review-pr), [`query`](#query), [`wiki`](#wiki), [`diagram`](#diagram), [`stats`](#stats).
 
-**Summary:** The CLI gives you 100% parity with the MCP tools. Nothing in MCP is unreachable from the CLI — `set_workspace` is redundant in CLI context, and the other 4 tools are exposed via friendlier dedicated commands rather than the generic `tool` invocation.
+**Summary:** The CLI gives you 100% parity with the MCP tools. Nothing in MCP is unreachable from the CLI — `set_workspace` is redundant in CLI context, and the other 5 tools are exposed via friendlier dedicated commands rather than the generic `tool` invocation.

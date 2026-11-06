@@ -109,6 +109,7 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
       graphitlive_graph_context: { question: "what calls helper" },
       graphitlive_explore_architecture: {},
       graphitlive_check_architecture: {},
+      graphitlive_export_architecture_diagram: {},
       graphitlive_query_natural_language: { question: "what calls helper" },
       graphitlive_generate_wiki: { outputDir: "wiki" },
       graphitlive_get_session_stats: {},

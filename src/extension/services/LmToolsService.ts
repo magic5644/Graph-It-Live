@@ -16,8 +16,10 @@ import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
 import { reportOutOfRootImports } from '@/analyzer/utils/workspaceBoundary';
 import { scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
 import {
+  ExportArchitectureDiagramParamsSchema,
   QueryNaturalLanguageParamsSchema,
   ReviewPrParamsSchema,
+  type ExportArchitectureDiagramParams,
   type GraphContextParams,
   type QueryNaturalLanguageParams,
   type ReviewPrParams,
@@ -239,6 +241,7 @@ export class LmToolsService {
       this.registerGraphContext(),
       this.registerReviewPr(),
       this.registerQueryNaturalLanguage(),
+      this.registerExportArchitectureDiagram(),
     ];
   }
 
@@ -1603,6 +1606,34 @@ export class LmToolsService {
   }
 
   // ─── Tool: review_pr ──────────────────────────────────────────────────────
+
+  private registerExportArchitectureDiagram(): vscode.Disposable {
+    return this.registerTool<ExportArchitectureDiagramParams>(
+      'graph-it-live_export_architecture_diagram',
+      {
+        invoke: async (
+          options: vscode.LanguageModelToolInvocationOptions<ExportArchitectureDiagramParams>,
+          _token: vscode.CancellationToken,
+        ): Promise<vscode.LanguageModelToolResult> => {
+          const spider = this.provider.getSpiderForLmTools();
+          const rootDir = this.getWorkspaceRoot();
+          if (!spider || !rootDir) {
+            return this.errorResult('No workspace open or dependency index not initialized.');
+          }
+          try {
+            const params = ExportArchitectureDiagramParamsSchema.parse(options.input);
+            const { exportArchitectureDiagram } = await import('../../mcp/tools/architecture.js');
+            const result = await exportArchitectureDiagram(rootDir, (filePath) => spider.analyze(filePath), params);
+            return new vscode.LanguageModelToolResult([
+              new vscode.LanguageModelTextPart(JSON.stringify(result)),
+            ]);
+          } catch (error) {
+            return this.errorResult(error instanceof Error ? error.message : String(error));
+          }
+        },
+      },
+    );
+  }
 
   private registerReviewPr(): vscode.Disposable {
     return this.registerTool<ReviewPrParams>(
