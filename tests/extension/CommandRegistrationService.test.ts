@@ -121,8 +121,8 @@ describe('CommandRegistrationService', () => {
 
     const disposables = service.registerAll();
 
-    expect(disposables).toHaveLength(18); // getContext is shared; filter commands share one disposable
-    expect(registerCommand).toHaveBeenCalledTimes(19);
+    expect(disposables).toHaveLength(19); // getContext is shared; filter and diagram export commands share one disposable each
+    expect(registerCommand).toHaveBeenCalledTimes(21);
     expect(registeredHandlers.has('graph-it-live.showGraph')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.forceReindex')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.expandAllNodes')).toBe(true);
@@ -139,6 +139,26 @@ describe('CommandRegistrationService', () => {
     expect(registeredHandlers.has('graph-it-live.disableUnusedFilter')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.showIndexStatus')).toBe(true);
     expect(registeredHandlers.has('graph-it-live.reviewCallGraph')).toBe(true);
+    expect(registeredHandlers.has('graph-it-live.exportArchitectureDiagram')).toBe(true);
+    expect(registeredHandlers.has('graph-it-live.copyArchitectureDiagram')).toBe(true);
+  });
+
+  it('asks the Architecture view to export or copy its diagram, and only there (#448)', async () => {
+    const provider = createProviderMock();
+    const service = new CommandRegistrationService({ provider, commandCoordinator: createCommandCoordinatorMock(), logger: createLoggerMock() });
+    service.registerAll();
+    const showInformationMessage = (vscode as unknown as { __mocks: { showInformationMessage: ReturnType<typeof vi.fn> } }).__mocks.showInformationMessage;
+    showInformationMessage.mockClear();
+
+    await registeredHandlers.get('graph-it-live.exportArchitectureDiagram')?.();
+    expect(provider.setArchitectureControls).not.toHaveBeenCalled();
+    expect(showInformationMessage).toHaveBeenCalledWith(expect.stringContaining('switch the graph to the Architecture view'));
+
+    vi.mocked(provider.getViewMode).mockReturnValue('architecture');
+    await registeredHandlers.get('graph-it-live.exportArchitectureDiagram')?.();
+    expect(provider.setArchitectureControls).toHaveBeenLastCalledWith({ exportDiagram: { target: 'file' } });
+    await registeredHandlers.get('graph-it-live.copyArchitectureDiagram')?.();
+    expect(provider.setArchitectureControls).toHaveBeenLastCalledWith({ exportDiagram: { target: 'clipboard' } });
   });
 
   it('switches to the architecture view and exposes its E2E state through getContext', async () => {

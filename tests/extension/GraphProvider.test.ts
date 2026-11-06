@@ -53,6 +53,9 @@ vi.mock("vscode", () => {
     window: {
       showTextDocument: vi.fn(),
       showErrorMessage: vi.fn(),
+      showInformationMessage: vi.fn(),
+      showSaveDialog: vi.fn(),
+      activeColorTheme: { kind: 2 },
       createStatusBarItem: vi.fn().mockReturnValue(mockStatusBarItem),
       createOutputChannel: vi.fn().mockReturnValue(mockOutputChannel),
       withProgress: vi
@@ -76,6 +79,8 @@ vi.mock("vscode", () => {
     commands: {
       executeCommand: vi.fn(),
     },
+    env: { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } },
+    ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
     ViewColumn: { One: 1 },
     WebviewViewProvider: class {}, //NOSONAR
     ExtensionMode: { Production: 1, Development: 2, Test: 3 },
@@ -853,6 +858,27 @@ describe("GraphProvider", () => {
     expect(markStale).toHaveBeenCalledOnce();
 
     expect(provider.getArchitectureE2EState()).toMatchObject({ buildCount: 0, renderCount: 0 });
+    // The export's VS Code side: notices, the editor's theme, the save dialog and the clipboard (#448).
+    const { options } = service;
+    options.notify("saved", "info");
+    options.notify("failed", "error");
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith("saved");
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith("failed");
+    expect(options.diagramTheme()).toBe("dark");
+    (vscode.window as any).activeColorTheme = { kind: 3 };
+    expect(options.diagramTheme()).toBe("dark");
+    (vscode.window as any).activeColorTheme = { kind: 4 };
+    expect(options.diagramTheme()).toBe("light");
+    (vscode.window as any).activeColorTheme = { kind: 2 };
+    vi.mocked(vscode.window.showSaveDialog).mockResolvedValueOnce({ fsPath: "/w/a.png" } as any).mockResolvedValueOnce(undefined);
+    await expect(options.pickDiagramFile("/w/architecture.svg")).resolves.toBe("/w/a.png");
+    expect(vscode.window.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
+      defaultUri: { fsPath: "/w/architecture.svg" }, filters: { SVG: ["svg"], HTML: ["html"], PNG: ["png"] },
+    }));
+    await expect(options.pickDiagramFile("/w/architecture.svg")).resolves.toBeUndefined();
+    await options.writeClipboard("<svg/>");
+    expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith("<svg/>");
+
     const setControls = vi.spyOn(service, "setControls").mockReturnValue(undefined);
     provider.setArchitectureControls({ find: "ui" });
     expect(setControls).toHaveBeenCalledWith({ find: "ui" });

@@ -20,11 +20,13 @@ import {
   type ArchitectureDependentsResultMessage,
   type ArchitectureDependentsSeed,
   type ArchitectureEvidencePageMessage,
+  type ArchitectureExportTarget,
   type ArchitectureExtensionMessage,
   type ArchitectureFolderLevelMessage,
   type ArchitectureFoundMessage,
   type ArchitectureGroupDetailMessage,
   type ArchitectureMatrixMessage,
+  type ArchitectureRasterizeMessage,
   type ArchitectureRulesView,
   type ArchitectureStateMessage,
   type ArchitectureSummaryMessage,
@@ -71,6 +73,7 @@ import { ArchitectureMatrix, type DependentMark, type MatrixPaint } from "./Arch
 import { applyElkLayout, applyRoutes, type EdgeRoute, toElkGraph } from "./elkLayout";
 import { createElk, type ElkRunner } from "./elkWorker";
 import { LoadingState } from "../LoadingState";
+import { rasterizeSvg } from "./rasterizeSvg";
 import { parseColor, type Rgba, themeKindOf } from "./unitColors";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
@@ -1767,6 +1770,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   };
   /** E2E driver: the same actions as a user, groups named by key. */
   const control = (message: ArchitectureControlsMessage) => {
+    if (message.exportDiagram) exportDiagram(message.exportDiagram.target);
     controlMatrix(message);
     // Entering a unit first: the group keys below are those of the unit's groups, drawn on the next render.
     if (message.unit !== undefined) {
@@ -1816,7 +1820,26 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         return post({ command: "architectureMounted" });
       case "architectureControls":
         return control(message);
+      case "architectureRasterize":
+        return rasterize(message);
     }
+  };
+  /** Export / Copy Architecture Diagram (the view's toolbar): the drawn level and the filters that change what it draws; the analyzer renders it. */
+  const exportDiagram = (target: ArchitectureExportTarget) => {
+    // Without units (Louvain mode) the extension says why it draws nothing.
+    if (!summary) return;
+    const graph = view === "graph";
+    post({
+      command: "architectureExportDiagram", revision: summary.revision, target, view, folder: folder ?? unit ?? undefined,
+      role: graph && unit === null ? roleFilter ?? undefined : undefined,
+      minImports: graph && minImports > 1 ? minImports : undefined,
+    });
+  };
+  const rasterize = ({ requestId, svg, width, height }: ArchitectureRasterizeMessage) => {
+    rasterizeSvg(svg, width, height).then(
+      (png) => post({ command: "architectureRasterized", requestId, png }),
+      (error: unknown) => post({ command: "architectureRasterized", requestId, error: error instanceof Error ? error.message : String(error) }),
+    );
   };
   const actions = {
     tap, dbltap, key, canvasKey, zoom, legendUnit, showCycle, showBands, chrome, markSelected, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo, openRule, toggleRole, showMoreGroups,

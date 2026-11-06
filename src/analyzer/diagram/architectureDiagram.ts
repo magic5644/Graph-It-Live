@@ -60,6 +60,8 @@ export interface DiagramInput {
   violations: number;
   /** Those of `violations` the baseline accepts. */
   acceptedViolations?: number;
+  /** The view filters drawn, for the caption: "role library", "min. 3 imports". */
+  filters?: string[];
 }
 
 export interface Box {
@@ -147,18 +149,44 @@ function edgeRules(violations: Violations, keyOf: (file: string) => string | und
 export function architectureDiagramInput(
   source: UnitSource,
   workspaceRoot: string,
-  options: { folder?: string; violations?: Violations } = {},
+  options: DiagramInputOptions = {},
 ): DiagramInput {
-  const { folder, violations = [] } = options;
+  const { minImports = 1 } = options;
+  const input = levelInput(source, workspaceRoot, options);
+  if (minImports <= 1) return input;
+  // As the view's Min. imports: weaker edges are not drawn, the violations still count.
+  const edges = input.edges.filter((edge) => edge.fileEdgeCount >= minImports);
+  return { ...input, edges, filters: [...(input.filters ?? []), `min. ${minImports} imports`] };
+}
+
+export interface DiagramInputOptions {
+  folder?: string;
+  violations?: Violations;
+  /** Units level only: draws the units of this role, as the view's role legend does. */
+  role?: string;
+  /** Draws the edges of at least this many file pairs, as the view's Min. imports does. */
+  minImports?: number;
+}
+
+function levelInput(source: UnitSource, workspaceRoot: string, { folder, violations = [], role }: DiagramInputOptions): DiagramInput {
   const workspace = workspaceName(workspaceRoot);
   const date = source.graph.context.indexedAt?.slice(0, 10);
   if (folder === undefined) {
-    const { units, unitEdges, context } = source.units;
-    const { edge, count, accepted } = edgeRules(violations, (file) => source.assignment.unitOf.get(file));
+    const { unitEdges, context } = source.units;
+    const units = source.units.units.filter((unit) => role === undefined || unit.role === role);
+    const kept = new Set(units.map((unit) => unit.key));
+    const keyOf = (file: string) => {
+      const key = source.assignment.unitOf.get(file);
+      return key !== undefined && kept.has(key) ? key : undefined;
+    };
+    const { edge, count, accepted } = edgeRules(violations, keyOf);
     return {
       workspace, scope: "units", noun: "units", revision: context.revision, date, violations: count, acceptedViolations: accepted,
+      ...(role === undefined ? {} : { filters: [`role ${role}`] }),
       nodes: units.map(({ key, name, layer, fileCount, internalEdgeCount }) => ({ key, label: name, layer, fileCount, internalEdgeCount })),
-      edges: unitEdges.map(({ from, to, fileEdgeCount, kind }) => ({ from, to, fileEdgeCount, kind, ...edge(from, to) })),
+      edges: unitEdges
+        .filter(({ from, to }) => kept.has(from) && kept.has(to))
+        .map(({ from, to, fileEdgeCount, kind }) => ({ from, to, fileEdgeCount, kind, ...edge(from, to) })),
     };
   }
   const level = viewUnitLevel(source, Number.POSITIVE_INFINITY, folder);
@@ -281,7 +309,7 @@ export function diagramHeader(input: DiagramInput, hidden: number, drawn: number
     counts,
     text: {
       title: `Architecture · ${fitLabel(input.workspace, 48)}`,
-      caption: [scope, `revision ${input.revision.slice(0, 12)}`, ...(input.date ? [input.date] : [])].join(" · "),
+      caption: [scope, ...(input.filters ?? []).map((filter) => fitLabel(filter, 48)), `revision ${input.revision.slice(0, 12)}`, ...(input.date ? [input.date] : [])].join(" · "),
       counts: [plural(counts.nodes, input.noun), plural(counts.layers, "layers"), plural(counts.cycles, "cycles"), plural(counts.violations, "violations") + accepted].join(" · "),
       hidden: hidden > 0 ? `${plural(hidden, "more " + input.noun)} not drawn: the ${drawn} largest are drawn` : undefined,
       rules: rules.length > 0 ? fitLabel(`broken rules: ${rules.join(", ")}`, 96) : undefined,

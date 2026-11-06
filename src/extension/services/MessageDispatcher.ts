@@ -176,6 +176,12 @@ export class MessageDispatcher {
         architectureDependentsRendered: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        architectureExportDiagram: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        architectureRasterized: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
       },
     });
   }

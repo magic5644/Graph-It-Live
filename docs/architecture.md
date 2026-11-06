@@ -356,6 +356,7 @@ The view, the CLI and the MCP server build the same graph: for the same communit
 | Dependents by group | **Dependents by group** action | — | — (use `find_referencing_files` or `get_impact_analysis`) |
 | Check rules | Rules panel | `graph-it check-architecture` | `check_architecture` |
 | Write the baseline | — | `check-architecture --update-baseline` | — |
+| Static diagram (SVG, HTML) | **Export Architecture Diagram** in the view title bar (also PNG), **Copy Architecture Diagram as SVG** | `graph-it diagram` | `export_architecture_diagram` |
 
 All options and output fields: [`architecture`](CLI.md#architecture), [`check-architecture`](CLI.md#check-architecture), [`explore_architecture`](CLI.md#explore_architecture), [`check_architecture`](CLI.md#check_architecture).
 

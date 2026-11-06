@@ -18,6 +18,7 @@ import {
 import { layoutMatrix, type MatrixLayout } from "@/analyzer/diagram/diagramMatrix";
 import { escapeXml, renderDiagramHtml, renderDiagramSvg } from "@/analyzer/diagram/diagramSvg";
 import { SIZES } from "@/analyzer/diagram/diagramStyle";
+import { renderSourceDiagram, renderWorkspaceDiagram } from "@/analyzer/diagram/workspaceDiagram";
 import { Parser } from "@/analyzer/Parser";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
 import { PathResolver } from "@/analyzer/utils/PathResolver";
@@ -209,6 +210,55 @@ describe("architecture diagram: workspaces-project", () => {
     expect(svg).not.toContain("width = file pairs");
     await expect(svg).toMatchFileSnapshot("__snapshots__/workspaces-project.matrix.svg");
     expectSafeMarkup(renderDiagramHtml(layout));
+  }, 60_000);
+
+  it("draws only the units of a role and the edges of at least min. imports, named in the caption (#448)", async () => {
+    const source = await fixtureSource();
+    const { violations } = checkArchitecture(source.graph, source.assignment, RULES);
+    const all = architectureDiagramInput(source, rootDir, { violations });
+    const role = source.units.units.find((unit) => unit.key === "packages/core")!.role;
+    const kept = new Set(source.units.units.filter((unit) => unit.role === role).map((unit) => unit.key));
+    expect(kept.size).toBeLessThan(all.nodes.length);
+    const byRole = architectureDiagramInput(source, rootDir, { violations, role });
+    expect(byRole.nodes.map((node) => node.key).sort()).toEqual([...kept].sort());
+    expect(byRole.edges.length).toBeGreaterThan(0);
+    expect(byRole.edges.every((edge) => kept.has(edge.from) && kept.has(edge.to))).toBe(true);
+    expect(byRole.filters).toEqual([`role ${role}`]);
+    // Only the violations between two units of the role count.
+    const unitOf = (file: string) => source.assignment.unitOf.get(file)!;
+    const between = violations.filter(({ source: from, target: to }) => kept.has(unitOf(from)) && kept.has(unitOf(to)) && unitOf(from) !== unitOf(to));
+    expect(byRole.violations).toBe(between.length);
+    expect(architectureDiagramInput(source, rootDir, { role: "no-such-role" }).nodes).toEqual([]);
+
+    const strongest = Math.max(...all.edges.map((edge) => edge.fileEdgeCount));
+    const strong = architectureDiagramInput(source, rootDir, { violations, minImports: strongest });
+    expect(strong.nodes).toEqual(all.nodes);
+    expect(strong.edges).toEqual(all.edges.filter((edge) => edge.fileEdgeCount >= strongest));
+    expect(strong.violations).toBe(all.violations);
+    expect(strong.filters).toEqual([`min. ${strongest} imports`]);
+    expect(architectureDiagramInput(source, rootDir, { minImports: 1 })).not.toHaveProperty("filters");
+    const both = architectureDiagramInput(source, rootDir, { role, minImports: 2, folder: undefined });
+    expect(both.filters).toEqual([`role ${role}`, "min. 2 imports"]);
+    const layout = await layoutDiagram(both);
+    expectSoundGeometry(layout);
+    expect(layout.text.caption).toMatch(new RegExp(`^units · role ${role} · min\\. 2 imports · revision `));
+    // A folder level has no role: only min. imports applies.
+    expect(architectureDiagramInput(source, rootDir, { folder: "apps/web", role, minImports: 2 })).toMatchObject({ filters: ["min. 2 imports"], edges: [] });
+  }, 60_000);
+
+  it("renders a built source as the workspace renderer does for the same options (#448)", async () => {
+    const source = await fixtureSource();
+    const analyze = (filePath: string) => workerState.getSpider().analyze(filePath);
+    for (const view of ["units", "matrix"] as const) {
+      const options = { view, format: "svg", theme: "dark" } as const;
+      const built = await renderSourceDiagram(source, rootDir, options);
+      const fresh = await renderWorkspaceDiagram(rootDir, analyze, { ...options, indexedAt: "2026-11-06T08:00:00.000Z" });
+      expect(built.markup).toBe(fresh.markup);
+      expect(built.counts).toEqual(fresh.counts);
+      expect(built.markup).toContain(`width="${built.width}" height="${built.height}"`);
+    }
+    const html = await renderSourceDiagram(source, rootDir, { view: "folder", folder: "apps/web", format: "html", theme: "light" });
+    expect(html.markup).toMatch(/^<!doctype html>/i);
   }, 60_000);
 
   it("draws the pairs the baseline accepts apart, in the counts, edges, cells and legend", async () => {

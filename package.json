@@ -179,6 +179,18 @@
         "category": "Graph-It-Live"
       },
       {
+        "command": "graph-it-live.exportArchitectureDiagram",
+        "title": "Export Architecture Diagram",
+        "icon": "$(desktop-download)",
+        "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.copyArchitectureDiagram",
+        "title": "Copy Architecture Diagram as SVG",
+        "icon": "$(copy)",
+        "category": "Graph-It-Live"
+      },
+      {
         "command": "graph-it-live.showReverseDependencies",
         "title": "Show Reverse Dependencies",
         "icon": "$(references)",
@@ -306,6 +318,16 @@
       }
     ],
     "menus": {
+      "commandPalette": [
+        {
+          "command": "graph-it-live.exportArchitectureDiagram",
+          "when": "graph-it-live.viewMode == 'architecture'"
+        },
+        {
+          "command": "graph-it-live.copyArchitectureDiagram",
+          "when": "graph-it-live.viewMode == 'architecture'"
+        }
+      ],
       "editor/title": [
         {
           "command": "graph-it-live.showGraph",
@@ -386,6 +408,16 @@
         {
           "command": "graph-it-live.setViewModeArchitecture",
           "when": "view == graph-it-live.graphView && graph-it-live.viewMode != 'architecture'",
+          "group": "navigation@6"
+        },
+        {
+          "command": "graph-it-live.exportArchitectureDiagram",
+          "when": "view == graph-it-live.graphView && graph-it-live.viewMode == 'architecture'",
+          "group": "navigation@6"
+        },
+        {
+          "command": "graph-it-live.copyArchitectureDiagram",
+          "when": "view == graph-it-live.graphView && graph-it-live.viewMode == 'architecture'",
           "group": "navigation@6"
         },
         {

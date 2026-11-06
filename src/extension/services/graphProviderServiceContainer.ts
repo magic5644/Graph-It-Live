@@ -264,6 +264,21 @@ export function createGraphProviderServiceContainer(
         void vscode.commands.executeCommand("workbench.action.openSettings", "graph-it-live");
       },
       warn: (message) => options.logger.warn(message),
+        notify: (message, level) => {
+          const show = level === "error" ? vscode.window.showErrorMessage : vscode.window.showInformationMessage;
+          void show(message);
+        },
+        diagramTheme: () =>
+          [vscode.ColorThemeKind.Dark, vscode.ColorThemeKind.HighContrast].includes(vscode.window.activeColorTheme.kind) ? "dark" : "light",
+        pickDiagramFile: async (defaultPath) => {
+          const uri = await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(defaultPath),
+            filters: { SVG: ["svg"], HTML: ["html"], PNG: ["png"] },
+            title: "Export Architecture Diagram",
+          });
+          return uri?.fsPath;
+        },
+        writeClipboard: (text) => Promise.resolve(vscode.env.clipboard.writeText(text)),
       });
     });
 

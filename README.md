@@ -194,6 +194,14 @@ The CLI (`graph-it architecture --level units`) and the MCP tool `explore_archit
 
 *Click *Matrix* in the *Graph | Matrix* switch for the dependency structure matrix.*
 
+To share the drawn level as a picture, click *Export Architecture Diagram* (icon `$(desktop-download)`) in the *Dependency Graph* view title bar, then save it as `.svg`, `.html` or `.png`. *Copy Architecture Diagram as SVG* (icon `$(copy)`) puts the SVG on the clipboard. Both commands are also in the Command Palette while the Architecture view is open. The export draws the units, or the groups of the entered unit or folder, as a graph or a matrix, with the rule violations of the view; the graph also keeps the role filter and *Min. imports*, which the matrix does not apply. It uses the renderer of `graph-it diagram`: without a role or *Min. imports* filter, the same level gives the same SVG as the CLI; the PNG is that SVG at twice its size, and the SVG follows the editor's light or dark theme. Exports need the default `graph-it-live.communityMode` (`path`).
+
+<div align="center">
+<img src="media/vscode-diagram-export-libraries.png" alt="Exported diagram of the workspaces-project fixture with the library role filter: three library units in two layers, the cycle between @ws/core and @ws/types outlined, and a legend" width="648"/>
+</div>
+
+*An exported diagram with the role filter on `library`: the caption names the filter.*
+
 ### Architecture rules
 
 Declare your intended architecture in `graphit.architecture.json` at the workspace root: `elements` name sets of files, `rules` say what each may import, and `roles` declare what each unit is. The view lists each rule with its violations; `graph-it check-architecture` exits with 1 on a new `error` violation, so it can gate CI, with SARIF output for code scanning and a baseline for existing code. See [the config file](docs/architecture.md#the-config-file) for a complete example.
