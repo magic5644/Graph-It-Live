@@ -1,5 +1,26 @@
 # Changelog
 
+## v1.23.1
+
+Patch release. The CLI and the MCP server no longer index a folder that is not a project, such as a home directory, `/` or a downloads folder (#639, #640). Before, the CLI walked and indexed every file below it, and the MCP server indexed its working directory. The REPL now indexes on first use. Development and CI move to Node.js 24; the runtime still supports Node.js 22. No command, tool or setting is added or removed.
+
+### Breaking / Behavior changes
+
+- **The CLI only analyzes projects** (#639): without `--workspace`, `graph-it` uses the nearest directory, from the current one upward, that holds a project marker of a supported language: `package.json`, `tsconfig.json`, `jsconfig.json`, `deno.json`, `deno.jsonc`, `pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt`, `Pipfile`, `Cargo.toml`, `go.mod`, `go.work`, `pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`, `*.csproj`, `*.sln`, `*.slnx` or `Directory.Build.props`. Before, only `package.json` and `tsconfig.json` counted. When no directory up to the filesystem root holds one, every command that needs a workspace exits with code `3` before it reads a file or creates `.graph-it/`; `serve`, `stats`, `install` and `update` still run. The nearest marker wins: run from inside a sub-folder with its own `go.mod` or `requirements.txt`, that sub-folder is the root. Pass `--workspace` to force the root: it is used exactly as given (a relative path resolves against the current directory), marker or not, and must be an existing directory. A missing directory or an empty `--workspace=` exits with code `3`.
+
+```bash
+cd ~ && graph-it summary            # exit code 3: no project found
+graph-it -w ~/code/my-app summary   # analyzes ~/code/my-app
+```
+
+- **The REPL indexes on first use** (#639): `graph-it` without a command lists the workspace files for completion, opens, and indexes on the first command that needs the index. `/help`, `/format`, `/scope`, `/path`, `/file` and `/quit` never index. Started outside a project without `--workspace`, the REPL exits with code `3` before it opens.
+- **The MCP server starts outside a project without indexing it** (#640): `graph-it serve` and the Claude Code and Codex plugins always start. With `WORKSPACE_ROOT` unset, the server uses the nearest project root at or above its working directory. Outside any project it no longer indexes its working directory: it sets no workspace, and its tools answer with a hint to call `graphitlive_set_workspace` (or to set `WORKSPACE_ROOT`). A `WORKSPACE_ROOT` that does not exist is ignored the same way: the server uses the project root of its working directory, or no workspace. The plugins get this behavior when their pinned version moves to 1.23.1.
+- **The MCP worker fails its init at once** (#640): an init failure inside the worker is reported through a new `init-error` worker message, and a worker that exits before it is ready, with code 0 included, fails the start. Before, tool calls hung until the 120 s warmup timeout. A missing workspace fails before the worker starts, with the `graphitlive_set_workspace` hint.
+
+### Changed
+
+- **Node.js 24 for development and CI** (#637): `.nvmrc` and every workflow that runs Node.js move to Node.js 24. `engines.node` stays `>=22`, and the npm package smoke test still runs on Node.js 22 on Linux, macOS and Windows.
+
 ## v1.23.0
 
 Minor release. Graph-It-Live now draws static architecture diagrams that you can share (#451). One level of the Architecture view becomes a bare SVG, a self-contained HTML page or a PNG. It comes from the CLI (`graph-it diagram`, REPL `/diagram`), the MCP server (`graphitlive_export_architecture_diagram`) and Copilot (`#graphArchitectureDiagram`), or the VS Code title bar. A `diagram-spec` JSON hands the same data to diagram skills. In the call graph, method calls resolve from receiver types proven across files (#499), and through annotated returned values (#623). Added: one CLI command (`diagram`), one REPL command (`/diagram`), one MCP tool and one Copilot tool (25 each), and two VS Code commands. Nothing is removed, and no setting changes.
