@@ -1,6 +1,10 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { Parser } from "@/analyzer/Parser";
+import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
+import { PathResolver } from "@/analyzer/utils/PathResolver";
+import { workerState } from "@/mcp/shared/state";
 
 /** The example of "Architecture rules" in the docs: what the generated workspace is checked against. */
 export const RULES_CONFIG = {
@@ -71,4 +75,15 @@ export function createRulesWorkspace(withConfig = true): string {
   }
   // realpath: macOS tmpdir is a symlink (/var → /private/var), which the workspace checks resolve.
   return fs.realpathSync(root);
+}
+
+/** The generated workspace, with the CLI/MCP worker state analysing it; afterwards call workerState.reset() and remove it. */
+export function startRulesWorker(): string {
+  const root = createRulesWorkspace();
+  workerState.parser = new Parser();
+  workerState.resolver = new PathResolver(undefined, true, root);
+  workerState.spider = new SpiderBuilder().withRootDir(root).withExcludeNodeModules(true).build();
+  workerState.config = { rootDir: root, excludeNodeModules: true, maxDepth: 50 };
+  workerState.isReady = true;
+  return root;
 }
