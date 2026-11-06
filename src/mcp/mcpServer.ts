@@ -155,7 +155,7 @@ import type { GraphContextResponse } from "../shared/graph-context-types";
 import { GenerateWikiSchema } from "./tools/wiki.js";
 import { executeGetSessionStats, GetSessionStatsSchema, type GetSessionStatsResult } from "./tools/stats.js";
 import { flushSession } from "../analyzer/stats/statsPersistence";
-import { findWorkspaceRoot } from "../analyzer/utils/workspaceBoundary";
+import { findProjectRoot } from "../analyzer/utils/workspaceBoundary";
 import { sessionStats } from "../shared/sessionStats";
 
 // Session stats: this process is the MCP entry point.
@@ -207,19 +207,18 @@ if (
 
 // Fallback logic for WORKSPACE_ROOT (only if set via env)
 if (!currentConfig.workspaceRoot) {
-  const cwd = process.cwd();
-
-  // If cwd is root or empty, don't set a default - require explicit configuration
-  if (cwd === "/" || cwd === "") {
+  // Same rule as the CLI without --workspace: the nearest project root. Outside
+  // any project (a home directory, /) no default is set, so nothing is indexed.
+  const projectRoot = process.cwd() ? findProjectRoot(process.cwd()) : null;
+  if (projectRoot) {
+    currentConfig.workspaceRoot = projectRoot;
     debugLog(
-      "[McpServer] No workspace configured - use graphitlive_set_workspace tool to set workspace",
+      "[McpServer] WORKSPACE_ROOT not set, using the project root of the current working directory:",
+      projectRoot,
     );
   } else {
-    // Same rule as the CLI without --workspace: the nearest package root.
-    currentConfig.workspaceRoot = findWorkspaceRoot(cwd);
     debugLog(
-      "[McpServer] WORKSPACE_ROOT not set, using the package root of the current working directory:",
-      currentConfig.workspaceRoot,
+      "[McpServer] No workspace configured and no project marker at or above the working directory - use graphitlive_set_workspace tool to set workspace",
     );
   }
 }
@@ -348,6 +347,12 @@ async function initializeWorker(): Promise<void> {
  * Actual worker initialization logic
  */
 async function doInitializeWorker(): Promise<void> {
+  if (!getWorkspaceRoot()) {
+    throw new Error(
+      "No workspace configured: the server was started outside a project. " +
+        "Call graphitlive_set_workspace with the project directory, or set WORKSPACE_ROOT.",
+    );
+  }
   const workerPath = path.join(__dirname, "mcpWorker.js");
 
   // Debug: Log worker path resolution

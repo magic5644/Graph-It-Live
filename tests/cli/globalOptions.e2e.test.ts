@@ -128,6 +128,27 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
     }
   });
 
+  it("serve outside a project starts, answers with a set_workspace hint, then works once set", async () => {
+    const { child, callTool } = await startMcpSession(DIST_ENTRY, undefined, otherCwd);
+    try {
+      const status = await callTool("graphitlive_get_index_status", { response_format: "json" });
+      expect(status.content.map((c) => c.text).join("\n")).toContain("graphitlive_set_workspace");
+
+      const set = await callTool("graphitlive_set_workspace", { workspacePath: tmpDir });
+      expect(set.isError).not.toBe(true);
+      const deps = await callTool("graphitlive_analyze_dependencies", {
+        filePath: path.join(tmpDir, "src/a.ts"),
+        response_format: "json",
+      });
+      expect(deps.content.map((c) => c.text).join("\n")).toContain("b.ts");
+      expect(await closeSession(child)).toBe(0);
+      // Nothing written into the non-project working directory (index, cache, update check).
+      expect(fs.existsSync(path.join(otherCwd, ".graph-it"))).toBe(false);
+    } finally {
+      if (child.exitCode === null) child.kill();
+    }
+  });
+
   // Windows has no catchable SIGTERM/SIGINT for a spawned process: kill() ends
   // the CLI at once, so the forwarding path is covered by serve unit tests there.
   it.skipIf(process.platform === "win32").each([

@@ -84,6 +84,8 @@ export type McpWorkerResponse =
       executionTimeMs: number;
     }
   | { type: "error"; requestId: string; error: string; code?: string }
+  /** handleInit failed: the host rejects start() at once instead of waiting for the warmup timeout. */
+  | { type: "init-error"; error: string }
   | {
       type: "warmup-progress";
       processed: number;

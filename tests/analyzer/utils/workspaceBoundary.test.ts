@@ -6,6 +6,7 @@ import {
   describeOutOfRootImports,
   findMonorepoRoot,
   reportOutOfRootImports,
+  findProjectRoot,
   findWorkspaceRoot,
   hasProjectMarker,
   PROJECT_MARKERS,
@@ -81,6 +82,22 @@ describe("workspaceBoundary", () => {
       fs.mkdirSync(path.join(tmp, "packages", "api", "src"), { recursive: true });
       expect(findWorkspaceRoot(path.join(tmp, "packages", "api", "src"))).toBe(path.join(tmp, "packages", "api"));
       expect(findWorkspaceRoot(path.join(tmp, "packages"))).toBe(tmp);
+    });
+  });
+
+  describe("findProjectRoot", () => {
+    it("returns the nearest project root", () => {
+      fs.mkdirSync(path.join(pkg, "src"), { recursive: true });
+      expect(findProjectRoot(path.join(pkg, "src"))).toBe(pkg);
+    });
+
+    it("returns null when no directory up to the filesystem root holds a marker", () => {
+      listing.fake = () => [];
+      try {
+        expect(findProjectRoot(path.join(tmp, "a"))).toBeNull();
+      } finally {
+        listing.fake = undefined;
+      }
     });
   });
 

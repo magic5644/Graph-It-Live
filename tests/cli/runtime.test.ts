@@ -164,6 +164,13 @@ describe("CliRuntime - project guard", () => {
     expect(() => new CliRuntime(tmpDir, { requireProject: true }).assertProjectRoot()).not.toThrow();
   });
 
+  it("reports isProjectRoot without throwing", () => {
+    expect(new CliRuntime(tmpDir, { requireProject: true }).isProjectRoot).toBe(false);
+    expect(new CliRuntime(tmpDir).isProjectRoot).toBe(true);
+    fs.writeFileSync(path.join(tmpDir, "Cargo.toml"), "");
+    expect(new CliRuntime(tmpDir, { requireProject: true }).isProjectRoot).toBe(true);
+  });
+
   it("accepts any directory when the root was given explicitly", () => {
     expect(() => new CliRuntime(tmpDir).assertProjectRoot()).not.toThrow();
     expect(() => new CliRuntime(tmpDir, { requireProject: false }).assertProjectRoot()).not.toThrow();

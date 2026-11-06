@@ -37,8 +37,10 @@ export async function stopSession(child: ReturnType<typeof spawn>, graceMs = 10_
 }
 
 /** Start `graph-it serve --workspace <workspace>` from `cwd` and complete the MCP handshake. */
-export async function startMcpSession(distEntry: string, workspace: string, cwd: string) {
-  const child = spawn(process.execPath, [distEntry, "serve", "--workspace", workspace], {
+/** workspace undefined: `serve` without --workspace, so the root comes from cwd. */
+export async function startMcpSession(distEntry: string, workspace: string | undefined, cwd: string) {
+  const workspaceArgs = workspace === undefined ? [] : ["--workspace", workspace];
+  const child = spawn(process.execPath, [distEntry, "serve", ...workspaceArgs], {
     cwd,
     stdio: ["pipe", "pipe", "ignore"],
   });

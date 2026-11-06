@@ -117,9 +117,14 @@ export class CliRuntime {
     this.requireProject = options?.requireProject ?? false;
   }
 
-  /** Throws when the root must be a project and holds no marker of a supported language. */
+  /** False when the root must be a project and holds no marker of a supported language. */
+  get isProjectRoot(): boolean {
+    return !this.requireProject || hasProjectMarker(this.workspaceRoot);
+  }
+
+  /** Throws when isProjectRoot is false. */
   assertProjectRoot(): void {
-    if (!this.requireProject || hasProjectMarker(this.workspaceRoot)) return;
+    if (this.isProjectRoot) return;
     throw new CliError(
       `No project found in ${this.workspaceRoot} or above it: no marker of a supported language ` +
         "(package.json, tsconfig.json, pyproject.toml, Cargo.toml, go.mod, pom.xml, build.gradle, *.csproj, ...). " +
