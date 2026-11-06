@@ -4,7 +4,7 @@
       "command": "npx",
       "args": [
         "-y",
-        "@magic5644/graph-it-live@1.22.0",
+        "@magic5644/graph-it-live@1.23.0",
         "serve"
       ]
     }
