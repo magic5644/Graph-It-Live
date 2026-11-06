@@ -51,7 +51,6 @@ describe('agent plugin manifests', () => {
       };
       expect(config.mcpServers['graph-it-live'].args).toEqual([
         '-y',
-        '--prefer-offline',
         `@magic5644/graph-it-live@${version}`,
         'serve',
       ]);

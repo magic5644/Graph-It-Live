@@ -41,10 +41,11 @@ function fetchLatestVersion() {
   });
 }
 
-// A pinned version with --prefer-offline starts from the npx cache without a
-// registry lookup; npx downloads the package only on a cache miss.
+// npx runs an exact pinned version from its cache after revalidating the package
+// metadata, and downloads the package only on a cache miss. No --prefer-offline: it
+// trusts metadata cached before a release and fails with ETARGET.
 function mcpServer(version) {
-  return { command: 'npx', args: ['-y', '--prefer-offline', `${packageName}@${version}`, 'serve'] };
+  return { command: 'npx', args: ['-y', `${packageName}@${version}`, 'serve'] };
 }
 
 const args = process.argv.slice(2);

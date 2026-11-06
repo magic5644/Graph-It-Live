@@ -6,7 +6,6 @@
       "command": "npx",
       "args": [
         "-y",
-        "--prefer-offline",
         "@magic5644/graph-it-live@1.22.0",
         "serve"
       ]

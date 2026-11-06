@@ -21,9 +21,10 @@ Examples:
 - Cursor: install the directory from the Plugins panel.
 - Codex: add this repository’s `.agents/plugins/marketplace.json` to a configured marketplace, then use `/plugins`.
 
-The MCP command runs `npx -y --prefer-offline @magic5644/graph-it-live@<version> serve`.
-The pinned version starts from the npx cache without a registry lookup; npx
-downloads the package only on the first start or after a version change. The
+The MCP command runs `npx -y @magic5644/graph-it-live@<version> serve`.
+The pinned version starts from the npx cache: npm revalidates the package metadata
+(so a start needs registry access) and downloads the package only on the first
+start or after a version change. The
 CLI also checks for updates and reports `graph-it update`; run
 `scripts/update-cli.sh` when an explicit update is needed.
 
