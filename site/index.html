@@ -442,6 +442,23 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 
     <div class="shot rv" style="margin-bottom:64px">
       <div class="shot-txt">
+        <h3>Share the architecture as one file</h3>
+        <p>Export a level of the Architecture view as a static diagram for a README, a wiki or a pull request. Run <code>graph-it diagram --format svg</code>, or click <em>Export Architecture Diagram</em> in the Dependency Graph title bar.</p>
+        <ul>
+          <li>Bare SVG or self-contained HTML that follows light and dark, PNG from VS Code</li>
+          <li>Computed from the index: the same revision gives the same file</li>
+          <li><code>--rules</code> draws violations in the error colour, <code>--baseline</code> dashes accepted ones</li>
+          <li><code>export_architecture_diagram</code> MCP tool and <code>diagram-spec</code> JSON for diagram skills</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>graph-it diagram</span></div>
+        <img src="media/cli-diagram-units.svg" alt="graph-it diagram on the workspaces-project test fixture: seven units in three layers, the cycle between @ws/core and @ws/types outlined, edge widths by file pairs, and a legend" loading="lazy">
+      </div>
+    </div>
+
+    <div class="shot rev rv" style="margin-bottom:64px">
+      <div class="shot-txt">
         <h3>Drill down into any file</h3>
         <p>Symbol View turns a file into its own little graph — exports, internals, and who calls what.</p>
         <ul>
@@ -457,7 +474,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
     </div>
 
-    <div class="shot rev rv" style="margin-bottom:64px">
+    <div class="shot rv" style="margin-bottom:64px">
       <div class="shot-txt">
         <h3>Follow calls across files</h3>
         <p>The Live Call Graph is built with Tree-sitter and SQLite, and refreshes after you save.</p>
@@ -474,7 +491,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
     </div>
 
-    <div class="shot rv" style="margin-bottom:64px">
+    <div class="shot rev rv" style="margin-bottom:64px">
       <div class="shot-txt">
         <h3>See React components for what they are</h3>
         <p>In <code>.jsx</code> and <code>.tsx</code> files, a rendered component or a passed handler is a reference, not a call. Open any <code>.jsx</code> or <code>.tsx</code> file to see the React marks.</p>
@@ -491,7 +508,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
     </div>
 
-    <div class="shot rev rv" style="margin-bottom:64px">
+    <div class="shot rv" style="margin-bottom:64px">
       <div class="shot-txt">
         <h3>Know what a view is waiting for</h3>
         <p>Every view shares one loading state with the Graph-It-Live logo. You see it when a view opens before its data is ready, for example <em>Show Call Graph</em> on a workspace not indexed yet.</p>
@@ -507,7 +524,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
     </div>
 
-    <div class="shot rv">
+    <div class="shot rev rv">
       <div class="shot-txt">
         <h3>Find what nobody uses</h3>
         <p>Hide or dim unused dependencies, then hunt unused exported symbols and dead files before a refactor.</p>
