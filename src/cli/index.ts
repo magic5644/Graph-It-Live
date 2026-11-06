@@ -300,9 +300,12 @@ export function stripGlobalOptions(args: string[]): string[] {
  */
 export function createRuntime(
   workspaceRoot: string,
-  values: { reindex?: unknown; "no-cache"?: unknown },
+  values: { reindex?: unknown; "no-cache"?: unknown; workspace?: unknown },
 ): CliRuntime {
-  const runtime = new CliRuntime(workspaceRoot, { cache: !values["no-cache"] });
+  const runtime = new CliRuntime(workspaceRoot, {
+    cache: !values["no-cache"],
+    requireProject: values.workspace === undefined,
+  });
   if (values.reindex) {
     runtime.clearCache();
   }

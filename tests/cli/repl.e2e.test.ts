@@ -70,6 +70,7 @@ import { run } from '../../src/cli/commands/repl';
 function createRuntimeStub() {
   return {
     workspaceRoot: '/workspace',
+    assertProjectRoot: vi.fn(),
     init: vi.fn().mockResolvedValue(undefined),
     ensureIndexed: vi.fn().mockResolvedValue({ filesIndexed: 2, durationMs: 1 }),
   };
@@ -139,14 +140,66 @@ describe('REPL command chaining e2e', () => {
     expect(mocks.runInkReplSession).not.toHaveBeenCalled();
   });
 
-  it('reports a scan error and does not start the UI when indexing fails', async () => {
+  it('refuses a directory without a project marker before walking it, and does not start the UI', async () => {
     const runtime = createRuntimeStub();
-    runtime.ensureIndexed.mockRejectedValueOnce(new Error('disk full'));
+    runtime.assertProjectRoot.mockImplementation(() => {
+      throw new Error('No project found in /home/user');
+    });
 
     await run(runtime as unknown as CliRuntime);
 
-    expect(stderrSpy).toHaveBeenCalledWith('Scan error: disk full\n');
+    expect(stderrSpy).toHaveBeenCalledWith('No project found in /home/user\n');
     expect(mocks.runInkReplSession).not.toHaveBeenCalled();
+    expect(runtime.init).not.toHaveBeenCalled();
+  });
+
+  it('starts the UI without indexing, and session commands never index', async () => {
+    const runtime = createRuntimeStub();
+    await typedSession(runtime, '/help', '/format json', '/scope src', '/file src/index.ts', '/quit');
+
+    expect(mocks.runInkReplSession).toHaveBeenCalled();
+    expect(runtime.init).not.toHaveBeenCalled();
+    expect(runtime.ensureIndexed).not.toHaveBeenCalled();
+  });
+
+  it('indexes silently once, on the first command that needs the index', async () => {
+    const runtime = createRuntimeStub();
+    await typedSession(runtime, '/summary src/index.ts', '/explain src/index.ts');
+
+    expect(runtime.init).toHaveBeenCalledTimes(1);
+    expect(runtime.ensureIndexed).toHaveBeenCalledTimes(1);
+    expect(runtime.ensureIndexed).toHaveBeenCalledWith({ silent: true });
+    expect(runtime.init.mock.invocationCallOrder[0]).toBeLessThan(runtime.ensureIndexed.mock.invocationCallOrder[0]);
+  });
+
+  it('shares one indexing run between concurrent commands', async () => {
+    const runtime = createRuntimeStub();
+    let submit: SubmitCommand | undefined;
+    mocks.runInkReplSession.mockImplementation(async (options: { onSubmitCommand: SubmitCommand }) => {
+      submit = options.onSubmitCommand;
+    });
+    await run(runtime as unknown as CliRuntime);
+
+    await Promise.all([submit?.('/summary src/index.ts'), submit?.('/explain src/index.ts')]);
+
+    expect(runtime.init).toHaveBeenCalledTimes(1);
+    expect(runtime.ensureIndexed).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves an indexing failure to the REPL error line and retries on the next command', async () => {
+    const runtime = createRuntimeStub();
+    runtime.ensureIndexed.mockRejectedValueOnce(new Error('disk full'));
+    let submit: SubmitCommand | undefined;
+    mocks.runInkReplSession.mockImplementation(async (options: { onSubmitCommand: SubmitCommand }) => {
+      submit = options.onSubmitCommand;
+    });
+    await run(runtime as unknown as CliRuntime);
+
+    await expect(submit?.('/summary src/index.ts')).rejects.toThrow('disk full');
+    await submit?.('/summary src/index.ts');
+
+    expect(runtime.ensureIndexed).toHaveBeenCalledTimes(2);
+    expect(mocks.summaryRun).toHaveBeenCalledTimes(1);
   });
 
   it('says goodbye once the UI session ends', async () => {

@@ -128,3 +128,42 @@ describe("CliRuntime - reverse index contract", () => {
     }
   });
 });
+
+describe("CliRuntime - project guard", () => {
+  let tmpDir: string;
+
+  beforeEach(() => {
+    tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-guard-")));
+  });
+
+  afterEach(() => {
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("refuses a root without a project marker when the project is required", async () => {
+    const runtime = new CliRuntime(tmpDir, { requireProject: true });
+    let error: unknown;
+    try {
+      runtime.assertProjectRoot();
+    } catch (caught) {
+      error = caught;
+    }
+    expect(error).toBeInstanceOf(CliError);
+    expect((error as CliError).exitCode).toBe(ExitCode.WORKSPACE_NOT_FOUND);
+    expect((error as CliError).message).toContain("--workspace <dir>");
+    // init() refuses before creating .graph-it/ or walking the directory.
+    await expect(runtime.init()).rejects.toBeInstanceOf(CliError);
+    expect(fs.existsSync(path.join(tmpDir, ".graph-it"))).toBe(false);
+    expect(runtime.initialized).toBe(false);
+  });
+
+  it.each(["go.mod", "pyproject.toml", "Service.csproj"])("accepts a root holding %s", (marker) => {
+    fs.writeFileSync(path.join(tmpDir, marker), "");
+    expect(() => new CliRuntime(tmpDir, { requireProject: true }).assertProjectRoot()).not.toThrow();
+  });
+
+  it("accepts any directory when the root was given explicitly", () => {
+    expect(() => new CliRuntime(tmpDir).assertProjectRoot()).not.toThrow();
+    expect(() => new CliRuntime(tmpDir, { requireProject: false }).assertProjectRoot()).not.toThrow();
+  });
+});

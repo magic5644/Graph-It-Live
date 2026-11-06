@@ -119,6 +119,16 @@ describe("createRuntime — index cache flags", () => {
     expect(fsSync.existsSync(cacheDir)).toBe(true);
   });
 
+  it("requires a project marker only without --workspace", () => {
+    const bare = fsSync.mkdtempSync(pathMod.join(osMod.tmpdir(), "graph-it-bare-"));
+    try {
+      expect(() => createRuntime(bare, {}).assertProjectRoot()).toThrow("No project found");
+      expect(() => createRuntime(bare, { workspace: bare }).assertProjectRoot()).not.toThrow();
+    } finally {
+      fsSync.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
   it("--reindex deletes the existing cache up front", () => {
     createRuntime(tmpDir, { reindex: true });
 

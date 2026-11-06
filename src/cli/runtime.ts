@@ -20,6 +20,7 @@ import {
   describeOutOfRootImports,
   findMonorepoRoot,
   findWorkspaceRoot,
+  hasProjectMarker,
   toDisplayPath,
 } from "../analyzer/utils/workspaceBoundary";
 import { workerState } from "../mcp/shared/state";
@@ -93,16 +94,34 @@ export class CliRuntime {
   readonly workspaceRoot: string;
   private readonly stateDir: string;
   private readonly cacheEnabled: boolean;
+  private readonly requireProject: boolean;
   private _initialized = false;
   private _indexReady = false;
   private _sourceFiles: string[] | null = null;
   private indexCache: IndexCache | null = null;
   private errorCollectorBackend: ErrorCollectorBackend | null = null;
 
-  constructor(workspaceRoot: string, options?: { cache?: boolean }) {
+  /**
+   * `requireProject`: the root was not given explicitly, so init() refuses a
+   * directory without a project marker (a home or a filesystem root) instead of
+   * walking and indexing every file below it.
+   */
+  constructor(workspaceRoot: string, options?: { cache?: boolean; requireProject?: boolean }) {
     this.workspaceRoot = path.resolve(workspaceRoot);
     this.stateDir = path.join(this.workspaceRoot, ".graph-it");
     this.cacheEnabled = (options?.cache ?? true) && !process.env.GRAPH_IT_NO_CACHE;
+    this.requireProject = options?.requireProject ?? false;
+  }
+
+  /** Throws when the root must be a project and holds no marker of a supported language. */
+  assertProjectRoot(): void {
+    if (!this.requireProject || hasProjectMarker(this.workspaceRoot)) return;
+    throw new CliError(
+      `No project found in ${this.workspaceRoot} or above it: no marker of a supported language ` +
+        "(package.json, tsconfig.json, pyproject.toml, Cargo.toml, go.mod, pom.xml, build.gradle, *.csproj, ...). " +
+        "Run graph-it inside a project, or pass --workspace <dir> to analyze this directory anyway.",
+      ExitCode.WORKSPACE_NOT_FOUND,
+    );
   }
 
   /** Delete the persisted index cache. Backs the `--reindex` flag. */
@@ -167,6 +186,7 @@ export class CliRuntime {
    */
   async init(): Promise<void> {
     if (this._initialized) return;
+    this.assertProjectRoot();
 
     // Ensure .graph-it/ exists
     fs.mkdirSync(this.stateDir, { recursive: true });

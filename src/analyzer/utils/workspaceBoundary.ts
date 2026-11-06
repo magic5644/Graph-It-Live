@@ -8,6 +8,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import type { Language } from "../LanguageService";
 
 /** Imports that resolved to a file outside the workspace root and were skipped. */
 export interface OutOfRootImports {
@@ -21,20 +22,51 @@ export interface OutOfRootImports {
 const MONOREPO_MARKERS = ["pnpm-workspace.yaml", "lerna.json", ".git"];
 
 /**
+ * Files that mark a directory as the root of a project in a supported language;
+ * `*.ext` matches any file with that extension. Keyed by Language so that adding
+ * a language fails to compile until its markers are listed here (TypeScript also
+ * covers JavaScript and Vue).
+ */
+export const PROJECT_MARKERS: Readonly<Record<Exclude<`${Language}`, "unknown">, readonly string[]>> = {
+  typescript: ["package.json", "tsconfig.json", "jsconfig.json", "deno.json", "deno.jsonc"],
+  python: ["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile"],
+  rust: ["Cargo.toml"],
+  csharp: ["*.csproj", "*.sln", "*.slnx", "Directory.Build.props"],
+  go: ["go.mod", "go.work"],
+  java: ["pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts"],
+};
+
+const MARKER_FILES = new Set(Object.values(PROJECT_MARKERS).flat().filter((marker) => !marker.startsWith("*")));
+const MARKER_EXTENSIONS = Object.values(PROJECT_MARKERS)
+  .flat()
+  .filter((marker) => marker.startsWith("*"))
+  .map((marker) => marker.slice(1));
+
+/** Whether dir directly holds a project marker of a supported language (an unreadable dir holds none). */
+export function hasProjectMarker(dir: string): boolean {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(dir);
+  } catch {
+    return false;
+  }
+  return entries.some(
+    (entry) => MARKER_FILES.has(entry) || MARKER_EXTENSIONS.some((extension) => entry.endsWith(extension)),
+  );
+}
+
+/**
  * Root used when none was given explicitly: the nearest directory, starting at
- * startDir and going up, that holds package.json or tsconfig.json. Falls back
- * to startDir. An explicit root (--workspace, WORKSPACE_ROOT, set_workspace,
- * the VS Code folder) is used as given and never goes through this.
+ * startDir and going up, that holds a project marker (see PROJECT_MARKERS).
+ * Falls back to startDir. An explicit root (--workspace, WORKSPACE_ROOT,
+ * set_workspace, the VS Code folder) is used as given and never goes through this.
  */
 export function findWorkspaceRoot(startDir: string): string {
   let dir = path.resolve(startDir);
   const { root } = path.parse(dir);
 
   while (dir !== root) {
-    if (
-      fs.existsSync(path.join(dir, "package.json")) ||
-      fs.existsSync(path.join(dir, "tsconfig.json"))
-    ) {
+    if (hasProjectMarker(dir)) {
       return dir;
     }
     dir = path.dirname(dir);

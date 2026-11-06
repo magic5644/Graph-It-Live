@@ -7,6 +7,8 @@ import {
   findMonorepoRoot,
   reportOutOfRootImports,
   findWorkspaceRoot,
+  hasProjectMarker,
+  PROJECT_MARKERS,
   toDisplayPath,
   toReportableSpecifier,
 } from "@/analyzer/utils/workspaceBoundary";
@@ -33,6 +35,48 @@ describe("workspaceBoundary", () => {
     it("climbs from a nested directory to the nearest package root", () => {
       fs.mkdirSync(path.join(pkg, "src", "deep"), { recursive: true });
       expect(findWorkspaceRoot(path.join(pkg, "src", "deep"))).toBe(pkg);
+    });
+
+    it.each(["go.mod", "Cargo.toml", "pyproject.toml", "pom.xml", "build.gradle.kts", "App.csproj", "App.sln"])(
+      "stops at a %s project before a package.json above it",
+      (marker) => {
+        write("package.json");
+        write(`svc/${marker}`, "");
+        fs.mkdirSync(path.join(tmp, "svc", "src"), { recursive: true });
+        expect(findWorkspaceRoot(path.join(tmp, "svc", "src"))).toBe(path.join(tmp, "svc"));
+      },
+    );
+
+    it("falls back to the start directory when no marker is found up to the filesystem root", () => {
+      expect(findWorkspaceRoot(path.parse(tmp).root)).toBe(path.parse(tmp).root);
+    });
+  });
+
+  describe("hasProjectMarker", () => {
+    it.each(Object.entries(PROJECT_MARKERS).flatMap(([language, markers]) =>
+      markers.map((marker) => [language, marker.replace("*", "Project")]),
+    ))("recognizes a %s project by %s", (_language, file) => {
+      write(`project/${file}`, "");
+      expect(hasProjectMarker(path.join(tmp, "project"))).toBe(true);
+    });
+
+    it("lists markers for every supported language", () => {
+      expect(Object.keys(PROJECT_MARKERS).sort()).toEqual(["csharp", "go", "java", "python", "rust", "typescript"]);
+      for (const markers of Object.values(PROJECT_MARKERS)) expect(markers.length).toBeGreaterThan(0);
+    });
+
+    it("ignores a directory holding only source files or a marker-like name", () => {
+      write("loose/script.py", "");
+      write("loose/index.ts", "");
+      write("loose/package.json.bak", "");
+      write("loose/csproj", "");
+      expect(hasProjectMarker(path.join(tmp, "loose"))).toBe(false);
+    });
+
+    it("returns false for a missing or unreadable directory", () => {
+      expect(hasProjectMarker(path.join(tmp, "missing"))).toBe(false);
+      write("file.txt", "");
+      expect(hasProjectMarker(path.join(tmp, "file.txt"))).toBe(false);
     });
   });
 

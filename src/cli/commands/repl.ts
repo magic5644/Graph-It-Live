@@ -140,11 +140,39 @@ async function runQuietlyDuringBootstrap<T>(work: () => Promise<T>): Promise<T> 
   }
 }
 
+const indexing = new WeakMap<CliRuntime, Promise<void>>();
+
+/**
+ * Init and index on first use, silently: progress and logs would garble the Ink
+ * screen. Concurrent callers (symbol picker, typed command) share one run; a
+ * failed run is forgotten so the next command retries.
+ */
+function prepareIndex(runtime: CliRuntime): Promise<void> {
+  let pending = indexing.get(runtime);
+  if (!pending) {
+    pending = runQuietlyDuringBootstrap(async () => {
+      await runtime.init();
+      await runtime.ensureIndexed({ silent: true });
+    });
+    pending.catch(() => indexing.delete(runtime));
+    indexing.set(runtime, pending);
+  }
+  return pending;
+}
+
+/** Commands answered from the session state alone: they never index the workspace. */
+const SESSION_ONLY_COMMANDS = new Set(['help', 'quit', 'scope', 'path', 'file', 'format']);
+
+/** Index before any command but those answered from the session state alone. */
+async function prepareIndexFor(command: string, runtime: CliRuntime): Promise<void> {
+  if (!SESSION_ONLY_COMMANDS.has(command)) await prepareIndex(runtime);
+}
+
 /**
  * Entry point for the REPL.
  *
- * `runtime` is already constructed but NOT yet `init()`ed — this function
- * handles init itself so it can offer a guided scan on first use.
+ * `runtime` is already constructed but NOT yet `init()`ed. The REPL starts at
+ * once and indexes on the first command that needs the index (prepareIndex).
  */
 export async function run(runtime: CliRuntime): Promise<void> {
   if (!process.stdin.isTTY) {
@@ -153,16 +181,10 @@ export async function run(runtime: CliRuntime): Promise<void> {
   }
 
   try {
-    await runQuietlyDuringBootstrap(() => runtime.init());
-  } catch {
-    process.stderr.write('Workspace not found or not accessible.\n');
-    return;
-  }
-
-  try {
-    await runQuietlyDuringBootstrap(() => runtime.ensureIndexed({ silent: true }));
+    // Before the file walk below, so a home or root directory is never walked.
+    runtime.assertProjectRoot();
   } catch (err) {
-    process.stderr.write(`Scan error: ${formatTerminalError(err)}\n`);
+    process.stderr.write(`${formatTerminalError(err)}\n`);
     return;
   }
 
@@ -322,6 +344,8 @@ async function runTypedCommandLine(
       output: 'No command provided after graph-it prefix.',
     };
   }
+
+  await prepareIndexFor(normalizedCommand, runtime);
 
   if (normalizedCommand === 'diagram') {
     return runDiagramCommand(rawArgs, state, runtime);
@@ -962,6 +986,7 @@ async function extractFileSymbols(
   runtime: CliRuntime,
 ): Promise<string[]> {
   try {
+    await prepareIndex(runtime);
     const { run } = await import('./explain.js');
     const jsonOutput = await Promise.race([
       run([absoluteFile], runtime, 'json'),
