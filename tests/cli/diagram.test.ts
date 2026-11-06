@@ -113,7 +113,7 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
     expect(spec.nodes).toEqual(units.nodes);
     const folder = JSON.parse(await run(["--folder", "mfe/cart", "--output", "-"], runtime, "diagram-spec"));
     expect(folder).toMatchObject({ level: "groups", scope: "mfe/cart" });
-    expect(JSON.stringify([units, folder])).not.toContain(root.replaceAll("\\", "/"));
+    for (const leak of [root.replaceAll("\\", "/"), root, JSON.stringify(root).slice(1, -1)]) expect(JSON.stringify([units, folder])).not.toContain(leak);
   });
 
   it("draws the matrix of the units, or of one folder's groups", async () => {

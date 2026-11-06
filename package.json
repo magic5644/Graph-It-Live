@@ -1436,7 +1436,7 @@
             },
             "output": {
               "type": "string",
-              "description": "Optional file to write, relative to the workspace; without it a diagram over the inline cap goes to architecture.<diagramFormat>"
+              "description": "Optional file to write, relative to the workspace; without it a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec)"
             }
           }
         }

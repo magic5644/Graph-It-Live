@@ -313,7 +313,8 @@ describe("architecture diagram: workspaces-project", () => {
     });
     expect(spec.nodes.map((node) => node.role)).toEqual(spec.nodes.map(() => expect.stringMatching(/^[a-z-]+$/)));
     expect(spec.edges.find((edge) => edge.rules.length > 0)).toMatchObject({ from: "packages/ui", to: "packages/core", accepted: false });
-    expect(JSON.stringify(spec)).not.toContain(rootDir.replaceAll("\\", "/"));
+    // Forward, raw and JSON-escaped forms: a Windows root would leak as C:\\...
+    for (const leak of [rootDir.replaceAll("\\", "/"), rootDir, JSON.stringify(rootDir).slice(1, -1)]) expect(JSON.stringify(spec)).not.toContain(leak);
 
     const folder = diagramSpec(await fixtureInput("apps/web"));
     expectSoundSpec(folder);
