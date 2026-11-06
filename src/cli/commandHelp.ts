@@ -218,6 +218,39 @@ Examples:
   graph-it check-architecture --update-baseline
   graph-it check-architecture --config config/architecture.json --format json
 `,
+  diagram: `graph-it diagram — Write a static architecture diagram
+
+Usage: graph-it diagram [options]
+
+Draws one level of the architecture as the Architecture view lays it out: the units (layers
+top to bottom, layer 0 at the bottom, cycles outlined, stroke width = file pairs), the groups
+of one unit or folder, or their dependency matrix. The output has no script and no external
+URL: drop it in a README, a wiki or a pull request. At most 60 units or groups are drawn.
+
+Options:
+  --view VIEW        units|folder|matrix (default: units, or folder with --folder);
+                     matrix draws the units, or with --folder that folder's groups
+  --folder KEY       Unit or folder key, as graph-it architecture --folder takes it
+  --format, -f       svg|html (default: html, or svg when --output ends with .svg);
+                     the HTML page follows the reader's light or dark scheme
+  --theme THEME      light|dark colours of --format svg (default: light)
+  --output FILE      File in the workspace, relative to its root (default:
+                     architecture.html or architecture.svg); - writes to stdout
+  --rules            Draw the violations of graphit.architecture.json in the error
+                     colour, their rule names in the legend
+  --config FILE      Rules file in the workspace, with --rules
+  --baseline [FILE]  With --rules: draw the violations the baseline accepts apart
+                     (default file: graphit.architecture.baseline.json, which
+                     must then exist)
+  --workspace, -w    Workspace root directory (default: auto-detected)
+  --help, -h         Show this help
+
+Examples:
+  graph-it diagram
+  graph-it diagram --format svg --theme dark --output docs/architecture.svg
+  graph-it diagram --folder packages/core --rules --baseline
+  graph-it diagram --view matrix --format svg --output - > matrix.svg
+`,
   check: `graph-it check — Find unused exported symbols in a file
 
 Usage: graph-it check <file> [options]

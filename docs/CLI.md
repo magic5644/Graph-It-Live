@@ -21,6 +21,7 @@ The `graph-it` CLI gives you full access to the dependency analysis engine of Gr
   - [cycles](#cycles)
   - [architecture](#architecture)
   - [check-architecture](#check-architecture)
+  - [diagram](#diagram)
   - [check](#check)
   - [trace](#trace)
   - [context](#context)
@@ -124,7 +125,7 @@ These options are available for every command:
 | Option | Shorthand | Default | Description |
 |--------|-----------|---------|-------------|
 | `--workspace <path>` | `-w` | auto-detected from `cwd` | Root directory of the project to analyze |
-| `--format <format>` | `-f` | `text` | Output format: `text`, `json`, `toon`, `markdown`, `mermaid`; `csv` only for `architecture --matrix`, `sarif` only for `check-architecture` and `review-pr` |
+| `--format <format>` | `-f` | `text` | Output format: `text`, `json`, `toon`, `markdown`, `mermaid`; `csv` only for `architecture --matrix`, `sarif` only for `check-architecture` and `review-pr`, `html` for `export` and `diagram`, `svg` only for `diagram` |
 | `--help` | `-h` | — | Show help for the current command |
 | `--version` | `-v` | — | Print the installed version |
 | `--reindex` | — | — | Discard the cached index and rebuild it from scratch |
@@ -230,6 +231,7 @@ MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is
 | `wiki` | `markdown` *(default)*, `json`, `toon` | print `markdown` |
 | `stats` | `text`, `json` | `markdown` and `toon` print the `text` report |
 | `check-architecture` | `text`, `json`, `toon`, `markdown`, `sarif` | `csv` is rejected (exit code 4) |
+| `diagram` | `html` *(default)*, `svg` | rejected (exit code 4) |
 | `export` | `html` only | rejected |
 | `serve`, `install`, `update` | — | `--format` is ignored |
 
@@ -958,6 +960,35 @@ Unmatched files
 ```
 
 The VS Code Architecture view and the [`check_architecture`](#check_architecture) MCP tool report the same rules and counts.
+
+### diagram
+
+Writes a static architecture diagram: one level of the Architecture view as a bare SVG or one self-contained HTML page. It is computed from the index, so the same revision always gives the same file. Use it in a README, a wiki, a slide or a pull request.
+
+```bash
+graph-it diagram [--view units|folder|matrix] [--folder <key>] [--format svg|html] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `--view` | `units` (`folder` with `--folder`) | `units`: the units in layers (layer 0 at the bottom), cycles outlined, stroke width = file pairs. `folder`: the groups below one unit or folder. `matrix`: the dependency structure matrix of the units, or with `--folder` of that folder's groups, in the [`architecture --matrix`](#architecture) order |
+| `--folder <key>` | — | Unit or folder key, as [`architecture --folder`](#architecture) takes it; `\` is read as `/` |
+| `--format` | `html` (`svg` when `--output` ends with `.svg`) | `html`: one page that follows the reader's light or dark scheme. `svg`: a bare SVG in one theme |
+| `--theme` | `light` | `light` or `dark` colours, `--format svg` only |
+| `--output <file>` | `architecture.html` / `architecture.svg` | File in the workspace, relative to its root; missing folders are created. `-` writes to stdout |
+| `--rules` | off | Draws the violations of `graphit.architecture.json` in the error colour; the legend names the broken rules |
+| `--config <file>` | `graphit.architecture.json` | Rules file, with `--rules` |
+| `--baseline [<file>]` | off | With `--rules`: draws the violations the baseline accepts as dashed lines, counted apart (`3 violations (2 accepted)`). Without a file it reads `graphit.architecture.baseline.json`, which must then exist |
+
+At most 60 units or groups are drawn, the largest ones; a note counts the others, and the header counts cover the whole level. The output has no script, no external resource and no `foreignObject`. Labels are escaped, and paths are workspace-relative.
+
+<img src="../media/cli-diagram-units.svg" alt="graph-it diagram on tests/fixtures/workspaces-project: seven units in three layers, the cycle between @ws/core and @ws/types outlined, edge widths by file pairs, and a legend" width="648"/>
+
+*`graph-it diagram --format svg` on `tests/fixtures/workspaces-project`.*
+
+**Output**: one line, for example `Diagram written to architecture.html: 7 units · 3 layers · 1 cycle · 0 violations.` With `--output -`, the SVG or HTML goes to stdout instead.
+
+**Exit code**: 0 when the file is written. An invalid `--view` or `--theme`, a `--folder` without files, `--view folder` without `--folder`, `--view units` with `--folder`, `--theme` with `--format html`, `--config` or `--baseline` without `--rules`, a missing rules file or a missing named baseline exit 1. An `--output`, `--config` or `--baseline` outside the workspace exits 5, and any other `--format` exits 4.
 
 ### check
 
@@ -2226,6 +2257,9 @@ graph-it summary --format toon > project-overview.toon
 
 # Execution flow diagram for a critical function
 graph-it trace src/mcp/mcpServer.ts#initializeServer --format mermaid > docs/server-flow.md
+
+# Static architecture diagram for the README, rule violations in red
+graph-it diagram --format svg --rules --output docs/architecture.svg
 ```
 
 ---

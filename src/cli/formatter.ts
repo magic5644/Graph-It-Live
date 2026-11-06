@@ -17,9 +17,9 @@ import { encodeToonSections, formatToonScalarHeader } from "../shared/toonSectio
 import { sessionStats } from "../shared/sessionStats";
 import { compactOutput } from "../shared/compactOutput";
 
-export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" | "html" | "csv" | "sarif";
+export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" | "html" | "csv" | "sarif" | "svg";
 
-export const CLI_OUTPUT_FORMATS: readonly CliOutputFormat[] = ["text", "json", "toon", "markdown", "mermaid", "html", "csv", "sarif"];
+export const CLI_OUTPUT_FORMATS: readonly CliOutputFormat[] = ["text", "json", "toon", "markdown", "mermaid", "html", "csv", "sarif", "svg"];
 
 /** Commands that can produce graph / mermaid output */
 const GRAPH_COMMANDS = new Set(["trace", "path", "scan", "architecture"]);
@@ -74,6 +74,8 @@ export function formatOutput(
       throw new CliError('Format "csv" is only produced by graph-it architecture --matrix.', ExitCode.UNSUPPORTED_FORMAT);
     case "sarif":
       throw new CliError('Format "sarif" is only produced by graph-it check-architecture and graph-it review-pr.', ExitCode.UNSUPPORTED_FORMAT);
+    case "svg":
+      throw new CliError('Format "svg" is only produced by graph-it diagram.', ExitCode.UNSUPPORTED_FORMAT);
   }
 }
 

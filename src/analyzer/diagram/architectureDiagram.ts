@@ -27,6 +27,8 @@ export interface DiagramNode {
   /** 0 = depends on no other node of the level. */
   layer: number;
   fileCount: number;
+  /** File pairs inside the node: the matrix diagonal. */
+  internalEdgeCount?: number;
 }
 
 export interface DiagramEdge {
@@ -37,6 +39,8 @@ export interface DiagramEdge {
   kind: ArchitectureUnitEdgeKind;
   /** Names of the rules its file pairs break. */
   rules: string[];
+  /** Every violating pair of the edge is in the baseline. */
+  accepted?: boolean;
 }
 
 /** One level of the architecture, workspace-relative only. */
@@ -54,6 +58,8 @@ export interface DiagramInput {
   edges: DiagramEdge[];
   /** Rule-breaking file pairs between two nodes of the level. */
   violations: number;
+  /** Those of `violations` the baseline accepts. */
+  acceptedViolations?: number;
 }
 
 export interface Box {
@@ -78,10 +84,25 @@ export interface PlacedCycle extends Box {
   members: string[];
 }
 
+export interface DiagramText {
+  title: string;
+  caption: string;
+  counts: string;
+  hidden: string | undefined;
+  rules: string | undefined;
+}
+
+export interface DiagramCounts {
+  nodes: number;
+  layers: number;
+  cycles: number;
+  violations: number;
+}
+
 export interface DiagramLayout {
   input: DiagramInput;
-  /** Header lines and the size-cap note, as drawn. */
-  text: { title: string; caption: string; counts: string; hidden: string | undefined };
+  /** Header lines, the size-cap note and the broken rules' names, as drawn. */
+  text: DiagramText;
   width: number;
   height: number;
   /** Where the graph starts below the header. */
@@ -91,24 +112,31 @@ export interface DiagramLayout {
   cycles: PlacedCycle[];
   /** Nodes of the level left out by the size cap. */
   hidden: number;
-  counts: { nodes: number; layers: number; cycles: number; violations: number };
+  counts: DiagramCounts;
 }
 
-type Violations = readonly Pick<ArchitectureViolation, "rule" | "source" | "target">[];
+/** `new: false` marks a pair the baseline accepts. */
+type Violations = readonly (Pick<ArchitectureViolation, "rule" | "source" | "target"> & { new?: boolean })[];
 
 /** Last folder name of the workspace root: diagrams never show an absolute path. */
 export function workspaceName(workspaceRoot: string): string {
   return normalizePath(workspaceRoot).split("/").findLast((segment) => segment !== "") ?? "workspace";
 }
 
-/** The rules of each edge (`from>to` keys) and the violating pairs between two distinct keys. */
+/** The rules of each edge (`from>to` keys), the violating pairs between two distinct keys, and those the baseline accepts. */
 function edgeRules(violations: Violations, keyOf: (file: string) => string | undefined) {
-  const rules = rulesByEdge(violations, keyOf);
-  const count = violations.filter(({ source, target }) => {
+  const between = violations.filter(({ source, target }) => {
     const from = keyOf(source);
     return from !== undefined && keyOf(target) !== undefined && from !== keyOf(target);
-  }).length;
-  return { rules, count };
+  });
+  const fresh = between.filter((violation) => violation.new !== false);
+  const rules = rulesByEdge(between, keyOf);
+  const freshRules = rulesByEdge(fresh, keyOf);
+  const edge = (from: string, to: string) => {
+    const names = rules[`${from}>${to}`] ?? [];
+    return { rules: names, ...(names.length > 0 && freshRules[`${from}>${to}`] === undefined ? { accepted: true } : {}) };
+  };
+  return { edge, count: between.length, accepted: between.length - fresh.length };
 }
 
 /**
@@ -126,11 +154,11 @@ export function architectureDiagramInput(
   const date = source.graph.context.indexedAt?.slice(0, 10);
   if (folder === undefined) {
     const { units, unitEdges, context } = source.units;
-    const { rules, count } = edgeRules(violations, (file) => source.assignment.unitOf.get(file));
+    const { edge, count, accepted } = edgeRules(violations, (file) => source.assignment.unitOf.get(file));
     return {
-      workspace, scope: "units", noun: "units", revision: context.revision, date, violations: count,
-      nodes: units.map(({ key, name, layer, fileCount }) => ({ key, label: name, layer, fileCount })),
-      edges: unitEdges.map(({ from, to, fileEdgeCount, kind }) => ({ from, to, fileEdgeCount, kind, rules: rules[`${from}>${to}`] ?? [] })),
+      workspace, scope: "units", noun: "units", revision: context.revision, date, violations: count, acceptedViolations: accepted,
+      nodes: units.map(({ key, name, layer, fileCount, internalEdgeCount }) => ({ key, label: name, layer, fileCount, internalEdgeCount })),
+      edges: unitEdges.map(({ from, to, fileEdgeCount, kind }) => ({ from, to, fileEdgeCount, kind, ...edge(from, to) })),
     };
   }
   const level = viewUnitLevel(source, Number.POSITIVE_INFINITY, folder);
@@ -139,14 +167,14 @@ export function architectureDiagramInput(
   }
   const keys = new Map(level.groups.map((group) => [group.id, group.key]));
   const groupOf = new Map(level.graph.nodes.map((node) => [node.relativePath, node.communityKey]));
-  const { rules, count } = edgeRules(violations, (file) => groupOf.get(file));
+  const { edge, count, accepted } = edgeRules(violations, (file) => groupOf.get(file));
   const { groupLayers, groupEdgeKinds } = level.units;
   return {
-    workspace, scope: folder, noun: "groups", revision: level.revision, date, violations: count,
-    nodes: level.groups.map(({ id, key, label, fileCount }) => ({ key, label, layer: groupLayers[id] ?? 0, fileCount })),
-    edges: level.groupEdges.filter((edge) => keys.has(edge.from) && keys.has(edge.to)).map(({ from, to, fileEdgeCount }) => {
+    workspace, scope: folder, noun: "groups", revision: level.revision, date, violations: count, acceptedViolations: accepted,
+    nodes: level.groups.map(({ id, key, label, fileCount, internalEdgeCount }) => ({ key, label, layer: groupLayers[id] ?? 0, fileCount, internalEdgeCount })),
+    edges: level.groupEdges.filter((groupEdge) => keys.has(groupEdge.from) && keys.has(groupEdge.to)).map(({ from, to, fileEdgeCount }) => {
       const [fromKey, toKey] = [keys.get(from)!, keys.get(to)!];
-      return { from: fromKey, to: toKey, fileEdgeCount, kind: groupEdgeKinds[`${from}>${to}`] ?? "down", rules: rules[`${fromKey}>${toKey}`] ?? [] };
+      return { from: fromKey, to: toKey, fileEdgeCount, kind: groupEdgeKinds[`${from}>${to}`] ?? "down", ...edge(fromKey, toKey) };
     }),
   };
 }
@@ -190,7 +218,7 @@ function cyclesOf(nodes: readonly string[], edges: readonly DiagramEdge[]): stri
 }
 
 /** The largest `maxNodes` nodes (by files, then key) and the edges between them. */
-function capNodes(input: DiagramInput, maxNodes: number) {
+export function capNodes(input: DiagramInput, maxNodes: number) {
   const nodes = input.nodes
     .toSorted((left, right) => right.fileCount - left.fileCount || byCodeUnit(left.key, right.key))
     .slice(0, maxNodes)
@@ -210,10 +238,19 @@ export const LEGEND_ITEMS = [
   { kind: "weight", text: "width = file pairs" },
 ] as const;
 
+const ACCEPTED_ITEM = { kind: "accepted", text: "accepted in baseline" } as const;
+
+/** Which legend items a drawing needs: the baseline one when an edge is accepted, the width one for the graph only. */
+export interface LegendOptions {
+  accepted?: boolean;
+  weight?: boolean;
+}
+
 /** Each legend item's x offset from the legend's start, and the legend's width. */
-export function legendLayout() {
+export function legendLayout({ accepted = false, weight = true }: LegendOptions = {}) {
   let x = 0;
-  const items = LEGEND_ITEMS.map((item) => {
+  const shown = LEGEND_ITEMS.filter((item) => weight || item.kind !== "weight");
+  const items = [...shown, ...(accepted ? [ACCEPTED_ITEM] : [])].map((item) => {
     const placed = { ...item, x };
     x += snap(32 + textWidth(item.text, SIZES.caption) + 16);
     return placed;
@@ -223,16 +260,49 @@ export function legendLayout() {
 
 const plural = (count: number, noun: string) => `${count} ${count === 1 ? noun.replace(/s$/, "") : noun}`;
 
-/** Title, caption and counts of the header, and the note naming what the cap leaves out. */
-function headerText(input: DiagramInput, counts: DiagramLayout["counts"], hidden: number, drawn: number): DiagramLayout["text"] {
+/** Distinct rule names of the level's edges, sorted. */
+const brokenRules = (edges: readonly DiagramEdge[]) => [...new Set(edges.flatMap((edge) => edge.rules))].sort(byCodeUnit);
+
+/**
+ * The counts of the whole level, the header lines, the note naming what the cap leaves out and
+ * the names of the broken rules: shared by the graph and the matrix.
+ */
+export function diagramHeader(input: DiagramInput, hidden: number, drawn: number): { counts: DiagramCounts; text: DiagramText } {
+  const counts = {
+    nodes: input.nodes.length,
+    layers: new Set(input.nodes.map((node) => node.layer)).size,
+    cycles: cyclesOf(input.nodes.map((node) => node.key), input.edges).length,
+    violations: input.violations,
+  };
   const scope = input.scope === "units" ? "units" : `folder ${fitLabel(input.scope, 64)}`;
+  const accepted = input.acceptedViolations ? ` (${input.acceptedViolations} accepted)` : "";
+  const rules = brokenRules(input.edges);
   return {
-    title: `Architecture · ${fitLabel(input.workspace, 48)}`,
-    caption: [scope, `revision ${input.revision.slice(0, 12)}`, ...(input.date ? [input.date] : [])].join(" · "),
-    counts: [plural(counts.nodes, input.noun), plural(counts.layers, "layers"), plural(counts.cycles, "cycles"), plural(counts.violations, "violations")].join(" · "),
-    hidden: hidden > 0 ? `${plural(hidden, "more " + input.noun)} not drawn: the ${drawn} largest are drawn` : undefined,
+    counts,
+    text: {
+      title: `Architecture · ${fitLabel(input.workspace, 48)}`,
+      caption: [scope, `revision ${input.revision.slice(0, 12)}`, ...(input.date ? [input.date] : [])].join(" · "),
+      counts: [plural(counts.nodes, input.noun), plural(counts.layers, "layers"), plural(counts.cycles, "cycles"), plural(counts.violations, "violations") + accepted].join(" · "),
+      hidden: hidden > 0 ? `${plural(hidden, "more " + input.noun)} not drawn: the ${drawn} largest are drawn` : undefined,
+      rules: rules.length > 0 ? fitLabel(`broken rules: ${rules.join(", ")}`, 96) : undefined,
+    },
   };
 }
+
+/** Notes drawn above the legend, bottom one last. */
+export const legendNotes = (text: DiagramText) => [text.hidden, text.rules].filter((note) => note !== undefined);
+
+/** Height of the legend and its notes, one 20 px line per note. */
+export const legendHeight = (text: DiagramText) => SIZES.legendHeight + 20 * legendNotes(text).length;
+
+/** Widest of the header lines, the notes and the legend: the canvas fits it. */
+export function textBound(text: DiagramText, legend: LegendOptions): number {
+  const lines = [[text.title, SIZES.title], [text.caption, SIZES.caption], [text.counts, SIZES.caption], ...legendNotes(text).map((note) => [note, SIZES.caption] as const)] as const;
+  return Math.max(legendLayout(legend).width, ...lines.map(([line, size]) => textWidth(line, size)));
+}
+
+/** Whether any edge of the level is drawn as accepted. */
+export const hasAccepted = (edges: readonly DiagramEdge[]) => edges.some((edge) => edge.accepted === true);
 
 /** The view's options; the margins lie outside the graph, so the root needs no padding. */
 const ELK_OPTIONS = { ...ELK_LAYERED_OPTIONS, "elk.padding": "[top=0,left=0,bottom=0,right=0]" };
@@ -286,20 +356,12 @@ export async function layoutDiagram(input: DiagramInput, options: { maxNodes?: n
     ({ x: round(SIZES.margin + (node?.x ?? 0)), y: round(header + (node?.y ?? 0)), width: round(node?.width), height: round(node?.height) });
   const shift = (point: { x: number; y: number }) => ({ x: round(SIZES.margin + point.x), y: round(header + point.y) });
   const routes = new Map((result.edges ?? []).map((edge) => [edge.id, edge.sections ?? []]));
-  const counts = {
-    nodes: input.nodes.length,
-    layers: new Set(input.nodes.map((node) => node.layer)).size,
-    cycles: cyclesOf(input.nodes.map((node) => node.key), input.edges).length,
-    violations: input.violations,
-  };
-  const text = headerText(input, counts, hidden, nodes.length);
-  const lines = [[text.title, SIZES.title], [text.caption, SIZES.caption], [text.counts, SIZES.caption], [text.hidden ?? "", SIZES.caption]] as const;
-  const textBound = Math.max(legendLayout().width, ...lines.map(([line, size]) => textWidth(line, size)));
+  const { counts, text } = diagramHeader(input, hidden, nodes.length);
   return {
     input,
     text,
-    width: snap(SIZES.margin * 2 + Math.max(result.width ?? 0, textBound)),
-    height: snap(header + (result.height ?? 0) + SIZES.margin + SIZES.legendHeight * (text.hidden === undefined ? 1 : 1.5)),
+    width: snap(SIZES.margin * 2 + Math.max(result.width ?? 0, textBound(text, { accepted: hasAccepted(edges) }))),
+    height: snap(header + (result.height ?? 0) + SIZES.margin + legendHeight(text)),
     top: header,
     nodes: sized.map((node) => ({ ...node, ...at(placed.get(id.get(node.key)!)), width: node.width, height: node.height })),
     edges: edges.map((edge, index) => ({

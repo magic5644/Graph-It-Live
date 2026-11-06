@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { CliError, ExitCode } from "../../src/cli/errors";
-import { readCommunityMode, readIntegerOption } from "../../src/cli/options";
+import { readCommunityMode, readIntegerOption, readStringOption } from "../../src/cli/options";
 
 describe("readIntegerOption", () => {
   it("returns undefined when the flag is absent", () => {
@@ -66,5 +66,17 @@ describe("readCommunityMode", () => {
     [["--communities", "--format"], "--communities must be path or louvain, got no value"],
   ])("rejects %j", (args, message) => {
     expect(() => readCommunityMode(args)).toThrow(message);
+  });
+});
+
+describe("readStringOption", () => {
+  it("returns the value, or undefined when the flag is absent", () => {
+    expect(readStringOption(["--config", "rules.json"], "--config", "a file")).toBe("rules.json");
+    expect(readStringOption(["--output", "-"], "--output", "a file")).toBe("-");
+    expect(readStringOption(["src/a.ts"], "--config", "a file")).toBeUndefined();
+  });
+
+  it.each([[["--config"]], [["--config", "--rules"]], [["--config", "  "]]])("rejects %j as a usage error", (args) => {
+    expect(() => readStringOption(args, "--config", "a file of the workspace")).toThrow(new CliError("--config must be a file of the workspace", ExitCode.GENERAL_ERROR));
   });
 });

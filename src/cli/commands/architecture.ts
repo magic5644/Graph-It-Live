@@ -18,7 +18,7 @@ import { CliError, ExitCode } from "../errors";
 import { workerState } from "../../mcp/shared/state";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
-import { readCommunityMode, readIntegerOption } from "../options";
+import { readCommunityMode, readIntegerOption, readStringOption } from "../options";
 import type { CliRuntime } from "../runtime";
 
 function parseMaxFiles(args: string[]): number | undefined {
@@ -38,14 +38,8 @@ function readLevel(args: string[]): (typeof LEVELS)[number] | undefined {
 
 /** `<flag> <unit or folder key>` (`--folder`, `--from`, `--to`), or undefined when the flag is absent. */
 function readKey(args: string[], flag: string, what: string): string | undefined {
-  const index = args.indexOf(flag);
-  if (index < 0) return undefined;
-  const key = args[index + 1];
-  if (key === undefined || key.startsWith("--") || key.trim() === "") {
-    throw new CliError(`${flag} must be ${what}`, ExitCode.GENERAL_ERROR);
-  }
   // Keys use "/" on every OS: a Windows user may type app\core.
-  return key.replaceAll("\\", "/");
+  return readStringOption(args, flag, what)?.replaceAll("\\", "/");
 }
 
 /** One level's matrix, every cell (the CLI does not page): csv for spreadsheets, else as explore_architecture view "matrix" reports it. */

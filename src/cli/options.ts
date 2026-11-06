@@ -33,6 +33,20 @@ export function readIntegerOption(
   throw new CliError(`${flag} must be ${expected}, got ${got}`, ExitCode.GENERAL_ERROR);
 }
 
+/**
+ * Value of `flag` (e.g. `--config <file>`), or undefined when the flag is absent. A missing,
+ * flag-like or blank value is a usage error naming `what` the flag takes.
+ */
+export function readStringOption(args: string[], flag: string, what: string): string | undefined {
+  const index = args.indexOf(flag);
+  if (index < 0) return undefined;
+  const value = args.at(index + 1);
+  if (value === undefined || value.startsWith("--") || value.trim() === "") {
+    throw new CliError(`${flag} must be ${what}`, ExitCode.GENERAL_ERROR);
+  }
+  return value;
+}
+
 /** Community mode of `--communities path|louvain`, or undefined when the flag is absent. */
 export function readCommunityMode(args: string[]): CommunityMode | undefined {
   const index = args.indexOf("--communities");
