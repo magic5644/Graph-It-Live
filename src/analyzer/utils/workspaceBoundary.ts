@@ -49,7 +49,9 @@ const MARKER_EXTENSIONS = Object.values(PROJECT_MARKERS)
 export function hasProjectMarker(dir: string): boolean {
   let entries: string[];
   try {
-    entries = fs.readdirSync(dir);
+    // dir is the user's own working directory, an ancestor of it, or their --workspace: the
+    // directory they asked to analyze. Only entry names are read, and only a boolean leaves.
+    entries = fs.readdirSync(dir); // NOSONAR S8707 user-chosen analysis root, names only
   } catch {
     return false;
   }
