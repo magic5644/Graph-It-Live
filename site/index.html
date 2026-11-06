@@ -591,7 +591,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
         <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h9"/><circle cx="19" cy="17" r="2"/></svg></div>
         <h3>Portable agent plugin</h3>
         <p>One package bundling the MCP server plus five skills: <code>graph-it-live</code>, <code>graph-it-refactor</code>, <code>onboarding-express</code>, <code>dead-code-hunter</code> and <code>pr-review</code>.</p>
-        <p style="margin-top:12px">Plugin manifests pin a published CLI version and use <code>npx --prefer-offline</code>. Skills discover the installed capabilities, prefer the CLI, and fall back to MCP equivalents.</p>
+        <p style="margin-top:12px">Plugin manifests pin a published CLI version and run them with <code>npx</code>. Skills discover the installed capabilities, prefer the CLI, and fall back to MCP equivalents.</p>
         <ul>
           <li>Claude Code &amp; GitHub Copilot CLI marketplaces</li>
           <li>VS Code: <em>Chat: Install Plugin From Source</em></li>
@@ -669,7 +669,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
   <span class="c-str">"graph-it-live"</span>: {
     <span class="c-str">"type"</span>: <span class="c-cmd">"stdio"</span>,
     <span class="c-str">"command"</span>: <span class="c-cmd">"npx"</span>,
-    <span class="c-str">"args"</span>: [<span class="c-cmd">"-y"</span>, <span class="c-cmd">"--prefer-offline"</span>, <span class="c-cmd">"@magic5644/graph-it-live@latest"</span>, <span class="c-cmd">"serve"</span>],
+    <span class="c-str">"args"</span>: [<span class="c-cmd">"-y"</span>, <span class="c-cmd">"@magic5644/graph-it-live@latest"</span>, <span class="c-cmd">"serve"</span>],
     <span class="c-str">"env"</span>: { <span class="c-str">"WORKSPACE_ROOT"</span>: <span class="c-cmd">"/path/to/project"</span> }
   }
 }</code></pre>

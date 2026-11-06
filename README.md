@@ -411,8 +411,8 @@ See the [MCP server instructions](#mcp-server) for ready-to-copy VS Code, Cursor
 
 The repository also includes marketplace catalogs for [Claude Code](.claude-plugin/marketplace.json)
 and [Codex](.agents/plugins/marketplace.json). The MCP entry pins the
-latest published `@magic5644/graph-it-live` version and starts it with `npx --prefer-offline`, so a
-cached package starts without a registry lookup; a workflow updates the pin, the plugin manifests and
+latest published `@magic5644/graph-it-live` version and starts it with `npx`, so a
+cached package starts without a new download (npm still revalidates the package metadata); a workflow updates the pin, the plugin manifests and
 the marketplace versions after each npm publish.
 
 ### Agent skill

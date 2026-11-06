@@ -1835,7 +1835,8 @@ WORKSPACE_ROOT = "/path/to/your/project"
 For a single installation that bundles the MCP server and Graph-It-Live
 skills across compatible clients, use the [portable Agent Plugin](../plugins/graph-it-live/).
 Its MCP entry pins the latest published CLI version and starts it with
-`npx --prefer-offline`, so a cached package starts without a registry lookup;
+`npx`, so a cached package starts without a new download
+(npm still revalidates the package metadata);
 the repository workflow updates the pin after each npm publish.
 
 **Environment variables:**
