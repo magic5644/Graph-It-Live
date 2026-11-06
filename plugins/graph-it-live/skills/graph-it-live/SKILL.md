@@ -159,6 +159,15 @@ When the workspace declares rules in `graphit.architecture.json`, `graph-it chec
 checks every static import against them. It exits 1 on an `error` violation absent from
 `graphit.architecture.baseline.json`; `--update-baseline` accepts the current violations.
 
+To share the architecture as a picture (CLI 1.23.0 or later), `graph-it diagram` writes a static,
+script-free SVG or HTML file of the units, of one folder (`--folder <key>`) or of their matrix
+(`--view matrix`). `--rules` draws the rule violations in red, and `--baseline` draws the accepted
+ones apart. The file stays inside the workspace; `--output -` prints it.
+
+```bash
+graph-it diagram --format svg --rules --output docs/architecture.svg
+```
+
 ### Index the Workspace
 
 **Run `scan` before analysis commands** to build the dependency index. Most analysis commands depend on it.

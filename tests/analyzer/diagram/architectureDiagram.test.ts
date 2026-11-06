@@ -15,6 +15,7 @@ import {
   type DiagramInput,
   type DiagramLayout,
 } from "@/analyzer/diagram/architectureDiagram";
+import { layoutMatrix, type MatrixLayout } from "@/analyzer/diagram/diagramMatrix";
 import { escapeXml, renderDiagramHtml, renderDiagramSvg } from "@/analyzer/diagram/diagramSvg";
 import { SIZES } from "@/analyzer/diagram/diagramStyle";
 import { Parser } from "@/analyzer/Parser";
@@ -91,9 +92,36 @@ function expectSoundGeometry(layout: DiagramLayout): void {
       }
     }
   }
-  const lines = [[layout.text.title, SIZES.title], [layout.text.caption, SIZES.caption], [layout.text.counts, SIZES.caption], [layout.text.hidden ?? "", SIZES.caption]] as const;
+  expectTextInCanvas(layout, { accepted: layout.edges.some((edge) => edge.accepted) });
+}
+
+/** Header lines, notes and legend within the margins. */
+function expectTextInCanvas(layout: DiagramLayout | MatrixLayout, legend: Parameters<typeof legendLayout>[0]): void {
+  const { title, caption, counts, hidden, rules } = layout.text;
+  const lines = [[title, SIZES.title], [caption, SIZES.caption], [counts, SIZES.caption], [hidden ?? "", SIZES.caption], [rules ?? "", SIZES.caption]] as const;
   for (const [line, size] of lines) expect(textWidth(line, size), line).toBeLessThanOrEqual(layout.width - 2 * SIZES.margin);
-  expect(legendLayout().width).toBeLessThanOrEqual(layout.width - 2 * SIZES.margin);
+  expect(legendLayout(legend).width).toBeLessThanOrEqual(layout.width - 2 * SIZES.margin);
+}
+
+/** The matrix: every cell in the grid on its row and column, labels left of the grid, cycles around their rows. */
+function expectSoundMatrix(layout: MatrixLayout): void {
+  const canvas = { x: 0, y: 0, width: layout.width, height: layout.height };
+  const size = layout.rows.length === 0 ? 0 : layout.grid.width / layout.rows.length;
+  expect(layout.grid.width).toBe(layout.grid.height);
+  expect(contains(canvas, layout.grid)).toBe(true);
+  expect(layout.grid.y).toBeGreaterThan(layout.top);
+  for (const cell of layout.cells) {
+    expect(contains(layout.grid, cell), cell.title).toBe(true);
+    expect(4 + textWidth(String(cell.count), SIZES.meta), cell.title).toBeLessThanOrEqual(cell.width - 2);
+  }
+  for (const [index, row] of layout.rows.entries()) {
+    expect(row.text.startsWith(`${index + 1} `)).toBe(true);
+    expect(row.x + textWidth(row.text, SIZES.label), row.key).toBeLessThanOrEqual(layout.grid.x);
+    expect(row.y).toBe(layout.grid.y + index * size);
+    expect(4 + textWidth(layout.columns[index].text, SIZES.meta)).toBeLessThanOrEqual(size);
+  }
+  for (const cycle of layout.cycles) expect(contains(layout.grid, cycle)).toBe(true);
+  expectTextInCanvas(layout, { accepted: layout.cells.some((cell) => cell.kind === "accepted"), weight: false });
 }
 
 /** No script, no foreignObject, no URL but the SVG namespace. */
@@ -159,6 +187,47 @@ describe("architecture diagram: workspaces-project", () => {
     expect(renderDiagramSvg(layout)).toContain('class="edge error"');
     const source = await fixtureSource();
     expect(() => architectureDiagramInput(source, rootDir, { folder: "nowhere" })).toThrow('No file below folder "nowhere"');
+  }, 60_000);
+
+  it("draws the units' matrix in the architecture --matrix order as the golden SVG", async () => {
+    const diagram = await fixtureInput();
+    const layout = layoutMatrix(diagram);
+    expectSoundMatrix(layout);
+    expect(layout.rows).toHaveLength(diagram.nodes.length);
+    expect(layout.cycles.map((cycle) => cycle.members)).toEqual([["packages/core", "packages/types"]]);
+    const row = (key: string) => layout.rows.findIndex((candidate) => candidate.key === key);
+    const cellAt = (from: string, to: string) =>
+      layout.cells.find((cell) => cell.y === layout.rows[row(from)].y && cell.x === layout.grid.x + row(to) * cell.width);
+    expect(cellAt("packages/ui", "packages/core")).toMatchObject({ kind: "error", title: expect.stringContaining("breaks ui-without-core") });
+    // A cycle's upward cell is the accent, the diagonal holds the pairs inside a unit.
+    expect(layout.cells.filter((cell) => cell.kind === "accent").length).toBeGreaterThan(0);
+    expect(layout.cells.filter((cell) => cell.kind === "diagonal").every((cell) => cell.title.endsWith("file pairs inside"))).toBe(true);
+    expect(layout.text).toEqual((await layoutDiagram(diagram)).text);
+    const svg = renderDiagramSvg(layout);
+    expectSafeMarkup(svg);
+    expect(svg).toContain('class="cell error"');
+    expect(svg).not.toContain("width = file pairs");
+    await expect(svg).toMatchFileSnapshot("__snapshots__/workspaces-project.matrix.svg");
+    expectSafeMarkup(renderDiagramHtml(layout));
+  }, 60_000);
+
+  it("draws the pairs the baseline accepts apart, in the counts, edges, cells and legend", async () => {
+    const source = await fixtureSource();
+    const { violations } = checkArchitecture(source.graph, source.assignment, RULES);
+    const diagram = architectureDiagramInput(source, rootDir, { violations: violations.map((violation) => ({ ...violation, new: false })) });
+    expect(diagram.acceptedViolations).toBe(1);
+    expect(diagram.edges.find((edge) => edge.rules.length > 0)).toMatchObject({ rules: ["ui-without-core"], accepted: true });
+    const layout = await layoutDiagram(diagram);
+    expectSoundGeometry(layout);
+    expect(layout.text.counts).toMatch(/· 1 violation \(1 accepted\)$/);
+    const svg = renderDiagramSvg(layout);
+    expect(svg).toMatch(/class="edge accepted"[^>]*marker-end="url\(#arrow-accepted\)"/);
+    expect(svg).toContain("accepted in baseline");
+    expect(layoutMatrix(diagram).cells.filter((cell) => cell.kind === "accepted")).toHaveLength(1);
+    // A pair outside the baseline keeps its edge an error.
+    const mixed = architectureDiagramInput(source, rootDir, { violations: [...violations.map((violation) => ({ ...violation, new: false })), ...violations] });
+    expect(mixed.edges.find((edge) => edge.rules.length > 0)?.accepted).toBeUndefined();
+    expect(mixed).toMatchObject({ violations: 2, acceptedViolations: 1 });
   }, 60_000);
 });
 
@@ -242,6 +311,64 @@ describe("architecture diagram rendering", () => {
     expectSafeMarkup(html);
     expect(renderDiagramSvg(layout, "dark")).toContain("--bg:#0d1117");
     expect(renderDiagramSvg(layout)).toContain("--bg:#ffffff");
+  });
+});
+
+describe("architecture matrix diagram", () => {
+  it("caps the rows, numbers them and sizes cells for the widest count", () => {
+    const diagram = input([["a", 1, 9], ["b", 0, 8], ["c", 0, 1]], [["a", "b", 123_456, "down"], ["a", "c", 1, "down"]]);
+    diagram.nodes[0].internalEdgeCount = 4;
+    const layout = layoutMatrix(diagram, { maxNodes: 2 });
+    expectSoundMatrix(layout);
+    expect(layout.rows.map((row) => row.text)).toEqual(["1 b", "2 a"]);
+    expect(layout.cells.map((cell) => [cell.kind, cell.count])).toEqual([["down", 123_456], ["diagonal", 4]]);
+    expect(layout.text.hidden).toBe("1 more unit not drawn: the 2 largest are drawn");
+    expect(layout.grid.width / 2).toBeGreaterThan(28);
+  });
+
+  it("draws an empty level", () => {
+    const layout = layoutMatrix(input([]));
+    expectSoundMatrix(layout);
+    expect(layout.cells).toEqual([]);
+    expectSafeMarkup(renderDiagramSvg(layout, "dark"));
+  });
+
+  it("escapes hostile labels in rows and tooltips", () => {
+    const hostile = `<script>x</script>`;
+    const svg = renderDiagramSvg(layoutMatrix(input([[hostile, 1, 2], ["lib", 0, 1]], [[hostile, "lib", 2, "down"]])));
+    expectSafeMarkup(svg);
+    expect(svg).not.toContain("<script>");
+    expect(svg).toContain("&lt;script&gt;");
+  });
+});
+
+describe("diagram legend", () => {
+  it("names the broken rules once each above the legend, under the cap note", async () => {
+    const diagram = input([["a", 1, 3], ["b", 0, 2], ["c", 0, 1]], [["a", "b", 1, "down"], ["b", "c", 1, "down"]]);
+    diagram.edges[0].rules = ["z-rule", "a-rule"];
+    diagram.edges[1].rules = ["a-rule"];
+    const layout = await layoutDiagram(diagram, { maxNodes: 2 });
+    expectSoundGeometry(layout);
+    expect(layout.text.rules).toBe("broken rules: a-rule, z-rule");
+    const plain = await layoutDiagram(input([["a", 1, 3], ["b", 0, 2], ["c", 0, 1]]), { maxNodes: 2 });
+    expect(layout.height - plain.height).toBe(20);
+    const svg = renderDiagramSvg(layout);
+    expect(svg.indexOf("1 more unit not drawn")).toBeLessThan(svg.indexOf("broken rules: a-rule, z-rule"));
+  });
+
+  it("cuts a long list of rule names to the canvas", async () => {
+    const diagram = input([["a", 1, 1], ["b", 0, 1]], [["a", "b", 1, "down"]]);
+    diagram.edges[0].rules = Array.from({ length: 30 }, (_, index) => `rule-number-${index}`);
+    const layout = await layoutDiagram(diagram);
+    expectSoundGeometry(layout);
+    expect(layout.text.rules?.endsWith("…")).toBe(true);
+  });
+
+  it("drops the width item for the matrix and adds the baseline item when an edge is accepted", () => {
+    const base = legendLayout().width;
+    expect(legendLayout({ weight: false }).width).toBeLessThan(base);
+    expect(legendLayout({ accepted: true }).width).toBeGreaterThan(base);
+    expect(legendLayout({ accepted: true }).items.at(-1)).toMatchObject({ kind: "accepted", text: "accepted in baseline" });
   });
 });
 

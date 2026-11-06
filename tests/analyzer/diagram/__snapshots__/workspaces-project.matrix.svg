@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="464" height="404" viewBox="0 0 464 404" role="img" aria-labelledby="diagram-title diagram-desc">
+<title id="diagram-title">Architecture · workspaces-project</title>
+<desc id="diagram-desc">units · revision bfe727ad97ac · 2026-11-06. 7 units · 3 layers · 1 cycle · 1 violation.</desc>
+<style>svg{--bg:#ffffff;--surface:#f6f7f9;--text:#1f2328;--muted:#656d76;--line:#8c959f;--accent:#d4560b;--error:#cf222e}svg{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace}.bg{fill:var(--bg)}.node{fill:var(--surface);stroke:var(--line);stroke-width:1px}.label{fill:var(--text);font-size:12px}.meta{fill:var(--muted);font-size:11px}.title{fill:var(--text);font-size:16px;font-weight:600}.caption{fill:var(--muted);font-size:12px}.edge{fill:none;stroke-linejoin:round}.down{stroke:var(--line)}.head-down{fill:var(--line)}.accent{stroke:var(--accent)}.head-accent{fill:var(--accent)}.error{stroke:var(--error)}.head-error{fill:var(--error)}.accepted{stroke:var(--error)}.head-accepted{fill:var(--error)}.accepted{stroke-dasharray:4 3}.cell{fill:var(--surface);stroke-width:1px}.diagonal{fill:var(--bg);stroke:var(--line)}.frame{fill:none;stroke:var(--line);stroke-width:1px}.cycle{fill:none;stroke:var(--accent);stroke-width:1px;stroke-dasharray:4 4}.cycle-title{fill:var(--accent);font-size:11px;paint-order:stroke;stroke:var(--bg);stroke-width:3px}</style>
+<defs><marker id="arrow-down" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-down" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-accent" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-accent" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-error" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-error" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-accepted" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-accepted" d="M0 0L8 4L0 8z"/></marker></defs>
+<rect class="bg" width="464" height="404"/>
+<text class="title" x="24" y="40">Architecture · workspaces-project</text>
+<text class="caption" x="24" y="60">units · revision bfe727ad97ac · 2026-11-06</text>
+<text class="caption" x="24" y="78">7 units · 3 layers · 1 cycle · 1 violation</text>
+<text class="meta" x="140" y="118">1</text>
+<text class="meta" x="168" y="118">2</text>
+<text class="meta" x="196" y="118">3</text>
+<text class="meta" x="224" y="118">4</text>
+<text class="meta" x="252" y="118">5</text>
+<text class="meta" x="280" y="118">6</text>
+<text class="meta" x="308" y="118">7</text>
+<text class="label" x="24" y="142">1 @ws/core</text>
+<text class="label" x="24" y="170">2 @ws/types</text>
+<text class="label" x="24" y="198">3 @ws/notify</text>
+<text class="label" x="24" y="226">4 @ws/ui</text>
+<text class="label" x="24" y="254">5 legacy-tool</text>
+<text class="label" x="24" y="282">6 (root)</text>
+<text class="label" x="24" y="310">7 @ws/web</text>
+<rect class="frame" x="136" y="124" width="196" height="196"/>
+<g><title>packages/core → packages/types: 1 file pairs</title><rect class="cell accent" x="165" y="125" width="26" height="26"/><text class="meta" x="168" y="142">1</text></g>
+<g><title>packages/types → packages/core: 1 file pairs</title><rect class="cell down" x="137" y="153" width="26" height="26"/><text class="meta" x="140" y="170">1</text></g>
+<g><title>functions/notify → packages/core: 1 file pairs</title><rect class="cell down" x="137" y="181" width="26" height="26"/><text class="meta" x="140" y="198">1</text></g>
+<g><title>packages/ui → packages/core: 1 file pairs, breaks ui-without-core</title><rect class="cell error" x="137" y="209" width="26" height="26"/><text class="meta" x="140" y="226">1</text></g>
+<g><title>tools/legacy → packages/core: 1 file pairs</title><rect class="cell down" x="137" y="237" width="26" height="26"/><text class="meta" x="140" y="254">1</text></g>
+<g><title>(root) → packages/ui: 1 file pairs</title><rect class="cell down" x="221" y="265" width="26" height="26"/><text class="meta" x="224" y="282">1</text></g>
+<g><title>apps/web → packages/core: 1 file pairs</title><rect class="cell down" x="137" y="293" width="26" height="26"/><text class="meta" x="140" y="310">1</text></g>
+<g><title>apps/web → packages/ui: 2 file pairs</title><rect class="cell down" x="221" y="293" width="26" height="26"/><text class="meta" x="224" y="310">2</text></g>
+<g><title>apps/web: 1 file pairs inside</title><rect class="cell diagonal" x="305" y="293" width="26" height="26"/><text class="meta" x="308" y="310">1</text></g>
+<rect class="cycle" x="136" y="124" width="56" height="56"/>
+<g class="legend"><text class="caption" x="24" y="348">broken rules: ui-without-core</text><path class="edge down" d="M24 364L48 364" stroke-width="1"/><text class="caption" x="56" y="368">dependency</text><path class="edge accent" d="M148 364L172 364" stroke-width="1"/><text class="caption" x="180" y="368">upward or cycle</text><path class="edge error" d="M308 364L332 364" stroke-width="1"/><text class="caption" x="340" y="368">breaks a rule</text></g>
+</svg>

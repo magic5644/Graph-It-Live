@@ -28,19 +28,12 @@ import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
+import { readStringOption } from "../options";
 import type { CliRuntime } from "../runtime";
 import { renderCheckArchitectureMarkdown, renderCheckArchitectureText } from "./checkArchitectureReport";
 
 /** `<flag> <workspace file>`, or undefined when the flag is absent. */
-function readFile(args: string[], flag: string): string | undefined {
-  const index = args.indexOf(flag);
-  if (index < 0) return undefined;
-  const file = args.at(index + 1);
-  if (file === undefined || file.startsWith("--") || file.trim() === "") {
-    throw new CliError(`${flag} must be a file of the workspace`, ExitCode.GENERAL_ERROR);
-  }
-  return file;
-}
+const readFile = (args: string[], flag: string) => readStringOption(args, flag, "a file of the workspace");
 
 /** The report in the requested format: text and markdown read as a report, the others carry every field. */
 function renderCheck(check: WorkspaceArchitectureCheck, format: CliOutputFormat, verbose: boolean): string {

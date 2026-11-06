@@ -6,7 +6,8 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { legendLayout, sanitizeText, type DiagramLayout, type PlacedEdge } from "./architectureDiagram";
+import { hasAccepted, legendLayout, legendNotes, sanitizeText, type DiagramLayout, type LegendOptions, type PlacedEdge } from "./architectureDiagram";
+import type { MatrixLayout } from "./diagramMatrix";
 import { FONT_MONO, PALETTES, SIZES, type DiagramTheme, type Palette } from "./diagramStyle";
 
 const ENTITIES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -14,12 +15,14 @@ const ENTITIES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;
 /** Text safe inside an XML element or a quoted attribute. */
 export const escapeXml = (text: string) => sanitizeText(text).replaceAll(/[&<>"']/g, (char) => ENTITIES[char]);
 
-const STROKES = ["down", "accent", "error"] as const;
+/** Each stroke class and the palette colour it draws in; an accepted violation is a dashed error. */
+const STROKE_COLOURS = { down: "line", accent: "accent", error: "error", accepted: "error" } as const;
+const STROKES = Object.keys(STROKE_COLOURS) as (keyof typeof STROKE_COLOURS)[];
 type Stroke = (typeof STROKES)[number];
 
 /** A rule violation outranks the accent of an upward or cycle edge. */
-function strokeOf(edge: Pick<PlacedEdge, "kind" | "rules">): Stroke {
-  if (edge.rules.length > 0) return "error";
+function strokeOf(edge: Pick<PlacedEdge, "kind" | "rules" | "accepted">): Stroke {
+  if (edge.rules.length > 0) return edge.accepted ? "accepted" : "error";
   return edge.kind === "down" ? "down" : "accent";
 }
 
@@ -37,7 +40,10 @@ const CLASSES = [
   `.title{fill:var(--text);font-size:${SIZES.title}px;font-weight:600}`,
   `.caption{fill:var(--muted);font-size:${SIZES.caption}px}`,
   ".edge{fill:none;stroke-linejoin:round}",
-  ...STROKES.map((stroke) => `.${stroke}{stroke:var(--${stroke === "down" ? "line" : stroke})}.head-${stroke}{fill:var(--${stroke === "down" ? "line" : stroke})}`),
+  ...STROKES.map((stroke) => `.${stroke}{stroke:var(--${STROKE_COLOURS[stroke]})}.head-${stroke}{fill:var(--${STROKE_COLOURS[stroke]})}`),
+  ".accepted{stroke-dasharray:4 3}",
+  `.cell{fill:var(--surface);stroke-width:${SIZES.hairline}px}.diagonal{fill:var(--bg);stroke:var(--line)}`,
+  `.frame{fill:none;stroke:var(--line);stroke-width:${SIZES.hairline}px}`,
   `.cycle{fill:none;stroke:var(--accent);stroke-width:${SIZES.hairline}px;stroke-dasharray:4 4}`,
   // A halo keeps the title readable where an edge crosses it.
   `.cycle-title{fill:var(--accent);font-size:${SIZES.meta}px;paint-order:stroke;stroke:var(--bg);stroke-width:3px}`,
@@ -58,8 +64,8 @@ function edgeMarkup(edge: PlacedEdge): string {
   return `<path class="edge ${stroke}" d="${path}" stroke-width="${edge.stroke}" marker-end="url(#arrow-${stroke})"><title>${escapeXml(title)}</title></path>`;
 }
 
-function legendMarkup(layout: DiagramLayout): string {
-  const { items } = legendLayout();
+function legendMarkup(layout: DiagramLayout | MatrixLayout, options: LegendOptions): string {
+  const { items } = legendLayout(options);
   const y = layout.height - SIZES.margin - 12;
   const samples = items.map(({ kind, text: label, x }) => {
     const left = SIZES.margin + x;
@@ -67,12 +73,13 @@ function legendMarkup(layout: DiagramLayout): string {
     const width = kind === "weight" ? 3 : SIZES.hairline;
     return `<path class="edge ${stroke}" d="M${left} ${y - 4}L${left + 24} ${y - 4}" stroke-width="${width}"/>${text(left + 32, y, "caption", label)}`;
   });
-  const note = layout.text.hidden === undefined ? "" : text(SIZES.margin, y - 20, "caption", layout.text.hidden);
-  return `<g class="legend">${note}${samples.join("")}</g>`;
+  const notes = legendNotes(layout.text);
+  const noteMarkup = notes.map((note, index) => text(SIZES.margin, y - 20 * (notes.length - index), "caption", note));
+  return `<g class="legend">${noteMarkup.join("")}${samples.join("")}</g>`;
 }
 
-function svgMarkup(layout: DiagramLayout, style: string): string {
-  const { width, height, text: lines } = layout;
+/** The graph: cycle blocks, edges, then nodes on top. */
+function graphMarkup(layout: DiagramLayout): string[] {
   const pad = SIZES.nodePaddingX;
   const cycles = layout.cycles.map((cycle) =>
     `<rect class="cycle" x="${cycle.x}" y="${cycle.y}" width="${cycle.width}" height="${cycle.height}" rx="${SIZES.radius}"/>` +
@@ -81,6 +88,28 @@ function svgMarkup(layout: DiagramLayout, style: string): string {
     `<g><title>${escapeXml(node.key + ": " + node.meta)}</title>` +
     `<rect class="node" x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${SIZES.radius}"/>` +
     `${text(node.x + pad, node.y + 18, "label", node.text)}${text(node.x + pad, node.y + 34, "meta", node.meta)}</g>`);
+  return [...cycles, ...layout.edges.map(edgeMarkup), ...nodes, legendMarkup(layout, { accepted: hasAccepted(layout.edges) })];
+}
+
+/** The matrix: column numbers, numbered row labels, the frame, the cells, cycle outlines on top. */
+function matrixMarkup(layout: MatrixLayout): string[] {
+  const middle = (box: { y: number; height: number }) => box.y + box.height / 2 + 4;
+  const cellSize = layout.grid.height / Math.max(1, layout.rows.length);
+  return [
+    ...layout.columns.map((column) => text(column.x + 4, column.y + 14, "meta", column.text)),
+    ...layout.rows.map((row) => text(row.x, middle({ y: row.y, height: cellSize }), "label", row.text)),
+    `<rect class="frame" x="${layout.grid.x}" y="${layout.grid.y}" width="${layout.grid.width}" height="${layout.grid.height}"/>`,
+    ...layout.cells.map((cell) =>
+      `<g><title>${escapeXml(cell.title)}</title>` +
+      `<rect class="cell ${cell.kind}" x="${cell.x + 1}" y="${cell.y + 1}" width="${cell.width - 2}" height="${cell.height - 2}"/>` +
+      `${text(cell.x + 4, middle(cell), "meta", String(cell.count))}</g>`),
+    ...layout.cycles.map((cycle) => `<rect class="cycle" x="${cycle.x}" y="${cycle.y}" width="${cycle.width}" height="${cycle.height}"/>`),
+    legendMarkup(layout, { accepted: layout.cells.some((cell) => cell.kind === "accepted"), weight: false }),
+  ];
+}
+
+function svgMarkup(layout: DiagramLayout | MatrixLayout, style: string): string {
+  const { width, height, text: lines } = layout;
   const top = SIZES.margin;
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="diagram-title diagram-desc">`,
@@ -92,21 +121,18 @@ function svgMarkup(layout: DiagramLayout, style: string): string {
     text(SIZES.margin, top + 16, "title", lines.title),
     text(SIZES.margin, top + 36, "caption", lines.caption),
     text(SIZES.margin, top + 54, "caption", lines.counts),
-    ...cycles,
-    ...layout.edges.map(edgeMarkup),
-    ...nodes,
-    legendMarkup(layout),
+    ...("cells" in layout ? matrixMarkup(layout) : graphMarkup(layout)),
     "</svg>",
   ].join("\n");
 }
 
 /** A bare SVG in one theme: what a README, a wiki or a slide embeds. */
-export function renderDiagramSvg(layout: DiagramLayout, theme: DiagramTheme = "light"): string {
+export function renderDiagramSvg(layout: DiagramLayout | MatrixLayout, theme: DiagramTheme = "light"): string {
   return `${svgMarkup(layout, variables("svg", PALETTES[theme]) + CLASSES)}\n`;
 }
 
 /** One self-contained HTML page, light or dark with the reader's `prefers-color-scheme`; its CSP allows inline styles only. */
-export function renderDiagramHtml(layout: DiagramLayout): string {
+export function renderDiagramHtml(layout: DiagramLayout | MatrixLayout): string {
   const style = [
     variables(":root", PALETTES.light),
     `@media (prefers-color-scheme: dark){${variables(":root", PALETTES.dark)}}`,

@@ -256,6 +256,15 @@ commands/checkArchitecture.ts
 └─→ Exits 1 on a new error-severity violation (report still printed); --update-baseline rewrites the baseline
 ```
 
+### diagram
+
+```
+commands/diagram.ts
+├─→ Args: [--view units|folder|matrix] [--folder <key>] [--format svg|html] [--theme light|dark] [--output <file>|-] [--rules [--config <file>] [--baseline [<file>]]]
+├─→ Lays one architecture level out with analyzer/diagram (ELK graph or matrix) and renders SVG or HTML
+└─→ Writes inside the workspace only (validateWorkspacePath); --output - prints to stdout
+```
+
 ### check-dependencies
 
 ```

@@ -29,6 +29,11 @@ describe("CLI_OUTPUT_FORMATS", () => {
   it("leaves csv to graph-it architecture --matrix", () => {
     expect(() => formatOutput(objectData, "csv", "summary")).toThrow('Format "csv" is only produced by graph-it architecture --matrix.');
   });
+
+  it("leaves svg to graph-it diagram", () => {
+    expect(CLI_OUTPUT_FORMATS).toContain("svg");
+    expect(() => formatOutput(objectData, "svg", "summary")).toThrow('Format "svg" is only produced by graph-it diagram.');
+  });
 });
 
 describe("validateFormatForCommand", () => {
