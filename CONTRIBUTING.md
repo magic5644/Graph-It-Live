@@ -39,7 +39,7 @@ git remote add upstream https://github.com/magic5644/Graph-It-Live.git
 4. **Install dependencies**:
 
 ```bash
-nvm use # optional, uses Node.js 22 when nvm is installed
+nvm use # optional, uses Node.js 24 when nvm is installed
 npm install
 ```
 
@@ -56,7 +56,7 @@ For detailed development setup instructions, see [DEVELOPMENT.md](DEVELOPMENT.md
 
 ### Prerequisites
 
-- **Node.js**: v22 or higher
+- **Node.js**: v24 for development (`.nvmrc`); the CLI and MCP server run on v22 or higher (`engines`)
 - **VS Code**: v1.96.0 or higher
 - **Git**: For version control
 

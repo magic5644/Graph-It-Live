@@ -1,6 +1,6 @@
 # Graph-It-Live Agent Guide
 
-VS Code extension, standalone CLI, and MCP server for dependency and call-graph analysis. Requires Node.js 22+ and npm.
+VS Code extension, standalone CLI, and MCP server for dependency and call-graph analysis. Develop on Node.js 24 (`.nvmrc`); the runtime supports Node.js >= 22 (`engines`). Requires npm.
 
 ## Commands
 
