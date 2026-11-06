@@ -123,7 +123,7 @@ suite('LM Tools Registration Test Suite', () => {
     assert.ok(tool, 'graph-it-live_query_call_graph should be registered');
   });
 
-  test('Total Graph-It-Live tool count is exactly 24', function () {
+  test('Total Graph-It-Live tool count is exactly 25', function () {
     if (!lmToolsSupported()) {
       this.skip();
     }
@@ -132,8 +132,8 @@ suite('LM Tools Registration Test Suite', () => {
     const graphItLiveTools = tools.filter((t) => t.name.startsWith('graph-it-live_'));
     assert.strictEqual(
       graphItLiveTools.length,
-      24,
-      `Expected 24 graph-it-live tools, found ${graphItLiveTools.length}: ${graphItLiveTools.map((t) => t.name).join(', ')}`,
+      25,
+      `Expected 25 graph-it-live tools, found ${graphItLiveTools.length}: ${graphItLiveTools.map((t) => t.name).join(', ')}`,
     );
   });
 });

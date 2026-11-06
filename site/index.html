@@ -317,7 +317,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 <div class="hero">
   <div aria-hidden="true"><canvas id="graph-bg"></canvas></div>
   <div class="wrap">
-    <div class="pill"><b>MCP</b> 24 graph tools for your AI assistant</div>
+    <div class="pill"><b>MCP</b> 25 graph tools for your AI assistant</div>
     <h1>See your codebase<br><span class="grad">as a graph</span></h1>
     <p class="lede">
       Imports, symbols, cross-file calls, cycles, dead code and change impact —
@@ -532,11 +532,11 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     <div class="sec-head rv">
       <div class="eyebrow">AI integrations</div>
       <h2>Give your assistant a map, not a haystack</h2>
-      <p>24 MCP tools expose the same local graph to GitHub Copilot, Claude, Cursor, Windsurf, Antigravity and any MCP client.</p>
+      <p>25 MCP tools expose the same local graph to GitHub Copilot, Claude, Cursor, Windsurf, Antigravity and any MCP client.</p>
     </div>
 
     <details class="card rv" id="mcp-tools" style="margin-bottom:34px">
-      <summary>Explore all 24 MCP tools</summary>
+      <summary>Explore all 25 MCP tools</summary>
       <p style="margin:16px 0">These are the names advertised by <code>graph-it serve</code>. Start with <code>graphitlive_graph_context</code> for an open-ended question; choose a specialized tool for a specific task.</p>
       <div class="tbl-scroll">
         <table class="tbl">
@@ -558,6 +558,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
             <tr><td><code>graphitlive_find_unused_symbols</code></td><td>Unused exported symbols in one file.</td></tr>
             <tr><td><code>graphitlive_explore_architecture</code></td><td>Step-by-step architecture: groups, one group's boundary, then the file pairs behind a group edge.</td></tr>
             <tr><td><code>graphitlive_check_architecture</code></td><td>Check every static import against the rules of <code>graphit.architecture.json</code>; new violations against the baseline.</td></tr>
+            <tr><td><code>graphitlive_export_architecture_diagram</code></td><td>Draw the architecture as a static SVG or self-contained HTML diagram, with the rule violations in the error colour.</td></tr>
             <tr><td><code>graphitlive_scan_dead_code</code></td><td>Workspace or scoped unused-export scan; reports file-limit truncation.</td></tr>
             <tr><td><code>graphitlive_query_natural_language</code></td><td>Relevant subgraph for a plain-language question within a token budget.</td></tr>
             <tr><td><code>graphitlive_generate_wiki</code></td><td>Navigable Markdown wiki generated from call-graph relationships.</td></tr>

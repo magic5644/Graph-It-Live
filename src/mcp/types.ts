@@ -11,6 +11,7 @@
 import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import { COMMUNITY_MODES } from "../shared/graph-types";
+import { DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS } from "../analyzer/diagram/diagramStyle";
 import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import type { OutOfRootReport } from "../analyzer/utils/workspaceBoundary";
@@ -122,7 +123,8 @@ export type McpToolName =
   | "query_natural_language" // Natural language query over the call graph
   | "generate_wiki" // Generate markdown wiki from call graph
   | "explore_architecture" // Grouped architecture summary, group boundary, edge evidence
-  | "check_architecture"; // Declared architecture rules checked against the imports
+  | "check_architecture" // Declared architecture rules checked against the imports
+  | "export_architecture_diagram"; // Static architecture diagram as SVG or HTML
 
 // ============================================================================
 // Zod Schemas for Tool Parameters
@@ -792,6 +794,40 @@ export const CheckArchitectureParamsSchema = z.object({
 }).strict();
 export type CheckArchitectureParams = z.infer<typeof CheckArchitectureParamsSchema>;
 
+export const ExportArchitectureDiagramParamsSchema = z.object({
+  view: z.enum(DIAGRAM_VIEWS).optional()
+    .describe("'units' (default): every unit; 'folder': the groups of the unit or folder named by folder (default when folder is set); 'matrix': the dependency structure matrix of that level"),
+  folder: z.string().min(1).max(1024).optional()
+    .describe("Unit or folder key, '/'-separated as explore_architecture returns it (e.g. 'src/analyzer')"),
+  diagramFormat: z.enum(DIAGRAM_FORMATS).optional()
+    .describe("'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme"),
+  theme: z.enum(DIAGRAM_THEMES).optional().describe("Colours of the SVG (default: light); not for diagramFormat 'html'"),
+  rules: z.boolean().optional()
+    .describe("Draw the violations of graphit.architecture.json in the error colour, and the baseline's accepted ones dashed"),
+  config: RulesFileSchema.optional().describe("Rules file with rules, relative to the workspace (default: graphit.architecture.json)"),
+  baseline: RulesFileSchema.optional()
+    .describe("Accepted violations with rules, relative to the workspace (default: graphit.architecture.baseline.json when it exists)"),
+  output: RulesFileSchema.optional()
+    .describe("File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat>"),
+  response_format: z.enum(["json", "markdown", "toon"]).optional()
+    .describe("Output format: 'json', 'markdown', or 'toon' (default: toon)"),
+}).strict().superRefine((params, context) => {
+  const view = params.view ?? (params.folder === undefined ? "units" : "folder");
+  if (view === "folder" && params.folder === undefined) {
+    context.addIssue({ code: "custom", message: "view folder draws the groups of one unit or folder: pass folder" });
+  }
+  if (view === "units" && params.folder !== undefined) {
+    context.addIssue({ code: "custom", message: "view units draws every unit: drop folder, or use view folder" });
+  }
+  if (params.theme !== undefined && params.diagramFormat === "html") {
+    context.addIssue({ code: "custom", message: "theme sets the colours of diagramFormat svg; the HTML page follows the reader's scheme" });
+  }
+  if (!params.rules && (params.config !== undefined || params.baseline !== undefined)) {
+    context.addIssue({ code: "custom", message: "config and baseline apply to the rules overlay: add rules: true" });
+  }
+});
+export type ExportArchitectureDiagramParams = z.infer<typeof ExportArchitectureDiagramParamsSchema>;
+
 // NEW: Schema for scan_dead_code (workspace-wide dead code scan)
 export const ScanDeadCodeParamsSchema = z.object({
   scopePath: FilePathSchema.optional().describe(
@@ -840,6 +876,7 @@ export const toolSchemas: Record<McpToolName, z.ZodType<unknown>> = {
   scan_dead_code: ScanDeadCodeParamsSchema,
   explore_architecture: ExploreArchitectureParamsSchema,
   check_architecture: CheckArchitectureParamsSchema,
+  export_architecture_diagram: ExportArchitectureDiagramParamsSchema,
   query_natural_language: QueryNaturalLanguageParamsSchema,
   generate_wiki: GenerateWikiParamsSchema,
 };

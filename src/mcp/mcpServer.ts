@@ -126,6 +126,7 @@ import {
   type GetImpactAnalysisResult,
   CheckArchitectureParamsSchema,
   ExploreArchitectureParamsSchema,
+  ExportArchitectureDiagramParamsSchema,
   GraphContextParamsSchema,
   type GetIndexStatusResult,
   GetSymbolGraphParamsSchema,
@@ -1476,6 +1477,33 @@ server.registerTool(
 
     const response = await invokeToolWithResponse("check_architecture", params);
     return formatToolResponse(response, responseFormat, "graphitlive_check_architecture");
+  },
+);
+
+// Tool: graphitlive_export_architecture_diagram
+server.registerTool(
+  "graphitlive_export_architecture_diagram",
+  {
+    title: "Export Architecture Diagram",
+    description: mcpToolDescription("export_architecture_diagram"),
+    inputSchema: ExportArchitectureDiagramParamsSchema,
+    outputSchema: McpToolResponseSchema,
+    annotations: {
+      readOnlyHint: false,
+      // Overwrites output, or architecture.<format> for a diagram over the inline cap.
+      destructiveHint: true,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
+  },
+  async ({ response_format, ...params }) => {
+    const responseFormat = response_format ?? "toon";
+    const workerCheck = await ensureWorkerReady();
+    if (workerCheck.error)
+      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_export_architecture_diagram");
+
+    const response = await invokeToolWithResponse("export_architecture_diagram", params);
+    return formatToolResponse(response, responseFormat, "graphitlive_export_architecture_diagram");
   },
 );
 

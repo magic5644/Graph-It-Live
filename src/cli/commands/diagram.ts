@@ -10,16 +10,9 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
-import {
-  ARCHITECTURE_BASELINE_FILE,
-  checkWorkspaceArchitecture,
-  loadDeclaredRoles,
-} from "../../analyzer/architecture/architectureRules.js";
-import { assignUnits, buildArchitectureUnits } from "../../analyzer/architecture/architectureUnits.js";
-import { architectureDiagramInput, layoutDiagram } from "../../analyzer/diagram/architectureDiagram.js";
-import { layoutMatrix } from "../../analyzer/diagram/diagramMatrix.js";
-import { renderDiagramHtml, renderDiagramSvg } from "../../analyzer/diagram/diagramSvg.js";
+import { ARCHITECTURE_BASELINE_FILE } from "../../analyzer/architecture/architectureRules.js";
+import { DIAGRAM_THEMES, DIAGRAM_VIEWS } from "../../analyzer/diagram/diagramStyle.js";
+import { renderWorkspaceDiagram, type WorkspaceDiagramOptions } from "../../analyzer/diagram/workspaceDiagram.js";
 import { workerState } from "../../mcp/shared/state";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
@@ -27,9 +20,6 @@ import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import { readStringOption } from "../options";
 import type { CliRuntime } from "../runtime";
-
-const VIEWS = ["units", "folder", "matrix"] as const;
-const THEMES = ["light", "dark"] as const;
 
 /** `<flag>` alone (true) or `<flag> <file>`, or undefined when the flag is absent. */
 function readOptionalFile(args: string[], flag: string): string | true | undefined {
@@ -54,7 +44,7 @@ function readOutput(args: string[], format: CliOutputFormat) {
   }
   const file = readStringOption(args, "--output", "a file of the workspace, or - for stdout");
   const svg = format === "svg" || (format === "text" && file?.toLowerCase().endsWith(".svg") === true);
-  const output = svg ? "svg" : "html";
+  const output: WorkspaceDiagramOptions["format"] = svg ? "svg" : "html";
   return { format: output, file: file ?? `architecture.${output}` };
 }
 
@@ -62,7 +52,7 @@ function readOutput(args: string[], format: CliOutputFormat) {
 function readView(args: string[]) {
   // Keys use "/" on every OS: a Windows user may type app\core.
   const folder = readStringOption(args, "--folder", "a unit or folder key")?.replaceAll("\\", "/");
-  const view = readChoice(args, "--view", VIEWS) ?? (folder === undefined ? "units" : "folder");
+  const view = readChoice(args, "--view", DIAGRAM_VIEWS) ?? (folder === undefined ? "units" : "folder");
   if (view === "folder" && folder === undefined) {
     throw new CliError("--view folder draws the groups of one unit or folder: pass --folder <key>", ExitCode.GENERAL_ERROR);
   }
@@ -90,7 +80,7 @@ function readRules(args: string[]) {
 /** The flags, rejecting the combinations that name no single diagram. */
 export function readDiagramOptions(args: string[], format: CliOutputFormat) {
   const output = readOutput(args, format);
-  const theme = readChoice(args, "--theme", THEMES);
+  const theme = readChoice(args, "--theme", DIAGRAM_THEMES);
   if (theme !== undefined && output.format === "html") {
     throw new CliError("--theme sets the colours of --format svg; the HTML page follows the reader's light or dark scheme", ExitCode.GENERAL_ERROR);
   }
@@ -104,19 +94,13 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   const target = options.file === "-" ? undefined : validateWorkspacePath(path.resolve(workspaceRoot, options.file), workspaceRoot);
 
   await runtime.ensureIndexed();
-  const graph = await buildArchitectureGraph(workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
-    communityMode: "path",
+  const { markup, counts } = await renderWorkspaceDiagram(workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
+    ...options,
     indexedAt: runtime.loadState()?.lastScanTimestamp,
   });
-  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
-  const source = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment, await loadDeclaredRoles(workspaceRoot)), assignment };
-  const violations = options.rules ? (await checkWorkspaceArchitecture(graph, workspaceRoot, options.rules)).violations : [];
-  const input = architectureDiagramInput(source, workspaceRoot, { folder: options.folder, violations });
-  const layout = options.view === "matrix" ? layoutMatrix(input) : await layoutDiagram(input);
-  const markup = options.format === "svg" ? renderDiagramSvg(layout, options.theme) : renderDiagramHtml(layout);
 
   if (target === undefined) return markup;
   await fs.promises.mkdir(path.dirname(target), { recursive: true });
   await fs.promises.writeFile(target, markup);
-  return `Diagram written to ${getRelativePath(target, workspaceRoot)}: ${layout.text.counts}.`;
+  return `Diagram written to ${getRelativePath(target, workspaceRoot)}: ${counts}.`;
 }

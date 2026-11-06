@@ -20,7 +20,8 @@ export {
 } from "./graph";
 export {
     executeCheckArchitecture,
-    executeExploreArchitecture
+    executeExploreArchitecture,
+    executeExportArchitectureDiagram
 } from "./architecture";
 export {
     executeGraphContext

@@ -37,7 +37,12 @@ export const SIZES = {
 /** ELK padding of a cycle block, on the grid; its top leaves room for the block's title. */
 export const CYCLE_PADDING = "[top=28,left=12,bottom=12,right=12]";
 
-export type DiagramTheme = "light" | "dark";
+/** The diagram choices of the CLI, MCP and LM tool; kept here, free of elkjs, for the MCP schemas. */
+export const DIAGRAM_VIEWS = ["units", "folder", "matrix"] as const;
+export const DIAGRAM_FORMATS = ["svg", "html"] as const;
+export const DIAGRAM_THEMES = ["light", "dark"] as const;
+
+export type DiagramTheme = (typeof DIAGRAM_THEMES)[number];
 
 export interface Palette {
   background: string;

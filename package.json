@@ -1,7 +1,7 @@
 {
   "name": "graph-it-live",
   "displayName": "Graph-It-Live",
-  "description": "AI-first dependency graph & code intelligence for VS Code. Visualize file imports, symbol call hierarchies, and cross-file call graphs. Detect circular dependencies, dead code, and breaking changes. Built-in MCP Server with 24 tools for GitHub Copilot, Cursor, Claude, Windsurf, and Antigravity. Generate AI-friendly codemaps. TypeScript, JavaScript, C#, Go, Java, Python, Rust, Vue, Svelte, GraphQL.",
+  "description": "AI-first dependency graph & code intelligence for VS Code. Visualize file imports, symbol call hierarchies, and cross-file call graphs. Detect circular dependencies, dead code, and breaking changes. Built-in MCP Server with 25 tools for GitHub Copilot, Cursor, Claude, Windsurf, and Antigravity. Generate AI-friendly codemaps. TypeScript, JavaScript, C#, Go, Java, Python, Rust, Vue, Svelte, GraphQL.",
   "version": "0.0.1",
   "publisher": "magic5644",
   "author": {
@@ -1342,6 +1342,70 @@
           "required": [
             "question"
           ]
+        }
+      },
+      {
+        "name": "graph-it-live_export_architecture_diagram",
+        "canBeReferencedInPrompt": true,
+        "toolReferenceName": "graphArchitectureDiagram",
+        "tags": [
+          "graph-it-live",
+          "architecture",
+          "diagram"
+        ],
+        "displayName": "Graph-It-Live: Export Architecture Diagram",
+        "icon": "$(type-hierarchy)",
+        "userDescription": "Draw a static architecture diagram of the workspace as SVG or self-contained HTML",
+        "modelDescription": "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix) as SVG or self-contained HTML.\n\nWHEN: \"draw the architecture\", \"give me a diagram for the README / the PR / the design doc\", or to share as a picture the structure that graph-it architecture reports as data.\nWHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.\nRETURNS: format, counts (nodes, layers, cycles, violations of the level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>) with its size in characters.\nLIMITS: import relations only (static analysis); at most 60 nodes, the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "view": {
+              "type": "string",
+              "enum": [
+                "units",
+                "folder",
+                "matrix"
+              ],
+              "description": "Optional: units (default) draws every unit; folder the groups of the unit or folder named by folder (default when folder is set); matrix the dependency structure matrix of that level"
+            },
+            "folder": {
+              "type": "string",
+              "description": "Optional unit or folder key, /-separated, for example src/analyzer"
+            },
+            "diagramFormat": {
+              "type": "string",
+              "enum": [
+                "svg",
+                "html"
+              ],
+              "description": "Optional: svg (default) or html, one self-contained page following the reader light or dark scheme"
+            },
+            "theme": {
+              "type": "string",
+              "enum": [
+                "light",
+                "dark"
+              ],
+              "description": "Optional SVG colours (default light); not for diagramFormat html"
+            },
+            "rules": {
+              "type": "boolean",
+              "description": "Optional: draw the violations of graphit.architecture.json in the error colour"
+            },
+            "config": {
+              "type": "string",
+              "description": "Optional rules file with rules, relative to the workspace (default graphit.architecture.json)"
+            },
+            "baseline": {
+              "type": "string",
+              "description": "Optional accepted violations file with rules, relative to the workspace (default graphit.architecture.baseline.json when it exists)"
+            },
+            "output": {
+              "type": "string",
+              "description": "Optional file to write, relative to the workspace; without it a diagram over the inline cap goes to architecture.<diagramFormat>"
+            }
+          }
         }
       }
     ],

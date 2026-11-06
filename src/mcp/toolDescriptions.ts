@@ -372,6 +372,16 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "LIMITS: import relations only (static analysis), no rule on symbols or calls; violations paginated by offset/limit (default 50) with totals; analyses every source file on each call, so pass the previous context.revision with an offset: the call fails if the code, rules or baseline changed. Pair it with graphitlive_explore_architecture to see the units and edges the rules refer to.",
     ],
   },
+  export_architecture_diagram: {
+    summary:
+      "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix) as SVG or self-contained HTML.",
+    lines: [
+      `WHEN: "draw the architecture", "give me a diagram for the README / the PR / the design doc", or to share as a picture the structure that graph-it architecture reports as data.`,
+      "WHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.",
+      "RETURNS: format, counts (nodes, layers, cycles, violations of the level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>) with its size in characters.",
+      "LIMITS: import relations only (static analysis); at most 60 nodes, the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.",
+    ],
+  },
   get_session_stats: {
     summary:
       "Reports how large this session's TOON responses were against their JSON equivalent, plus real token usage.",
