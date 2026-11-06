@@ -1,5 +1,42 @@
 # Changelog
 
+## v1.23.0
+
+Minor release. Graph-It-Live now draws static architecture diagrams that you can share (#451). One level of the Architecture view becomes a bare SVG, a self-contained HTML page or a PNG. It comes from the CLI (`graph-it diagram`, REPL `/diagram`), the MCP server and Copilot (`export_architecture_diagram`), or the VS Code title bar. A `diagram-spec` JSON hands the same data to diagram skills. In the call graph, method calls resolve from receiver types proven across files (#499), and through annotated returned values (#623). Added: one CLI command (`diagram`), one REPL command (`/diagram`), one MCP tool and one Copilot tool (25 each), and two VS Code commands. Nothing is removed, and no setting changes.
+
+### Breaking / Behavior changes
+
+- **Call-graph cache rebuilt once on first launch**: the call-graph cache schema moves from version 15 to 17 (cross-file receiver types and returned values). A call graph written by v1.22.0 is discarded and rebuilt the first time the extension, CLI or MCP server opens the workspace. No action is needed.
+- **Fewer by-name method links in Java and Go** (#499): a receiver whose declared type is unknown now links nowhere, as in the other languages. Before, Java and Go linked it to any method with the same name. Receivers without a declared type still link by method name in Java and Go.
+- **The plugin's MCP server checks the registry at start** (#629): the Claude Code and Codex plugin starts `npx -y @magic5644/graph-it-live@<version> serve` without `--prefer-offline`. A stale npm cache made the server fail with `ETARGET` after each release. A start now needs registry access; a cached version makes one small metadata request and downloads nothing.
+
+### Changed
+
+- **Static architecture diagrams from the CLI** (#445, #446, #627): `graph-it diagram` writes one level of the Architecture view: the units in layers, the groups of one unit or folder (`[dir]` or `--folder`), or the dependency matrix (`--view matrix`). The HTML page follows the reader's light or dark scheme, and `--format svg` writes one theme (`--theme light|dark`). `--rules` draws the violations of `graphit.architecture.json` in the error colour, and `--baseline` draws the accepted ones as dashed lines. The diagram is computed from the index, so the same revision always gives the same file. The file has no script and no external resource, and its paths are workspace-relative, so it is safe to publish. The REPL runs it as `/diagram` with the same flags.
+
+```bash
+graph-it diagram --format svg --output docs/architecture.svg --rules
+```
+
+![graph-it diagram on the workspaces-project test fixture: seven units in three layers, the cycle between @ws/core and @ws/types outlined, edge widths by file pairs, and a legend](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/cli-diagram-units.png)
+
+- **Export the diagram from VS Code** (#448): in the Architecture view, click *Export Architecture Diagram* in the Dependency Graph title bar to save the current level as `.svg`, `.html` or `.png`. *Copy Architecture Diagram as SVG* puts it on the clipboard. Both commands are also in the Command Palette. The export keeps the role filter and *Min. imports* of the graph, and the SVG follows the editor theme.
+
+![Exported diagram of the workspaces-project fixture with the library role filter: three library units in two layers, the cycle between @ws/core and @ws/types outlined, and a legend](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/vscode-diagram-export-libraries.png)
+
+- **Diagram tool for assistants** (#447): the MCP tool `graphitlive_export_architecture_diagram` and the Copilot tool `#graphArchitectureDiagram` return the diagram inline, up to 60,000 characters. A larger diagram is written to a workspace file (`output`, or `architecture.<format>` by default).
+- **`diagram-spec` output for diagram skills** (#450): `graph-it diagram --format diagram-spec` and `diagramFormat: "diagram-spec"` write the level's data as JSON: nodes with roles, edges, cycles and violations. The JSON is valid against `schemas/diagram-spec.schema.json`. A drawing skill such as `diagram-design` can then draw a branded diagram without guessing the architecture.
+- **Method calls resolved from proven receiver types across files** (#499): `svc.save()` links the `save` method of the receiver's class when that class is declared in another file. In TypeScript, JavaScript and Python, the type must be bound by an import (aliases, barrels, default and type-only imports included). In Java, C# and Go, the declared type binds the call to its owner. Inherited methods, unions and unknown types create no edge.
+- **Method calls on returned values** (#623): in TypeScript and Python, `make().compute()` links when the return annotation of `make` proves the type. This covers a named return type, a fluent `: this` / `-> Self`, and identity generics. A chain follows up to 8 calls and stops at its first unproven link.
+
+### Fixed
+
+- **MCP server start after a release** (#629): the plugin no longer fails with `ETARGET` when the npm cache still holds an older registry entry.
+
+### Tests
+
+- The diagram spec tests check the absolute workspace root in its raw, `/` and JSON-escaped forms, so Windows paths cannot leak. The post-build asset test has a 60 s timeout for slow Windows runners.
+
 ## v1.22.0
 
 Minor release. React (JSX / TSX) joins the supported languages: `.jsx` and `.tsx` files are parsed with the TSX grammar and components are analyzed as such in every interface (#567); rendering a component or passing a function is a new `REFERENCES` relation, not a call. `graph-it review-pr` checks the architecture rules of `graphit.architecture.json` and says whether a diff degrades or improves them (#443). Every view has one loading state with the logo (#611). Import cycles in `review-pr` and Branch Watch are read on whole graphs instead of the files around the diff (#603, #605), and the cold call graph is back to v1.21.3 times (#607, #612). No VS Code command, CLI command or MCP tool is removed. The only changed setting is the maximum of `graph-it-live.branchWatch.maxFiles`, raised from 1000 to 2000.
