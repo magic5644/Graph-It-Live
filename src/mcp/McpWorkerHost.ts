@@ -134,7 +134,7 @@ export class McpWorkerHost {
 
         // Handle messages from worker
         this.worker.on('message', (msg: McpWorkerResponse) => {
-          this.handleMessage(msg, resolve, timeoutId);
+          this.handleMessage(msg, resolve, timeoutId, reject);
         });
 
         // Handle worker errors
@@ -172,9 +172,17 @@ export class McpWorkerHost {
   private handleMessage(
     msg: McpWorkerResponse,
     startResolve?: (result: WarmupResult) => void,
-    startTimeoutId?: ReturnType<typeof setTimeout>
+    startTimeoutId?: ReturnType<typeof setTimeout>,
+    startReject?: (error: Error) => void,
   ): void {
     switch (msg.type) {
+      case 'init-error':
+        clearTimeout(startTimeoutId);
+        this.isStarting = false;
+        void this.dispose();
+        startReject?.(new Error(msg.error));
+        break;
+
       case 'ready':
         // Warmup complete
         if (startTimeoutId) {

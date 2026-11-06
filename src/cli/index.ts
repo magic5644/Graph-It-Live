@@ -449,7 +449,8 @@ async function main(): Promise<void> {
   activeRuntime = runtime;
 
   // Commands that don't need a workspace (skip runtime init to avoid side-effects)
-  const WORKSPACE_FREE = new Set(["install", "update", "stats"]);
+  // serve: the MCP child builds its own index; outside a project it starts without a workspace.
+  const WORKSPACE_FREE = new Set(["install", "update", "stats", "serve"]);
 
   try {
     if (!WORKSPACE_FREE.has(command)) {
@@ -458,7 +459,8 @@ async function main(): Promise<void> {
       runtime.disableErrorCollection(); // Discard init errors (parse/analysis)
     }
 
-    await maybeRunStartupUpdateCheck(command, workspaceRoot);
+    // Its cache lives in <root>/.graph-it/: never write one into a home or root directory.
+    if (runtime.isProjectRoot) await maybeRunStartupUpdateCheck(command, workspaceRoot);
 
     runtime.enableErrorCollection();
     const output = await dispatch(command, rawCommandArgs, runtime, format);

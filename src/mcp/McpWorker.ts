@@ -98,6 +98,7 @@ parentPort?.on("message", async (msg: McpWorkerMessage) => {
     const errorMessage =
       error instanceof Error ? error.message : "Unknown error";
     log.error("Error handling message:", errorMessage);
+    if (msg.type === "init") postMessage({ type: "init-error", error: errorMessage });
   }
 });
 

@@ -61,21 +61,27 @@ export function hasProjectMarker(dir: string): boolean {
 }
 
 /**
- * Root used when none was given explicitly: the nearest directory, starting at
- * startDir and going up, that holds a project marker (see PROJECT_MARKERS).
- * Falls back to startDir. An explicit root (--workspace, WORKSPACE_ROOT,
- * set_workspace, the VS Code folder) is used as given and never goes through this.
+ * The nearest directory, starting at startDir and going up to the filesystem
+ * root, that holds a project marker (see PROJECT_MARKERS), or null when none does.
  */
-export function findWorkspaceRoot(startDir: string): string {
-  const start = path.resolve(startDir);
-  let dir = start;
+export function findProjectRoot(startDir: string): string | null {
+  let dir = path.resolve(startDir);
   // The filesystem root is checked too: a project may sit at / or C:\.
   while (!hasProjectMarker(dir)) {
     const parent = path.dirname(dir);
-    if (parent === dir) return start;
+    if (parent === dir) return null;
     dir = parent;
   }
   return dir;
+}
+
+/**
+ * Root used when none was given explicitly: findProjectRoot, falling back to
+ * startDir. An explicit root (--workspace, WORKSPACE_ROOT, set_workspace, the
+ * VS Code folder) is used as given and never goes through this.
+ */
+export function findWorkspaceRoot(startDir: string): string {
+  return findProjectRoot(startDir) ?? path.resolve(startDir);
 }
 
 function declaresWorkspaces(dir: string): boolean {

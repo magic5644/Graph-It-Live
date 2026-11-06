@@ -200,6 +200,22 @@ describe('McpWorkerHost', () => {
       expect(host.ready()).toBe(false);
     });
 
+    it('should reject at once when the worker reports an init error', async () => {
+      host = new McpWorkerHost(defaultOptions);
+
+      const startPromise = host.start({
+        rootDir: '',
+        excludeNodeModules: true,
+        maxDepth: 50,
+      });
+
+      await Promise.resolve();
+      getMockWorker().emit('message', { type: 'init-error', error: 'rootDir is required' });
+
+      await expect(startPromise).rejects.toThrow('rootDir is required');
+      expect(host.ready()).toBe(false);
+    });
+
     it('should reject on non-zero exit code', async () => {
       host = new McpWorkerHost(defaultOptions);
 

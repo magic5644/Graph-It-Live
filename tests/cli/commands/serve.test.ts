@@ -11,7 +11,7 @@ vi.mock("node:child_process", () => ({ spawn: mocks.spawn }));
 
 import { run } from "../../../src/cli/commands/serve.js";
 
-const runtime = (workspaceRoot: string) => ({ workspaceRoot }) as never;
+const runtime = (workspaceRoot: string, isProjectRoot = true) => ({ workspaceRoot, isProjectRoot }) as never;
 
 type FakeChild = EventEmitter & { kill: ReturnType<typeof vi.fn> };
 
@@ -47,6 +47,32 @@ describe("serve command", () => {
       child.emit("exit", 0);
       await done;
       expect(mocks.spawn.mock.calls[0][2].env.WORKSPACE_ROOT).toBe(String.raw`C:\work\project`);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("passes no workspace outside a project, so the server starts and waits for set_workspace", async () => {
+    vi.stubEnv("WORKSPACE_ROOT", "");
+    try {
+      const child = fakeChild();
+      const done = run([], runtime("/home/user", false), "text");
+      child.emit("exit", 0);
+      await expect(done).resolves.toBe("");
+      expect(mocks.spawn.mock.calls[0][2].env.WORKSPACE_ROOT).toBe("");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("keeps a WORKSPACE_ROOT set by the user outside a project", async () => {
+    vi.stubEnv("WORKSPACE_ROOT", "/work/configured");
+    try {
+      const child = fakeChild();
+      const done = run([], runtime("/home/user", false), "text");
+      child.emit("exit", 0);
+      await done;
+      expect(mocks.spawn.mock.calls[0][2].env.WORKSPACE_ROOT).toBe("/work/configured");
     } finally {
       vi.unstubAllEnvs();
     }

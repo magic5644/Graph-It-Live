@@ -23,12 +23,11 @@ export async function run(
   const distDir = __dirname;
   const mcpServerPath = path.join(distDir, "mcpServer.mjs");
 
-  const child = spawn(process.execPath, [mcpServerPath], {
-    stdio: "inherit",
-    // The MCP server reads its workspace from WORKSPACE_ROOT (cwd otherwise):
-    // pass the one the CLI resolved from --workspace or auto-detection.
-    env: { ...process.env, WORKSPACE_ROOT: runtime.workspaceRoot },
-  });
+  // The MCP server reads its workspace from WORKSPACE_ROOT (cwd otherwise): pass
+  // the one the CLI resolved from --workspace or auto-detection. Outside a project,
+  // pass none: the server starts and waits for graphitlive_set_workspace.
+  const env = runtime.isProjectRoot ? { ...process.env, WORKSPACE_ROOT: runtime.workspaceRoot } : process.env;
+  const child = spawn(process.execPath, [mcpServerPath], { stdio: "inherit", env });
 
   // Forward termination signals so a supervisor that stops the CLI also stops
   // the server. index.ts handles the same signals and sets the exit code.
