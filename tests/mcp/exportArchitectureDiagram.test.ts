@@ -1,16 +1,13 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { Parser } from "@/analyzer/Parser";
-import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
-import { PathResolver } from "@/analyzer/utils/PathResolver";
 import { diagramLevel } from "@/analyzer/diagram/diagramStyle";
 import { run as runDiagram } from "@/cli/commands/diagram";
 import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
 import { executeExportArchitectureDiagram, INLINE_DIAGRAM_MAX_CHARS } from "@/mcp/tools/architecture";
 import { ExportArchitectureDiagramParamsSchema } from "@/mcp/types";
-import { createRulesWorkspace } from "../analyzer/architecture/rulesWorkspace";
+import { startRulesWorker } from "../analyzer/architecture/rulesWorkspace";
 
 // Stands in for a diagram over the inline cap: no fixture is large enough within MAX_DIAGRAM_NODES.
 const oversized = vi.hoisted(() => ({ markup: undefined as string | undefined }));
@@ -72,12 +69,7 @@ describe("export_architecture_diagram", { timeout: 60_000 }, () => {
   let runtime: CliRuntime;
 
   beforeAll(() => {
-    root = createRulesWorkspace();
-    workerState.parser = new Parser();
-    workerState.resolver = new PathResolver(undefined, true, root);
-    workerState.spider = new SpiderBuilder().withRootDir(root).withExcludeNodeModules(true).build();
-    workerState.config = { rootDir: root, excludeNodeModules: true, maxDepth: 50 };
-    workerState.isReady = true;
+    root = startRulesWorker();
     // The CLI dates the diagram by the last scan, the MCP tool by the call: the same day here.
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-11-06T10:00:00Z"));

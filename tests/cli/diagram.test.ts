@@ -1,15 +1,12 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { Parser } from "@/analyzer/Parser";
-import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
-import { PathResolver } from "@/analyzer/utils/PathResolver";
 import { run as checkArchitecture } from "@/cli/commands/checkArchitecture";
 import { readDiagramOptions, run } from "@/cli/commands/diagram";
 import { classifyError, ExitCode } from "@/cli/errors";
 import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
-import { createRulesWorkspace } from "../analyzer/architecture/rulesWorkspace";
+import { startRulesWorker } from "../analyzer/architecture/rulesWorkspace";
 
 /** A drawn edge of that stroke: the legend samples carry no arrow. */
 const edgeOf = (stroke: string) => new RegExp(`class="edge ${stroke}"[^>]*marker-end`);
@@ -67,12 +64,7 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
   let runtime: CliRuntime;
 
   beforeAll(() => {
-    root = createRulesWorkspace();
-    workerState.parser = new Parser();
-    workerState.resolver = new PathResolver(undefined, true, root);
-    workerState.spider = new SpiderBuilder().withRootDir(root).withExcludeNodeModules(true).build();
-    workerState.config = { rootDir: root, excludeNodeModules: true, maxDepth: 50 };
-    workerState.isReady = true;
+    root = startRulesWorker();
     runtime = { workspaceRoot: root, ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null } as unknown as CliRuntime;
   });
 
