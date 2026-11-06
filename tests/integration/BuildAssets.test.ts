@@ -96,5 +96,6 @@ describe('Build assets', () => {
     const invalid = spawnSync('bash', ['post-build'], { cwd: workspace, encoding: 'utf8' });
     expect(invalid.status).toBe(1);
     expect(invalid.stdout).toContain(path.basename(missing));
-  }, 15_000);
+    // Two Git Bash runs: Windows runners took over 15 s (PR #632), so size it for the slowest runner.
+  }, 60_000);
 });
