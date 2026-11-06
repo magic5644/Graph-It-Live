@@ -98,7 +98,7 @@ type Violations = readonly Pick<ArchitectureViolation, "rule" | "source" | "targ
 
 /** Last folder name of the workspace root: diagrams never show an absolute path. */
 export function workspaceName(workspaceRoot: string): string {
-  return normalizePath(workspaceRoot).replace(/\/+$/, "").split("/").at(-1) || "workspace";
+  return normalizePath(workspaceRoot).split("/").findLast((segment) => segment !== "") ?? "workspace";
 }
 
 /** The rules of each edge (`from>to` keys) and the violating pairs between two distinct keys. */
@@ -161,7 +161,7 @@ const cells = (text: string) => Array.from(text).reduce((sum, char) => sum + (WI
 export const textWidth = (text: string, fontSize: number) => cells(text) * SIZES.monoAdvance * fontSize;
 
 /** Text XML accepts, read as stored: lone surrogates, control characters and bidi overrides replaced with U+FFFD. */
-export const sanitizeText = (text: string) => text.toWellFormed().replaceAll(/[\p{Cc}‪-‮⁦-⁩]/gu, String.fromCodePoint(0xfffd));
+export const sanitizeText = (text: string) => text.toWellFormed().replaceAll(/[\p{Cc}\u202A-\u202E\u2066-\u2069]/gu, String.fromCodePoint(0xfffd));
 
 /** A label safe to draw, cut to `max` cells with "…". */
 export function fitLabel(label: string, max: number = SIZES.maxLabelChars): string {
