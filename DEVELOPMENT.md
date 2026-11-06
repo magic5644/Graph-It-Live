@@ -33,7 +33,7 @@ cd Graph-It-Live
 2. **Install dependencies**:
 
 ```bash
-nvm use # optional, uses Node.js 22 when nvm is installed
+nvm use # optional, uses Node.js 24 when nvm is installed
 npm install
 ```
 
