@@ -67,7 +67,7 @@ For detailed development setup instructions, see [DEVELOPMENT.md](DEVELOPMENT.md
 1. **Create a feature branch**:
 
 ```bash
-git checkout -b feature/your-feature-name
+git checkout -b feat/your-feature-name
 ```
 
 2. **Start development**:
@@ -100,7 +100,7 @@ Open an issue with the matching form (bug, feature or performance). Give a prior
 
 Use descriptive branch names:
 
-- `feature/add-symbol-analysis` - New features
+- `feat/add-symbol-analysis` - New features (same prefixes as the Conventional Commit types)
 - `fix/parser-crash` - Bug fixes
 - `refactor/improve-caching` - Code refactoring
 - `docs/update-readme` - Documentation updates
@@ -244,7 +244,7 @@ git rebase upstream/main
 2. **Push your changes** to your fork:
 
 ```bash
-git push origin feature/your-feature-name
+git push origin feat/your-feature-name
 ```
 
 3. **Create a Pull Request** on GitHub with:

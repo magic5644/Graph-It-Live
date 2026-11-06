@@ -45,7 +45,7 @@ Understand full flow first. Trace callers and fix shared root cause once, not sy
 - Prefer deletion, boring solutions, and fewest files.
 - Smallest correct diff wins; preserve security, accessibility, validation, error handling, and explicit requirements.
 - When choosing equally small approaches, choose edge-case-correct one.
-- Mark deliberate simplifications with known ceilings using `ponytail:` comment naming ceiling and upgrade path.
+- Mark deliberate simplifications with known ceilings using a `shortcut: <the limit>, <when to upgrade>` comment (older `ponytail:` comments mean the same).
 - Non-trivial logic needs smallest runnable check that fails when behavior breaks; trivial one-liners need no test.
 
 ## Git and Pull Requests
