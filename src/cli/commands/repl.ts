@@ -151,8 +151,14 @@ function prepareIndex(runtime: CliRuntime): Promise<void> {
   let pending = indexing.get(runtime);
   if (!pending) {
     pending = runQuietlyDuringBootstrap(async () => {
-      await runtime.init();
-      await runtime.ensureIndexed({ silent: true });
+      try {
+        await runtime.init();
+        await runtime.ensureIndexed({ silent: true });
+      } catch (err) {
+        // A half-built runtime keeps its AST worker: stop it before the retry builds another.
+        await runtime.dispose().catch(() => undefined);
+        throw err;
+      }
     });
     pending.catch(() => indexing.delete(runtime));
     indexing.set(runtime, pending);
@@ -171,20 +177,13 @@ async function prepareIndexFor(command: string, runtime: CliRuntime): Promise<vo
 /**
  * Entry point for the REPL.
  *
- * `runtime` is already constructed but NOT yet `init()`ed. The REPL starts at
- * once and indexes on the first command that needs the index (prepareIndex).
+ * `runtime` is already constructed, checked as a project root (createReplRuntime),
+ * but NOT yet `init()`ed. The REPL starts at once and indexes on the first
+ * command that needs the index (prepareIndex).
  */
 export async function run(runtime: CliRuntime): Promise<void> {
   if (!process.stdin.isTTY) {
     process.stdout.write(NON_TTY_MESSAGE);
-    return;
-  }
-
-  try {
-    // Before the file walk below, so a home or root directory is never walked.
-    runtime.assertProjectRoot();
-  } catch (err) {
-    process.stderr.write(`${formatTerminalError(err)}\n`);
     return;
   }
 
@@ -979,14 +978,16 @@ function stripSavedOutputNoise(content: string, format: CliOutputFormat | undefi
 
 /**
  * Silently extract symbol names from a file by running the explain command in JSON mode.
- * Returns an empty array on any error or timeout — never throws.
+ * Returns an empty array on an explain error or timeout; rejects only when indexing fails.
  */
 async function extractFileSymbols(
   absoluteFile: string,
   runtime: CliRuntime,
 ): Promise<string[]> {
+  // Outside the try and the 5 s timeout: indexing is shared with the commands, and
+  // its failure rejects so the symbol list is not cached empty for that file.
+  await prepareIndex(runtime);
   try {
-    await prepareIndex(runtime);
     const { run } = await import('./explain.js');
     const jsonOutput = await Promise.race([
       run([absoluteFile], runtime, 'json'),

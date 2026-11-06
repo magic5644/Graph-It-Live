@@ -33,12 +33,6 @@ describe("findWorkspaceRoot", () => {
     expect(root).toBe(tmpDir);
   });
 
-  it("falls back to the start directory when no marker found", () => {
-    // tmpDir has no package.json — should get tmpDir or an ancestor that has one
-    // At minimum it should return a string (not throw)
-    const root = findWorkspaceRoot(tmpDir);
-    expect(typeof root).toBe("string");
-  });
 });
 
 // Regression tests for #264: an explicit --workspace is the root as given.
@@ -66,6 +60,14 @@ describe("resolveCliWorkspaceRoot", () => {
 
   it("resolves a relative --workspace against cwd", () => {
     expect(resolveCliWorkspaceRoot(path.join("src", "nopkg"), tmpDir)).toBe(path.join(tmpDir, "src", "nopkg"));
+  });
+
+  it.each(["", "  "])("rejects an empty --workspace (%j) instead of using cwd", (explicit) => {
+    expect(() => resolveCliWorkspaceRoot(explicit, tmpDir)).toThrow("--workspace needs a directory.");
+  });
+
+  it.each(["", "  "])("rejects an empty --workspace (%j) instead of using cwd", (explicit) => {
+    expect(() => resolveCliWorkspaceRoot(explicit, tmpDir)).toThrow("--workspace needs a directory.");
   });
 
   it.each([

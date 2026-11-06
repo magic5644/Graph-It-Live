@@ -435,6 +435,29 @@ describe('Ink REPL results navigation', () => {
     await done;
   });
 
+  it('does not cache a failed symbol listing, and asks again when the file is re-entered', async () => {
+    const allFiles = [path.join(workspaceRoot, 'src', 'a.ts')];
+    const listFileSymbols = vi.fn()
+      .mockRejectedValueOnce(new Error('index failed'))
+      .mockResolvedValue(['main', 'helper']);
+    const stdout = new FakeStdout(80, 24);
+    const stdin = Object.assign(new PassThrough(), { isTTY: true, setRawMode: () => undefined, ref: () => undefined, unref: () => undefined });
+    const done = runInkReplSession({
+      version: '0.0.0-test', workspaceRoot, allFiles, preferredFormat: 'text', onSubmitCommand: echo('ok'), listFileSymbols,
+      renderOptions: { stdout: stdout as unknown as NodeJS.WriteStream, stdin: stdin as unknown as NodeJS.ReadStream, debug: true, interactive: true, patchConsole: false, exitOnCtrlC: false },
+    });
+    for (const key of [...'/trace src/a.ts#', KEY.backspace, '#']) {
+      stdin.write(key);
+      await tick(15);
+    }
+    await tick(80);
+    const last = stripVTControlCharacters(stdout.frames.findLast((frame) => frame.includes('Graph-It-Live')) ?? '');
+    expect(listFileSymbols).toHaveBeenCalledTimes(2);
+    expect(last).toContain('helper');
+    stdin.write(KEY.ctrlC);
+    await done;
+  });
+
   it('reports an empty command and quits when the command asks to', async () => {
     const session = await startSession(async (line) => ({ command: line, output: '', shouldQuit: line === '/quit' }));
     await session.press(KEY.enter);

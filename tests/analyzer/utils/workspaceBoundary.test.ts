@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   describeOutOfRootImports,
   findMonorepoRoot,
@@ -12,6 +12,15 @@ import {
   toDisplayPath,
   toReportableSpecifier,
 } from "@/analyzer/utils/workspaceBoundary";
+
+/** Set to fake the directory listings the root climb reads (a marker at the filesystem root). */
+const listing = vi.hoisted(() => ({ fake: undefined as ((dir: string) => string[]) | undefined }));
+vi.mock("node:fs", async (importOriginal) => {
+  const real = await importOriginal<typeof import("node:fs")>();
+  const readdirSync = ((dir: fs.PathLike, ...rest: unknown[]) =>
+    listing.fake ? listing.fake(String(dir)) : (real.readdirSync as (...args: unknown[]) => unknown)(dir, ...rest)) as typeof real.readdirSync;
+  return { ...real, default: { ...real, readdirSync }, readdirSync };
+});
 
 /** Regression tests for #264: a sub-package root must say what it leaves out. */
 describe("workspaceBoundary", () => {
@@ -48,7 +57,30 @@ describe("workspaceBoundary", () => {
     );
 
     it("falls back to the start directory when no marker is found up to the filesystem root", () => {
-      expect(findWorkspaceRoot(path.parse(tmp).root)).toBe(path.parse(tmp).root);
+      listing.fake = () => [];
+      try {
+        expect(findWorkspaceRoot(path.join(tmp, "a", "b"))).toBe(path.join(tmp, "a", "b"));
+      } finally {
+        listing.fake = undefined;
+      }
+    });
+
+    it("finds a project whose marker sits at the filesystem root", () => {
+      const fsRoot = path.parse(tmp).root;
+      listing.fake = (dir) => (dir === fsRoot ? ["go.mod"] : []);
+      try {
+        expect(findWorkspaceRoot(path.join(tmp, "a", "b"))).toBe(fsRoot);
+      } finally {
+        listing.fake = undefined;
+      }
+    });
+
+    it("makes the nearest marker win: a requirements.txt sub-folder of a TypeScript repo is its own root", () => {
+      write("package.json");
+      write("packages/api/requirements.txt", "");
+      fs.mkdirSync(path.join(tmp, "packages", "api", "src"), { recursive: true });
+      expect(findWorkspaceRoot(path.join(tmp, "packages", "api", "src"))).toBe(path.join(tmp, "packages", "api"));
+      expect(findWorkspaceRoot(path.join(tmp, "packages"))).toBe(tmp);
     });
   });
 

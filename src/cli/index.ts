@@ -331,13 +331,30 @@ async function resolveCommandHelp(command: string, commandArgs: string[]): Promi
 // Main
 // ============================================================================
 
+/**
+ * The REPL runtime, refused (CliError, exit 3) before anything is written or
+ * walked — update-check cache, autocomplete file list — when the root is not a project.
+ */
+export function createReplRuntime(values: Record<string, unknown>): CliRuntime {
+  const runtime = createRuntime(resolveCliWorkspaceRoot(values.workspace as string | undefined), values);
+  runtime.assertProjectRoot();
+  return runtime;
+}
+
 /** Handle the no-command case: launch REPL in TTY, print help otherwise. */
 async function handleNoCommand(values: Record<string, unknown>): Promise<void> {
   if (process.stdin.isTTY) {
-    const workspaceRoot = resolveCliWorkspaceRoot(values.workspace as string | undefined);
-    await maybeNotifyCliUpdate({ workspaceRoot, currentVersion: VERSION });
+    let runtime: CliRuntime;
+    try {
+      runtime = createReplRuntime(values);
+    } catch (err) {
+      if (!(err instanceof CliError)) throw err;
+      process.stderr.write(`Error: ${err.message}\n`);
+      process.exit(err.exitCode);
+    }
+    await maybeNotifyCliUpdate({ workspaceRoot: runtime.workspaceRoot, currentVersion: VERSION });
     const { run } = await import("./commands/repl.js");
-    await run(createRuntime(workspaceRoot, values));
+    await run(runtime);
     process.exit(ExitCode.SUCCESS);
   }
   process.stdout.write(HELP);

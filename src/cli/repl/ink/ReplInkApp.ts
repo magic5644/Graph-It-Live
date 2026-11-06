@@ -2122,9 +2122,10 @@ export async function runInkReplSession(options: RunInkReplSessionOptions): Prom
       if (symbolCache.has(cacheKey) || pendingSymbolFilesRef.current.has(cacheKey)) return;
       pendingSymbolFilesRef.current.add(cacheKey);
       void listFileSymbols(symbolCompletionFile)
-        .catch(() => [])
         .then((symbols) => {
           setSymbolCache((previous) => new Map(previous).set(cacheKey, symbols));
+        }, () => {
+          // Indexing failed: nothing cached, so the file is asked again once it is re-entered or a command ran.
         })
         .finally(() => {
           pendingSymbolFilesRef.current.delete(cacheKey);
