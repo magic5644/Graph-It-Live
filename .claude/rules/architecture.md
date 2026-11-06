@@ -35,4 +35,5 @@ The layer boundaries above are machine-checked by the repository's own `graphit.
 ## Change Recipes
 
 - New webview message: add discriminated type in `src/shared/types.ts`, implement relevant extension service handler, register it in `WebviewMessageRouter`, then send/receive typed payload in React.
+- New supported language: list its project-root files (manifest, build or solution file) in `PROJECT_MARKERS` (`src/analyzer/utils/workspaceBoundary.ts`) in the same change, plus a `hasProjectMarker` test. Without them, the CLI refuses a project in that language when it runs without `--workspace`, and `findWorkspaceRoot` climbs past it. A new `Language` member fails to compile until it has an entry.
 - New MCP tool: add `McpToolName`, Zod parameter schema and result type, add its WHEN/WHY/WHAT description to `src/mcp/toolDescriptions.ts` (run `npm run sync:tool-descriptions` when an LM tool changes), handle worker dispatch, implement execution, and add tests.

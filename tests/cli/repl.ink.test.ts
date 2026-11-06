@@ -53,6 +53,7 @@ async function startInkSession(workspaceRoot = '/workspace'): Promise<InkSession
   });
   const runtime = {
     workspaceRoot,
+    assertProjectRoot: vi.fn(),
     init: vi.fn().mockResolvedValue(undefined),
     ensureIndexed: vi.fn().mockResolvedValue({ filesIndexed: 1, durationMs: 1 }),
   };
