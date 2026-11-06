@@ -43,6 +43,13 @@ export const DIAGRAM_FORMATS = ["svg", "html"] as const;
 export const DIAGRAM_THEMES = ["light", "dark"] as const;
 
 export type DiagramTheme = (typeof DIAGRAM_THEMES)[number];
+export type DiagramView = (typeof DIAGRAM_VIEWS)[number];
+
+/** The level a request names: a folder alone means its groups, and keys use "/" on every OS (a Windows user may type app\core). */
+export function diagramLevel(view: DiagramView | undefined, folder: string | undefined) {
+  const key = folder?.replaceAll("\\", "/");
+  return { view: view ?? (key === undefined ? "units" : "folder"), folder: key } as const;
+}
 
 export interface Palette {
   background: string;

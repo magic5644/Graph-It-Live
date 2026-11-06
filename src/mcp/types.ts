@@ -11,7 +11,7 @@
 import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import { COMMUNITY_MODES } from "../shared/graph-types";
-import { DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS } from "../analyzer/diagram/diagramStyle";
+import { DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel } from "../analyzer/diagram/diagramStyle";
 import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import type { OutOfRootReport } from "../analyzer/utils/workspaceBoundary";
@@ -812,7 +812,7 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
   response_format: z.enum(["json", "markdown", "toon"]).optional()
     .describe("Output format: 'json', 'markdown', or 'toon' (default: toon)"),
 }).strict().superRefine((params, context) => {
-  const view = params.view ?? (params.folder === undefined ? "units" : "folder");
+  const { view } = diagramLevel(params.view, params.folder);
   if (view === "folder" && params.folder === undefined) {
     context.addIssue({ code: "custom", message: "view folder draws the groups of one unit or folder: pass folder" });
   }

@@ -11,7 +11,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ARCHITECTURE_BASELINE_FILE } from "../../analyzer/architecture/architectureRules.js";
-import { DIAGRAM_THEMES, DIAGRAM_VIEWS } from "../../analyzer/diagram/diagramStyle.js";
+import { DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel } from "../../analyzer/diagram/diagramStyle.js";
 import { renderWorkspaceDiagram, type WorkspaceDiagramOptions } from "../../analyzer/diagram/workspaceDiagram.js";
 import { workerState } from "../../mcp/shared/state";
 import { getRelativePath } from "../../shared/path";
@@ -50,9 +50,7 @@ function readOutput(args: string[], format: CliOutputFormat) {
 
 /** The view and its folder key, rejecting the pairs that name no single level. */
 function readView(args: string[]) {
-  // Keys use "/" on every OS: a Windows user may type app\core.
-  const folder = readStringOption(args, "--folder", "a unit or folder key")?.replaceAll("\\", "/");
-  const view = readChoice(args, "--view", DIAGRAM_VIEWS) ?? (folder === undefined ? "units" : "folder");
+  const { view, folder } = diagramLevel(readChoice(args, "--view", DIAGRAM_VIEWS), readStringOption(args, "--folder", "a unit or folder key"));
   if (view === "folder" && folder === undefined) {
     throw new CliError("--view folder draws the groups of one unit or folder: pass --folder <key>", ExitCode.GENERAL_ERROR);
   }

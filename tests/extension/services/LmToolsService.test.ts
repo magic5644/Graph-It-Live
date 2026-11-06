@@ -484,7 +484,13 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool(TOOL, { folder: 'src', rules: true });
 
-      expect(exportArchitectureDiagram).toHaveBeenCalledWith('/workspace', expect.any(Function), { folder: 'src', rules: true });
+      expect(exportArchitectureDiagram).toHaveBeenCalledWith('/workspace', expect.any(Function), { folder: 'src', rules: true }, expect.any(AbortSignal));
+      // The chat's cancellation aborts the analysis.
+      const onCancel = vi.mocked(fakeToken.onCancellationRequested).mock.calls.at(-1)?.[0] as () => void;
+      const signal = exportArchitectureDiagram.mock.calls[0][3] as AbortSignal;
+      expect(signal.aborted).toBe(false);
+      onCancel();
+      expect(signal.aborted).toBe(true);
       const analyze = exportArchitectureDiagram.mock.calls[0][1] as (file: string) => Promise<unknown>;
       await analyze('/workspace/src/a.ts');
       expect(vi.mocked(provider.getSpiderForLmTools)()?.analyze).toHaveBeenCalledWith('/workspace/src/a.ts');

@@ -1613,22 +1613,27 @@ export class LmToolsService {
       {
         invoke: async (
           options: vscode.LanguageModelToolInvocationOptions<ExportArchitectureDiagramParams>,
-          _token: vscode.CancellationToken,
+          token: vscode.CancellationToken,
         ): Promise<vscode.LanguageModelToolResult> => {
           const spider = this.provider.getSpiderForLmTools();
           const rootDir = this.getWorkspaceRoot();
           if (!spider || !rootDir) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
+          // Every source file is analysed: let the chat cancel it.
+          const abort = new AbortController();
+          const cancellation = token.onCancellationRequested(() => abort.abort());
           try {
             const params = ExportArchitectureDiagramParamsSchema.parse(options.input);
             const { exportArchitectureDiagram } = await import('../../mcp/tools/architecture.js');
-            const result = await exportArchitectureDiagram(rootDir, (filePath) => spider.analyze(filePath), params);
+            const result = await exportArchitectureDiagram(rootDir, (filePath) => spider.analyze(filePath), params, abort.signal);
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);
           } catch (error) {
             return this.errorResult(error instanceof Error ? error.message : String(error));
+          } finally {
+            cancellation.dispose();
           }
         },
       },

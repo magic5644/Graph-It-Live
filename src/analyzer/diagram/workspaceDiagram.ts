@@ -11,11 +11,11 @@ import { checkWorkspaceArchitecture, loadDeclaredRoles, type ArchitectureRulesFi
 import { assignUnits, buildArchitectureUnits } from "../architecture/architectureUnits";
 import { architectureDiagramInput, layoutDiagram } from "./architectureDiagram";
 import { layoutMatrix } from "./diagramMatrix";
-import type { DIAGRAM_FORMATS, DIAGRAM_VIEWS, DiagramTheme } from "./diagramStyle";
+import type { DIAGRAM_FORMATS, DiagramTheme, DiagramView } from "./diagramStyle";
 import { renderDiagramHtml, renderDiagramSvg } from "./diagramSvg";
 
 export interface WorkspaceDiagramOptions {
-  view: (typeof DIAGRAM_VIEWS)[number];
+  view: DiagramView;
   /** Unit or folder key whose groups are drawn; with view "matrix", the level of the matrix. */
   folder?: string;
   format: (typeof DIAGRAM_FORMATS)[number];
