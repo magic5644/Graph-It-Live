@@ -119,7 +119,7 @@ Commands:
   architecture      Build full workspace architecture graph
   check-architecture
                     Check the imports against graphit.architecture.json (exit 1 on a new error)
-  diagram           Write a static architecture diagram: --format svg|html --output <file>
+  diagram           Write a static architecture diagram: --format svg|html|diagram-spec --output <file>
   check <file>      Find unused exported symbols
   review-pr         Review a Git diff: --base <ref> [--head <ref>]
   serve             Launch MCP stdio server (passthrough)
@@ -135,7 +135,7 @@ Commands:
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text);
-                    html for export and diagram, svg for diagram, csv for architecture --matrix,
+                    html for export and diagram, svg and diagram-spec for diagram, csv for architecture --matrix,
                     sarif for check-architecture and review-pr
   --help, -h        Show this help
   --version, -v     Show version

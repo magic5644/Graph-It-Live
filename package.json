@@ -1388,7 +1388,7 @@
         "displayName": "Graph-It-Live: Export Architecture Diagram",
         "icon": "$(type-hierarchy)",
         "userDescription": "Draw a static architecture diagram of the workspace as SVG or self-contained HTML",
-        "modelDescription": "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix) as SVG or self-contained HTML.\n\nWHEN: \"draw the architecture\", \"give me a diagram for the README / the PR / the design doc\", or to share as a picture the structure that graph-it architecture reports as data.\nWHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.\nRETURNS: format, counts (one line, e.g. '7 units · 3 layers · 1 cycle · 0 violations', covering the whole level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>) with its size in characters.\nLIMITS: import relations only (static analysis); at most 60 nodes, the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.",
+        "modelDescription": "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix) as SVG or self-contained HTML, or returns its data as a diagram spec.\n\nWHEN: \"draw the architecture\", \"give me a diagram for the README / the PR / the design doc\", or to share as a picture the structure that graph-it architecture reports as data. For a polished or branded diagram drawn by a diagram skill, use diagramFormat 'diagram-spec' and draw only the nodes and edges it lists.\nWHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.\nRETURNS: format, counts (one line, e.g. '7 units · 3 layers · 1 cycle · 0 violations', covering the whole level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>, architecture.diagram-spec.json for a spec) with its size in characters. A diagram-spec is JSON (schemas/diagram-spec.schema.json): every node with label, layer, file count and role, layers, weighted edges with kind and broken rules, cycles, violations and the caption lines.\nLIMITS: import relations only (static analysis); at most 60 nodes drawn (a spec lists them all), the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1409,9 +1409,10 @@
               "type": "string",
               "enum": [
                 "svg",
-                "html"
+                "html",
+                "diagram-spec"
               ],
-              "description": "Optional: svg (default) or html, one self-contained page following the reader light or dark scheme"
+              "description": "Optional: svg (default), html (one self-contained page following the reader light or dark scheme) or diagram-spec (the level's data as JSON for a diagram skill)"
             },
             "theme": {
               "type": "string",
@@ -1419,7 +1420,7 @@
                 "light",
                 "dark"
               ],
-              "description": "Optional SVG colours (default light); not for diagramFormat html"
+              "description": "Optional SVG colours (default light); svg only"
             },
             "rules": {
               "type": "boolean",

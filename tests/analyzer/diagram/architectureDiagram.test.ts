@@ -1,4 +1,6 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
+import Ajv2020 from "ajv/dist/2020";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import { checkArchitecture, parseArchitectureConfig } from "@/analyzer/architecture/architectureRules";
@@ -16,6 +18,7 @@ import {
   type DiagramLayout,
 } from "@/analyzer/diagram/architectureDiagram";
 import { layoutMatrix, type MatrixLayout } from "@/analyzer/diagram/diagramMatrix";
+import { DIAGRAM_SPEC_SCHEMA, diagramSpec, type DiagramSpec } from "@/analyzer/diagram/diagramSpec";
 import { escapeXml, renderDiagramHtml, renderDiagramSvg } from "@/analyzer/diagram/diagramSvg";
 import { SIZES } from "@/analyzer/diagram/diagramStyle";
 import { renderSourceDiagram, renderWorkspaceDiagram } from "@/analyzer/diagram/workspaceDiagram";
@@ -23,6 +26,7 @@ import { Parser } from "@/analyzer/Parser";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
 import { PathResolver } from "@/analyzer/utils/PathResolver";
 import { workerState } from "@/mcp/shared/state";
+import { UNIT_ROLES } from "@/shared/architecture-model";
 
 // The acme-like npm-workspaces fixture: apps, packages with a core <-> types cycle, a function, tooling.
 const rootDir = path.resolve(__dirname, "../../fixtures/workspaces-project");
@@ -129,6 +133,21 @@ function expectSoundMatrix(layout: MatrixLayout): void {
 function expectSafeMarkup(markup: string): void {
   expect(markup).not.toMatch(/<script|foreignObject|href=|\son\w+=|url\((?!#arrow-)/i);
   expect(markup.match(/https?:\/\/[^"\s]*/g)?.filter((url) => url !== "http://www.w3.org/2000/svg") ?? []).toEqual([]);
+}
+
+const SPEC_SCHEMA = JSON.parse(fs.readFileSync(path.resolve(__dirname, "../../../schemas/diagram-spec.schema.json"), "utf8"));
+const validateSpec = new Ajv2020({ allErrors: true }).compile(SPEC_SCHEMA);
+
+/** Valid against the published schema, and every key it refers to is a node of the level. */
+function expectSoundSpec(spec: DiagramSpec): void {
+  expect(validateSpec(JSON.parse(JSON.stringify(spec))), JSON.stringify(validateSpec.errors)).toBe(true);
+  const keys = spec.nodes.map((node) => node.key);
+  expect(spec.layers.flatMap((layer) => layer.nodes).toSorted()).toEqual(keys.toSorted());
+  for (const layer of spec.layers) for (const key of layer.nodes) expect(spec.nodes.find((node) => node.key === key)?.layer).toBe(layer.layer);
+  expect(spec.layers.map((layer) => layer.layer)).toEqual(spec.layers.map((layer) => layer.layer).toSorted((a, b) => a - b));
+  for (const edge of spec.edges) expect(keys, `${edge.from}>${edge.to}`).toEqual(expect.arrayContaining([edge.from, edge.to]));
+  for (const cycle of spec.cycles) expect(keys).toEqual(expect.arrayContaining(cycle));
+  expect(spec.counts).toMatchObject({ nodes: keys.length, layers: spec.layers.length, cycles: spec.cycles.length, edges: spec.edges.length });
 }
 
 function input(nodes: [string, number, number][], edges: [string, string, number, DiagramInput["edges"][number]["kind"]][] = []): DiagramInput {
@@ -279,6 +298,79 @@ describe("architecture diagram: workspaces-project", () => {
     expect(mixed.edges.find((edge) => edge.rules.length > 0)?.accepted).toBeUndefined();
     expect(mixed).toMatchObject({ violations: 2, acceptedViolations: 1 });
   }, 60_000);
+
+  it("lists the golden SVG's units, roles, layers, cycle and violation as a diagram spec valid against its schema (#450)", async () => {
+    const diagram = await fixtureInput();
+    const spec = diagramSpec(diagram);
+    expectSoundSpec(spec);
+    const layout = await layoutDiagram(diagram);
+    expect(spec).toMatchObject({
+      $schema: DIAGRAM_SPEC_SCHEMA, version: 1, workspace: "workspaces-project", level: "units", scope: "units", date: "2026-11-06",
+      caption: { title: layout.text.title, caption: layout.text.caption, counts: layout.text.counts },
+      counts: { ...layout.counts, edges: diagram.edges.length },
+      cycles: [["packages/core", "packages/types"]],
+      violations: { count: 1, accepted: 0, rules: ["ui-without-core"] },
+    });
+    expect(spec.nodes.map((node) => node.role)).toEqual(spec.nodes.map(() => expect.stringMatching(/^[a-z-]+$/)));
+    expect(spec.edges.find((edge) => edge.rules.length > 0)).toMatchObject({ from: "packages/ui", to: "packages/core", accepted: false });
+    expect(JSON.stringify(spec)).not.toContain(rootDir.replaceAll("\\", "/"));
+
+    const folder = diagramSpec(await fixtureInput("apps/web"));
+    expectSoundSpec(folder);
+    expect(folder).toMatchObject({ level: "groups", scope: "apps/web", violations: { count: 1, rules: ["web-without-pages"] } });
+    expect(folder.nodes.every((node) => node.role === undefined)).toBe(true);
+
+    // The workspace renderer returns the same document, without layout.
+    const rendered = await renderSourceDiagram(await fixtureSource(), rootDir, { view: "units", format: "diagram-spec", theme: "light", violations: [] });
+    expect(rendered).toMatchObject({ counts: layout.text.counts.replace("1 violation", "0 violations"), width: 0, height: 0 });
+    expect(rendered.markup.endsWith("}\n")).toBe(true);
+    expect(JSON.parse(rendered.markup)).toEqual(JSON.parse(JSON.stringify(diagramSpec(architectureDiagramInput(await fixtureSource(), rootDir)))));
+  }, 60_000);
+});
+
+describe("diagram spec", () => {
+  it("lists every node past the drawing cap, sorted, and keeps the filters and accepted edges", () => {
+    const many = input(Array.from({ length: 70 }, (_, index) => [`n${String(index).padStart(2, "0")}`, index % 3, 1] as [string, number, number]));
+    const spec = diagramSpec({ ...many, nodes: many.nodes.toReversed(), filters: ["min. 2 imports"] });
+    expectSoundSpec(spec);
+    expect(spec.nodes).toHaveLength(70);
+    expect(spec.nodes[0]).toEqual({ key: "n00", label: "n00", layer: 0, fileCount: 1, internalEdgeCount: 0 });
+    expect(spec.layers.map((layer) => layer.layer)).toEqual([0, 1, 2]);
+    expect(spec.filters).toEqual(["min. 2 imports"]);
+
+    const accepted = input([["b", 1, 2], ["a", 0, 1]], [["b", "a", 3, "down"], ["a", "b", 1, "cycle"]]);
+    accepted.edges[0] = { ...accepted.edges[0], rules: ["r2", "r1"], accepted: true };
+    const withRules = diagramSpec({ ...accepted, violations: 3, acceptedViolations: 3 });
+    expectSoundSpec(withRules);
+    expect(withRules.edges.map((edge) => [edge.from, edge.to, edge.accepted])).toEqual([["a", "b", false], ["b", "a", true]]);
+    expect(withRules.violations).toEqual({ count: 3, accepted: 3, rules: ["r1", "r2"] });
+  });
+
+  it("describes an empty level, leaves out an unknown date and replaces control characters in labels", () => {
+    const empty = diagramSpec({ ...input([]), date: undefined });
+    expectSoundSpec(empty);
+    expect(empty).not.toHaveProperty("date");
+    expect(empty).not.toHaveProperty("filters");
+    expect(empty).toMatchObject({ nodes: [], edges: [], layers: [], cycles: [], caption: { counts: "0 units · 0 layers · 0 cycles · 0 violations" } });
+
+    const hostile = input([["k", 0, 1]]);
+    hostile.nodes[0].label = "a\u0007b\u202Ec";
+    hostile.workspace = "w\u0000s";
+    const spec = diagramSpec(hostile);
+    expectSoundSpec(spec);
+    expect(spec.nodes[0].label).toBe(`a${String.fromCodePoint(0xfffd)}b${String.fromCodePoint(0xfffd)}c`);
+    expect(spec.workspace).toBe(`w${String.fromCodePoint(0xfffd)}s`);
+  });
+
+  it("publishes the roles and edge kinds the analyzer produces, and refuses unknown fields", () => {
+    const { nodes, edges } = SPEC_SCHEMA.properties;
+    expect(nodes.items.properties.role.enum).toEqual([...UNIT_ROLES]);
+    expect(edges.items.properties.kind.enum).toEqual(["down", "upward", "cycle"] satisfies DiagramSpec["edges"][number]["kind"][]);
+    const spec = diagramSpec(input([["a", 0, 1]]));
+    expect(validateSpec({ ...spec, extra: true })).toBe(false);
+    expect(validateSpec({ ...spec, nodes: [{ ...spec.nodes[0], role: "backend" }] })).toBe(false);
+    expect(validateSpec({ ...spec, cycles: [["a"]] })).toBe(false);
+  });
 });
 
 describe("architecture diagram rendering", () => {

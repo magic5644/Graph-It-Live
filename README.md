@@ -265,7 +265,7 @@ graph-it path <file>                  Show a dependency path
 graph-it check [path]                 Find unused exported symbols
 graph-it architecture --groups        Show the workspace architecture by folder or community
 graph-it check-architecture           Check imports against graphit.architecture.json
-graph-it diagram                      Write a static architecture diagram (SVG or HTML)
+graph-it diagram                      Write a static architecture diagram (SVG, HTML or diagram spec)
 graph-it query "<question>"           Ask a natural-language graph question
 graph-it context "<question>"         Retrieve bounded graph context
 graph-it wiki                         Generate a navigable Markdown wiki
@@ -274,7 +274,7 @@ graph-it export [path]                Export the graph as HTML
 graph-it --help                       Show all commands and options
 ```
 
-Analysis commands support `--format json|toon|markdown`. `trace`, `path` and `architecture` also support `--format mermaid`, `architecture --matrix` supports `--format csv`, `check-architecture` and `review-pr` support `--format sarif`, and `diagram` writes `--format svg|html`. Use `--workspace <path>` or `-w` to analyze a project other than the current directory.
+Analysis commands support `--format json|toon|markdown`. `trace`, `path` and `architecture` also support `--format mermaid`, `architecture --matrix` supports `--format csv`, `check-architecture` and `review-pr` support `--format sarif`, and `diagram` writes `--format svg|html|diagram-spec` (the last for a diagram skill). Use `--workspace <path>` or `-w` to analyze a project other than the current directory.
 
 See the [complete CLI reference](docs/CLI.md), including installation troubleshooting, REPL commands, output formats, and tool details.
 

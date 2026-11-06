@@ -125,7 +125,7 @@ These options are available for every command:
 | Option | Shorthand | Default | Description |
 |--------|-----------|---------|-------------|
 | `--workspace <path>` | `-w` | auto-detected from `cwd` | Root directory of the project to analyze |
-| `--format <format>` | `-f` | `text` | Output format: `text`, `json`, `toon`, `markdown`, `mermaid`; `csv` only for `architecture --matrix`, `sarif` only for `check-architecture` and `review-pr`, `html` for `export` and `diagram`, `svg` only for `diagram` |
+| `--format <format>` | `-f` | `text` | Output format: `text`, `json`, `toon`, `markdown`, `mermaid`; `csv` only for `architecture --matrix`, `sarif` only for `check-architecture` and `review-pr`, `html` for `export` and `diagram`, `svg` and `diagram-spec` only for `diagram` |
 | `--help` | `-h` | — | Show help for the current command |
 | `--version` | `-v` | — | Print the installed version |
 | `--reindex` | — | — | Discard the cached index and rebuild it from scratch |
@@ -231,7 +231,7 @@ MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is
 | `wiki` | `markdown` *(default)*, `json`, `toon` | print `markdown` |
 | `stats` | `text`, `json` | `markdown` and `toon` print the `text` report |
 | `check-architecture` | `text`, `json`, `toon`, `markdown`, `sarif` | `csv` is rejected (exit code 4) |
-| `diagram` | `html` *(default)*, `svg` | rejected (exit code 4) |
+| `diagram` | `html` *(default)*, `svg`, `diagram-spec` | rejected (exit code 4) |
 | `export` | `html` only | rejected |
 | `serve`, `install`, `update` | — | `--format` is ignored |
 
@@ -771,13 +771,13 @@ Agents explore the same groups step by step with the MCP tool [`explore_architec
 
 #### Curated diagrams
 
-The generated diagram shows structure, not intent. For a presentation-grade diagram (like `docs/architecture/*.html`), feed the grouped JSON to a diagram skill such as `architecture-diagram` or `archify`:
+The generated diagram shows structure, not intent. For a presentation-grade or branded diagram (like `docs/architecture/*.html`), hand the [diagram spec](#diagram-spec) to a diagram skill such as `diagram-design`, `architecture-diagram` or `archify`:
 
 ```bash
-graph-it architecture --groups --format json > architecture.json
+graph-it diagram --format diagram-spec --rules --output architecture.diagram-spec.json
 ```
 
-> Using `architecture.json`, draw one box per entry of `groups` (label and `fileCount`) and one arrow per `groupEdges` entry labelled with `fileEdgeCount`. Keep the counts exactly; state `context.communityMode` and `context.scope` in the caption. Add the role notes below as annotations.
+> Using `architecture.diagram-spec.json`, draw one box per entry of `nodes` (`label`, `fileCount`, `role`), stacked by `layers` with layer 0 at the bottom, and one arrow per `edges` entry with a width from `fileEdgeCount`. Outline each entry of `cycles`, draw edges with `rules` in an error colour, and use `caption` as title and caption. Draw no node or edge the spec does not list, and keep the counts exactly. Add the role notes below as annotations.
 
 Role notes, layering rules and business names are human annotations: write them yourself and mark them as such, they are not derived from the graph. Draw runtime flows from `graph-it trace <file>#<symbol>` and label them static analysis: a call edge says the code can call, not that it ran.
 
@@ -963,19 +963,19 @@ The VS Code Architecture view and the [`check_architecture`](#check_architecture
 
 ### diagram
 
-Writes a static architecture diagram: one level of the Architecture view as a bare SVG or one self-contained HTML page. It is computed from the index, so the same revision always gives the same file. Use it in a README, a wiki, a slide or a pull request.
+Writes a static architecture diagram: one level of the Architecture view as a bare SVG or one self-contained HTML page, or that level's data as a [diagram spec](#diagram-spec) for a diagram skill. It is computed from the index, so the same revision always gives the same file. Use it in a README, a wiki, a slide or a pull request.
 
 ```bash
-graph-it diagram [--view units|folder|matrix] [--folder <key>] [--format svg|html] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
+graph-it diagram [--view units|folder|matrix] [--folder <key>] [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
 ```
 
 | Option | Default | Meaning |
 |--------|---------|---------|
 | `--view` | `units` (`folder` with `--folder`) | `units`: the units in layers (layer 0 at the bottom), cycles outlined, stroke width = file pairs. `folder`: the groups below one unit or folder. `matrix`: the dependency structure matrix of the units, or with `--folder` of that folder's groups, in the [`architecture --matrix`](#architecture) order |
 | `--folder <key>` | — | Unit or folder key, as [`architecture --folder`](#architecture) takes it; `\` is read as `/` |
-| `--format` | `html` (`svg` when `--output` ends with `.svg`) | `html`: one page that follows the reader's light or dark scheme. `svg`: a bare SVG in one theme |
+| `--format` | `html` (`svg` when `--output` ends with `.svg`) | `html`: one page that follows the reader's light or dark scheme. `svg`: a bare SVG in one theme. `diagram-spec`: the level's data as JSON (the view does not change it) |
 | `--theme` | `light` | `light` or `dark` colours, `--format svg` only |
-| `--output <file>` | `architecture.html` / `architecture.svg` | File in the workspace, relative to its root; missing folders are created. `-` writes to stdout |
+| `--output <file>` | `architecture.html` / `architecture.svg` / `architecture.diagram-spec.json` | File in the workspace, relative to its root; missing folders are created. `-` writes to stdout |
 | `--rules` | off | Draws the violations of `graphit.architecture.json` in the error colour; the legend names the broken rules |
 | `--config <file>` | `graphit.architecture.json` | Rules file, with `--rules` |
 | `--baseline [<file>]` | off | With `--rules`: draws the violations the baseline accepts as dashed lines, counted apart (`3 violations (2 accepted)`). Without a file it reads `graphit.architecture.baseline.json`, which must then exist |
@@ -988,9 +988,43 @@ At most 60 units or groups are drawn, the largest ones; a note counts the others
 
 **Output**: one line, for example `Diagram written to architecture.html: 7 units · 3 layers · 1 cycle · 0 violations.` With `--output -`, the SVG or HTML goes to stdout instead.
 
-**Exit code**: 0 when the file is written. An invalid `--view` or `--theme`, a `--folder` without files, `--view folder` without `--folder`, `--view units` with `--folder`, `--theme` with `--format html`, `--config` or `--baseline` without `--rules`, a missing rules file or a missing named baseline exit 1. An `--output`, `--config` or `--baseline` outside the workspace exits 5, and any other `--format` exits 4.
+**Exit code**: 0 when the file is written. An invalid `--view` or `--theme`, a `--folder` without files, `--view folder` without `--folder`, `--view units` with `--folder`, `--theme` with `--format html` or `diagram-spec`, `--config` or `--baseline` without `--rules`, a missing rules file or a missing named baseline exit 1. An `--output`, `--config` or `--baseline` outside the workspace exits 5, and any other `--format` exits 4.
 
-**MCP and VS Code**: the `graphitlive_export_architecture_diagram` MCP tool and the `graph-it-live_export_architecture_diagram` Language Model tool (`#graphArchitectureDiagram`) draw the same diagram from `view`, `folder`, `diagramFormat` (default `svg`), `theme`, `rules`, `config` and `baseline`. They return the markup inline up to 60,000 characters; with `output`, or for a larger diagram, they write it to that workspace file (default `architecture.<diagramFormat>`) and return its workspace-relative path. With `rules` and no `baseline`, they read `graphit.architecture.baseline.json` when it exists, as `check_architecture` does. An `output` outside the workspace is refused before any work.
+**MCP and VS Code**: the `graphitlive_export_architecture_diagram` MCP tool and the `graph-it-live_export_architecture_diagram` Language Model tool (`#graphArchitectureDiagram`) draw the same diagram from `view`, `folder`, `diagramFormat` (default `svg`), `theme`, `rules`, `config` and `baseline`. They return the markup inline up to 60,000 characters; with `output`, or for a larger diagram, they write it to that workspace file (default `architecture.<diagramFormat>`) and return its workspace-relative path. With `rules` and no `baseline`, they read `graphit.architecture.baseline.json` when it exists, as `check_architecture` does. An `output` outside the workspace is refused before any work. `diagramFormat: "diagram-spec"` returns the spec below as `markup` (default file `architecture.diagram-spec.json`).
+
+#### Diagram spec
+
+`--format diagram-spec` writes the exact data of the level as JSON, valid against [`schemas/diagram-spec.schema.json`](../schemas/diagram-spec.schema.json), so that a drawing skill (for example `diagram-design`) draws a hand-crafted or branded diagram without guessing the architecture. It lists every node, with no 60-node cap, sorted by key; the same revision gives the same document.
+
+| Field | Content |
+|-------|---------|
+| `version` | `1`; bumped only when a field changes meaning or goes away |
+| `workspace`, `level`, `scope`, `revision`, `date`, `filters` | Workspace folder name, `units` or `groups`, `units` or the folder key, index revision, its day, view filters |
+| `caption` | `title`, `caption` and `counts`: the header lines of the generated diagram |
+| `counts` | `nodes`, `layers`, `cycles`, `edges`, `violations` |
+| `layers` | Ascending; layer 0 depends on no other node and sits at the bottom |
+| `nodes` | `key`, `label`, `layer`, `fileCount`, `internalEdgeCount`, and `role` at the units level |
+| `edges` | `from`, `to`, `fileEdgeCount` (the weight), `kind` (`down`, `upward`, `cycle`), `rules` broken, `accepted` by the baseline |
+| `cycles` | The nodes of each dependency cycle |
+| `violations` | With `--rules`: the rule-breaking file pairs between two nodes, those accepted, the broken rules' names |
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/magic5644/Graph-It-Live/main/schemas/diagram-spec.schema.json",
+  "version": 1,
+  "workspace": "workspaces-project",
+  "level": "units",
+  "scope": "units",
+  "caption": { "title": "Architecture · workspaces-project", "caption": "units · revision bfe727ad97ac · 2026-11-06", "counts": "7 units · 3 layers · 1 cycle · 0 violations" },
+  "layers": [{ "layer": 0, "nodes": ["packages/core", "packages/types"] }, "..."],
+  "nodes": [{ "key": "apps/web", "label": "@ws/web", "layer": 2, "fileCount": 2, "internalEdgeCount": 1, "role": "unknown" }, "..."],
+  "edges": [{ "from": "apps/web", "to": "packages/core", "fileEdgeCount": 1, "kind": "down", "rules": [], "accepted": false }, "..."],
+  "cycles": [["packages/core", "packages/types"]],
+  "violations": { "count": 0, "accepted": 0, "rules": [] }
+}
+```
+
+*Excerpt of `graph-it diagram --format diagram-spec` on `tests/fixtures/workspaces-project`.*
 
 ### check
 

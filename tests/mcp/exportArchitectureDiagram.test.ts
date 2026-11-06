@@ -36,6 +36,7 @@ describe("export_architecture_diagram schema", () => {
   it.each([
     [{}],
     [{ view: "units", diagramFormat: "html" }],
+    [{ folder: "mfe/cart", diagramFormat: "diagram-spec" }],
     [{ folder: "mfe/cart" }],
     [{ view: "matrix" }],
     [{ view: "matrix", folder: "mfe/cart", theme: "dark" }],
@@ -48,6 +49,7 @@ describe("export_architecture_diagram schema", () => {
     [{ view: "folder" }, "view folder draws the groups of one unit or folder"],
     [{ view: "units", folder: "apps" }, "view units draws every unit"],
     [{ diagramFormat: "html", theme: "dark" }, "theme sets the colours of diagramFormat svg"],
+    [{ diagramFormat: "diagram-spec", theme: "light" }, "theme sets the colours of diagramFormat svg"],
     [{ format: "svg" }, "format"],
     [{ config: "rules.json" }, "config and baseline apply to the rules overlay"],
     [{ rules: false, baseline: "b.json" }, "config and baseline apply to the rules overlay"],
@@ -131,6 +133,15 @@ describe("export_architecture_diagram", { timeout: 60_000 }, () => {
       format: "html", counts: "big", path: "architecture.html", characters: INLINE_DIAGRAM_MAX_CHARS + 1,
     });
     expect(fs.readFileSync(path.join(root, "architecture.html"), "utf8")).toBe(oversized.markup);
+    expect(await executeExportArchitectureDiagram({ diagramFormat: "diagram-spec" })).toMatchObject({ path: "architecture.diagram-spec.json" });
+  });
+
+  it("returns the diagram spec inline, the same document graph-it diagram writes", async () => {
+    const result = await executeExportArchitectureDiagram({ diagramFormat: "diagram-spec", rules: true });
+    expect(result).toMatchObject({ format: "diagram-spec", counts: expect.stringMatching(/ units · /) });
+    expect(JSON.parse(result.markup!)).toMatchObject({ version: 1, level: "units", date: "2026-11-06" });
+    // The CLI dates it by the last scan: the same day here.
+    expect(result.markup).toBe(await runDiagram(["--rules", "--output", "-"], runtime, "diagram-spec"));
   });
 
   it.each([

@@ -9,7 +9,7 @@
  */
 
 import ELK, { type ElkExtendedEdge, type ElkNode } from "elkjs/lib/elk.bundled.js";
-import type { ArchitectureUnitEdgeKind } from "../../shared/architecture-model";
+import type { ArchitectureUnitEdgeKind, UnitRole } from "../../shared/architecture-model";
 import { ELK_LAYERED_OPTIONS, layerPartition } from "../../shared/elkLayered";
 import { normalizePath } from "../../shared/path";
 import { rulesByEdge, type ArchitectureViolation } from "../architecture/architectureRules";
@@ -29,6 +29,8 @@ export interface DiagramNode {
   fileCount: number;
   /** File pairs inside the node: the matrix diagonal. */
   internalEdgeCount?: number;
+  /** Units level only: the unit's role, declared or inferred. */
+  role?: UnitRole;
 }
 
 export interface DiagramEdge {
@@ -183,7 +185,7 @@ function levelInput(source: UnitSource, workspaceRoot: string, { folder, violati
     return {
       workspace, scope: "units", noun: "units", revision: context.revision, date, violations: count, acceptedViolations: accepted,
       ...(role === undefined ? {} : { filters: [`role ${role}`] }),
-      nodes: units.map(({ key, name, layer, fileCount, internalEdgeCount }) => ({ key, label: name, layer, fileCount, internalEdgeCount })),
+      nodes: units.map(({ key, name, layer, fileCount, internalEdgeCount, role: unitRole }) => ({ key, label: name, layer, fileCount, internalEdgeCount, role: unitRole })),
       edges: unitEdges
         .filter(({ from, to }) => kept.has(from) && kept.has(to))
         .map(({ from, to, fileEdgeCount, kind }) => ({ from, to, fileEdgeCount, kind, ...edge(from, to) })),
@@ -236,7 +238,7 @@ export const strokeWidth = (fileEdgeCount: number) =>
   Math.min(SIZES.maxStroke, SIZES.hairline + Math.floor(Math.log2(Math.max(1, fileEdgeCount))) / 2);
 
 /** Cycles among `nodes`: strongly connected components of two nodes or more over the cycle edges, sorted. */
-function cyclesOf(nodes: readonly string[], edges: readonly DiagramEdge[]): string[][] {
+export function cyclesOf(nodes: readonly string[], edges: readonly DiagramEdge[]): string[][] {
   const successors = new Map<string, string[]>();
   for (const { from, to } of edges.filter((edge) => edge.kind === "cycle")) successors.set(from, [...(successors.get(from) ?? []), to]);
   return stronglyConnectedComponents(nodes, successors)
@@ -289,7 +291,7 @@ export function legendLayout({ accepted = false, weight = true }: LegendOptions 
 const plural = (count: number, noun: string) => `${count} ${count === 1 ? noun.replace(/s$/, "") : noun}`;
 
 /** Distinct rule names of the level's edges, sorted. */
-const brokenRules = (edges: readonly DiagramEdge[]) => [...new Set(edges.flatMap((edge) => edge.rules))].sort(byCodeUnit);
+export const brokenRules = (edges: readonly DiagramEdge[]) => [...new Set(edges.flatMap((edge) => edge.rules))].sort(byCodeUnit);
 
 /**
  * The counts of the whole level, the header lines, the note naming what the cap leaves out and

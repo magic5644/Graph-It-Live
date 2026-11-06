@@ -138,10 +138,15 @@ graph-it architecture --format mermaid            # flat file graph
 graph-it architecture --groups --format mermaid   # one subgraph (or node) per folder group, edges labelled with file-pair counts
 ```
 
-For a curated diagram, run `graph-it architecture --groups --format json` and hand `groups`,
-`groupEdges` and `context` to a diagram skill (`architecture-diagram`, `archify`) with the exact
-counts. Role notes and rules are human annotations; runtime flows come from `graph-it trace` and
-are static analysis, not observed execution.
+When the user asks for a polished, hand-crafted or branded architecture diagram, run
+`graph-it diagram --format diagram-spec --output -` (CLI 1.23.0 or later; add `--rules` for the
+violations, `--folder <key>` for one folder) and pass the JSON to the available diagram skill
+(`diagram-design`, `architecture-diagram`, `archify`). The spec lists every node (label, layer,
+file count, role), the layers, the weighted edges, the cycles, the broken rules and the caption
+lines (`schemas/diagram-spec.schema.json`). Draw only the nodes and edges it lists, never invent
+one, and keep its counts. Older CLIs: use `graph-it architecture --groups --format json` and its
+`groups`, `groupEdges` and `context`. Role notes and rules are human annotations; runtime flows come
+from `graph-it trace` and are static analysis, not observed execution.
 
 To explore the same groups step by step instead of reading the whole graph, call
 `graph-it tool explore_architecture` (summary), then `--group=<key>` (files and boundary), then

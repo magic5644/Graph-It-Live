@@ -33,6 +33,7 @@ describe("CLI_OUTPUT_FORMATS", () => {
   it("leaves svg to graph-it diagram", () => {
     expect(CLI_OUTPUT_FORMATS).toContain("svg");
     expect(() => formatOutput(objectData, "svg", "summary")).toThrow('Format "svg" is only produced by graph-it diagram.');
+    expect(() => formatOutput(objectData, "diagram-spec", "architecture")).toThrow('Format "diagram-spec" is only produced by graph-it diagram');
   });
 });
 

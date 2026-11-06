@@ -13,7 +13,7 @@ import { groupMatrix, unitMatrix } from "../../analyzer/architecture/architectur
 import { checkWorkspaceArchitecture, loadDeclaredRoles } from "../../analyzer/architecture/architectureRules";
 import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation";
-import { diagramLevel } from "../../analyzer/diagram/diagramStyle";
+import { defaultDiagramFile, diagramLevel } from "../../analyzer/diagram/diagramStyle";
 import { renderWorkspaceDiagram } from "../../analyzer/diagram/workspaceDiagram";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
@@ -93,7 +93,7 @@ export async function exportArchitectureDiagram(
   if (target === undefined && markup.length <= INLINE_DIAGRAM_MAX_CHARS) return { format, counts, markup };
 
   // Validated too: a symbolic link at the default name must not lead outside the workspace.
-  const file = target ?? validateWorkspacePath(`architecture.${format}`, rootDir);
+  const file = target ?? validateWorkspacePath(defaultDiagramFile(format), rootDir);
   await fs.promises.mkdir(nodePath.dirname(file), { recursive: true });
   await fs.promises.writeFile(file, markup);
   return { format, counts, path: getRelativePath(file, rootDir), characters: markup.length };
