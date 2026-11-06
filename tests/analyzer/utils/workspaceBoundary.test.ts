@@ -86,7 +86,7 @@ describe("workspaceBoundary", () => {
 
   describe("hasProjectMarker", () => {
     it.each(Object.entries(PROJECT_MARKERS).flatMap(([language, markers]) =>
-      markers.map((marker) => [language, marker.replace("*", "Project")]),
+      markers.map((marker) => [language, marker.replaceAll("*", "Project")]),
     ))("recognizes a %s project by %s", (_language, file) => {
       write(`project/${file}`, "");
       expect(hasProjectMarker(path.join(tmp, "project"))).toBe(true);
