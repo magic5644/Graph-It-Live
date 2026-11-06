@@ -186,8 +186,13 @@ graph-it scan
 Re-run after significant file changes to refresh the index.
 
 **Workspace root.** Imports resolving outside the workspace root are skipped. Without `--workspace`,
-the CLI uses the nearest directory holding `package.json` or `tsconfig.json`; `graph-it -w <dir>` is
-used exactly as given, and `.graph-it/` (index + cache) is created there. For impact, dependents and
+the CLI uses the nearest directory, from the current one upward, holding a project marker of a
+supported language (`package.json`, `tsconfig.json`, `jsconfig.json`, `deno.json(c)`,
+`pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt`, `Pipfile`, `Cargo.toml`, `go.mod`,
+`go.work`, `pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`, `*.csproj`, `*.sln`, `*.slnx`,
+`Directory.Build.props`). Outside any project (a home directory, `/`) it exits with code `3` before
+reading a file. `graph-it -w <dir>` forces the root: it is used exactly as given, marker or not, and
+`.graph-it/` (index + cache) is created there. For impact, dependents and
 cross-package questions in a monorepo, pass the monorepo root with `graph-it -w <monorepoRoot> ...`
 instead of `cd` into a package. If `scan` warns that imports resolve outside the workspace root,
 answers cover that root only (`get_index_status` reports `outOfRootImports` and `monorepoRoot`):

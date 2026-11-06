@@ -49,9 +49,13 @@ result. If the version cannot be read, treat it as older.
 ## Choose the Workspace Root
 
 Graph-It-Live analyzes one workspace root and skips every import that resolves outside it. Without
-`--workspace`, the CLI uses the nearest directory holding `package.json` or `tsconfig.json`; an
-explicit `graph-it -w <dir>` is used exactly as given. The index and cache (`.graph-it/`) are
-created in the chosen root.
+`--workspace`, the CLI uses the nearest directory, from the current one upward, holding a project
+marker of a supported language (`package.json`, `tsconfig.json`, `jsconfig.json`, `deno.json(c)`,
+`pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt`, `Pipfile`, `Cargo.toml`, `go.mod`,
+`go.work`, `pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`, `*.csproj`, `*.sln`, `*.slnx`,
+`Directory.Build.props`). Outside any project (a home directory, `/`) it exits with code `3`. An
+explicit `graph-it -w <dir>` forces the root: it is used exactly as given, marker or not. The index
+and cache (`.graph-it/`) are created in the chosen root.
 
 - **Monorepo tour, entry points, dependents, impact, cross-package questions**: use the monorepo
   root through `graph-it -w <monorepoRoot> <command>` rather than `cd` into a package.

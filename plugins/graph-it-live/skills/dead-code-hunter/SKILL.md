@@ -66,8 +66,12 @@ The reverse lookup index (who imports what, who calls what) is always built auto
 
 **Monorepos.** Scanning one package is fine for finding candidates (smaller and faster), but there
 "unused" means unused *inside that package*: a sibling package may still import the export. Without
-`--workspace`, the CLI uses the nearest directory holding `package.json` or `tsconfig.json`;
-`graph-it -w <dir>` is used exactly as given, and `.graph-it/` (index + cache) is created there. If
+`--workspace`, the CLI uses the nearest directory, from the current one upward, holding a project
+marker of a supported language (`package.json`, `tsconfig.json`, `jsconfig.json`, `deno.json(c)`,
+`pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt`, `Pipfile`, `Cargo.toml`, `go.mod`,
+`go.work`, `pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`, `*.csproj`, `*.sln`, `*.slnx`,
+`Directory.Build.props`); outside any project it exits with code `3`. `graph-it -w <dir>` forces the
+root: it is used exactly as given, and `.graph-it/` (index + cache) is created there. If
 `scan` prints `Warning: N imports resolve outside the workspace root`, imports to or from sibling
 packages are not in the index. Before recommending a deletion, confirm there is no consumer from the
 monorepo root (`graph-it -w <monorepoRoot> tool find_referencing_files --targetPath=<path>`), or
