@@ -1,0 +1,71 @@
+/**
+ * The one editorial style of the static architecture diagrams: system fonts (no network), a
+ * neutral palette with one accent for what the reader must see first (cycles, upward edges) and
+ * an error colour for rule violations, every length on a 4 px grid, 1 px hairlines, no shadow.
+ *
+ * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
+ */
+
+export const GRID = 4;
+
+/** Rounds a length up to the grid. */
+export const snap = (length: number) => Math.ceil(length / GRID) * GRID;
+
+/** Every text is set in a system monospace face: its width is known without font metrics, so it always fits its box. */
+export const FONT_MONO = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
+
+export const SIZES = {
+  label: 12,
+  meta: 11,
+  title: 16,
+  caption: 12,
+  /** Upper bound of a monospace advance, in em (Menlo/DejaVu 0.602, Consolas 0.55, Courier 0.6). */
+  monoAdvance: 0.62,
+  nodeHeight: 44,
+  nodePaddingX: 12,
+  minNodeWidth: 96,
+  /** Longer labels end with "…": a box never grows past this. */
+  maxLabelChars: 32,
+  margin: 24,
+  headerHeight: 80,
+  legendHeight: 40,
+  hairline: 1,
+  maxStroke: 4,
+  radius: 4,
+} as const;
+
+/** ELK padding of a cycle block, on the grid; its top leaves room for the block's title. */
+export const CYCLE_PADDING = "[top=28,left=12,bottom=12,right=12]";
+
+export type DiagramTheme = "light" | "dark";
+
+export interface Palette {
+  background: string;
+  surface: string;
+  text: string;
+  muted: string;
+  line: string;
+  accent: string;
+  error: string;
+}
+
+export const PALETTES: Record<DiagramTheme, Palette> = {
+  light: {
+    background: "#ffffff",
+    surface: "#f6f7f9",
+    text: "#1f2328",
+    muted: "#656d76",
+    line: "#8c959f",
+    accent: "#d4560b",
+    error: "#cf222e",
+  },
+  dark: {
+    background: "#0d1117",
+    surface: "#161b22",
+    text: "#e6edf3",
+    muted: "#8d96a0",
+    line: "#6e7681",
+    accent: "#f0883e",
+    error: "#ff7b72",
+  },
+};

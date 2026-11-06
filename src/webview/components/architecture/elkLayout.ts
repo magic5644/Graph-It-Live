@@ -1,27 +1,7 @@
 import type { Core, EdgeCollection, EdgeSingular, NodeSingular, Position } from "cytoscape";
 import type { ElkExtendedEdge, ElkNode, ElkPoint } from "elkjs/lib/elk-api";
+import { ELK_LAYERED_OPTIONS, layerPartition } from "../../../shared/elkLayered";
 import { normalizePath } from "../../utils/path";
-
-/**
- * ELK layered, top to bottom: the analyzer's layers are partitions (highest layer on top, layer 0
- * at the bottom), longest-path layering keeps a partition's sinks on its bottom row (a cycle spreads
- * its members over several rows), compounds are laid out with their children in one run, and edges
- * are routed orthogonally around the boxes. Coordinates are absolute (ROOT).
- */
-export const ELK_LAYERED_OPTIONS = {
-  "elk.algorithm": "layered",
-  "elk.direction": "DOWN",
-  "elk.partitioning.activate": "true",
-  "elk.layered.layering.strategy": "LONGEST_PATH",
-  "elk.hierarchyHandling": "INCLUDE_CHILDREN",
-  "elk.edgeRouting": "ORTHOGONAL",
-  "elk.spacing.nodeNode": "40",
-  "elk.layered.spacing.nodeNodeBetweenLayers": "80",
-  // The compound padding of buildArchitectureStylesheet, so ELK and Cytoscape draw the same boxes.
-  "elk.padding": "[top=12,left=12,bottom=12,right=12]",
-  "elk.json.shapeCoords": "ROOT",
-  "elk.json.edgeCoords": "ROOT",
-};
 
 /** An edge's ELK route, with the centres of its ends it was computed for. */
 export interface EdgeRoute {
@@ -34,9 +14,8 @@ const keyOf = (node: NodeSingular): string => normalizePath(String(node.data("ke
 /** Stable across builds (group keys and file paths), unlike edge ids. */
 export const routeKey = (edge: EdgeSingular): string => `${keyOf(edge.source())}>${keyOf(edge.target())}`;
 
-function elkNode(node: NodeSingular, partitionOf: (node: NodeSingular) => string | undefined): ElkNode {
-  const partition = partitionOf(node);
-  const layoutOptions = partition === undefined ? undefined : { "elk.partitioning.partition": partition };
+function elkNode(node: NodeSingular, partitionOf: (node: NodeSingular) => ElkNode["layoutOptions"]): ElkNode {
+  const layoutOptions = partitionOf(node);
   if (node.isParent()) {
     return { id: node.id(), layoutOptions, children: node.children().nodes().map((child) => elkNode(child, partitionOf)) };
   }
@@ -47,7 +26,7 @@ function elkNode(node: NodeSingular, partitionOf: (node: NodeSingular) => string
 export function toElkGraph(cy: Core): ElkNode {
   const layers = cy.nodes().map((node) => node.data("layer")).filter((layer): layer is number => typeof layer === "number");
   const top = Math.max(0, ...layers);
-  const partitionOf = (node: NodeSingular) => (typeof node.data("layer") === "number" ? String(top - node.data("layer")) : undefined);
+  const partitionOf = (node: NodeSingular) => (typeof node.data("layer") === "number" ? layerPartition(top, node.data("layer")) : undefined);
   const edges: ElkExtendedEdge[] = cy.edges().map((edge) => ({ id: edge.id(), sources: [edge.source().id()], targets: [edge.target().id()] }));
   return {
     id: "root",
