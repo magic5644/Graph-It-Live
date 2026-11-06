@@ -378,7 +378,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       `WHEN: "draw the architecture", "give me a diagram for the README / the PR / the design doc", or to share as a picture the structure that graph-it architecture reports as data.`,
       "WHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.",
-      "RETURNS: format, counts (nodes, layers, cycles, violations of the level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>) with its size in characters.",
+      "RETURNS: format, counts (one line, e.g. '7 units · 3 layers · 1 cycle · 0 violations', covering the whole level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>) with its size in characters.",
       "LIMITS: import relations only (static analysis); at most 60 nodes, the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.",
     ],
   },

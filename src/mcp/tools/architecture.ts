@@ -13,6 +13,7 @@ import { groupMatrix, unitMatrix } from "../../analyzer/architecture/architectur
 import { checkWorkspaceArchitecture, loadDeclaredRoles } from "../../analyzer/architecture/architectureRules";
 import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation";
+import { diagramLevel } from "../../analyzer/diagram/diagramStyle";
 import { renderWorkspaceDiagram } from "../../analyzer/diagram/workspaceDiagram";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
@@ -78,20 +79,21 @@ export async function exportArchitectureDiagram(
 ) {
   const format = params.diagramFormat ?? "svg";
   // Refused before any work (CWE-22): the output stays in the workspace, as the rules files do.
-  const target = params.output === undefined ? undefined : validateWorkspacePath(nodePath.resolve(rootDir, params.output), rootDir);
-  // Keys use "/" on every OS: an agent may pass app\core.
-  const folder = params.folder?.replaceAll("\\", "/");
+  // The raw value, so a refusal names the given path and not the workspace's absolute location.
+  const target = params.output === undefined ? undefined : validateWorkspacePath(params.output, rootDir);
   const { markup, counts } = await renderWorkspaceDiagram(rootDir, analyze, {
-    view: params.view ?? (folder === undefined ? "units" : "folder"),
-    folder,
+    ...diagramLevel(params.view, params.folder),
     format,
     theme: params.theme ?? "light",
     rules: params.rules ? { config: params.config, baseline: params.baseline } : undefined,
+    // The analyses are current at the call (the watchers keep them so): date the diagram today.
+    indexedAt: new Date().toISOString(),
     signal,
   });
   if (target === undefined && markup.length <= INLINE_DIAGRAM_MAX_CHARS) return { format, counts, markup };
 
-  const file = target ?? nodePath.join(rootDir, `architecture.${format}`);
+  // Validated too: a symbolic link at the default name must not lead outside the workspace.
+  const file = target ?? validateWorkspacePath(`architecture.${format}`, rootDir);
   await fs.promises.mkdir(nodePath.dirname(file), { recursive: true });
   await fs.promises.writeFile(file, markup);
   return { format, counts, path: getRelativePath(file, rootDir), characters: markup.length };

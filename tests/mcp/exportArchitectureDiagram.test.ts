@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { Parser } from "@/analyzer/Parser";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
 import { PathResolver } from "@/analyzer/utils/PathResolver";
+import { diagramLevel } from "@/analyzer/diagram/diagramStyle";
 import { run as runDiagram } from "@/cli/commands/diagram";
 import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
@@ -24,6 +25,15 @@ vi.mock("@/analyzer/diagram/workspaceDiagram", async (importOriginal) => {
 
 /** A drawn edge of that stroke: the legend samples carry no arrow. */
 const edgeOf = (stroke: string) => new RegExp(`class="edge ${stroke}"[^>]*marker-end`);
+
+describe("diagramLevel", () => {
+  it("reads a folder alone as its groups, keeps an explicit view, and turns \\ into /", () => {
+    expect(diagramLevel(undefined, undefined)).toEqual({ view: "units", folder: undefined });
+    expect(diagramLevel(undefined, String.raw`apps\web`)).toEqual({ view: "folder", folder: "apps/web" });
+    expect(diagramLevel("matrix", "apps/web")).toEqual({ view: "matrix", folder: "apps/web" });
+    expect(diagramLevel("matrix", undefined)).toEqual({ view: "matrix", folder: undefined });
+  });
+});
 
 describe("export_architecture_diagram schema", () => {
   it.each([
@@ -68,7 +78,11 @@ describe("export_architecture_diagram", { timeout: 60_000 }, () => {
     workerState.spider = new SpiderBuilder().withRootDir(root).withExcludeNodeModules(true).build();
     workerState.config = { rootDir: root, excludeNodeModules: true, maxDepth: 50 };
     workerState.isReady = true;
-    runtime = { workspaceRoot: root, ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null } as unknown as CliRuntime;
+    // The CLI dates the diagram by the last scan, the MCP tool by the call: the same day here.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-06T10:00:00Z"));
+    const loadState = () => ({ lastScanTimestamp: "2026-11-06T08:00:00Z" });
+    runtime = { workspaceRoot: root, ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState } as unknown as CliRuntime;
   });
 
   afterEach(() => {
@@ -76,12 +90,14 @@ describe("export_architecture_diagram", { timeout: 60_000 }, () => {
   });
 
   afterAll(() => {
+    vi.useRealTimers();
     workerState.reset();
     fs.rmSync(root, { recursive: true, force: true });
   });
 
-  it("returns the units as an inline SVG, the same markup graph-it diagram writes", async () => {
+  it("returns the units as an inline SVG, the same markup graph-it diagram writes, dated the day of the call", async () => {
     const result = await executeExportArchitectureDiagram({});
+    expect(result.markup).toContain("2026-11-06");
     expect(result).toMatchObject({ format: "svg", counts: expect.stringMatching(/^\d+ units · \d+ layers · 1 cycle · 0 violations$/) });
     expect(result).not.toHaveProperty("path");
     expect(result.markup).toMatch(/^<svg /);
@@ -107,6 +123,10 @@ describe("export_architecture_diagram", { timeout: 60_000 }, () => {
     const written = fs.readFileSync(path.join(root, "docs", "diagrams", "units.svg"), "utf8");
     expect(written).toMatch(/^<svg /);
     expect(written).toHaveLength((result as { characters: number }).characters);
+    // An existing file is replaced.
+    fs.writeFileSync(path.join(root, "docs", "diagrams", "units.svg"), "old");
+    await executeExportArchitectureDiagram({ output: "docs/diagrams/units.svg" });
+    expect(fs.readFileSync(path.join(root, "docs", "diagrams", "units.svg"), "utf8")).toBe(written);
   });
 
   it("writes a diagram over the inline cap to architecture.<format>, and keeps one at the cap inline", async () => {
@@ -129,6 +149,23 @@ describe("export_architecture_diagram", { timeout: 60_000 }, () => {
     oversized.markup = "never drawn";
     await expect(executeExportArchitectureDiagram({ output: outside() })).rejects.toThrow("outside workspace");
     expect(fs.existsSync(path.join(path.dirname(root), "outside.svg"))).toBe(false);
+  });
+
+  it.each([
+    ["output", { output: "linked.svg" }, "linked.svg"],
+    ["the default file of a diagram over the cap", {}, "architecture.svg"],
+  ] as const)("refuses %s when it is a symbolic link leading outside the workspace", async (_kind, params, name) => {
+    const outside = path.join(path.dirname(root), `${path.basename(root)}-outside.svg`);
+    fs.writeFileSync(outside, "kept");
+    fs.symlinkSync(outside, path.join(root, name), "file");
+    try {
+      oversized.markup = "x".repeat(INLINE_DIAGRAM_MAX_CHARS + 1);
+      await expect(executeExportArchitectureDiagram(params)).rejects.toThrow("escapes workspace through a symbolic link");
+      expect(fs.readFileSync(outside, "utf8")).toBe("kept");
+    } finally {
+      fs.rmSync(path.join(root, name), { force: true });
+      fs.rmSync(outside, { force: true });
+    }
   });
 
   it("refuses rules files outside the workspace and an unknown folder", async () => {
