@@ -50,8 +50,10 @@ run `graph-it scan` first.
 
 Review from the repository (monorepo) root so consumers in every package are counted: pass it
 explicitly with `graph-it -w <repoRoot> review-pr ...` rather than relying on `cd`. An explicit
-`-w` is used exactly as given; without it the CLI uses the nearest directory holding `package.json`
-or `tsconfig.json`, which inside a sub-package leaves sibling packages out. The index and cache
+`-w` is used exactly as given; without it the CLI uses the nearest directory holding a project
+marker (`package.json`, `tsconfig.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`,
+`*.csproj` and the others listed in `docs/CLI.md`), which inside a sub-package leaves sibling
+packages out, and exits with code `3` outside any project. The index and cache
 (`.graph-it/`) are created in that root. If stderr warns that imports resolve outside the workspace
 root, impact on the packages outside it is not covered: rerun with the `--workspace` it names or
 state the limitation in the review.
