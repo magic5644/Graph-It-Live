@@ -286,6 +286,7 @@ The palette lists canonical commands only, grouped by intent. Aliases still work
 | Workspace | `/scan` | Force a workspace indexing scan |
 | Output | `/format` | Set preferred output format for the session |
 | Output | `/export` | Export dependency graph as standalone HTML (vis.js). Optional `--output <path>` / `-o <path>`. Scope: active file context → workspace scope (set via `/scope`) → full workspace |
+| Output | `/diagram` | Write a static architecture diagram, as [`diagram`](#diagram) with the same flags. `[dir]` resolves against the `/scope` directory (Tab completes it); without it or `--folder`, a narrowed `/scope` is drawn, else the units. Runs in its own `--format` (`html`, `svg` or `diagram-spec`), not the session one; `--output -` is refused |
 | Output | `/wiki` | Generate a navigable markdown wiki from the call graph |
 | Session | `/help` | Show REPL command help |
 | Session | `/mouse on\|off` | Turn mouse tracking on or off (off by default, see [Results navigation](#results-navigation)) |
@@ -966,12 +967,13 @@ The VS Code Architecture view and the [`check_architecture`](#check_architecture
 Writes a static architecture diagram: one level of the Architecture view as a bare SVG or one self-contained HTML page, or that level's data as a [diagram spec](#diagram-spec) for a diagram skill. It is computed from the index, so the same revision always gives the same file. Use it in a README, a wiki, a slide or a pull request.
 
 ```bash
-graph-it diagram [--view units|folder|matrix] [--folder <key>] [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
+graph-it diagram [<dir>] [--view units|folder|matrix] [--folder <key>] [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
 ```
 
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `--view` | `units` (`folder` with `--folder`) | `units`: the units in layers (layer 0 at the bottom), cycles outlined, stroke width = file pairs. `folder`: the groups below one unit or folder. `matrix`: the dependency structure matrix of the units, or with `--folder` of that folder's groups, in the [`architecture --matrix`](#architecture) order |
+| `<dir>` | — | Workspace directory, relative to its root (`\` is read as `/`), drawn as `--folder` draws its key: a unit root draws the unit's groups, a folder its own (`src/cli` in the root unit is `(root)/cli`; an umbrella folder such as `src` is its unit). `.` draws the units. Comes first; not with `--folder` |
+| `--view` | `units` (`folder` with `--folder` or `<dir>`) | `units`: the units in layers (layer 0 at the bottom), cycles outlined, stroke width = file pairs. `folder`: the groups below one unit or folder. `matrix`: the dependency structure matrix of the units, or with `--folder` of that folder's groups, in the [`architecture --matrix`](#architecture) order |
 | `--folder <key>` | — | Unit or folder key, as [`architecture --folder`](#architecture) takes it; `\` is read as `/` |
 | `--format` | `html` (`svg` when `--output` ends with `.svg`) | `html`: one page that follows the reader's light or dark scheme. `svg`: a bare SVG in one theme. `diagram-spec`: the level's data as JSON (the view does not change it) |
 | `--theme` | `light` | `light` or `dark` colours, `--format svg` only |
@@ -988,7 +990,7 @@ At most 60 units or groups are drawn, the largest ones; a note counts the others
 
 **Output**: one line, for example `Diagram written to architecture.html: 7 units · 3 layers · 1 cycle · 0 violations.` With `--output -`, the SVG or HTML goes to stdout instead.
 
-**Exit code**: 0 when the file is written. An invalid `--view` or `--theme`, a `--folder` without files, `--view folder` without `--folder`, `--view units` with `--folder`, `--theme` with `--format html` or `diagram-spec`, `--config` or `--baseline` without `--rules`, a missing rules file or a missing named baseline exit 1. An `--output`, `--config` or `--baseline` outside the workspace exits 5, and any other `--format` exits 4.
+**Exit code**: 0 when the file is written. An invalid `--view` or `--theme`, a `--folder` without files, a `<dir>` that is missing, holds no indexed file or spans several units, `--view folder` without `--folder` or `<dir>`, `--view units` with `--folder` or `<dir>`, `<dir>` with `--folder`, `--theme` with `--format html` or `diagram-spec`, `--config` or `--baseline` without `--rules`, a missing rules file or a missing named baseline exit 1. A `<dir>`, `--output`, `--config` or `--baseline` outside the workspace exits 5, and any other `--format` exits 4.
 
 **MCP and VS Code**: the `graphitlive_export_architecture_diagram` MCP tool and the `graph-it-live_export_architecture_diagram` Language Model tool (`#graphArchitectureDiagram`) draw the same diagram from `view`, `folder`, `diagramFormat` (default `svg`), `theme`, `rules`, `config` and `baseline`. They return the markup inline up to 60,000 characters; with `output`, or for a larger diagram, they write it to that workspace file (default `architecture.<diagramFormat>`) and return its workspace-relative path. With `rules` and no `baseline`, they read `graphit.architecture.baseline.json` when it exists, as `check_architecture` does. An `output` outside the workspace is refused before any work. `diagramFormat: "diagram-spec"` returns the spec below as `markup` (default file `architecture.diagram-spec.json`).
 

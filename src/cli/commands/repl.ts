@@ -13,7 +13,8 @@ import { promises as fs } from 'node:fs';
 import { SourceFileCollector } from '../../analyzer/SourceFileCollector.js';
 import { CLI_OUTPUT_FORMATS, formatOutput } from '../formatter.js';
 import type { CliOutputFormat } from '../formatter.js';
-import { CliError } from '../errors.js';
+import { CliError, ExitCode } from '../errors.js';
+import { readStringOption } from '../options.js';
 import type { CliRuntime } from '../runtime.js';
 import { normalizePathForComparison } from '../../shared/path.js';
 import { loggerFactory, type LogLevel } from '../../shared/logger.js';
@@ -114,6 +115,7 @@ function buildReplHelpText(state: ReturnType<typeof createSessionState>): string
     '  /architecture --format mermaid',
     '  /check-architecture --baseline graphit.architecture.baseline.json',
     '  /export --output my-graph.html',
+    '  /diagram src/cli --format svg --output docs/cli.svg',
     '',
     `${DIM}session:${RESET} format=${state.preferredFormat}  last-file=${lastFile}`,
   ].join('\n');
@@ -321,6 +323,10 @@ async function runTypedCommandLine(
     };
   }
 
+  if (normalizedCommand === 'diagram') {
+    return runDiagramCommand(rawArgs, state, runtime);
+  }
+
   const { effectiveFormat, cleanedArgs, invalidFormatValue } = extractFormatOverride(rawArgs, preferredFormat);
   const contextualArgs = rebaseTypedArgs(
     normalizedCommand,
@@ -387,6 +393,38 @@ async function runTypedCommandLine(
     command: normalizedCommand,
     output: `Unknown REPL command "${sanitizeTerminalText(normalizedCommand)}". Try: /scope, /file, /trace, /explain, /callers, /impact, /context, /query, /review-pr, /help.`,
   };
+}
+
+/**
+ * `/diagram` writes a file and returns one line, not JSON: it runs in its own `--format` (svg,
+ * html or diagram-spec), never the session's. The directory resolves against the /scope
+ * directory, as the other path arguments; without one or `--folder`, a narrowed scope is drawn.
+ */
+async function runDiagramCommand(
+  rawArgs: string[],
+  state: ReturnType<typeof createSessionState>,
+  runtime: CliRuntime,
+): Promise<ReplActionResult> {
+  const { effectiveFormat, cleanedArgs, invalidFormatValue } = extractFormatOverride(rawArgs, 'text');
+  if (invalidFormatValue) {
+    throw new CliError(`Unknown format "${sanitizeTerminalText(invalidFormatValue)}". /diagram writes svg, html or diagram-spec.`, ExitCode.UNSUPPORTED_FORMAT);
+  }
+  if (readStringOption(cleanedArgs, '--output', 'a file of the workspace') === '-') {
+    throw new CliError('/diagram writes a file: --output - would print the markup in the terminal. Pass a file name.', ExitCode.GENERAL_ERROR);
+  }
+  const [first] = cleanedArgs;
+  const hasDirectory = first !== undefined && !first.startsWith('-');
+  const scoped = state.workspaceRoot !== runtime.workspaceRoot;
+  const viewsUnits = readStringOption(cleanedArgs, '--view', 'units, folder or matrix') === 'units';
+  let directory: string | undefined;
+  if (hasDirectory) directory = path.resolve(state.workspaceRoot, first.replaceAll('\\', '/'));
+  else if (scoped && !viewsUnits && !cleanedArgs.includes('--folder')) directory = state.workspaceRoot;
+  // Relative to the workspace root, so its errors never show an absolute path.
+  const args = directory === undefined
+    ? cleanedArgs
+    : [path.relative(runtime.workspaceRoot, directory), ...cleanedArgs.slice(hasDirectory ? 1 : 0)];
+  const { run } = await import('./diagram.js');
+  return { command: 'diagram', output: await run(args, runtime, effectiveFormat) };
 }
 
 async function handleTypedSessionCommand(

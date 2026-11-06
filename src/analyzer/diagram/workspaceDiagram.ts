@@ -8,7 +8,7 @@
 
 import { buildArchitectureGraph, type AnalyzeFile } from "../architecture/ArchitectureGraphBuilder";
 import { checkWorkspaceArchitecture, loadDeclaredRoles, type ArchitectureRulesFileNames } from "../architecture/architectureRules";
-import { assignUnits, buildArchitectureUnits } from "../architecture/architectureUnits";
+import { assignUnits, buildArchitectureUnits, directoryFolderKey } from "../architecture/architectureUnits";
 import type { UnitSource } from "../architecture/architectureView";
 import { architectureDiagramInput, layoutDiagram, type DiagramInputOptions } from "./architectureDiagram";
 import { layoutMatrix } from "./diagramMatrix";
@@ -20,6 +20,8 @@ export interface WorkspaceDiagramOptions {
   view: DiagramView;
   /** Unit or folder key whose groups are drawn; with view "matrix", the level of the matrix. */
   folder?: string;
+  /** Workspace directory (relative, "/"-separated) drawn instead of `folder`: mapped to its unit or folder key. */
+  directory?: string;
   format: (typeof DIAGRAM_FORMATS)[number];
   /** Colours of the SVG; the HTML page follows the reader's scheme, the spec has none. */
   theme: DiagramTheme;
@@ -39,7 +41,8 @@ export async function renderWorkspaceDiagram(workspaceRoot: string, analyze: Ana
   const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
   const source = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment, await loadDeclaredRoles(workspaceRoot)), assignment };
   const violations = options.rules ? (await checkWorkspaceArchitecture(graph, workspaceRoot, options.rules)).violations : [];
-  return renderSourceDiagram(source, workspaceRoot, { ...options, violations });
+  const folder = options.directory === undefined ? options.folder : directoryFolderKey(assignment, options.directory);
+  return renderSourceDiagram(source, workspaceRoot, { ...options, folder, violations });
 }
 
 /**

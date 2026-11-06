@@ -132,6 +132,7 @@ const SLASH_COMMANDS: SlashCommandEntry[] = [
   { group: 'Workspace', command: '/scan', description: 'Force indexing scan' },
   { group: 'Output', command: '/format', description: 'Set default output format', argsHint: '/format <text|json|toon|markdown|mermaid>' },
   { group: 'Output', command: '/export', description: 'Export graph as standalone HTML (vis.js)', argsHint: '/export [path] [--output <file>|-o <file>]' },
+  { group: 'Output', command: '/diagram', description: 'Write a static architecture diagram (SVG or HTML)', argsHint: '/diagram [dir] [--view units|folder|matrix] [--folder <key>] [--format svg|html] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]' },
   { group: 'Output', command: '/wiki', description: 'Generate a markdown wiki from the call graph', argsHint: '/wiki [--output <dir>] [--top N] [--format markdown|json|toon]' },
   { group: 'Session', command: '/help', description: 'Show REPL help' },
   { group: 'Session', command: '/mouse', description: 'Mouse wheel and clicks (off by default)', argsHint: '/mouse on|off' },
@@ -252,6 +253,16 @@ const ARG_COMPLETIONS: Record<string, Array<{ value: string; description: string
     { value: '--update-baseline', description: 'Accept every current violation' },
     { value: '--verbose', description: 'List accepted violations and the context' },
   ],
+  '/diagram': [
+    { value: '--view', description: 'units, folder or matrix' },
+    { value: '--folder', description: 'Unit or folder key' },
+    { value: '--format', description: 'svg, html or diagram-spec' },
+    { value: '--theme', description: 'light or dark colours of --format svg' },
+    { value: '--output', description: 'File in the workspace' },
+    { value: '--rules', description: 'Draw the violations of graphit.architecture.json' },
+    { value: '--config', description: 'Rules file in the workspace, with --rules' },
+    { value: '--baseline', description: 'Draw the accepted violations apart, with --rules' },
+  ],
   '/format': [
     { value: 'text', description: 'Plain text output' },
     { value: 'json', description: 'JSON output' },
@@ -312,7 +323,7 @@ function buildWorkspacePathSuggestions(
   const directories = collectWorkspaceDirectories(allFiles, workspaceRoot);
   const normalizedQuery = query.trim();
 
-  if (command === '/scope') {
+  if (command === '/scope' || command === '/diagram') {
     return filterPathSuggestions(directories, normalizedQuery)
       .map((dirPath) => ({
         command: dirPath,
@@ -320,7 +331,8 @@ function buildWorkspacePathSuggestions(
         insertText: dirPath,
         targetCommand: command,
         isArgument: true,
-        autoExecute: true,
+        // /diagram takes flags after its directory.
+        autoExecute: command === '/scope',
       }));
   }
 
@@ -402,6 +414,11 @@ function buildArgumentSuggestions(
 
   if (activeCommand === '/scope') {
     return buildWorkspacePathSuggestions(activeCommand, query, allFiles, workspaceRoot);
+  }
+
+  // The directory is the first argument only: a later token is a flag or its value.
+  if (activeCommand === '/diagram' && query.trim() === currentArgToken && !currentArgToken.startsWith('-')) {
+    return [...buildWorkspacePathSuggestions(activeCommand, query, allFiles, workspaceRoot), ...optionMatches];
   }
 
   if (FILE_ARGUMENT_COMMANDS.has(activeCommand) && !currentArgToken.startsWith('-')) {

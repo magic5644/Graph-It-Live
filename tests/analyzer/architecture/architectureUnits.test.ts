@@ -8,6 +8,7 @@ import {
   assignUnits,
   buildArchitectureUnits,
   classifyUnitEdge,
+  directoryFolderKey,
   folderKeys,
   folderLevel,
   groupByUnit,
@@ -301,6 +302,51 @@ describe("folderKeys", () => {
     expect(folderKeys("src\\analyzer\\community\\x.ts", ROOT_UNIT)).toEqual([ROOT_UNIT, `${ROOT_UNIT}/analyzer`, `${ROOT_UNIT}/analyzer/community`]);
     expect(folderKeys("app/main.ts", "app")).toEqual(["app"]);
     expect(folderKeys("lib/x.ts", ROOT_UNIT)).toEqual([ROOT_UNIT]);
+  });
+});
+
+describe("directoryFolderKey", () => {
+  const assignment = (unitOf: Record<string, string>) => ({ unitOf: new Map(Object.entries(unitOf)), names: new Map<string, string>() });
+  const packages = assignment({
+    "packages/core/src/a/x.ts": "packages/core",
+    "packages/core/src/a/b/y.ts": "packages/core",
+    "packages/core/tests/a/x.test.ts": "packages/core",
+    "packages/web/main.ts": "packages/web",
+    "src/cli/index.ts": ROOT_UNIT,
+    "src/cli/commands/run.ts": ROOT_UNIT,
+    "src/index.ts": ROOT_UNIT,
+  });
+
+  it("maps a unit root, and its umbrella folders, to the unit", () => {
+    expect(directoryFolderKey(packages, "packages/core")).toBe("packages/core");
+    expect(directoryFolderKey(packages, "packages/core/src")).toBe("packages/core");
+    expect(directoryFolderKey(packages, "packages/web")).toBe("packages/web");
+  });
+
+  it("maps a folder to its key, never one below it", () => {
+    expect(directoryFolderKey(packages, "packages/core/src/a")).toBe("packages/core/a");
+    expect(directoryFolderKey(packages, "packages/core/src/a/b")).toBe("packages/core/a/b");
+    expect(directoryFolderKey(packages, "packages/core/tests/a")).toBe("packages/core/a");
+    expect(directoryFolderKey(packages, "src/cli")).toBe(`${ROOT_UNIT}/cli`);
+    expect(directoryFolderKey(packages, "src/cli/commands")).toBe(`${ROOT_UNIT}/cli/commands`);
+    expect(directoryFolderKey(packages, "src")).toBe(ROOT_UNIT);
+  });
+
+  it("maps top-level folders of a workspace without packages to their unit", () => {
+    const folders = assignment({ "app/core/a.ts": "app", "app/b.ts": "app", "lib/c.ts": "lib" });
+    expect(directoryFolderKey(folders, "app")).toBe("app");
+    expect(directoryFolderKey(folders, "app/core")).toBe("app/core");
+  });
+
+  it("maps a folder above one unit only to that unit", () => {
+    expect(directoryFolderKey(assignment({ "packages/only/src/a.ts": "packages/only", "packages/only/b.ts": "packages/only" }), "packages")).toBe("packages/only");
+    expect(directoryFolderKey(assignment({ "apps/web/src/ui/a.ts": "apps/web", "lib/c.ts": ROOT_UNIT }), "apps")).toBe("apps/web");
+  });
+
+  it("refuses a directory without indexed files, or spanning several units", () => {
+    expect(() => directoryFolderKey(packages, "docs")).toThrow('No indexed file below "docs".');
+    expect(() => directoryFolderKey(packages, "packages/co")).toThrow('No indexed file below "packages/co".');
+    expect(() => directoryFolderKey(packages, "packages")).toThrow('"packages" holds several units: pass the folder of one of them; the units are drawn without a directory');
   });
 });
 

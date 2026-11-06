@@ -55,6 +55,22 @@ describe('Ink slash palette', () => {
     expect(alias).toEqual(scope);
   });
 
+  it('suggests directories, then flags, for the /diagram directory, and only flags after it', () => {
+    const first = filterSlashCommands('/diagram src', allFiles, workspaceRoot);
+    const windows = filterSlashCommands('/diagram s', [String.raw`C:\repo\src\cli\index.ts`], String.raw`C:\repo`);
+    const flags = filterSlashCommands('/diagram src/cli --', allFiles, workspaceRoot).map((entry) => entry.command);
+    const afterFlag = filterSlashCommands('/diagram --view src', allFiles, workspaceRoot);
+
+    expect(first.map((entry) => entry.command)).toEqual(['src', 'src/cli', 'src/shared']);
+    // The directory is completed, not run: flags may follow it.
+    expect(first.every((entry) => entry.isArgument && entry.autoExecute === false)).toBe(true);
+    expect(windows.length).toBeGreaterThan(0);
+    for (const entry of windows) expect(entry.command).not.toContain('\\');
+    expect(flags).toEqual(['--view', '--folder', '--format', '--theme', '--output', '--rules', '--config', '--baseline']);
+    expect(afterFlag).toEqual([]);
+    expect(filterSlashCommands('/diagram --r', allFiles, workspaceRoot).map((entry) => entry.command)).toEqual(['--rules']);
+  });
+
   it('suggests files for a typed dependency alias', () => {
     const suggestions = filterSlashCommands('/deps src/cli', allFiles, workspaceRoot);
 
@@ -87,6 +103,7 @@ describe('Ink slash palette', () => {
     expect(text).toContain('Navigate');
     expect(text).toContain('/scope <directory>');
     expect(text).toContain('/check-architecture [--config <file>] [--baseline <file>] [--update-baseline]');
+    expect(text).toContain('/diagram [dir] [--view units|folder|matrix] [--folder <key>]');
     expect(text).toContain('/path → /scope');
     expect(text).toContain('/deps-in → /check-dependencies');
     expect(lines.some((line) => line.trimStart().startsWith('/command'))).toBe(false);
