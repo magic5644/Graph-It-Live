@@ -80,6 +80,8 @@ try {
   const install = packAndInstall(work, pkg);
   const workspace = path.join(work, 'workspace');
   cpSync(fixture, workspace, { recursive: true });
+  // Without --workspace, graph-it analyzes only a folder holding a project marker.
+  writeFileSync(path.join(workspace, 'pyproject.toml'), '[project]\nname = "smoke"\n');
   const bin = path.join(install, 'node_modules', '.bin', isWindows ? 'graph-it.cmd' : 'graph-it');
   const packageRoot = path.join(install, 'node_modules', ...NPM_PACKAGE_NAME.split('/'));
   const entry = path.join(packageRoot, 'dist', 'graph-it.js');
