@@ -205,24 +205,6 @@ if (
   currentConfig.workspaceRoot = "";
 }
 
-// Fallback logic for WORKSPACE_ROOT (only if set via env)
-if (!currentConfig.workspaceRoot) {
-  // Same rule as the CLI without --workspace: the nearest project root. Outside
-  // any project (a home directory, /) no default is set, so nothing is indexed.
-  const projectRoot = process.cwd() ? findProjectRoot(process.cwd()) : null;
-  if (projectRoot) {
-    currentConfig.workspaceRoot = projectRoot;
-    debugLog(
-      "[McpServer] WORKSPACE_ROOT not set, using the project root of the current working directory:",
-      projectRoot,
-    );
-  } else {
-    debugLog(
-      "[McpServer] No workspace configured and no project marker at or above the working directory - use graphitlive_set_workspace tool to set workspace",
-    );
-  }
-}
-
 // Validate workspace if set
 if (
   currentConfig.workspaceRoot &&
@@ -236,6 +218,24 @@ if (
     "[McpServer] Use graphitlive_set_workspace tool to configure a valid workspace",
   );
   currentConfig.workspaceRoot = "";
+}
+
+// Fallback logic for WORKSPACE_ROOT (only if set via env)
+if (!currentConfig.workspaceRoot) {
+  // Same rule as the CLI without --workspace: the nearest project root. Outside
+  // any project (a home directory, /) no default is set, so nothing is indexed.
+  const projectRoot = findProjectRoot(process.cwd());
+  if (projectRoot) {
+    currentConfig.workspaceRoot = projectRoot;
+    debugLog(
+      "[McpServer] WORKSPACE_ROOT not set, using the project root of the current working directory:",
+      projectRoot,
+    );
+  } else {
+    debugLog(
+      "[McpServer] No workspace configured and no project marker at or above the working directory - use graphitlive_set_workspace tool to set workspace",
+    );
+  }
 }
 
 // Helper to get current workspace (may be empty if not configured)

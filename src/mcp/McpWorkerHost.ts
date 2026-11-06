@@ -147,7 +147,8 @@ export class McpWorkerHost {
 
         // Handle worker exit
         this.worker.on('exit', (code) => {
-          if (code !== 0 && !this.isReady) {
+          // Any exit before ready fails start(), code 0 included: nothing would resolve it.
+        if (!this.isReady) {
             clearTimeout(timeoutId);
             this.isStarting = false;
             reject(new Error(`Worker exited with code ${code}`));
