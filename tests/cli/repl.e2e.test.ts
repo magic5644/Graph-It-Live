@@ -8,6 +8,8 @@
 
 /// <reference types="node" />
 
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CliRuntime } from '../../src/cli/runtime';
@@ -31,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   contextRun: vi.fn(),
   reviewPrRun: vi.fn(),
   checkArchitectureRun: vi.fn(),
+  diagramRun: vi.fn(),
 }));
 
 vi.mock('../../src/cli/repl/ink/ReplInkApp.js', async (importOriginal) => ({
@@ -60,6 +63,7 @@ vi.mock('../../src/cli/commands/tool.js', () => ({ run: mocks.toolRun }));
 vi.mock('../../src/cli/commands/context.js', () => ({ run: mocks.contextRun }));
 vi.mock('../../src/cli/commands/reviewPr.js', () => ({ run: mocks.reviewPrRun }));
 vi.mock('../../src/cli/commands/checkArchitecture.js', () => ({ run: mocks.checkArchitectureRun }));
+vi.mock('../../src/cli/commands/diagram.js', () => ({ run: mocks.diagramRun }));
 
 import { run } from '../../src/cli/commands/repl';
 
@@ -250,6 +254,66 @@ describe('REPL command chaining e2e', () => {
     expect(passing.output).toContain('passed');
     expect(failing.output).toContain('frontend-not-backend');
     expect(failing.output).toContain('Error: 1 error violation(s) of the architecture rules not in the baseline');
+  });
+
+  it('runs /diagram in its own format, not the session one, and prints its line', async () => {
+    const runtime = createRuntimeStub();
+    mocks.diagramRun.mockResolvedValue('Diagram written to architecture.html: 3 units.');
+    const [plain, svg] = await typedSession(
+      runtime,
+      '/format markdown',
+      '/diagram',
+      '/diagram --format svg --theme dark --output docs/units.svg',
+    ).then((responses) => responses.slice(1));
+
+    expect(mocks.diagramRun).toHaveBeenNthCalledWith(1, [], runtime, 'text');
+    expect(mocks.diagramRun).toHaveBeenNthCalledWith(2, ['--theme', 'dark', '--output', 'docs/units.svg'], runtime, 'svg');
+    expect(plain).toMatchObject({ command: 'diagram', output: 'Diagram written to architecture.html: 3 units.' });
+    expect(svg.output).toBe('Diagram written to architecture.html: 3 units.');
+  });
+
+  it('passes the /diagram directory relative to the workspace root, \\ separators included', async () => {
+    const runtime = createRuntimeStub();
+    mocks.diagramRun.mockResolvedValue('ok');
+    await typedSession(runtime, '/diagram src/cli --view matrix', String.raw`/diagram src\cli\commands`, '/diagram ../outside');
+
+    expect(mocks.diagramRun).toHaveBeenNthCalledWith(1, [path.join('src', 'cli'), '--view', 'matrix'], runtime, 'text');
+    expect(mocks.diagramRun).toHaveBeenNthCalledWith(2, [path.join('src', 'cli', 'commands')], runtime, 'text');
+    // diagram.run refuses it on the REPL error line.
+    expect(mocks.diagramRun).toHaveBeenNthCalledWith(3, [path.join('..', 'outside')], runtime, 'text');
+  });
+
+  it.each([
+    ['/diagram --output -', '/diagram writes a file: --output - would print the markup in the terminal.'],
+    ['/diagram --format bogus', 'Unknown format "bogus". /diagram writes svg, html or diagram-spec.'],
+  ])('refuses %s on the REPL error line', async (commandLine, message) => {
+    await expect(typedSession(createRuntimeStub(), commandLine)).rejects.toThrow(message);
+    expect(mocks.diagramRun).not.toHaveBeenCalled();
+  });
+
+  it('leaves the /diagram errors to the REPL error line', async () => {
+    mocks.diagramRun.mockRejectedValueOnce(new Error('No indexed file below "docs".'));
+    await expect(typedSession(createRuntimeStub(), '/diagram docs')).rejects.toThrow('No indexed file below "docs".');
+  });
+
+  it('draws the /scope directory by default, and resolves /diagram directories against it', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'repl-diagram-'));
+    try {
+      fs.mkdirSync(path.join(root, 'src', 'cli', 'commands'), { recursive: true });
+      const runtime = { ...createRuntimeStub(), workspaceRoot: root };
+      mocks.diagramRun.mockResolvedValue('ok');
+      await typedSession(runtime, '/diagram', '/scope src/cli', '/diagram', '/diagram commands', '/diagram --folder (root)/cli', '/diagram --view units');
+
+      expect(mocks.diagramRun.mock.calls.map(([args]) => args)).toEqual([
+        [],
+        [path.join('src', 'cli')],
+        [path.join('src', 'cli', 'commands')],
+        ['--folder', '(root)/cli'],
+        ['--view', 'units'],
+      ]);
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('leaves a failure without a report to the REPL error line', async () => {

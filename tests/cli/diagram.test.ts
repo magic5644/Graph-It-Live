@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { run as checkArchitecture } from "@/cli/commands/checkArchitecture";
-import { readDiagramOptions, run } from "@/cli/commands/diagram";
+import { readDiagramOptions, readDirectory, run } from "@/cli/commands/diagram";
 import { classifyError, ExitCode } from "@/cli/errors";
 import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
@@ -50,6 +50,14 @@ describe("graph-it diagram options", () => {
     [["--output"], "svg", "--output must be a file of the workspace, or - for stdout"],
   ] as const)("refuses %j with --format %s", (args, format, message) => {
     expect(() => readDiagramOptions([...args], format)).toThrow(message);
+  });
+
+  it("takes a directory instead of --folder, drawing its level", () => {
+    expect(readDiagramOptions(["src/cli"], "text", "src/cli")).toMatchObject({ view: "folder", directory: "src/cli" });
+    expect(readDiagramOptions(["src/cli", "--view", "matrix"], "svg", "src/cli")).toMatchObject({ view: "matrix", directory: "src/cli" });
+    expect(readDiagramOptions(["src/cli"], "text", "src/cli")).not.toHaveProperty("folder");
+    expect(() => readDiagramOptions(["src", "--folder", "(root)/cli"], "text", "src")).toThrow("Pass a directory or --folder <key>, not both");
+    expect(() => readDiagramOptions(["src", "--view", "units"], "text", "src")).toThrow("--view units draws every unit: drop the directory or --folder");
   });
 
   it.each(["json", "toon", "markdown", "mermaid", "csv", "sarif"] as const)("refuses --format %s as an unsupported format", (format) => {
@@ -114,6 +122,44 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
     const folder = JSON.parse(await run(["--folder", "mfe/cart", "--output", "-"], runtime, "diagram-spec"));
     expect(folder).toMatchObject({ level: "groups", scope: "mfe/cart" });
     for (const leak of [root.replaceAll("\\", "/"), root, JSON.stringify(root).slice(1, -1)]) expect(JSON.stringify([units, folder])).not.toContain(leak);
+  });
+
+  it("reads the leading directory against the workspace root, \\ separators included", () => {
+    expect(readDirectory([], root)).toBeUndefined();
+    expect(readDirectory(["--folder", "mfe/cart"], root)).toBeUndefined();
+    expect(readDirectory(["."], root)).toBeUndefined();
+    expect(readDirectory(["mfe/cart"], root)).toBe("mfe/cart");
+    expect(readDirectory([String.raw`mfe\cart\src`], root)).toBe("mfe/cart/src");
+    expect(readDirectory([path.join(root, "mfe", "cart")], root)).toBe("mfe/cart");
+  });
+
+  it.each([
+    [["nowhere"], "Directory not found: nowhere"],
+    [["package.json"], "Directory not found: package.json"],
+    [[path.join("..", "elsewhere")], "Directory outside the workspace"],
+  ])("refuses the directory %j", (args, message) => {
+    expect(() => readDirectory(args, root)).toThrow(message);
+  });
+
+  it("exits 5 for a directory outside the workspace", () => {
+    const error = (() => { try { return readDirectory([path.join("..", "elsewhere")], root); } catch (failure) { return failure; } })();
+    expect(classifyError(error)).toMatchObject({ exitCode: ExitCode.SECURITY_VIOLATION });
+  });
+
+  it("draws the level of a directory: a unit root, an umbrella folder of it, a folder of the root unit", async () => {
+    const spec = async (...args: string[]) => JSON.parse(await run([...args, "--output", "-"], runtime, "diagram-spec"));
+    expect(await spec("mfe/cart")).toMatchObject({ level: "groups", scope: "mfe/cart" });
+    expect(await spec(String.raw`mfe\cart\src`)).toMatchObject({ level: "groups", scope: "mfe/cart" });
+    expect(await spec("scripts")).toMatchObject({ level: "groups", scope: "(root)/scripts" });
+    expect(await spec(".")).toMatchObject({ level: "units" });
+    expect(await run(["mfe/cart", "--view", "matrix", "--output", "-"], runtime, "html")).toContain("folder mfe/cart");
+  });
+
+  it("refuses a directory spanning several units or without indexed files", async () => {
+    fs.mkdirSync(path.join(root, "empty"), { recursive: true });
+    await expect(run(["mfe", "--output", "-"], runtime, "svg")).rejects.toThrow('"mfe" holds several units');
+    await expect(run(["empty", "--output", "-"], runtime, "svg")).rejects.toThrow('No indexed file below "empty".');
+    await expect(run(["nowhere", "--output", "-"], runtime, "svg")).rejects.toThrow("Directory not found: nowhere");
   });
 
   it("draws the matrix of the units, or of one folder's groups", async () => {

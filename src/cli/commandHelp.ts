@@ -220,15 +220,19 @@ Examples:
 `,
   diagram: `graph-it diagram — Write a static architecture diagram
 
-Usage: graph-it diagram [options]
+Usage: graph-it diagram [dir] [options]
 
 Draws one level of the architecture as the Architecture view lays it out: the units (layers
 top to bottom, layer 0 at the bottom, cycles outlined, stroke width = file pairs), the groups
 of one unit or folder, or their dependency matrix. The output has no script and no external
 URL: drop it in a README, a wiki or a pull request. At most 60 units or groups are drawn.
 
+Arguments:
+  dir                Workspace directory whose level is drawn, as --folder draws its key
+                     (a unit root: the unit's groups); . draws the units
+
 Options:
-  --view VIEW        units|folder|matrix (default: units, or folder with --folder);
+  --view VIEW        units|folder|matrix (default: units, or folder with dir or --folder);
                      matrix draws the units, or with --folder that folder's groups
   --folder KEY       Unit or folder key, as graph-it architecture --folder takes it
   --format, -f       svg|html (default: html, or svg when --output ends with .svg);
@@ -248,7 +252,8 @@ Options:
 Examples:
   graph-it diagram
   graph-it diagram --format svg --theme dark --output docs/architecture.svg
-  graph-it diagram --folder packages/core --rules --baseline
+  graph-it diagram packages/core --rules --baseline
+  graph-it diagram --folder packages/core --view matrix
   graph-it diagram --view matrix --format svg --output - > matrix.svg
 `,
   check: `graph-it check — Find unused exported symbols in a file

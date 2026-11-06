@@ -178,6 +178,36 @@ export function folderKeys(relativePath: string, unit: string): string[] {
 }
 
 /**
+ * The unit or folder key that draws a workspace directory (relative, "/"-separated, not the
+ * root): the deepest key every indexed file below it shares among the keys whose folder is that
+ * directory or one above it, the unit always. A unit root, or a folder above one unit only,
+ * gives the unit; `src/cli` in the root unit gives
+ * `(root)/cli`, since umbrella folders such as src have no key of their own.
+ */
+export function directoryFolderKey(assignment: UnitAssignment, directory: string): string {
+  let shared: string[] | undefined;
+  for (const [file, unit] of assignment.unitOf) {
+    if (!file.startsWith(`${directory}/`)) continue;
+    const keys = folderKeys(file, unit);
+    const dirs = file.split("/").slice(0, -1);
+    // Folder of each key below the unit: the file's folders down to the last one of the chain.
+    const folderOf = (index: number) => dirs.slice(0, dirs.length - keys.length + 1 + index).join("/");
+    // The unit always counts: a directory above it (packages/ with one package) draws it too.
+    const above = keys.filter((_, index) => {
+      const folder = folderOf(index);
+      return index === 0 || folder === directory || directory.startsWith(`${folder}/`);
+    });
+    shared = shared === undefined ? above : shared.filter((key, index) => above[index] === key);
+  }
+  if (shared === undefined) throw new Error(`No indexed file below "${directory}".`);
+  const key = shared.at(-1);
+  if (key === undefined) {
+    throw new Error(`"${directory}" holds several units: pass the folder of one of them; the units are drawn without a directory (in a narrowed REPL /scope, with --view units).`);
+  }
+  return key;
+}
+
+/**
  * The graph regrouped by unit-scoped folder groups, so a unit's groups never mix files of other
  * units. Without `folder`: every unit's top folders (`<unit>/<domain>`), plus the unit itself for
  * its files outside any domain folder; group ids follow the units' order and `context.revision`
