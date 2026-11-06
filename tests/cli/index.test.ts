@@ -16,7 +16,8 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fsSync from "node:fs";
 import * as osMod from "node:os";
 import * as pathMod from "node:path";
-import { commandWantsHelp, createRuntime, findCommandStart, stripGlobalOptions } from "../../src/cli/index";
+import { CliError, ExitCode } from "../../src/cli/errors";
+import { commandWantsHelp, createReplRuntime, createRuntime, findCommandStart, stripGlobalOptions } from "../../src/cli/index";
 
 describe("findCommandStart", () => {
   it("finds the command when it is the first token", () => {
@@ -117,6 +118,38 @@ describe("createRuntime — index cache flags", () => {
 
     expect(runtime.workspaceRoot).toBe(pathMod.resolve(tmpDir));
     expect(fsSync.existsSync(cacheDir)).toBe(true);
+  });
+
+  it("createReplRuntime refuses a directory without a project marker before writing to it", () => {
+    const bare = fsSync.realpathSync(fsSync.mkdtempSync(pathMod.join(osMod.tmpdir(), "graph-it-repl-bare-")));
+    const cwd = process.cwd();
+    try {
+      process.chdir(bare);
+      let error: unknown;
+      try {
+        createReplRuntime({});
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toBeInstanceOf(CliError);
+      expect((error as CliError).exitCode).toBe(ExitCode.WORKSPACE_NOT_FOUND);
+      expect(fsSync.existsSync(pathMod.join(bare, ".graph-it"))).toBe(false);
+      expect(createReplRuntime({ workspace: bare }).workspaceRoot).toBe(bare);
+    } finally {
+      process.chdir(cwd);
+      fsSync.rmSync(bare, { recursive: true, force: true });
+    }
+  });
+
+  it("createReplRuntime accepts the project above the current directory", () => {
+    const cwd = process.cwd();
+    try {
+      fsSync.mkdirSync(pathMod.join(tmpDir, "src"), { recursive: true });
+      process.chdir(pathMod.join(tmpDir, "src"));
+      expect(createReplRuntime({}).workspaceRoot).toBe(fsSync.realpathSync(tmpDir));
+    } finally {
+      process.chdir(cwd);
+    }
   });
 
   it("requires a project marker only without --workspace", () => {

@@ -42,7 +42,10 @@ const MARKER_EXTENSIONS = Object.values(PROJECT_MARKERS)
   .filter((marker) => marker.startsWith("*"))
   .map((marker) => marker.slice(1));
 
-/** Whether dir directly holds a project marker of a supported language (an unreadable dir holds none). */
+/**
+ * Whether dir directly holds a project marker of a supported language.
+ * shortcut: an unreadable dir counts as holding none, so the climb passes it; upgrade if users hit it.
+ */
 export function hasProjectMarker(dir: string): boolean {
   let entries: string[];
   try {
@@ -62,17 +65,15 @@ export function hasProjectMarker(dir: string): boolean {
  * set_workspace, the VS Code folder) is used as given and never goes through this.
  */
 export function findWorkspaceRoot(startDir: string): string {
-  let dir = path.resolve(startDir);
-  const { root } = path.parse(dir);
-
-  while (dir !== root) {
-    if (hasProjectMarker(dir)) {
-      return dir;
-    }
-    dir = path.dirname(dir);
+  const start = path.resolve(startDir);
+  let dir = start;
+  // The filesystem root is checked too: a project may sit at / or C:\.
+  while (!hasProjectMarker(dir)) {
+    const parent = path.dirname(dir);
+    if (parent === dir) return start;
+    dir = parent;
   }
-
-  return path.resolve(startDir);
+  return dir;
 }
 
 function declaresWorkspaces(dir: string): boolean {

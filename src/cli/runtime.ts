@@ -72,6 +72,10 @@ export interface IndexOutcome {
  */
 export function resolveCliWorkspaceRoot(explicit: string | undefined, cwd = process.cwd()): string {
   if (explicit === undefined) return findWorkspaceRoot(cwd);
+  // An empty --workspace= would resolve to cwd and skip the project guard.
+  if (explicit.trim() === "") {
+    throw new CliError("--workspace needs a directory.", ExitCode.WORKSPACE_NOT_FOUND);
+  }
   const root = path.resolve(cwd, explicit);
   if (!fs.statSync(root, { throwIfNoEntry: false })?.isDirectory()) {
     throw new CliError(`Workspace directory not found: ${explicit}`, ExitCode.WORKSPACE_NOT_FOUND);

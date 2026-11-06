@@ -34,6 +34,7 @@ const mocks = vi.hoisted(() => ({
   reviewPrRun: vi.fn(),
   checkArchitectureRun: vi.fn(),
   diagramRun: vi.fn(),
+  runExportHtml: vi.fn(),
 }));
 
 vi.mock('../../src/cli/repl/ink/ReplInkApp.js', async (importOriginal) => ({
@@ -64,15 +65,16 @@ vi.mock('../../src/cli/commands/context.js', () => ({ run: mocks.contextRun }));
 vi.mock('../../src/cli/commands/reviewPr.js', () => ({ run: mocks.reviewPrRun }));
 vi.mock('../../src/cli/commands/checkArchitecture.js', () => ({ run: mocks.checkArchitectureRun }));
 vi.mock('../../src/cli/commands/diagram.js', () => ({ run: mocks.diagramRun }));
+vi.mock('../../src/cli/commands/ExportHtmlCommand.js', () => ({ runExportHtml: mocks.runExportHtml }));
 
 import { run } from '../../src/cli/commands/repl';
 
 function createRuntimeStub() {
   return {
     workspaceRoot: '/workspace',
-    assertProjectRoot: vi.fn(),
     init: vi.fn().mockResolvedValue(undefined),
     ensureIndexed: vi.fn().mockResolvedValue({ filesIndexed: 2, durationMs: 1 }),
+    dispose: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -140,19 +142,6 @@ describe('REPL command chaining e2e', () => {
     expect(mocks.runInkReplSession).not.toHaveBeenCalled();
   });
 
-  it('refuses a directory without a project marker before walking it, and does not start the UI', async () => {
-    const runtime = createRuntimeStub();
-    runtime.assertProjectRoot.mockImplementation(() => {
-      throw new Error('No project found in /home/user');
-    });
-
-    await run(runtime as unknown as CliRuntime);
-
-    expect(stderrSpy).toHaveBeenCalledWith('No project found in /home/user\n');
-    expect(mocks.runInkReplSession).not.toHaveBeenCalled();
-    expect(runtime.init).not.toHaveBeenCalled();
-  });
-
   it('starts the UI without indexing, and session commands never index', async () => {
     const runtime = createRuntimeStub();
     await typedSession(runtime, '/help', '/format json', '/scope src', '/file src/index.ts', '/quit');
@@ -184,6 +173,47 @@ describe('REPL command chaining e2e', () => {
 
     expect(runtime.init).toHaveBeenCalledTimes(1);
     expect(runtime.ensureIndexed).toHaveBeenCalledTimes(1);
+  });
+
+  it('disposes a half-built runtime when init fails, then builds it again on the next command', async () => {
+    const runtime = createRuntimeStub();
+    runtime.init.mockRejectedValueOnce(new Error('worker failed'));
+    let submit: SubmitCommand | undefined;
+    mocks.runInkReplSession.mockImplementation(async (options: { onSubmitCommand: SubmitCommand }) => {
+      submit = options.onSubmitCommand;
+    });
+    await run(runtime as unknown as CliRuntime);
+
+    await expect(submit?.('/summary src/index.ts')).rejects.toThrow('worker failed');
+    expect(runtime.dispose).toHaveBeenCalledTimes(1);
+    await submit?.('/summary src/index.ts');
+
+    expect(runtime.init).toHaveBeenCalledTimes(2);
+    expect(runtime.dispose).toHaveBeenCalledTimes(1);
+    expect(mocks.summaryRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('indexes before /export, which reads the index', async () => {
+    const runtime = createRuntimeStub();
+    await typedSession(runtime, '/export');
+
+    expect(runtime.ensureIndexed).toHaveBeenCalledTimes(1);
+    expect(runtime.ensureIndexed.mock.invocationCallOrder[0]).toBeLessThan(mocks.runExportHtml.mock.invocationCallOrder[0]);
+  });
+
+  it('indexes before listing the symbols of a file, and rejects when indexing fails', async () => {
+    const runtime = createRuntimeStub();
+    runtime.ensureIndexed.mockRejectedValueOnce(new Error('disk full'));
+    let listFileSymbols: ((file: string) => Promise<string[]>) | undefined;
+    mocks.runInkReplSession.mockImplementation(async (options: { listFileSymbols: (file: string) => Promise<string[]> }) => {
+      listFileSymbols = options.listFileSymbols;
+    });
+    mocks.explainRun.mockResolvedValue('{"symbols":[{"name":"main"}]}');
+    await run(runtime as unknown as CliRuntime);
+
+    await expect(listFileSymbols?.('/workspace/src/index.ts')).rejects.toThrow('disk full');
+    await expect(listFileSymbols?.('/workspace/src/index.ts')).resolves.toEqual(['main']);
+    expect(runtime.ensureIndexed).toHaveBeenCalledTimes(2);
   });
 
   it('leaves an indexing failure to the REPL error line and retries on the next command', async () => {
