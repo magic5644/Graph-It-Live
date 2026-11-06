@@ -20,6 +20,8 @@ describe("graph-it diagram options", () => {
     expect(readDiagramOptions(["--output", "docs/Units.SVG"], "text")).toMatchObject({ format: "svg", file: "docs/Units.SVG" });
     expect(readDiagramOptions(["--output", "units.svg"], "html")).toMatchObject({ format: "html" });
     expect(readDiagramOptions(["--output", "-"], "text")).toMatchObject({ format: "html" });
+    expect(readDiagramOptions([], "diagram-spec")).toMatchObject({ format: "diagram-spec", file: "architecture.diagram-spec.json" });
+    expect(readDiagramOptions(["--output", "units.svg"], "diagram-spec")).toMatchObject({ format: "diagram-spec", file: "units.svg" });
   });
 
   it("reads the view, the folder key with / on every OS, the theme and the rules files", () => {
@@ -40,6 +42,7 @@ describe("graph-it diagram options", () => {
     [["--view", "units", "--folder", "apps"], "text", "--view units draws every unit"],
     [["--folder", "--rules"], "text", "--folder must be a unit or folder key"],
     [["--theme", "dark"], "html", "--theme sets the colours of --format svg"],
+    [["--theme", "light"], "diagram-spec", "--theme sets the colours of --format svg"],
     [["--theme", "sepia"], "svg", "--theme must be light or dark"],
     [["--baseline"], "text", "--config and --baseline apply to the rules overlay"],
     [["--config", "c.json"], "text", "--config and --baseline apply to the rules overlay"],
@@ -54,7 +57,7 @@ describe("graph-it diagram options", () => {
       readDiagramOptions([], format);
       expect.unreachable();
     } catch (error) {
-      expect(classifyError(error)).toEqual({ message: `graph-it diagram writes --format svg or html, not "${format}".`, exitCode: ExitCode.UNSUPPORTED_FORMAT });
+      expect(classifyError(error)).toEqual({ message: `graph-it diagram writes --format svg, html or diagram-spec, not "${format}".`, exitCode: ExitCode.UNSUPPORTED_FORMAT });
     }
   });
 });
@@ -99,6 +102,18 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
     expect(accepted).toContain("accepted in baseline");
     // Without --baseline every violation counts, the baseline file ignored.
     expect(await run(["--rules", "--output", "-"], runtime, "svg")).not.toMatch(edgeOf("accepted"));
+  });
+
+  it("writes the diagram spec of the units with the rules overlay, and of one folder's groups", async () => {
+    expect(await run([], runtime, "diagram-spec")).toMatch(/^Diagram written to architecture\.diagram-spec\.json: \d+ units · /);
+    const units = JSON.parse(fs.readFileSync(path.join(root, "architecture.diagram-spec.json"), "utf8"));
+    expect(units).toMatchObject({ version: 1, level: "units", violations: { count: 0, rules: [] } });
+    const spec = JSON.parse(await run(["--rules", "--output", "-"], runtime, "diagram-spec"));
+    expect(spec.violations.rules).toEqual(["frontend-not-backend", "functions-only-shared", "mfe-isolated", "no-unit-cycles"]);
+    expect(spec.nodes).toEqual(units.nodes);
+    const folder = JSON.parse(await run(["--folder", "mfe/cart", "--output", "-"], runtime, "diagram-spec"));
+    expect(folder).toMatchObject({ level: "groups", scope: "mfe/cart" });
+    expect(JSON.stringify([units, folder])).not.toContain(root.replaceAll("\\", "/"));
   });
 
   it("draws the matrix of the units, or of one folder's groups", async () => {

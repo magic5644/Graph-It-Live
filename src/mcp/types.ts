@@ -800,15 +800,15 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
   folder: z.string().min(1).max(1024).optional()
     .describe("Unit or folder key, '/'-separated as explore_architecture returns it (e.g. 'src/analyzer')"),
   diagramFormat: z.enum(DIAGRAM_FORMATS).optional()
-    .describe("'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme"),
-  theme: z.enum(DIAGRAM_THEMES).optional().describe("Colours of the SVG (default: light); not for diagramFormat 'html'"),
+    .describe("'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme; 'diagram-spec': the level's data as JSON (schemas/diagram-spec.schema.json) for a diagram skill"),
+  theme: z.enum(DIAGRAM_THEMES).optional().describe("Colours of the SVG (default: light); svg only"),
   rules: z.boolean().optional()
     .describe("Draw the violations of graphit.architecture.json in the error colour, and the baseline's accepted ones dashed"),
   config: RulesFileSchema.optional().describe("Rules file with rules, relative to the workspace (default: graphit.architecture.json)"),
   baseline: RulesFileSchema.optional()
     .describe("Accepted violations with rules, relative to the workspace (default: graphit.architecture.baseline.json when it exists)"),
   output: RulesFileSchema.optional()
-    .describe("File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat>"),
+    .describe("File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec)"),
   response_format: z.enum(["json", "markdown", "toon"]).optional()
     .describe("Output format: 'json', 'markdown', or 'toon' (default: toon)"),
 }).strict().superRefine((params, context) => {
@@ -819,8 +819,8 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
   if (view === "units" && params.folder !== undefined) {
     context.addIssue({ code: "custom", message: "view units draws every unit: drop folder, or use view folder" });
   }
-  if (params.theme !== undefined && params.diagramFormat === "html") {
-    context.addIssue({ code: "custom", message: "theme sets the colours of diagramFormat svg; the HTML page follows the reader's scheme" });
+  if (params.theme !== undefined && (params.diagramFormat ?? "svg") !== "svg") {
+    context.addIssue({ code: "custom", message: "theme sets the colours of diagramFormat svg; the HTML page follows the reader's scheme and a spec has none" });
   }
   if (!params.rules && (params.config !== undefined || params.baseline !== undefined)) {
     context.addIssue({ code: "custom", message: "config and baseline apply to the rules overlay: add rules: true" });

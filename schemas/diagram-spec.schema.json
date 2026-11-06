@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/magic5644/Graph-It-Live/main/schemas/diagram-spec.schema.json",
+  "title": "Graph-It-Live diagram spec",
+  "description": "One level of the architecture (graph-it diagram --format diagram-spec): the exact nodes, layers, edges, cycles and rule violations a diagram may show. Draw nothing absent from it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["$schema", "version", "workspace", "level", "scope", "revision", "caption", "counts", "layers", "nodes", "edges", "cycles", "violations"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1, "description": "Bumped when a field changes meaning or goes away" },
+    "workspace": { "type": "string", "description": "Workspace folder name, never an absolute path" },
+    "level": { "enum": ["units", "groups"], "description": "units: packages, else top-level folders; groups: the folders of one unit or folder" },
+    "scope": { "type": "string", "description": "\"units\", or the unit or folder key whose groups are listed" },
+    "revision": { "type": "string", "description": "Index revision the data comes from" },
+    "date": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "Day of the indexed revision, when known" },
+    "filters": { "type": "array", "items": { "type": "string" }, "description": "View filters applied, e.g. \"role library\", \"min. 3 imports\"" },
+    "caption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["title", "caption", "counts"],
+      "description": "Header lines of the generated diagram: reuse them as the title and caption",
+      "properties": {
+        "title": { "type": "string" },
+        "caption": { "type": "string" },
+        "counts": { "type": "string" }
+      }
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes", "layers", "cycles", "edges", "violations"],
+      "properties": {
+        "nodes": { "$ref": "#/$defs/count" },
+        "layers": { "$ref": "#/$defs/count" },
+        "cycles": { "$ref": "#/$defs/count" },
+        "edges": { "$ref": "#/$defs/count" },
+        "violations": { "$ref": "#/$defs/count" }
+      }
+    },
+    "layers": {
+      "type": "array",
+      "description": "Ascending; layer 0 depends on no other node of the level and is drawn at the bottom",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["layer", "nodes"],
+        "properties": {
+          "layer": { "$ref": "#/$defs/count" },
+          "nodes": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "nodes": {
+      "type": "array",
+      "description": "Every node of the level, sorted by key",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "label", "layer", "fileCount", "internalEdgeCount"],
+        "properties": {
+          "key": { "type": "string", "description": "Workspace-relative folder; edges, layers and cycles refer to it" },
+          "label": { "type": "string", "description": "Name to draw: package name, else folder" },
+          "layer": { "$ref": "#/$defs/count" },
+          "fileCount": { "$ref": "#/$defs/count" },
+          "internalEdgeCount": { "$ref": "#/$defs/count", "description": "Import file pairs inside the node" },
+          "role": {
+            "enum": ["function", "micro-frontend", "frontend", "service", "library", "tooling", "unknown"],
+            "description": "Units level only: declared in graphit.architecture.json, else inferred"
+          }
+        }
+      }
+    },
+    "edges": {
+      "type": "array",
+      "description": "Every dependency between two nodes, sorted by from then to",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["from", "to", "fileEdgeCount", "kind", "rules", "accepted"],
+        "properties": {
+          "from": { "type": "string" },
+          "to": { "type": "string" },
+          "fileEdgeCount": { "type": "integer", "minimum": 1, "description": "Distinct importing file pairs: the edge weight" },
+          "kind": { "enum": ["down", "upward", "cycle"], "description": "down: to a lower layer; upward: to the same or a higher layer; cycle: both ends in one cycle" },
+          "rules": { "type": "array", "items": { "type": "string" }, "description": "Names of the rules its file pairs break" },
+          "accepted": { "type": "boolean", "description": "Every violating pair of the edge is in the baseline" }
+        }
+      }
+    },
+    "cycles": {
+      "type": "array",
+      "description": "Nodes of each dependency cycle",
+      "items": { "type": "array", "minItems": 2, "items": { "type": "string" } }
+    },
+    "violations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "accepted", "rules"],
+      "description": "Rule-breaking file pairs between two nodes (graph-it diagram --rules), those the baseline accepts, and the broken rules",
+      "properties": {
+        "count": { "$ref": "#/$defs/count" },
+        "accepted": { "$ref": "#/$defs/count" },
+        "rules": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+  "$defs": {
+    "count": { "type": "integer", "minimum": 0 }
+  }
+}

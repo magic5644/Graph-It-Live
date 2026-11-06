@@ -3,7 +3,8 @@
  *
  * Writes a static architecture diagram of the workspace (the units, the groups of one unit or
  * folder, or their dependency matrix) as a bare SVG or one self-contained HTML page, optionally
- * with the violations of graphit.architecture.json drawn in the error colour.
+ * with the violations of graphit.architecture.json drawn in the error colour; or its data as a
+ * diagram spec (JSON) for an agent diagram skill.
  *
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
@@ -11,7 +12,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { ARCHITECTURE_BASELINE_FILE } from "../../analyzer/architecture/architectureRules.js";
-import { DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel } from "../../analyzer/diagram/diagramStyle.js";
+import { DIAGRAM_THEMES, DIAGRAM_VIEWS, defaultDiagramFile, diagramLevel } from "../../analyzer/diagram/diagramStyle.js";
 import { renderWorkspaceDiagram, type WorkspaceDiagramOptions } from "../../analyzer/diagram/workspaceDiagram.js";
 import { workerState } from "../../mcp/shared/state";
 import { getRelativePath } from "../../shared/path";
@@ -37,15 +38,16 @@ function readChoice<T extends string>(args: string[], flag: string, choices: rea
   return choice;
 }
 
-/** svg or html, and the output file; without `--format`, an `--output` ending in .svg writes SVG. */
+/** svg, html or diagram-spec, and the output file; without `--format`, an `--output` ending in .svg writes SVG. */
 function readOutput(args: string[], format: CliOutputFormat) {
-  if (format !== "text" && format !== "html" && format !== "svg") {
-    throw new CliError(`graph-it diagram writes --format svg or html, not "${format}".`, ExitCode.UNSUPPORTED_FORMAT);
+  if (format !== "text" && format !== "html" && format !== "svg" && format !== "diagram-spec") {
+    throw new CliError(`graph-it diagram writes --format svg, html or diagram-spec, not "${format}".`, ExitCode.UNSUPPORTED_FORMAT);
   }
   const file = readStringOption(args, "--output", "a file of the workspace, or - for stdout");
   const svg = format === "svg" || (format === "text" && file?.toLowerCase().endsWith(".svg") === true);
-  const output: WorkspaceDiagramOptions["format"] = svg ? "svg" : "html";
-  return { format: output, file: file ?? `architecture.${output}` };
+  let output: WorkspaceDiagramOptions["format"] = svg ? "svg" : "html";
+  if (format === "diagram-spec") output = format;
+  return { format: output, file: file ?? defaultDiagramFile(output) };
 }
 
 /** The view and its folder key, rejecting the pairs that name no single level. */
@@ -79,8 +81,8 @@ function readRules(args: string[]) {
 export function readDiagramOptions(args: string[], format: CliOutputFormat) {
   const output = readOutput(args, format);
   const theme = readChoice(args, "--theme", DIAGRAM_THEMES);
-  if (theme !== undefined && output.format === "html") {
-    throw new CliError("--theme sets the colours of --format svg; the HTML page follows the reader's light or dark scheme", ExitCode.GENERAL_ERROR);
+  if (theme !== undefined && output.format !== "svg") {
+    throw new CliError("--theme sets the colours of --format svg; the HTML page follows the reader's light or dark scheme and a spec has none", ExitCode.GENERAL_ERROR);
   }
   return { ...readView(args), theme: theme ?? "light", ...output, rules: readRules(args) };
 }
