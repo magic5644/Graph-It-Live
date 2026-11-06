@@ -149,6 +149,32 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
     }
   });
 
+  // The plugin launch matrix: serve must start and answer initialize whatever the
+  // cwd and WORKSPACE_ROOT; outside a project its tools give the set_workspace hint.
+  it.each([
+    ["unset", undefined],
+    ["empty", ""],
+    ["an unresolved variable", "${workspaceFolder}"],
+    ["a missing path", path.join(os.tmpdir(), "graph-it-missing-root")],
+  ])("serve with WORKSPACE_ROOT %s starts outside a project and inside one", async (_label, root) => {
+    const env = { ...process.env };
+    if (root === undefined) delete env.WORKSPACE_ROOT;
+    else env.WORKSPACE_ROOT = root;
+    const status = async (cwd: string) => {
+      const { child, callTool, initialize } = await startMcpSession(DIST_ENTRY, undefined, cwd, env);
+      try {
+        expect(initialize.result).toBeDefined();
+        const result = await callTool("graphitlive_get_index_status", { response_format: "json" });
+        expect(await closeSession(child)).toBe(0);
+        return result.content.map((c) => c.text).join("\n");
+      } finally {
+        if (child.exitCode === null) child.kill();
+      }
+    };
+    expect(await status(otherCwd)).toContain("graphitlive_set_workspace");
+    expect(await status(path.join(tmpDir, "src"))).not.toContain("graphitlive_set_workspace");
+  }, 120_000);
+
   // Windows has no catchable SIGTERM/SIGINT for a spawned process: kill() ends
   // the CLI at once, so the forwarding path is covered by serve unit tests there.
   it.skipIf(process.platform === "win32").each([

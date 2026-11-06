@@ -234,6 +234,17 @@ describe('McpWorkerHost', () => {
       await expect(startPromise).rejects.toThrow('Worker exited with code 1');
     });
 
+    it('should reject when the worker exits with code 0 before ready', async () => {
+      host = new McpWorkerHost(defaultOptions);
+
+      const startPromise = host.start({ rootDir: '/workspace', excludeNodeModules: true, maxDepth: 50 });
+
+      await Promise.resolve();
+      getMockWorker().emit('exit', 0);
+
+      await expect(startPromise).rejects.toThrow('Worker exited with code 0');
+    });
+
     it('should timeout if warmup takes too long', async () => {
       host = new McpWorkerHost({
         ...defaultOptions,

@@ -53,13 +53,13 @@ describe("serve command", () => {
   });
 
   it("passes no workspace outside a project, so the server starts and waits for set_workspace", async () => {
-    vi.stubEnv("WORKSPACE_ROOT", "");
+    vi.stubEnv("WORKSPACE_ROOT", undefined);
     try {
       const child = fakeChild();
       const done = run([], runtime("/home/user", false), "text");
       child.emit("exit", 0);
       await expect(done).resolves.toBe("");
-      expect(mocks.spawn.mock.calls[0][2].env.WORKSPACE_ROOT).toBe("");
+      expect(mocks.spawn.mock.calls[0][2].env.WORKSPACE_ROOT).toBeUndefined();
     } finally {
       vi.unstubAllEnvs();
     }
