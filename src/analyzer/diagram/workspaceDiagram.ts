@@ -9,7 +9,8 @@
 import { buildArchitectureGraph, type AnalyzeFile } from "../architecture/ArchitectureGraphBuilder";
 import { checkWorkspaceArchitecture, loadDeclaredRoles, type ArchitectureRulesFileNames } from "../architecture/architectureRules";
 import { assignUnits, buildArchitectureUnits } from "../architecture/architectureUnits";
-import { architectureDiagramInput, layoutDiagram } from "./architectureDiagram";
+import type { UnitSource } from "../architecture/architectureView";
+import { architectureDiagramInput, layoutDiagram, type DiagramInputOptions } from "./architectureDiagram";
 import { layoutMatrix } from "./diagramMatrix";
 import type { DIAGRAM_FORMATS, DiagramTheme, DiagramView } from "./diagramStyle";
 import { renderDiagramHtml, renderDiagramSvg } from "./diagramSvg";
@@ -37,8 +38,20 @@ export async function renderWorkspaceDiagram(workspaceRoot: string, analyze: Ana
   const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
   const source = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment, await loadDeclaredRoles(workspaceRoot)), assignment };
   const violations = options.rules ? (await checkWorkspaceArchitecture(graph, workspaceRoot, options.rules)).violations : [];
-  const input = architectureDiagramInput(source, workspaceRoot, { folder: options.folder, violations });
+  return renderSourceDiagram(source, workspaceRoot, { ...options, violations });
+}
+
+/**
+ * The diagram of a path-mode build already made (the VS Code Architecture view's), with the
+ * violations of its rules check and the view's filters: the same markup as the CLI for the same options.
+ */
+export async function renderSourceDiagram(
+  source: UnitSource,
+  workspaceRoot: string,
+  options: Pick<WorkspaceDiagramOptions, "view" | "folder" | "format" | "theme"> & Omit<DiagramInputOptions, "folder">,
+) {
+  const input = architectureDiagramInput(source, workspaceRoot, options);
   const layout = options.view === "matrix" ? layoutMatrix(input) : await layoutDiagram(input);
   const markup = options.format === "svg" ? renderDiagramSvg(layout, options.theme) : renderDiagramHtml(layout);
-  return { markup, counts: layout.text.counts };
+  return { markup, counts: layout.text.counts, width: layout.width, height: layout.height };
 }

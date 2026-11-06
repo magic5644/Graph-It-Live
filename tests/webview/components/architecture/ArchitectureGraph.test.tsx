@@ -151,6 +151,8 @@ const elk = vi.hoisted(() => ({
   applyRoutes: vi.fn(),
 }));
 vi.mock("@/webview/components/architecture/elkWorker", () => ({ createElk: () => elk.runner }));
+const rasterizeSvg = vi.hoisted(() => vi.fn<(svg: string, width: number, height: number) => Promise<string>>());
+vi.mock("@/webview/components/architecture/rasterizeSvg", () => ({ rasterizeSvg }));
 vi.mock("@/webview/components/architecture/elkLayout", () => ({
   toElkGraph: elk.toElkGraph, applyElkLayout: elk.applyElkLayout, applyRoutes: elk.applyRoutes,
 }));
@@ -1178,6 +1180,54 @@ describe("ArchitectureGraph", () => {
       send({ ...withUnits, revision: "r2" });
       await settle();
       expect(screen.getByRole("button", { name: "1 frontend" }).getAttribute("aria-pressed")).toBe("false");
+    });
+
+    it("exports the drawn level with the view's filters on the export commands, and rasterises the PNG (#448)", async () => {
+      const postMessage = await setup(unseen());
+      const exported = () => lastOf(postMessage, "architectureExportDiagram");
+      send({ type: "architectureControls", exportDiagram: { target: "file" } });
+      expect(exported()).toEqual({
+        command: "architectureExportDiagram", revision: withUnits.revision, target: "file", view: "graph",
+        folder: undefined, role: undefined, minImports: undefined,
+      });
+      fireEvent.click(screen.getByRole("button", { name: "1 library" }));
+      send({ type: "architectureControls", minImports: 2 });
+      send({ type: "architectureControls", exportDiagram: { target: "clipboard" } });
+      expect(exported()).toMatchObject({ target: "clipboard", view: "graph", role: "library", minImports: 2 });
+      // The matrix draws neither filter.
+      send({ type: "architectureControls", view: "matrix" });
+      send({ type: "architectureControls", exportDiagram: { target: "file" } });
+      expect(exported()).toMatchObject({ target: "file", view: "matrix", role: undefined, minImports: undefined });
+      // An entered unit: its groups, and no role.
+      send({ type: "architectureControls", view: "graph" });
+      send({ type: "architectureControls", unit: "apps/web" });
+      await settle();
+      send({ type: "architectureControls", exportDiagram: { target: "clipboard" } });
+      expect(exported()).toMatchObject({ target: "clipboard", view: "graph", folder: "apps/web", role: undefined, minImports: 2 });
+
+      rasterizeSvg.mockResolvedValueOnce("UE5H");
+      send({ type: "architectureRasterize", requestId: 4, svg: "<svg/>", width: 10, height: 20 });
+      await settle();
+      expect(rasterizeSvg).toHaveBeenLastCalledWith("<svg/>", 10, 20);
+      expect(lastOf(postMessage, "architectureRasterized")).toEqual({ command: "architectureRasterized", requestId: 4, png: "UE5H" });
+      rasterizeSvg.mockRejectedValueOnce(new Error("too large"));
+      send({ type: "architectureRasterize", requestId: 5, svg: "<svg/>", width: 10, height: 20 });
+      await settle();
+      expect(lastOf(postMessage, "architectureRasterized")).toEqual({ command: "architectureRasterized", requestId: 5, error: "too large" });
+      rasterizeSvg.mockRejectedValueOnce("no canvas");
+      send({ type: "architectureRasterize", requestId: 6, svg: "<svg/>", width: 10, height: 20 });
+      await settle();
+      expect(lastOf(postMessage, "architectureRasterized")).toEqual({ command: "architectureRasterized", requestId: 6, error: "no canvas" });
+    });
+
+    it("asks for no export before a summary, and in Louvain mode lets the extension say why it draws nothing", () => {
+      const postMessage = vi.fn();
+      render(<ArchitectureGraph postMessage={postMessage} />);
+      send({ type: "architectureControls", exportDiagram: { target: "file" } });
+      expect(lastOf(postMessage, "architectureExportDiagram")).toBeUndefined();
+      send(summary);
+      send({ type: "architectureControls", exportDiagram: { target: "file" } });
+      expect(lastOf(postMessage, "architectureExportDiagram")).toMatchObject({ revision: summary.revision, view: "graph", folder: undefined });
     });
 
     // jsdom lays nothing out: these styles keep a 229px view's header compact (#426); the narrow-view E2E measures it.

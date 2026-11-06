@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { ArchitectureExportTarget } from '@/shared/architecture-types';
 import { validateReviewCallGraphTarget } from '@/shared/reviewTarget';
 import type { GraphProvider } from '../GraphProvider';
 import type { VsCodeLogger } from '../extensionLogger';
@@ -36,6 +37,7 @@ export class CommandRegistrationService {
       this.registerSetViewModeListCommand(),
       this.registerSetViewModeSymbolCommand(),
       this.registerSetViewModeArchitectureCommand(),
+      this.registerExportArchitectureDiagramCommands(),
       this.registerShowReverseDependenciesCommand(),
       this.registerHideReverseDependenciesCommand(),
       this.registerToggleUnusedFilterCommands(),
@@ -155,6 +157,22 @@ export class CommandRegistrationService {
         await this.commandCoordinator.handleSetViewModeArchitecture();
       },
       'Graph-It-Live: Switch to architecture view failed'
+    );
+  }
+
+  /** Export / Copy Architecture Diagram: the webview names its drawn level, as its toolbar buttons do. */
+  private registerExportArchitectureDiagramCommands(): vscode.Disposable {
+    const register = (commandId: string, target: ArchitectureExportTarget) =>
+      vscode.commands.registerCommand(commandId, () => {
+        if (this.provider.getViewMode() !== 'architecture') {
+          void vscode.window.showInformationMessage('Graph-It-Live: switch the graph to the Architecture view to export its diagram.');
+          return;
+        }
+        this.provider.setArchitectureControls({ exportDiagram: { target } });
+      });
+    return vscode.Disposable.from(
+      register('graph-it-live.exportArchitectureDiagram', 'file'),
+      register('graph-it-live.copyArchitectureDiagram', 'clipboard'),
     );
   }
 

@@ -21,6 +21,8 @@ import {
   type HiddenGroup,
   type UnitSource,
 } from "@/analyzer/architecture/architectureView";
+import { diagramLevel, type DiagramTheme } from "@/analyzer/diagram/diagramStyle";
+import { renderSourceDiagram } from "@/analyzer/diagram/workspaceDiagram";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
 import {
   DEFAULT_RENDERED_GROUPS,
@@ -32,12 +34,15 @@ import {
   type ArchitectureDetailRenderedCommand,
   type ArchitectureEnterFolderCommand,
   type ArchitectureEvidenceCommand,
+  type ArchitectureExportDiagramCommand,
+  type ArchitectureExportTarget,
   type ArchitectureExtensionMessage,
   type ArchitectureFindCommand,
   type ArchitectureInteractedCommand,
   type ArchitectureMatrixCommand,
   type ArchitectureMatrixRenderedCommand,
   type ArchitectureOpenFileCommand,
+  type ArchitectureRasterizedCommand,
   type ArchitectureRenderedCommand,
   type ArchitectureRevealInFileGraphCommand,
   type ArchitectureRuleEvidenceCommand,
@@ -51,6 +56,10 @@ import { normalizePath } from "@/shared/path";
 import { validateWorkspacePath } from "@/shared/pathSecurity";
 
 const PROGRESS_INTERVAL_MS = 250;
+/** How long the webview may take to draw a PNG export. */
+const RASTERIZE_TIMEOUT_MS = 30_000;
+/** The export formats the save dialog offers, by file extension. */
+const EXPORT_FORMATS: Readonly<Record<string, "svg" | "html" | "png">> = { ".svg": "svg", ".html": "html", ".htm": "html", ".png": "png" };
 const BUSY_INDEX_STATES = new Set<IndexerStatusSnapshot["state"]>(["counting", "indexing", "validating"]);
 
 export interface ArchitectureViewServiceOptions {
@@ -70,6 +79,13 @@ export interface ArchitectureViewServiceOptions {
   /** Opens the extension's settings. */
   openSettings: () => void;
   warn: (message: string) => void;
+  /** Shows a message to the user. */
+  notify: (message: string, level: "info" | "error") => void;
+  /** Colours of the exported SVG and PNG: the editor's theme. */
+  diagramTheme: () => DiagramTheme;
+  /** Asks where to save a diagram, starting at `defaultPath`; undefined when cancelled. */
+  pickDiagramFile: (defaultPath: string) => Promise<string | undefined>;
+  writeClipboard: (text: string) => Promise<void>;
   /** Indexed files whose unresolved imports may resolve to `filePath` once it exists. */
   unresolvedImportersOf: (filePath: string) => string[];
 }
@@ -171,6 +187,13 @@ function canvasControls(controls: Omit<ArchitectureControlsMessage, "type"> | un
   };
 }
 
+/** The export the commands or the E2E driver ask for, checked; its E2E `output` stays in the extension. */
+type ExportControl = { target: ArchitectureExportTarget; output?: string };
+
+function exportControl(control: ExportControl | undefined): ArchitectureControlsMessage["exportDiagram"] {
+  return control?.target === "file" || control?.target === "clipboard" ? { target: control.target } : undefined;
+}
+
 /** The rules check of a build: none without a config at the root, or why the config was refused. */
 type RulesState = { check: WorkspaceArchitectureCheck } | { configFile: string; error: string } | undefined;
 
@@ -254,6 +277,22 @@ function graphFile(files: ReadonlySet<string>, relativePath: unknown): string {
   return relative;
 }
 
+/** The level and filters an export request names, checked: it comes from the webview. */
+function exportLevel({ view, folder, role, minImports }: ArchitectureExportDiagramCommand) {
+  return {
+    ...diagramLevel(view === "matrix" ? "matrix" : undefined, folder === undefined ? undefined : String(folder)),
+    role: role === undefined ? undefined : String(role),
+    minImports: Number.isSafeInteger(minImports) && Number(minImports) >= 1 ? Number(minImports) : undefined,
+  };
+}
+
+/** The format of an export file, by its extension. */
+function exportFormat(file: string): "svg" | "html" | "png" {
+  const format = EXPORT_FORMATS[path.extname(file).toLowerCase()];
+  if (format === undefined) throw new Error(`${path.basename(file)}: save as .svg, .html or .png`);
+  return format;
+}
+
 type DependentsRequest = ArchitectureDependentsCommand | ArchitectureDependentFilesCommand;
 
 /**
@@ -318,6 +357,11 @@ export class ArchitectureViewService {
   /** A source file changed while the running build was analysing. */
   private changedDuringBuild: { files: Set<string>; any: boolean } = { files: new Set(), any: false };
   private disposed = false;
+  /** PNG exports waiting for the webview's raster, by request id. */
+  private readonly rasterRequests = new Map<number, (reply: Partial<ArchitectureRasterizedCommand>) => void>();
+  private rasterCount = 0;
+  /** The file the E2E driver's next file export writes, without the save dialog. */
+  private exportOutput: string | undefined;
   private readonly unsubscribeIndexStatus: () => void;
 
   constructor(private readonly options: ArchitectureViewServiceOptions) {
@@ -400,7 +444,73 @@ export class ArchitectureViewService {
       case "architectureOpenSettings":
         this.options.openSettings();
         return Promise.resolve();
+      case "architectureExportDiagram":
+        return this.exportDiagram(message);
+      case "architectureRasterized":
+        this.rasterRequests.get(Number(message.requestId))?.(message);
+        return Promise.resolve();
     }
+  }
+
+  /**
+   * Draws the level the webview names with the analyzer's renderer (the CLI's diagram), from the
+   * graph this revision was built from, then saves it (SVG, HTML or PNG) or copies its SVG.
+   */
+  private async exportDiagram(message: ArchitectureExportDiagramCommand): Promise<void> {
+    const output = message.target === "file" ? this.exportOutput : undefined;
+    this.exportOutput = undefined;
+    if (!this.graphFor(message.revision)) {
+      this.options.notify("The architecture changed: export again once the view is redrawn.", "info");
+      return;
+    }
+    const cached = this.graph!;
+    const { workspaceRoot } = this.options;
+    try {
+      if (!cached.source) throw new Error("the diagram draws units: set graph-it-live.communityMode to path");
+      const file = message.target === "file" ? await this.exportFile(output) : undefined;
+      if (message.target === "file" && file === undefined) return;
+      const format = file === undefined ? "svg" : exportFormat(file);
+      const { markup, width, height } = await renderSourceDiagram(cached.source, workspaceRoot, {
+        ...exportLevel(message),
+        format: format === "html" ? "html" : "svg",
+        theme: this.options.diagramTheme(),
+        violations: cached.rules && "check" in cached.rules ? cached.rules.check.violations : [],
+      });
+      if (file === undefined) {
+        await this.options.writeClipboard(markup);
+        this.options.notify("Architecture diagram copied as SVG.", "info");
+        return;
+      }
+      await fs.promises.writeFile(file, format === "png" ? Buffer.from(await this.rasterize(markup, width, height), "base64") : markup);
+      this.options.notify(`Architecture diagram saved to ${path.basename(file)}.`, "info");
+    } catch (error) {
+      const reason = maskWorkspaceRoot(error instanceof Error ? error.message : String(error), workspaceRoot);
+      this.options.notify(`Could not export the architecture diagram: ${reason}`, "error");
+    }
+  }
+
+  /** The file to write: the E2E driver's `output` once checked to stay in the workspace (CWE-22), else the user's pick. */
+  private exportFile(output: string | undefined): Promise<string | undefined> {
+    const { workspaceRoot } = this.options;
+    if (output === undefined) return this.options.pickDiagramFile(path.join(workspaceRoot, "architecture.svg"));
+    return Promise.resolve(validateWorkspacePath(path.resolve(workspaceRoot, output), workspaceRoot));
+  }
+
+  /** The PNG of an SVG at 2×, drawn by the webview: base64. */
+  private rasterize(svg: string, width: number, height: number): Promise<string> {
+    this.rasterCount += 1;
+    const requestId = this.rasterCount;
+    return new Promise((resolve, reject) => {
+      const settle = (reply: Partial<ArchitectureRasterizedCommand>) => {
+        clearTimeout(timer);
+        this.rasterRequests.delete(requestId);
+        if (typeof reply.png === "string" && reply.png !== "") resolve(reply.png);
+        else reject(new Error(String(reply.error ?? "the view could not draw the PNG")));
+      };
+      const timer = setTimeout(() => settle({ error: "the view did not draw the PNG in time; keep the Architecture view open" }), RASTERIZE_TIMEOUT_MS);
+      this.rasterRequests.set(requestId, settle);
+      this.options.post({ type: "architectureRasterize", requestId, svg, width, height });
+    });
   }
 
   /**
@@ -655,7 +765,7 @@ export class ArchitectureViewService {
   }
 
   /** E2E driver: sets the webview's controls; any extension can call it, so check the values. */
-  setControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): void {
+  setControls(controls: (Omit<ArchitectureControlsMessage, "type" | "exportDiagram"> & { exportDiagram?: ExportControl }) | undefined): void {
     const { unit, folder, find, minImports, focus, expand, collapse, evidenceOf, openEvidenceRow, view, matrixCell, matrixHeader, rule, role, showMoreGroups } = controls ?? {};
     const text = (value: unknown) => (typeof value === "string" ? value.slice(0, 256) : undefined);
     const row = text(matrixCell?.row);
@@ -680,12 +790,22 @@ export class ArchitectureViewService {
       dependentsOf: text(controls?.dependentsOf),
       revealFile: text(controls?.revealFile),
       clearDependents: controls?.clearDependents === true ? true : undefined,
+      exportDiagram: this.exportControl(controls?.exportDiagram),
       ...canvasControls(controls),
     });
   }
 
+  /** Keeps a file export's E2E `output` for the webview's answer, which names the level. */
+  private exportControl(control: ExportControl | undefined): ArchitectureControlsMessage["exportDiagram"] {
+    const checked = exportControl(control);
+    if (checked) this.exportOutput = checked.target === "file" && typeof control?.output === "string" ? control.output : undefined;
+    return checked;
+  }
+
   dispose(): void {
     this.disposed = true;
+    // Deleting the entry being visited is safe in a Map iteration.
+    for (const settle of this.rasterRequests.values()) settle({ error: "the view was closed" });
     this.unsubscribeIndexStatus();
     this.running?.controller.abort();
     this.running = null;

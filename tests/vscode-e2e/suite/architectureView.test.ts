@@ -834,6 +834,57 @@ suite('Architecture view mode', () => {
     await waitForRender('the inferred roles again', staleCount, render => !render.stale && render.roles.join() === EXPECTED.roles.legend.join());
   });
 
+  test('exports the drawn level with its role filter as the analyzer\'s SVG and PNG, and copies it as SVG (#448)', async function () {
+    this.timeout(240000);
+    const built = await openFreshArchitecture();
+    const root = vscode.workspace.workspaceFolders![0].uri;
+    const svgFile = vscode.Uri.joinPath(root, 'architecture-e2e.svg');
+    const pngFile = vscode.Uri.joinPath(root, 'architecture-e2e.png');
+    /** The bytes the extension writes once the export settles. */
+    const written = async (file: vscode.Uri): Promise<Uint8Array> => {
+      const start = Date.now();
+      while (Date.now() - start < 30000) {
+        try {
+          return await vscode.workspace.fs.readFile(file);
+        } catch {
+          await sleep(250);
+        }
+      }
+      assert.fail(`${file.path} was not written`);
+    };
+    const exportTo = (exportDiagram: Record<string, string>) => vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { exportDiagram });
+    await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { role: 'library' });
+    const filtered = await waitForRender('the library filter', built.renderCount, render => render.roles.includes('library=4*'));
+    const clipboard = await vscode.env.clipboard.readText();
+    try {
+      await exportTo({ target: 'file', output: 'architecture-e2e.svg' });
+      const svg = Buffer.from(await written(svgFile)).toString('utf8');
+      assert.match(svg, /^<svg /, 'an SVG of the analyzer renderer, not a canvas screenshot');
+      assert.strictEqual(svg.match(/<rect class="node"/g)?.length, EXPECTED.roles.libraries, 'the drawn units: the libraries only');
+      assert.ok(svg.includes('role library'), 'the caption names the role filter');
+
+      await exportTo({ target: 'file', output: 'architecture-e2e.png' });
+      const png = await written(pngFile);
+      assert.deepStrictEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 'a PNG file');
+      const width = Number(/width="([\d.]+)"/.exec(svg)?.[1]);
+      assert.strictEqual(Buffer.from(png).readUInt32BE(16), Math.ceil(width * 2), 'rasterised at 2x');
+
+      await vscode.env.clipboard.writeText('');
+      await exportTo({ target: 'clipboard' });
+      const start = Date.now();
+      while (Date.now() - start < 30000 && (await vscode.env.clipboard.readText()) === '') await sleep(250);
+      assert.strictEqual(await vscode.env.clipboard.readText(), svg, 'Copy as SVG copies the same SVG');
+    } finally {
+      await vscode.env.clipboard.writeText(clipboard);
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { role: 'library' });
+      await waitForRender('every unit again', filtered.renderCount, render => !render.roles.some(role => role.endsWith('*')));
+      const files = [svgFile, pngFile];
+      const existing = (await Promise.all(files.map(file => Promise.resolve(vscode.workspace.fs.stat(file)).then(() => file, () => undefined))))
+        .filter((file): file is vscode.Uri => file !== undefined);
+      if (existing.length > 0) await settleFileEvents(existing, () => Promise.all(existing.map(file => vscode.workspace.fs.delete(file))));
+    }
+  });
+
   test('keeps the focused group, the find and the viewport across a stale mark and the min-imports filter', async function () {
     this.timeout(240000);
     await openFreshArchitecture();

@@ -248,6 +248,23 @@ export interface ArchitectureControlsMessage {
   legendUnit?: string;
   /** Clicks the header's cycle count: the first cycle block is selected and fitted. */
   cycleCount?: boolean;
+  /**
+   * Exports the drawn level to a file (`file`) or the clipboard as SVG (`clipboard`): sent by the
+   * Export / Copy Architecture Diagram commands of the view's toolbar. Sent alone: it exports the
+   * level as drawn before the other controls of the same message apply.
+   */
+  exportDiagram?: { target: ArchitectureExportTarget };
+}
+
+export type ArchitectureExportTarget = "file" | "clipboard";
+
+/** Rasterises a diagram's SVG at 2× in the webview, the PNG export's only renderer. */
+export interface ArchitectureRasterizeMessage {
+  type: "architectureRasterize";
+  requestId: number;
+  svg: string;
+  width: number;
+  height: number;
 }
 
 export type ArchitectureExtensionMessage =
@@ -261,7 +278,8 @@ export type ArchitectureExtensionMessage =
   | ArchitectureDependentsResultMessage
   | ArchitectureDependentFilesPageMessage
   | ArchitectureRevisionChangedMessage
-  | ArchitectureControlsMessage;
+  | ArchitectureControlsMessage
+  | ArchitectureRasterizeMessage;
 
 // ---------------------------------------------------------------------------
 // Webview → Extension messages
@@ -560,6 +578,30 @@ export interface ArchitectureDetailRenderedCommand {
   evidence?: { edgeCount: number; total: number; shown: number; firstSource?: string; title: string; pairs: string[] };
 }
 
+/**
+ * Exports the drawn level with the analyzer's renderer: the units or the groups of `folder` (a
+ * unit or folder key), as a graph or a matrix, with the view's role and min-imports filters.
+ */
+export interface ArchitectureExportDiagramCommand {
+  command: "architectureExportDiagram";
+  revision: string;
+  target: ArchitectureExportTarget;
+  view: "graph" | "matrix";
+  folder?: string;
+  /** Units level of the graph only. */
+  role?: string;
+  /** Graph only; 1 or none draws every edge. */
+  minImports?: number;
+}
+
+/** The PNG of an `architectureRasterize` request, base64, or why the webview could not draw it. */
+export interface ArchitectureRasterizedCommand {
+  command: "architectureRasterized";
+  requestId: number;
+  png?: string;
+  error?: string;
+}
+
 export type ArchitectureWebviewCommand =
   | ArchitectureMountedCommand
   | ArchitectureRefreshCommand
@@ -581,4 +623,6 @@ export type ArchitectureWebviewCommand =
   | ArchitectureDependentsCommand
   | ArchitectureDependentFilesCommand
   | ArchitectureDependentsRenderedCommand
-  | ArchitectureDetailRenderedCommand;
+  | ArchitectureDetailRenderedCommand
+  | ArchitectureExportDiagramCommand
+  | ArchitectureRasterizedCommand;

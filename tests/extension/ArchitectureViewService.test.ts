@@ -14,10 +14,12 @@ import {
   DEFAULT_RENDERED_GROUPS,
   MAX_RENDERED_GROUPS,
   type ArchitectureControlsMessage,
+  type ArchitectureExportDiagramCommand,
   type ArchitectureExtensionMessage,
   type ArchitectureFolderLevelMessage,
   type ArchitectureFoundMessage,
   type ArchitectureMatrixMessage,
+  type ArchitectureRasterizeMessage,
   type ArchitectureStateMessage,
   type ArchitectureSummaryMessage,
 } from "../../src/shared/architecture-types";
@@ -61,6 +63,8 @@ describe("ArchitectureViewService", () => {
   let revealed: string[];
   let settingsOpened: boolean[];
   let warnings: string[];
+  let notices: { message: string; level: "info" | "error" }[];
+  let clipboard: string[];
 
   const summaries = () => posted.filter((message): message is ArchitectureSummaryMessage => message.type === "architectureSummary");
   const states = () => posted.filter(message => message.type === "architectureState");
@@ -87,6 +91,12 @@ describe("ArchitectureViewService", () => {
       openSettings: () => settingsOpened.push(true),
       warn: (message) => warnings.push(message),
       unresolvedImportersOf: () => [],
+      notify: (message, level) => notices.push({ message, level }),
+      diagramTheme: () => "light",
+      pickDiagramFile: async () => undefined,
+      writeClipboard: async (text) => {
+        clipboard.push(text);
+      },
       ...overrides,
     });
 
@@ -98,6 +108,8 @@ describe("ArchitectureViewService", () => {
     revealed = [];
     settingsOpened = [];
     warnings = [];
+    notices = [];
+    clipboard = [];
     communityMode = "path";
   });
 
@@ -1023,6 +1035,13 @@ describe("ArchitectureViewService", () => {
     expect(posted.at(-1)).toMatchObject({ dependentsOf: "src/ui", revealFile: "main.ts", clearDependents: true });
     service.setControls({ dependentsOf: 1, revealFile: "x".repeat(300), clearDependents: "yes" } as never);
     expect(posted.at(-1)).toMatchObject({ dependentsOf: undefined, revealFile: "x".repeat(256), clearDependents: undefined });
+    // The E2E output stays in the extension: the webview only learns the target.
+    service.setControls({ exportDiagram: { target: "file", output: "a.svg" } });
+    expect((posted.at(-1) as ArchitectureControlsMessage).exportDiagram).toEqual({ target: "file" });
+    service.setControls({ exportDiagram: { target: "clipboard", output: "a.svg" } });
+    expect((posted.at(-1) as ArchitectureControlsMessage).exportDiagram).toEqual({ target: "clipboard" });
+    service.setControls({ exportDiagram: { target: "printer" } } as never);
+    expect(posted.at(-1)).toMatchObject({ exportDiagram: undefined });
   });
 
   describe("group detail, evidence and opening files", () => {
@@ -1317,6 +1336,163 @@ describe("ArchitectureViewService", () => {
       expect(service.getE2EState().folder).toBe("apps/web/pages");
     });
   });
+  describe("diagram export (#448)", () => {
+    const built = async (overrides: Partial<ArchitectureViewServiceOptions> = {}) => {
+      const service = createService(overrides);
+      await service.show();
+      return { service, revision: summaries()[0].revision };
+    };
+    const exportMessage = (revision: string, extra: Partial<ArchitectureExportDiagramCommand> = {}): ArchitectureExportDiagramCommand =>
+      ({ command: "architectureExportDiagram", revision, target: "file", view: "graph", ...extra });
+    const read = (relative: string) => fs.readFile(path.join(root, relative), "utf8");
+    /** Exports as the E2E driver does: `output` goes to the extension only, the webview names the level. */
+    const run = (service: ArchitectureViewService, revision: string, extra: Partial<ArchitectureExportDiagramCommand> & { output?: string } = {}) => {
+      const { output, ...rest } = extra;
+      if (output !== undefined) service.setControls({ exportDiagram: { target: "file", output } });
+      return service.handleWebviewMessage(exportMessage(revision, rest));
+    };
+
+    it("saves the units as the analyzer's SVG, the HTML page, or one folder's matrix", async () => {
+      const { service, revision } = await built();
+      await run(service, revision, { output: "units.svg" });
+      const svg = await read("units.svg");
+      expect(svg).toMatch(/^<svg /);
+      expect(svg).toContain(">src</text>");
+      expect(svg).toContain("#ffffff");
+      expect(notices.at(-1)).toEqual({ message: "Architecture diagram saved to units.svg.", level: "info" });
+
+      await run(service, revision, { output: "units.HTML" });
+      expect(await read("units.HTML")).toMatch(/^<!doctype html>/i);
+
+      await run(service, revision, { output: "src.svg", view: "matrix", folder: "src" });
+      const matrix = await read("src.svg");
+      expect(matrix).toContain("folder src");
+      expect(matrix).toContain('class="cell');
+    });
+
+    it("draws the view's role and min-imports filters, and copies the SVG in the editor's theme", async () => {
+      const { service, revision } = await built({ diagramTheme: () => "dark" });
+      await run(service, revision, { target: "clipboard", role: "no-such-role", minImports: 2 });
+      expect(clipboard).toHaveLength(1);
+      expect(clipboard[0]).toContain("#0d1117");
+      expect(clipboard[0]).toContain("role no-such-role · min. 2 imports");
+      expect(clipboard[0]).toContain("0 units");
+      // A threshold the webview could not send draws every edge, as Min. imports 1 does.
+      for (const minImports of [0, -2, 1.5, Number.NaN, "3"]) {
+        await service.handleWebviewMessage(exportMessage(revision, { target: "clipboard", minImports } as never));
+        expect(clipboard.at(-1), String(minImports)).not.toContain("min.");
+      }
+      expect(notices.at(-1)).toEqual({ message: "Architecture diagram copied as SVG.", level: "info" });
+    });
+
+    it("asks where to save without an output, and does nothing when the dialog is cancelled", async () => {
+      const picked: string[] = [];
+      let answer: string | undefined;
+      const { service, revision } = await built({
+        pickDiagramFile: async (defaultPath) => {
+          picked.push(defaultPath);
+          return answer;
+        },
+      });
+      await run(service, revision);
+      expect(picked).toEqual([path.join(root, "architecture.svg")]);
+      expect(notices).toEqual([]);
+      answer = path.join(root, "picked.html");
+      await run(service, revision);
+      expect(await read("picked.html")).toMatch(/^<!doctype html>/i);
+      // An E2E output serves one file export: a copy in between drops it, and the next export asks again.
+      service.setControls({ exportDiagram: { target: "file", output: "once.svg" } });
+      await run(service, revision, { target: "clipboard" });
+      await run(service, revision);
+      expect(picked).toHaveLength(3);
+      await expect(fs.access(path.join(root, "once.svg"))).rejects.toThrow();
+    });
+
+    it("saves the PNG the webview rasterises, and reports its failure without writing", async () => {
+      const { service, revision } = await built();
+      const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]);
+      const exported = run(service, revision, { output: "units.png" });
+      await vi.waitFor(() => expect(posted.at(-1)).toMatchObject({ type: "architectureRasterize", requestId: 1 }));
+      const request = posted.at(-1) as ArchitectureRasterizeMessage;
+      expect(request.svg).toMatch(/^<svg /);
+      expect(request.svg).toContain(`width="${request.width}" height="${request.height}"`);
+      // An unknown request id changes nothing.
+      await service.handleWebviewMessage({ command: "architectureRasterized", requestId: 99, png: "AAAA" });
+      await service.handleWebviewMessage({ command: "architectureRasterized", requestId: 1, png: png.toString("base64") });
+      await exported;
+      expect(await fs.readFile(path.join(root, "units.png"))).toEqual(png);
+
+      const failed = run(service, revision, { output: "failed.png" });
+      await vi.waitFor(() => expect(posted.at(-1)).toMatchObject({ type: "architectureRasterize", requestId: 2 }));
+      await service.handleWebviewMessage({ command: "architectureRasterized", requestId: 2, error: "too large" });
+      await failed;
+      expect(notices.at(-1)).toEqual({ message: "Could not export the architecture diagram: too large", level: "error" });
+      await expect(fs.access(path.join(root, "failed.png"))).rejects.toThrow();
+    });
+
+    it("gives up on a PNG the webview never draws: on dispose, or after the timeout", async () => {
+      const { service, revision } = await built();
+      const closed = run(service, revision, { output: "closed.png" });
+      await vi.waitFor(() => expect(posted.at(-1)).toMatchObject({ type: "architectureRasterize" }));
+      service.dispose();
+      await closed;
+      expect(notices.at(-1)).toEqual({ message: "Could not export the architecture diagram: the view was closed", level: "error" });
+
+      const second = await built();
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      try {
+        const late = run(second.service, second.revision, { output: "late.png" });
+        await vi.waitFor(() => expect(posted.at(-1)).toMatchObject({ type: "architectureRasterize" }));
+        vi.advanceTimersByTime(30_000);
+        await late;
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(notices.at(-1)?.message).toContain("did not draw the PNG in time");
+    });
+
+    it("refuses an output outside the workspace, an unknown extension, a stale revision and Louvain mode", async () => {
+      const { service, revision } = await built();
+      // Traversal in either separator, an absolute path outside, and a symlink leaving the workspace (CWE-22).
+      const outside = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "gitl-architecture-outside-")));
+      try {
+        await fs.symlink(outside, path.join(root, "link"), "junction");
+        // A backslash separates only on Windows; elsewhere `..\escape.svg` names a file of the workspace.
+        const backslash = String.raw`..\escape.svg`;
+        const refused = ["../escape.svg", ...(process.platform === "win32" ? [backslash] : []), path.join(outside, "absolute.svg"), "link/escaped.svg"];
+        for (const output of refused) {
+          notices.length = 0;
+          await run(service, revision, { output });
+          expect(notices, output).toEqual([expect.objectContaining({ level: "error" })]);
+          expect(notices[0].message, output).not.toContain(root);
+        }
+        expect(await fs.readdir(outside)).toEqual([]);
+        if (process.platform !== "win32") {
+          await run(service, revision, { output: backslash });
+          await expect(fs.access(path.join(root, backslash))).resolves.toBeUndefined();
+        }
+        await expect(fs.access(path.join(path.dirname(root), "escape.svg"))).rejects.toThrow();
+      } finally {
+        await fs.rm(outside, { recursive: true, force: true });
+      }
+      await run(service, revision, { output: "units.txt" });
+      expect(notices.at(-1)).toEqual({ message: "Could not export the architecture diagram: units.txt: save as .svg, .html or .png", level: "error" });
+      await run(service, revision, { output: "nowhere.svg", folder: "nowhere" });
+      expect(notices.at(-1)?.message).toContain('No file below folder "nowhere"');
+
+      const count = notices.length;
+      await run(service, "old", { output: "old.svg" });
+      expect(posted.at(-1)).toMatchObject({ type: "architectureRevisionChanged" });
+      expect(notices.slice(count)).toEqual([{ message: "The architecture changed: export again once the view is redrawn.", level: "info" }]);
+      await expect(fs.access(path.join(root, "old.svg"))).rejects.toThrow();
+
+      communityMode = "louvain";
+      await service.build();
+      await run(service, summaries().at(-1)!.revision, { output: "louvain.svg" });
+      expect(notices.at(-1)?.message).toContain("set graph-it-live.communityMode to path");
+    });
+  });
+
 });
 
 describe("writtenBefore", () => {
