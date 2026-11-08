@@ -396,11 +396,12 @@ A role describes a unit. It comes from the unit's manifest, top-level configs, `
 | `micro-frontend` | `@module-federation/*` or `single-spa` dependency; `ModuleFederationPlugin` in a bundler config |
 | `frontend` | `react`, `vue`, `@angular/core`, `svelte` or `solid-js` dependency, with an `index.html` or a bundler config (vite, webpack, next, nuxt, rspack, `angular.json`) |
 
-A Vue SFC counts its imports, its `<script src>` and its HTML `<template src>` as dependencies: an external block is an import edge of its `.vue`, inside the workspace only (a symbolic link that leaves it is refused).
 | `service` | `express`, `fastify`, `@nestjs/core`, `koa` or `hono` dependency; a `Dockerfile` with `EXPOSE` |
 | `library` | none of the above, and imported by another unit (unless all its files are tooling) |
 | `tooling` | only scripts, tests or config files (`scripts/`, `tools/`, `e2e/`, `tests/`, `.github/`, `*.test.*`, `*.config.*`), even when imported |
 | `unknown` | nothing conclusive |
+
+A Vue SFC counts its imports, its `<script src>` and its HTML `<template src>` as dependencies: an external block is an import edge of its `.vue`, inside the workspace only (a symbolic link that leaves it is refused).
 
 A unit matching several roles takes the first in the table; the other matches stay as evidence. The badge reads `[role?]` when inferred and `[role]` when declared; its tooltip lists the evidence.
 

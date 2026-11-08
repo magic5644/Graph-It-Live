@@ -31,12 +31,6 @@ interface SymbolGraphResult {
   nodeMetadata?: Record<string, GraphNodeMetadata>;
 }
 
-/**
- * Service for building symbol-level dependency graphs.
- *
- * Uses AST-based analysis (ts-morph / tree-sitter) for fast, accurate
- * symbol extraction and dependency analysis.
- */
 /** The symbol view's root is the file: a Vue component as a `.vue`, React when one of its symbols is a component. */
 function rootMetadata(rootNodeId: string, filePath: string, symbols: readonly SymbolInfo[]): Record<string, GraphNodeMetadata> | undefined {
   let framework: Framework | undefined;
@@ -44,6 +38,13 @@ function rootMetadata(rootNodeId: string, filePath: string, symbols: readonly Sy
   else if (symbols.some((symbol) => symbol.framework === "react")) framework = "react";
   return framework ? { [normalizePath(rootNodeId)]: { hubScore: 0, framework } } : undefined;
 }
+
+/**
+ * Service for building symbol-level dependency graphs.
+ *
+ * Uses AST-based analysis (ts-morph / tree-sitter) for fast, accurate
+ * symbol extraction and dependency analysis.
+ */
 
 export class SymbolViewService {
   private callGraphQuery?: ICallGraphQueryService;
