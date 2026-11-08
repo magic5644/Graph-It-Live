@@ -484,6 +484,18 @@ Use `pull_request`, not `pull_request_target`, for untrusted pull requests. The 
 
 **Vue 3 single-file components** (Vue 3.x, `<script>` and `<script setup>`, JS, TS, JSX and TSX): imports, symbols and call graph nodes keep the line and column of the `.vue` file. The template links `<Child />`, handlers (`@click="save"` passes, `save()` calls), interpolations, slots and custom directives to the script bindings they use, so a component used only in the template is not reported unused. `<script src>` and an HTML `<template src>` inside the workspace are read, and an edit of the external file refreshes its `.vue`. `.vue` files and the SFC component node show the Vue logo and green in every graph, apart from React. Review and Branch Watch report props and events added or removed by name.
 
+<div align="center">
+  <img src="media/vue-call-graph.png" alt="Call graph of the Parent Vue component on a test fixture: Parent references the Child and ChildRow components, the save handler and the LazyPanel async component, and calls format from format.ts" width="600"/>
+</div>
+
+*The Vue template in the Live Call Graph, on a test fixture: put the cursor in the `<template>` of `Parent.vue` and run **Graph-It-Live: Show Call Graph**. `<Child @save="save" />` and `<child-row>` become `REFERENCES` edges (dashed), `{{ format(count) }}` and `@click="save()"` become calls (solid). The green nodes with the Vue logo are SFC components.*
+
+<div align="center">
+  <img src="media/vue-file-graph.png" alt="File graph of Parent.vue on a test fixture: Parent.vue imports format.ts, ChildRow.vue and Child.vue, and the .vue files are green with the Vue logo" width="600"/>
+</div>
+
+*The file graph of the same fixture: open `Parent.vue` and run **Graph-It-Live: Show Dependency Graph**. `.vue` files are green with the Vue logo; the Vue badge in the legend names the mark.*
+
 Not resolved, and never guessed: Vue 2, Nuxt and other auto-imports, globally or plugin-registered components, a dynamic `:is`, a `pug` template, and an external file outside the workspace or reached through a symbolic link. A template that cannot be read fully counts every script binding as used. Props and events typed by an imported type or built at runtime are reported as partial; props/emits type compatibility is not checked. An external template edited while no Graph-It process is watching it is read again when its `.vue` changes or the index is rebuilt.
 
 ## Documentation
