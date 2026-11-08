@@ -363,9 +363,11 @@ describe('graph_context MCP contract', () => {
     expect(result.nextCursor).toBeDefined();
     expect(formatted.content[0].text).toContain(result.nextCursor as string);
     expect(formatted.content[0].text).not.toContain(workspaceRoot);
-    expect(formatted.structuredContent.data).toEqual(result);
-    expect(formatted.structuredContent.metadata.workspaceRoot).toBe('.');
-    expectPublicPathsToBeRelative(formatted.structuredContent.data);
+    expect(formatted).not.toHaveProperty('structuredContent');
+    const json = formatToolResponse(response, 'json', 'graphitlive_graph_context');
+    expect(json.structuredContent?.data).toEqual(result);
+    expect(json.structuredContent?.metadata.workspaceRoot).toBe('.');
+    expectPublicPathsToBeRelative(json.structuredContent?.data as GraphContextResponse);
   });
 
   it('preserves graph-context errors in TOON text', () => {
@@ -391,7 +393,7 @@ describe('graph_context MCP contract', () => {
       'graphitlive_graph_context',
       'compact',
     );
-    const compact = formatted.structuredContent.data as GraphContextResponse;
+    const compact = formatted.structuredContent?.data as GraphContextResponse;
 
     expect(compact.nodes.length).toBeLessThanOrEqual(8);
     expect(compact.nextCursor).toBeUndefined();

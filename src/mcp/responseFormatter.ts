@@ -36,7 +36,7 @@ export function formatToolResponse<T>(
   responseFormat: ResponseFormat,
   toolName?: string,
   detail?: GraphContextDetail,
-): { content: { type: 'text'; text: string }[]; structuredContent: McpToolResponse<T>; isError?: true } {
+): { content: { type: 'text'; text: string }[]; structuredContent?: McpToolResponse<T>; isError?: true } {
   // Paths become workspace-relative first, so duplicated path keys compare equal.
   const redactedResponse = compactOutput(redactAbsolutePaths(response, response.metadata.workspaceRoot));
   let publicResponse: McpToolResponse<T> = redactedResponse;
@@ -69,7 +69,8 @@ export function formatToolResponse<T>(
 
   return {
     content: [{ type: 'text', text }],
-    structuredContent: publicResponse,
+    // Clients such as Claude Code show structuredContent instead of the text, so only json sends it.
+    ...(responseFormat === 'json' ? { structuredContent: publicResponse } : {}),
     // MCP clients read isError, not structuredContent.success, to detect failures.
     ...(publicResponse.success ? {} : { isError: true as const }),
   };

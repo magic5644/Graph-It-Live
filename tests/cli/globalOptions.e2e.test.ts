@@ -128,6 +128,30 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
     }
   });
 
+  // Claude Code shows structuredContent instead of the text, so only json may send it (#654).
+  it("serve sends structuredContent only for json and declares no outputSchema", async () => {
+    const { child, callTool, request } = await startSession();
+    try {
+      const filePath = path.join(tmpDir, "src/a.ts");
+      const toon = await callTool("graphitlive_analyze_dependencies", { filePath });
+      const markdown = await callTool("graphitlive_analyze_dependencies", { filePath, response_format: "markdown" });
+      const json = await callTool("graphitlive_analyze_dependencies", { filePath, response_format: "json" });
+      for (const result of [toon, markdown]) {
+        expect(result.isError).not.toBe(true);
+        expect(result).not.toHaveProperty("structuredContent");
+        expect(result.content[0].text).toContain("b.ts");
+        expect(result.content[0].text.startsWith("{")).toBe(false);
+      }
+      expect(json.structuredContent).toMatchObject({ success: true });
+      const tools = ((await request("tools/list", {})).result as { tools: Array<Record<string, unknown>> }).tools;
+      expect(tools.length).toBeGreaterThan(0);
+      expect(tools.filter((tool) => "outputSchema" in tool)).toEqual([]);
+      expect(await closeSession(child)).toBe(0);
+    } finally {
+      if (child.exitCode === null) child.kill();
+    }
+  });
+
   it("serve outside a project starts, answers with a set_workspace hint, then works once set", async () => {
     const { child, callTool } = await startMcpSession(DIST_ENTRY, undefined, otherCwd);
     try {

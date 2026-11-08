@@ -154,22 +154,26 @@ A result without any array stays one row, named after the tool's object name.
 
 #### Request Format Parameter
 
-All MCP tools now accept a `format` parameter:
+All MCP tools accept a `response_format` parameter:
 
 ```json
 {
-  "tool": "crawl_dependency_graph",
-  "params": {
+  "name": "graphitlive_crawl_dependency_graph",
+  "arguments": {
     "entryFile": "/path/to/main.ts",
-    "format": "toon"
+    "response_format": "toon"
   }
 }
 ```
 
 **Available formats**:
-- `json` (default): Standard JSON output
-- `toon`: Compact TOON format
-- `markdown`: JSON wrapped in markdown code blocks
+- `toon` (default): Compact TOON format
+- `markdown`: Readable lists and tables with the same content as `toon`
+- `json`: The full response envelope (`success`, `data`, `metadata`)
+
+#### Tool result shape
+
+The text in `content` is always the requested format. `structuredContent` is sent only for `json`, and no tool declares an `outputSchema` (#654). Some clients, such as Claude Code, show `structuredContent` to the model instead of the text: sending it with `toon` or `markdown` would replace the compact text with the full JSON. A failed call sets `isError: true` in every format.
 
 #### Automatic Format Suggestion
 
