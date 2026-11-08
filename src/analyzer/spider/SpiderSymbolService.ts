@@ -13,6 +13,7 @@ import type { Dependency, ReferencingFile, SpiderConfig, SymbolDependency, Symbo
 import { SpiderError, SpiderErrorCode, normalizePath } from '../types';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { PathResolver } from '../utils/PathResolver';
+import { isSfcFile } from '../sfc/sfcBlocks';
 import { importBindings, namespaceUse, type ImportBinding, type NamespaceUse } from '../utils/namespaceUsage';
 import { extractFilePath } from '../utils/PathExtractor';
 import { isPythonOrRust, namesModule, pythonStarExports, readImportBindings } from '../utils/pyRsImports';
@@ -136,6 +137,7 @@ export class SpiderSymbolService {
   async findUnusedSymbols(filePath: string, reExportMemo: ReExportMemo = new Map()): Promise<SymbolInfo[]> {
     try {
       const normalizedTarget = normalizePath(filePath);
+      if (isSfcFile(normalizedTarget)) return [];
       const { symbols, dependencies } = await this.getSymbolGraph(normalizedTarget);
       const exportedSymbols = symbols.filter((s) => s.isExported);
       if (exportedSymbols.length === 0) {
@@ -724,7 +726,7 @@ export class SpiderSymbolService {
       
       // GraphQL, C#, Go, and Java files don't support AST-based symbol analysis here, so skip verification
       // These languages may still use tree-sitter for file-level imports, but without AST-based symbol verification all imports are considered used
-      if (this.isAstUnsupportedFile(normalizedSource)) {
+      if (this.isUsageUnverifiable(normalizedSource)) {
         log.debug(`Skipping symbol analysis for unsupported file type: ${normalizedSource}`);
         return true; // Without AST-based symbol verification, conservatively treat all imports as used
       }
@@ -782,7 +784,7 @@ export class SpiderSymbolService {
       const normalizedSource = normalizePath(sourceFile);
       
       // GraphQL, C#, Go, and Java files don't support AST symbol analysis - all imports are considered used
-      if (this.isAstUnsupportedFile(normalizedSource)) {
+      if (this.isUsageUnverifiable(normalizedSource)) {
         log.debug(`Skipping symbol analysis for unsupported file type: ${normalizedSource}`);
         return this.markAllAsUsed(targetFiles);
       }
@@ -879,6 +881,14 @@ export class SpiderSymbolService {
     return !SYMBOL_ANALYSIS_EXTENSIONS.has(path.extname(filePath).toLowerCase());
   }
 
+  /**
+   * Usage verdicts (unused import, unused export) need every use of a file. An SFC template is not analyzed
+   * (#645), so a component, prop or binding used only there must never be reported unused: SFCs stay conservative.
+   */
+  private isUsageUnverifiable(filePath: string): boolean {
+    return this.isAstUnsupportedFile(filePath) || isSfcFile(filePath);
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
   // Workspace-wide dead code scan
   // ──────────────────────────────────────────────────────────────────────────
@@ -918,7 +928,7 @@ export class SpiderSymbolService {
     const allFiles = await collector.collectAllSourceFiles(scopePath);
 
     // Filter to files supported by the symbol analyser
-    const analysableFiles = allFiles.filter((f) => !this.isAstUnsupportedFile(f));
+    const analysableFiles = allFiles.filter((f) => !this.isUsageUnverifiable(f));
 
     // Apply hard cap
     const filesToScan = analysableFiles.slice(0, maxFiles);

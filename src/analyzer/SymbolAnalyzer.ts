@@ -11,6 +11,7 @@ import { FileReader } from "./FileReader";
 import { ISymbolAnalyzer, SymbolDependency, SymbolInfo } from "./types";
 import { defaultExportNameOf, isComponentFactory } from "./utils/declarations";
 import { analyzeReactIdentity } from "./ReactIdentity";
+import { isSfcFile, langOf, parseSfc, scriptKindOf, type ScriptLang } from "./sfc/sfcBlocks";
 
 /** A symbol referenced from a declaration, with the line where it is used */
 type UsedSymbol = {
@@ -23,6 +24,15 @@ type UsedSymbol = {
 
 /** Files whose JSX ts-morph parses, as the call graph does (`.js` keeps the TypeScript grammar there). */
 const JSX_FILE = /\.[jt]sx$/i;
+// The TypeScript program drops a file of unknown extension (no checker, so no exports): an SFC script view is
+// analyzed under `<file>.vue.sfc.<lang>`, and every path read back from ts-morph is the SFC's own.
+const SFC_ANALYZED_PATH = /(\.(?:vue|svelte))\.sfc\.[jt]sx?$/i;
+const SFC_SUFFIX: Record<ScriptLang, string> = { ts: ".sfc.ts", tsx: ".sfc.tsx", js: ".sfc.js", jsx: ".sfc.jsx" };
+
+/** The path of the analyzed file: an SFC's own path, not the name it is analyzed under. */
+function filePathOf(sourceFile: SourceFile): string {
+  return sourceFile.getFilePath().replace(SFC_ANALYZED_PATH, "$1");
+}
 /** Identifiers that can name a component wrapper: `memo`, `forwardRef`, `lazy`, or the `React` of `React.memo`. */
 const FACTORY_IDENTIFIER = /^(?:memo|forwardRef|lazy|React)$/;
 
@@ -120,7 +130,7 @@ function addLocalReference(identifier: Node, name: string, dependencies: UsedSym
   if (Node.isPropertyAccessExpression(identifier.getParent())) return;
   const jsx = JSX_FILE.test(identifier.getSourceFile().getFilePath());
   if (!isRuntimeReference(identifier, jsx) || (jsx && isIntrinsicTag(identifier)) || isShadowed(identifier, name)) return;
-  const filePath = identifier.getSourceFile().getFilePath();
+  const filePath = filePathOf(identifier.getSourceFile());
   const symbolId = `${filePath}:${name}`;
   if (dependencies.some((d) => d.symbolId === symbolId && d.relation === "REFERENCES")) return;
   dependencies.push({ symbolId, filePath, isTypeOnly: false, line: identifier.getStartLineNumber(), relation: "REFERENCES" });
@@ -351,12 +361,29 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
    */
   private getOrCreateSourceFile(filePath: string, content: string): SourceFile {
     this.fileCount++;
-    const sourceFile = this.project.getSourceFile(filePath);
-    if (sourceFile) {
+    return this.upsertSourceFile(filePath, content);
+  }
+
+  /** A Vue/Svelte SFC is read through its same-length script view, so symbol lines are those of the SFC. */
+  private upsertSourceFile(filePath: string, content: string): SourceFile {
+    if (!isSfcFile(filePath)) {
+      const sourceFile = this.project.getSourceFile(filePath);
+      if (!sourceFile) return this.project.createSourceFile(filePath, content);
       sourceFile.replaceWithText(content);
       return sourceFile;
     }
-    return this.project.createSourceFile(filePath, content);
+    const sfc = parseSfc(filePath, content);
+    const lang = langOf(sfc.scripts);
+    const analyzedPath = filePath + SFC_SUFFIX[lang];
+    // A `lang` change renames the analyzed file: the previous name is dropped.
+    for (const other of Object.values(SFC_SUFFIX)) {
+      const stale = other === SFC_SUFFIX[lang] ? undefined : this.project.getSourceFile(filePath + other);
+      if (stale) this.project.removeSourceFile(stale);
+    }
+    const sourceFile = this.project.getSourceFile(analyzedPath);
+    if (!sourceFile) return this.project.createSourceFile(analyzedPath, sfc.scriptView, { scriptKind: scriptKindOf(sfc.scripts) });
+    sourceFile.replaceWithText(sfc.scriptView);
+    return sourceFile;
   }
 
   /**
@@ -693,7 +720,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     sourceFile: SourceFile
   ): Array<UsedSymbol> {
     const calls: Array<UsedSymbol> = [];
-    const filePath = sourceFile.getFilePath();
+    const filePath = filePathOf(sourceFile);
 
     // Get all top-level function names in this file
     const functionNames = this.collectFunctionNames(sourceFile);
@@ -815,7 +842,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       string,
       Array<UsedSymbol>
     > = {};
-    const filePath = sourceFile.getFilePath();
+    const filePath = filePathOf(sourceFile);
 
     // Get all top-level declarations (functions, classes, etc.)
     const declarations = [
@@ -1099,12 +1126,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
    * Get all exported symbols from a file (simplified version)
    */
   public getExportedSymbols(filePath: string, content: string): SymbolInfo[] {
-    let sourceFile = this.project.getSourceFile(filePath);
-    if (sourceFile) {
-      sourceFile.replaceWithText(content);
-    } else {
-      sourceFile = this.project.createSourceFile(filePath, content);
-    }
+    const sourceFile = this.upsertSourceFile(filePath, content);
 
     const symbols: SymbolInfo[] = [];
     const defaultName = defaultExportListedName(sourceFile);
@@ -1118,6 +1140,8 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   private attachReactIdentity(symbols: SymbolInfo[], filePath: string, content: string): void {
+    // React identity reads JS/TS sources; an SFC is never a React component.
+    if (isSfcFile(filePath)) return;
     const components = analyzeReactIdentity(filePath, content).components;
     for (const symbol of symbols) {
       if (components.some(component => component.name === symbol.name && component.startLine === symbol.line - 1)) symbol.framework = 'react';

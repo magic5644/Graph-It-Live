@@ -103,7 +103,7 @@ describe('generateCorpus', () => {
 
 describe('OSS_CORPORA', () => {
   it('pins one public project per supported language, plus a large TypeScript one, to a full commit, with its license', () => {
-    expect(Object.keys(OSS_CORPORA)).toEqual(['typescript', 'typescript-large', 'python', 'rust', 'go', 'java', 'csharp']);
+    expect(Object.keys(OSS_CORPORA)).toEqual(['typescript', 'typescript-large', 'python', 'rust', 'go', 'java', 'csharp', 'vue']);
     for (const corpus of Object.values(OSS_CORPORA)) {
       expect(corpus.url).toMatch(/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+$/);
       expect(corpus.commit).toMatch(/^[0-9a-f]{40}$/);

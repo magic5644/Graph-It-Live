@@ -27,6 +27,7 @@
 import { WasmParserFactory } from "@/analyzer/languages/WasmParserFactory";
 import { analyzeReactIdentity, readReactJsxImportSource } from '@/analyzer/ReactIdentity';
 import { PathResolver } from "@/analyzer/utils/PathResolver";
+import { isSfcFile, langOf, parseSfc, type ScriptLang } from "@/analyzer/sfc/sfcBlocks";
 import type { RelationType, SupportedLang, SymbolType } from "@/shared/callgraph-types";
 import { mapWithConcurrency } from "@/shared/concurrency";
 import { getLogger } from "@/shared/logger";
@@ -120,6 +121,15 @@ export function grammarOf(lang: SupportedLang, filePath: string): Grammar {
   if (lang !== "typescript" && lang !== "javascript") return lang;
   const ext = path.extname(filePath).toLowerCase();
   return ext === ".tsx" || ext === ".jsx" ? "tsx" : lang;
+}
+
+const SFC_GRAMMARS: Record<ScriptLang, Grammar> = { ts: "typescript", tsx: "tsx", js: "javascript", jsx: "tsx" };
+
+/** The text tree-sitter parses and its grammar: an SFC gives its same-length script view and the grammar of its `lang`. */
+function parseInput(lang: SupportedLang, filePath: string, content: string): { source: string; grammar: Grammar } {
+  if (!isSfcFile(filePath)) return { source: content, grammar: grammarOf(lang, filePath) };
+  const sfc = parseSfc(filePath, content);
+  return { source: sfc.scriptView, grammar: SFC_GRAMMARS[langOf(sfc.scripts)] };
 }
 
 function captureNameToSymbolType(captureName: string): SymbolType {
@@ -407,26 +417,22 @@ export class GraphExtractor {
     _mtime?: number,
     reads?: DeclarationReads,
   ): Promise<ExtractionResult> {
-    let source = await fs.readFile(filePath, "utf8");
-
-    // Vue/Svelte SFCs: extract <script> blocks before tree-sitter parsing
-    const ext = path.extname(filePath).toLowerCase();
-    if (ext === ".vue" || ext === ".svelte") {
-      source = extractScriptFromSFC(source);
-    }
-
+    const source = await fs.readFile(filePath, "utf8");
     return this.extractSource(filePath, lang, source, reads);
   }
-  /** `reads`: module contents and re-export resolutions shared by the files of one indexing pass (per file when absent). */
+  /**
+   * `reads`: module contents and re-export resolutions shared by the files of one indexing pass (per file when absent).
+   * `content` is the file as stored: a Vue/Svelte SFC is reduced here to its script blocks, positions kept.
+   */
   async extractSource(
     filePath: string,
     lang: SupportedLang,
-    source: string,
+    content: string,
     reads?: DeclarationReads,
   ): Promise<ExtractionResult> {
     const normalizedPath = normalizePath(filePath);
     // No tree-sitter grammar ships for GraphQL: it has its own scanner.
-    if (lang === "graphql") return extractGraphQL(source, normalizedPath, this.computeFolder(normalizedPath));
+    if (lang === "graphql") return extractGraphQL(content, normalizedPath, this.computeFolder(normalizedPath));
 
     // Resolve WASM paths
     const treeSitterWasmPath = path.join(
@@ -436,7 +442,7 @@ export class GraphExtractor {
       "tree-sitter.wasm",
     );
 
-    const grammar = grammarOf(lang, normalizedPath);
+    const { source, grammar } = parseInput(lang, normalizedPath, content);
     const wasmFileName = this.langToWasmFileName(grammar);
     const langWasmPath = path.join(
       this.config.extensionPath,
@@ -504,9 +510,7 @@ export class GraphExtractor {
     // A content the pass already holds is reused; any other is read and dropped: only the annotations are kept.
     const content = await (reads.get(normalizePath(filePath)) ?? fs.readFile(filePath, "utf8").catch(() => null));
     if (content === null) return null;
-    const ext = path.extname(filePath).toLowerCase();
-    const source = ext === ".vue" || ext === ".svelte" ? extractScriptFromSFC(content) : content;
-    const grammar = grammarOf(lang, filePath);
+    const { source, grammar } = parseInput(lang, filePath, content);
     const parser = await WasmParserFactory.getInstance().getParser(grammar, path.join(this.config.extensionPath, "dist", "wasm", this.langToWasmFileName(grammar)));
     const tree = parser.parse(source);
     if (!tree) return null;
@@ -927,16 +931,3 @@ export async function collectChangedFiles(
   return { jobs, skipped };
 }
 
-// ---------------------------------------------------------------------------
-// SFC script extraction (Vue / Svelte)
-// ---------------------------------------------------------------------------
-
-/**
- * Extract all <script> block contents from a Vue or Svelte SFC.
- * Returns the concatenated script source that can be parsed as TypeScript/JavaScript.
- */
-function extractScriptFromSFC(content: string): string {
-  const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script\s*[^>]*>/gi; //NOSONAR
-  const matches = [...content.matchAll(scriptRegex)];
-  return matches.map((m) => m[1]).join("\n");
-}

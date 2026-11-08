@@ -26,8 +26,9 @@ const log = getLogger('ReverseIndex');
 /**
  * Current version of the serialized index format
  * Increment when making breaking changes to the format
+ * v5: Vue/Svelte import lines are those of the SFC, not of its concatenated script blocks (#644).
  */
-const INDEX_VERSION = 4;
+const INDEX_VERSION = 5;
 
 /**
  * ReverseIndex - Maintains a mapping from target files to their referencing files

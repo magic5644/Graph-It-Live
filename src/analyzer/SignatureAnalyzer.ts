@@ -16,6 +16,7 @@ import { Node, Project, SourceFile, SyntaxKind, ts, type BindingElement, type In
 import * as path from 'node:path';
 import { mapWithConcurrency } from '../shared/concurrency';
 import { normalizePath } from '../shared/path';
+import { parseSfc, scriptKindOf } from './sfc/sfcBlocks';
 import { closestNames, symbolNotFoundMessage } from './utils/SymbolLookup';
 import { pythonImportBindings, pythonReExports, pythonStarExports } from './utils/pyRsImports';
 import { isPublicPythonName, pythonDeclarations, type PythonDeclarationKind } from './utils/pythonSignatures';
@@ -1212,17 +1213,14 @@ export class SignatureAnalyzer {
     if (existing) {
       this.project.removeSourceFile(existing);
     }
-    return this.project.createSourceFile(filePath, this.isVueFile(filePath) ? this.extractVueScript(content) : content);
+    if (!this.isVueFile(filePath)) return this.project.createSourceFile(filePath, content);
+    // Same-length script view: signature lines stay those of the `.vue` file.
+    const sfc = parseSfc(filePath, content);
+    return this.project.createSourceFile(filePath, sfc.scriptView, { scriptKind: scriptKindOf(sfc.scripts) });
   }
 
   private isVueFile(filePath: string): boolean {
     return /\.vue(?:\.(?:old|new))?$/i.test(filePath);
-  }
-
-  private extractVueScript(content: string): string {
-    // Vue SFC closing tags may contain whitespace or parser-tolerated attributes.
-    const scripts = [...content.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*[^>]*>/gi)].map(match => match[1]); // NOSONAR
-    return scripts.length > 0 ? scripts.join('\n') : content;
   }
 
   private compareVueProps(

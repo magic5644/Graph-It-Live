@@ -1727,6 +1727,7 @@
   "dependencies": {
     "@dagrejs/dagre": "^2.0.4",
     "@modelcontextprotocol/server": "^2.4.0",
+    "@vue/compiler-dom": "^3.5.45",
     "chokidar": "^5.0.0",
     "cytoscape": "^3.34.4",
     "cytoscape-fcose": "^2.2.0",

@@ -26,10 +26,12 @@ export const SUPPORTED_FILE_EXTENSIONS = [
     ...JAVA_EXTENSIONS,
 ];
 
-// Derived: Extensions supported for LSP-based symbol analysis (TypeScript, JavaScript, Python, Rust)
+// Derived: Extensions supported for AST symbol analysis (TypeScript, JavaScript, Vue/Svelte script blocks, Python, Rust)
 export const SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS = [
     ...TYPESCRIPT_EXTENSIONS,
     ...JAVASCRIPT_EXTENSIONS,
+    ...VUE_EXTENSIONS,
+    ...SVELTE_EXTENSIONS,
     ...PYTHON_EXTENSIONS,
     ...RUST_EXTENSIONS,
 ];
