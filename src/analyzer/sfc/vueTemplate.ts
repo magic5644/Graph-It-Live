@@ -45,7 +45,7 @@ interface RawTemplate {
   complete: boolean;
   /** An expression Babel could not parse: its uses are unknown. */
   malformed?: boolean;
-  template?: VueTemplateAnalysis["template"];
+  template?: TemplatePosition & { endLine: number };
   usages: RawUsage[];
   dynamic: Array<TemplatePosition & { name: string }>;
   aliases: Map<string, string>;
