@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from "vitest";
 import { isSfcFile, langOf, parseSfc, scriptKindOf, type SfcScript } from "@/analyzer/sfc/sfcBlocks";
 
 const FIXTURES = path.resolve(__dirname, "../fixtures/vue");
-const fixture = (name: string) => fs.readFileSync(path.join(FIXTURES, name), "utf8");
+// LF as committed: a Windows checkout may turn the fixtures into CRLF; CRLF cases are built explicitly.
+const fixture = (name: string) => fs.readFileSync(path.join(FIXTURES, name), "utf8").replaceAll("\r\n", "\n");
 
 /** Every non-blank character of the script view sits where it sits in the SFC; everything else is a space or a line break. */
 function expectSamePositions(content: string, view: string): void {
