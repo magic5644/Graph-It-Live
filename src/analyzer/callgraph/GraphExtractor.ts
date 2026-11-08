@@ -422,17 +422,17 @@ export class GraphExtractor {
   }
   /**
    * `reads`: module contents and re-export resolutions shared by the files of one indexing pass (per file when absent).
-   * `content` is the file as stored: a Vue/Svelte SFC is reduced here to its script blocks, positions kept.
+   * `source` is the file as stored: a Vue/Svelte SFC is reduced here to its script blocks, positions kept.
    */
   async extractSource(
     filePath: string,
     lang: SupportedLang,
-    content: string,
+    source: string,
     reads?: DeclarationReads,
   ): Promise<ExtractionResult> {
     const normalizedPath = normalizePath(filePath);
     // No tree-sitter grammar ships for GraphQL: it has its own scanner.
-    if (lang === "graphql") return extractGraphQL(content, normalizedPath, this.computeFolder(normalizedPath));
+    if (lang === "graphql") return extractGraphQL(source, normalizedPath, this.computeFolder(normalizedPath));
 
     // Resolve WASM paths
     const treeSitterWasmPath = path.join(
@@ -442,7 +442,7 @@ export class GraphExtractor {
       "tree-sitter.wasm",
     );
 
-    const { source, grammar } = parseInput(lang, normalizedPath, content);
+    const { source: script, grammar } = parseInput(lang, normalizedPath, source);
     const wasmFileName = this.langToWasmFileName(grammar);
     const langWasmPath = path.join(
       this.config.extensionPath,
@@ -469,7 +469,7 @@ export class GraphExtractor {
     }
 
     // Parse the source
-    const tree = parser.parse(source);
+    const tree = parser.parse(script);
     if (!tree) {
       return { nodes: [], edges: [] };
     }
@@ -494,7 +494,7 @@ export class GraphExtractor {
       }
       const jsxImportSource = lang === 'typescript' || lang === 'javascript'
         ? await this.readJsxImportSource() : undefined;
-      return this.processCaptures(captures, normalizedPath, lang, source, importTargets, jsxImportSource);
+      return this.processCaptures(captures, normalizedPath, lang, script, importTargets, jsxImportSource);
     } finally {
       tree.delete();
     }
