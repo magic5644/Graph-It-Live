@@ -1,7 +1,7 @@
 /**
  * sessionStats — in-memory session statistics collector.
  *
- * Tracks TOON-vs-JSON encoding size comparisons (estimated, chars/4 heuristic)
+ * Tracks TOON-vs-JSON encoding size comparisons (estimated, cl100k_base tokenizer)
  * and real LLM token usage (exact, reported by providers).
  *
  * IMPORTANT — pure TypeScript module:
@@ -51,6 +51,9 @@ export interface StatsAggregate {
 }
 
 /** Serializable snapshot of a session. Contains no absolute paths, no code. */
+/** How every JSON/TOON token count in the stats is produced. */
+export const ESTIMATION_NOTE = 'estimated (cl100k_base tokenizer)';
+
 export interface SessionStatsSnapshot {
   schemaVersion: 1;
   sessionId: string;
@@ -63,7 +66,7 @@ export interface SessionStatsSnapshot {
     calls: number;
     tokensUsed: number;
   };
-  estimationMethod: 'chars/4 heuristic';
+  estimationMethod: 'cl100k_base';
 }
 
 function emptyAggregate(): StatsAggregate {
@@ -151,7 +154,7 @@ export class SessionStatsCollector {
         calls: this.llmCalls,
         tokensUsed: this.llmTokensUsed,
       },
-      estimationMethod: 'chars/4 heuristic',
+      estimationMethod: 'cl100k_base',
     };
   }
 

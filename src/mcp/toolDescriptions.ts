@@ -387,7 +387,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "Reports how large this session's TOON responses were against their JSON equivalent, plus real token usage.",
     lines: [
       "WHEN: asked how much the TOON encoding is saving, or for a summary of tool usage.",
-      "WHY: encoding sizes are estimated (characters / 4); provider-reported LLM usage is reported separately and never mixed into that estimate.",
+      "WHY: encoding sizes are counted with the cl100k_base tokenizer, an estimate of what a model reads; provider-reported LLM usage is reported separately and never mixed into that estimate.",
       "RETURNS: per-tool and total encoding sizes for this session, llmUsage as its own section, and per-source history.",
       "LIMITS: compares two encodings of the same data - not a saving attributable to the tools themselves.",
     ],

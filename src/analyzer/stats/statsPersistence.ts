@@ -77,9 +77,14 @@ export function flushSession(snapshot: SessionStatsSnapshot, baseDir?: string): 
  *
  * - Missing directory → [] (covers "file absent" criterion).
  * - Corrupted / unreadable file → skipped with a stderr warning, never throws.
+ * - Session started before v1.14.1 (counted as chars/4) → skipped; later ones
+ *   are labelled cl100k_base, whatever label they were written with.
  *
  * @param baseDir override of the stats directory (tests); defaults to ~/.graph-it/stats
  */
+/** Release date of v1.14.1, the first release whose stats count tokens with cl100k_base. */
+export const CL100K_COUNTING_SINCE = Date.parse('2026-08-28T14:13:27Z');
+
 export function readAllSessions(baseDir?: string): SessionStatsSnapshot[] {
   const dir = baseDir ?? getDefaultStatsDir();
 
@@ -100,8 +105,11 @@ export function readAllSessions(baseDir?: string): SessionStatsSnapshot[] {
     try {
       const raw = fs.readFileSync(filePath, 'utf8');
       const parsed = JSON.parse(raw) as SessionStatsSnapshot;
-      if (parsed && typeof parsed === 'object' && parsed.schemaVersion === 1) {
-        snapshots.push(parsed);
+      if (parsed && typeof parsed === 'object' && parsed.schemaVersion === 1 && typeof parsed.startedAt === 'number') {
+        // Counted as chars/4: another unit, so it cannot be summed with the rest.
+        if (parsed.startedAt < CL100K_COUNTING_SINCE) continue;
+        // Releases up to v1.24.0 wrote 'chars/4 heuristic' while counting with cl100k_base.
+        snapshots.push({ ...parsed, estimationMethod: 'cl100k_base' });
       } else {
         console.warn(`graph-it stats: skipping invalid stats file: ${name}`);
       }

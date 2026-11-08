@@ -2,7 +2,7 @@
  * CLI Command: stats
  *
  * Session token stats: TOON encoding size vs JSON equivalent (estimated,
- * chars/4 heuristic) for the current session plus persisted history,
+ * cl100k_base tokenizer) for the current session plus persisted history,
  * aggregated by source and by tool. Real LLM token usage is reported as a
  * SEPARATE section — never summed into the estimated encoding totals.
  *
@@ -14,6 +14,7 @@
 
 import { readAllSessions } from "../../analyzer/stats/statsPersistence.js";
 import {
+  ESTIMATION_NOTE,
   sessionStats,
   type SessionStatsSnapshot,
   type SessionStatsSource,
@@ -27,7 +28,6 @@ import type { CliRuntime } from "../runtime.js";
 // ---------------------------------------------------------------------------
 
 const HEADER = "TOON encoding size vs JSON equivalent";
-const ESTIMATION_NOTE = "estimated (chars/4 heuristic)";
 const LLM_NOTE =
   "llmUsage: real provider-reported tokens — reported separately, never summed into the estimated totals above.";
 

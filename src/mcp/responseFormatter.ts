@@ -337,7 +337,7 @@ export function formatDataAsToon(
     const jsonContent = JSON.stringify(data, null, 2);
     const savings = estimateTokenSavings(jsonContent, toonContent);
 
-    // Session stats: TOON encoding size vs JSON equivalent (estimated, chars/4 heuristic).
+    // Session stats: TOON encoding size vs JSON equivalent (estimated, cl100k_base tokenizer).
     // truncated stays false here: truncation metadata is not visible at this layer.
     sessionStats.record({
       toolName: toolName ?? 'unknown',
