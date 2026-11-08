@@ -3,6 +3,7 @@ import type { Dependency, ILanguageAnalyzer, ImportResolution, ParsedImport } fr
 import { maskNonCode } from "./utils/maskNonCode";
 import { extractFilePath } from "./utils/PathExtractor";
 import { PathResolver } from "./utils/PathResolver";
+import { isSfcFile, parseSfc } from "./sfc/sfcBlocks";
 
 /**
  * Parses import/require/export statements from TypeScript/JavaScript files
@@ -52,11 +53,9 @@ export class Parser implements ILanguageAnalyzer {
    * @param filePath Optional file path to detect Vue/Svelte/GraphQL files
    */
   parse(content: string, filePath?: string): ParsedImport[] {
-    // Extract script content for Vue/Svelte files
-    if (filePath) {
-      if (filePath.endsWith(".vue") || filePath.endsWith(".svelte")) {
-        content = this.extractScript(content);
-      }
+    // Vue/Svelte: the same-length script view keeps import lines those of the SFC.
+    if (filePath && isSfcFile(filePath)) {
+      content = parseSfc(filePath, content).scriptView;
     }
 
     const imports: ParsedImport[] = [];
@@ -129,19 +128,6 @@ export class Parser implements ILanguageAnalyzer {
     );
 
     return imports;
-  }
-
-  /**
-   * Extract script content from Vue/Svelte files
-   */
-  private extractScript(content: string): string {
-    // Match <script> or <script setup> or <script lang="ts"> etc.
-    // Use global flag 'g' and matchAll to get all script blocks
-    const scriptRegex = /<script[^>]*>([\s\S]*?)<\/script\s*[^>]*>/gi; //NOSONAR
-    const matches = [...content.matchAll(scriptRegex)];
-
-    // Join all script contents with a newline to ensure separation
-    return matches.map((match) => match[1]).join("\n");
   }
 
   private extractImports(

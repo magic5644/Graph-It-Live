@@ -54,7 +54,7 @@ jobs:
       - name: Run end-to-end benchmarks
         env:
           RUNS: ${{ inputs.runs || '5' }}
-          CORPUS: ${{ inputs.corpus || 'self,generated,typescript,typescript-large,python,rust,go,java,csharp' }}
+          CORPUS: ${{ inputs.corpus || 'self,generated,typescript,typescript-large,python,rust,go,java,csharp,vue' }}
         run: xvfb-run -a node scripts/bench-e2e.mjs --runs "$RUNS" --corpus "$CORPUS" --out "$RUNNER_TEMP/bench-e2e"
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

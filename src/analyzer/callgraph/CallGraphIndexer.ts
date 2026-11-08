@@ -169,8 +169,10 @@ CREATE TABLE IF NOT EXISTS metadata (
  *      type (`nodes.owner`); TS abstract classes are class nodes (#499).
  * v17: a method called on a returned value reaches the method of the annotated return type; TS/JS and Python
  *      declarations retain their return annotation (`nodes.returns`) (#623).
+ * v18: Vue/Svelte nodes and edges carry the lines/columns of the SFC, not of its concatenated script blocks; the
+ *      grammar follows the `<script lang>` (#644).
  */
-const CURRENT_SCHEMA_VERSION = 17;
+const CURRENT_SCHEMA_VERSION = 18;
 
 /**
  * Optional FTS5 schema for fast symbol name search.

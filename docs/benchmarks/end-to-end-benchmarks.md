@@ -31,6 +31,7 @@ Each project is pinned to a commit in `scripts/bench-corpora.json`, with its tag
 | `go` | [gin-gonic/gin](https://github.com/gin-gonic/gin) | `v1.10.0` | MIT | `New` (`gin.go`) |
 | `java` | [google/gson](https://github.com/google/gson) | `gson-parent-2.11.0` | Apache-2.0 | `fromJson` (`gson/src/main/java/com/google/gson/Gson.java`) |
 | `csharp` | [serilog/serilog](https://github.com/serilog/serilog) | `v4.2.0` | Apache-2.0 | `Write` (`src/Serilog/Core/Logger.cs`) |
+| `vue` | [vuejs/vitepress](https://github.com/vuejs/vitepress) | `v1.5.0` | MIT | `normalizeLink` (`src/client/theme-default/support/utils.ts`), called from `.vue` script blocks; `scan.afterEdit` edits `VPLink.vue` |
 
 To change a corpus, update its `tag`, full `commit` and targets together; the new manifest hash invalidates the CI cache.
 

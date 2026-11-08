@@ -61,5 +61,14 @@
     "edit": "src/Serilog/Core/Logger.cs",
     "file": "src/Serilog/Core/Logger.cs",
     "symbol": "Write"
+  },
+  "vue": {
+    "url": "https://github.com/vuejs/vitepress",
+    "tag": "v1.5.0",
+    "commit": "867b256e14858df7a8cf9935e45e5bf233782be5",
+    "license": "MIT, LICENSE",
+    "edit": "src/client/theme-default/components/VPLink.vue",
+    "file": "src/client/theme-default/support/utils.ts",
+    "symbol": "normalizeLink"
   }
 }

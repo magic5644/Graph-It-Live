@@ -5,7 +5,7 @@
 // Usage: node scripts/smoke-npm-package.mjs
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -92,6 +92,13 @@ try {
   pass('graph-it --version');
   assert.match(run(bin, ['summary'], workspace), /indexedFiles: [1-9]/);
   pass('graph-it summary');
+  // A .vue file loads the Vue compiler that esbuild bundles into the CLI (#644): not an npm runtime dependency.
+  writeFileSync(path.join(workspace, 'util.ts'), 'export function add(a: number, b: number) {\n  return a + b;\n}\n');
+  writeFileSync(path.join(workspace, 'App.vue'), '<template>\n  <p>{{ total() }}</p>\n</template>\n\n<script setup lang="ts">\nimport { add } from "./util";\nfunction total() {\n  return add(1, 2);\n}\n</script>\n');
+  const vueOut = run(bin, ['tool', 'query_call_graph', '--filePath', realpathSync(path.join(workspace, 'App.vue')), '--symbolName', 'total', '--format', 'json'], workspace);
+  const vueCallees = JSON.parse(vueOut.slice(vueOut.indexOf('{'))).callees ?? [];
+  assert.ok(vueCallees.some((edge) => edge.targetName === 'add' && edge.sourceLine === 7), `query_call_graph App.vue: ${vueOut}`);
+  pass('graph-it tool query_call_graph on a .vue file (bundled Vue compiler, .vue line)');
   await checkMcpServer(entry, workspace, version);
   // The REPL needs a TTY: load its externals from the installed package instead.
   const requireFromCli = createRequire(entry);
