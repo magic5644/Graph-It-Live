@@ -9,7 +9,9 @@
  * NO vscode imports — this module is VS Code agnostic.
  */
 
+import path from "node:path";
 import type { LlmClient } from "../../analyzer/llm/LlmClient";
+import type { Database } from "sql.js";
 import { QueryEngine } from "../../analyzer/QueryEngine";
 import type { QueryRequest, QueryResultEdge, QueryResultNode } from "../../shared/query-types";
 import { normalizePath } from "../../shared/path";
@@ -39,7 +41,9 @@ function encodeCompositeAsToon(compactJsonStr: string, workspaceRoot: string): s
   // this TOON string, so drop the workspace root here (index paths are normalized).
   const root = normalizePath(workspaceRoot);
   const relative = root ? compactJsonStr.replaceAll(`${root}/`, "") : compactJsonStr;
-  const payload = JSON.parse(relative) as CompactQueryPayload;
+  // A path outside the root (another workspace folder, a symlink target) keeps only its file name, like the MCP formatter does.
+  const payload = JSON.parse(relative, (_key, value: unknown) =>
+    typeof value === "string" && path.isAbsolute(value) ? `[external:${path.basename(value)}]` : value) as CompactQueryPayload;
   const nodesToon = jsonToToon(payload.nodes, { objectName: "nodes" });
   const edgesToon = jsonToToon(payload.edges, { objectName: "edges" });
   const metaLine = `# nodeCount=${payload.nodeCount} edgeCount=${payload.edgeCount} truncated=${payload.truncated}`;
@@ -178,8 +182,16 @@ export async function executeQueryNaturalLanguage(
     );
   }
 
-  const db = indexer.getDb();
+  return queryNaturalLanguageWithDb(indexer.getDb(), workspaceRoot, params, llmClient);
+}
 
+/** Runs the query on an open call graph database; the VS Code LM tool reuses it with the extension's index. */
+export async function queryNaturalLanguageWithDb(
+  db: Database,
+  workspaceRoot: string,
+  params: QueryNaturalLanguageParams,
+  llmClient: LlmClient | null = null,
+): Promise<QueryNaturalLanguageResult> {
   // Build QueryRequest. llmClient defaults to null: over MCP the calling LLM
   // synthesizes the answer itself, so no second LLM round-trip is wanted.
   // The CLI has no such caller and passes a resolved client for keyword extraction.

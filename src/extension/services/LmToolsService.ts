@@ -11,12 +11,13 @@
 
 import { IndexCache } from '@/analyzer/cache/IndexCache';
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
-import { QueryEngine } from '@/analyzer/QueryEngine';
 import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
 import { reportOutOfRootImports } from '@/analyzer/utils/workspaceBoundary';
 import { scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
 import {
   ExportArchitectureDiagramParamsSchema,
+  createErrorResponse,
+  createSuccessResponse,
   QueryNaturalLanguageParamsSchema,
   ReviewPrParamsSchema,
   type ExportArchitectureDiagramParams,
@@ -24,6 +25,8 @@ import {
   type QueryNaturalLanguageParams,
   type ReviewPrParams,
 } from '@/mcp/types';
+import { formatToolResponse, type ResponseFormat } from '@/mcp/responseFormatter';
+import { LM_RESPONSE_FORMAT_PROPERTY } from '@/mcp/toolDescriptions';
 import type { Dependency, SymbolDependency } from '@/analyzer/types';
 import { checkSymbolInFile, symbolNotFoundMessage } from '@/analyzer/utils/SymbolLookup';
 import { mapWithConcurrency } from '@/shared/concurrency';
@@ -193,6 +196,22 @@ function dependentRelation(dep: { isTypeOnly?: boolean; relation?: 'REFERENCES' 
   return dep.relation ?? 'CALLS';
 }
 
+/** Every LM tool accepts `response_format`; anything else falls back to the TOON default. */
+function readResponseFormat(input: unknown): ResponseFormat {
+  const value = (input as { response_format?: unknown } | undefined)?.response_format;
+  return LM_RESPONSE_FORMAT_PROPERTY.enum.find((format) => format === value) ?? 'toon';
+}
+
+const INDEX_PASS_STATES = new Set(['counting', 'indexing', 'validating']);
+
+/** The message of an `errorResult()` payload: an object whose only key is `error`. */
+function readErrorMessage(payload: unknown): string | undefined {
+  if (typeof payload !== 'object' || payload === null || Array.isArray(payload)) return undefined;
+  const entries = Object.entries(payload);
+  const [key, value] = entries[0] ?? [];
+  return entries.length === 1 && key === 'error' && typeof value === 'string' ? value : undefined;
+}
+
 // ─── Service ─────────────────────────────────────────────────────────────────
 
 export class LmToolsService {
@@ -261,14 +280,25 @@ export class LmToolsService {
       ...tool,
       invoke: async (options, token) => {
         if (token.isCancellationRequested) throw new vscode.CancellationError();
+        const startedAt = Date.now();
         const result = await tool.invoke(options, token);
-        return result ? this.redactToolResult(result) : result;
+        return result
+          ? this.encodeToolResult(name, result, readResponseFormat(options.input), startedAt)
+          : result;
       },
     });
   }
 
-  private redactToolResult(
+  /**
+   * Redacts every JSON text part, then encodes it like the MCP server does:
+   * `json` keeps the redacted payload as is, `toon` and `markdown` go through
+   * the shared MCP formatter with the error and freshness envelope.
+   */
+  private encodeToolResult(
+    name: string,
     result: vscode.LanguageModelToolResult,
+    format: ResponseFormat,
+    startedAt: number,
   ): vscode.LanguageModelToolResult {
     const content: Array<
       vscode.LanguageModelTextPart | vscode.LanguageModelPromptTsxPart
@@ -276,16 +306,38 @@ export class LmToolsService {
       if (!(part instanceof vscode.LanguageModelTextPart)) {
         return part as vscode.LanguageModelPromptTsxPart;
       }
+      let payload: unknown;
       try {
-        const parsed = JSON.parse(part.value) as unknown;
-        return new vscode.LanguageModelTextPart(
-          JSON.stringify(this.redactPublicValue(parsed)),
-        );
+        payload = this.redactPublicValue(JSON.parse(part.value) as unknown);
       } catch {
         return part;
       }
+      if (format === 'json') return new vscode.LanguageModelTextPart(JSON.stringify(payload));
+      const error = readErrorMessage(payload);
+      const executionTimeMs = Date.now() - startedAt;
+      const workspaceRoot = this.getWorkspaceRoot() ?? '';
+      const response = error === undefined
+        ? createSuccessResponse(payload, executionTimeMs, workspaceRoot, undefined, this.freshness())
+        : createErrorResponse<unknown>(error, executionTimeMs, workspaceRoot);
+      const mcpToolName = name.replace('graph-it-live_', 'graphitlive_');
+      return new vscode.LanguageModelTextPart(formatToolResponse(response, format, mcpToolName).content[0].text);
     });
     return new vscode.LanguageModelToolResult(content);
+  }
+
+  /**
+   * `indexedAt` is the end of the last full index pass. The extension re-analyzes
+   * each changed file on its own, so results lag only while an index pass or a
+   * file change job is still running.
+   */
+  private freshness(): { indexedAt: string | null; stale: boolean } | undefined {
+    const spider = this.provider.getSpiderForLmTools();
+    if (!spider) return undefined;
+    const { completedAt, state } = spider.getIndexStatus();
+    return {
+      indexedAt: completedAt === undefined ? null : new Date(completedAt).toISOString(),
+      stale: INDEX_PASS_STATES.has(state) || (this.provider.fileChangeScheduler?.getPendingCount() ?? 0) > 0,
+    };
   }
 
   private redactPublicValue(value: unknown): unknown {
@@ -1686,21 +1738,14 @@ export class LmToolsService {
             );
           }
           try {
-            const { question, depth, tokenBudget, fileFilter } = QueryNaturalLanguageParamsSchema.parse(options.input);
+            const params = QueryNaturalLanguageParamsSchema.parse(options.input);
+            const { queryNaturalLanguageWithDb } = await import('../../mcp/tools/query.js');
             // No LLM client: the calling model writes the answer from the subgraph.
-            const result = await new QueryEngine(indexer.getDb(), null).query({
-              question, workspaceRoot: rootDir, depth, tokenBudget, fileFilter, outputFormat: 'json',
-            });
+            // TOON output carries the subgraph pre-encoded; markdown and json need its nodes and edges.
+            const outputFormat = readResponseFormat(options.input) === 'toon' ? 'toon' : 'json';
+            const result = await queryNaturalLanguageWithDb(indexer.getDb(), rootDir, { ...params, outputFormat });
             return new vscode.LanguageModelToolResult([
-              new vscode.LanguageModelTextPart(JSON.stringify({
-                question: result.question,
-                extractedKeywords: result.extractedKeywords,
-                nodeCount: result.nodeCount,
-                edgeCount: result.edgeCount,
-                nodes: result.nodes,
-                edges: result.edges,
-                meta: result.meta,
-              })),
+              new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);
           } catch (error) {
             return this.errorResult(error instanceof Error ? error.message : String(error));

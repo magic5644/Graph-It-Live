@@ -16,6 +16,7 @@
 import { before } from 'mocha';
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
+import { getProjectFile } from './_helpers';
 
 // Minimum set of expected tool names (all 24).
 const EXPECTED_TOOLS = [
@@ -121,6 +122,35 @@ suite('LM Tools Registration Test Suite', () => {
 
     const tool = getRegisteredTools().find((t) => t.name === 'graph-it-live_query_call_graph');
     assert.ok(tool, 'graph-it-live_query_call_graph should be registered');
+  });
+
+  // #655: Copilot reads TOON unless it asks for JSON; no model or Copilot account is involved.
+  test('LM tools return TOON by default and JSON on request', async function () {
+    this.timeout(60000);
+    if (typeof vscode.lm.invokeTool !== 'function') {
+      this.skip();
+    }
+    const utils = getProjectFile('sample-project', 'src', 'utils.ts');
+    const invoke = async (input: object): Promise<string> => {
+      const result = await vscode.lm.invokeTool('graph-it-live_find_referencing_files', {
+        input: { targetPath: utils.fsPath, ...input },
+        toolInvocationToken: undefined,
+      });
+      return result.content.map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : '')).join('');
+    };
+
+    const toon = await invoke({});
+    assert.throws(() => JSON.parse(toon), SyntaxError, `Expected TOON, got: ${toon}`);
+    assert.match(toon, /referencingFiles\(/, toon);
+    assert.match(toon, /src\/main\.ts/, toon);
+    assert.ok(!toon.includes(utils.fsPath), `TOON must not leak absolute paths: ${toon}`);
+
+    const json = JSON.parse(await invoke({ response_format: 'json' })) as {
+      targetPath: string;
+      referencingFiles: Array<{ relativePath: string }>;
+    };
+    assert.ok(json.targetPath.endsWith('src/utils.ts') && !json.targetPath.includes(utils.fsPath), json.targetPath);
+    assert.ok(json.referencingFiles.some((ref) => ref.relativePath.endsWith('src/main.ts')), JSON.stringify(json));
   });
 
   test('Total Graph-It-Live tool count is exactly 25', function () {

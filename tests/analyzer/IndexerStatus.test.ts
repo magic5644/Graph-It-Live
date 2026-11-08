@@ -105,6 +105,20 @@ describe('IndexerStatus', () => {
   });
 
   describe('completion', () => {
+    it('records when the last full pass completed, and forgets it on reset', () => {
+      expect(status.getSnapshot().completedAt).toBeUndefined();
+      vi.setSystemTime(new Date('2026-11-08T10:00:00Z'));
+      status.startCounting();
+      status.complete();
+      expect(status.getSnapshot().completedAt).toBe(Date.parse('2026-11-08T10:00:00Z'));
+
+      status.startCounting();
+      expect(status.getSnapshot().completedAt).toBe(Date.parse('2026-11-08T10:00:00Z'));
+
+      status.reset();
+      expect(status.getSnapshot().completedAt).toBeUndefined();
+    });
+
     it('should transition to complete state', () => {
       status.startCounting();
       status.setTotal(10);
