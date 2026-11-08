@@ -1,14 +1,49 @@
 # Changelog
 
-## Unreleased
+## v1.24.0
 
-### Changed
-
-- **Vue 3 single-file components** (#568: #644, #645, #646): a `.vue` file is parsed by block. Imports, symbols, call graph nodes and edges keep the line and column of the `.vue` file, the grammar follows `<script lang>`, and the template links `<Child />`, `@click="save"` (reference), `save()` (call), interpolations, slots and custom directives to the script bindings they use. A component used only in the template is no longer reported unused. `<script src>` and an HTML `<template src>` inside the workspace are dependencies of their `.vue`, and editing them refreshes it. `.vue` files and the SFC component node show the Vue logo and green in the file, symbol and call graphs, legends and HTML exports, apart from React (`framework: 'vue'`). `review-pr` and Branch Watch list props and events added or removed by name (`prop 'label' removed`, `event 'close' added`) with the files that render the component; a contract typed by an imported type or built at runtime is reported as partial. Not resolved: Vue 2, auto-imports, global components, dynamic `:is`, `pug` templates.
+Minor release. Graph-It-Live now understands Vue 3 single-file components (#568: issues #644, #645, #646, PRs #647, #648, #649). A `.vue` file is parsed block by block, so its imports, symbols and calls point at the right line of the `.vue` file. The `<template>` links each component, handler and interpolation to the script binding it uses, so a component used only in its template is no longer reported unused. `.vue` files carry the Vue logo in every graph, and `review-pr` and Branch Watch report the props and events a change adds or removes. No command, setting, MCP tool or Copilot tool is added or removed.
 
 ### Breaking / Behavior changes
 
-- **Call-graph cache rebuilt once**: the call-graph schema moves from version 17 to 20 (SFC positions, template edges, Vue identity). A cache written by an earlier version is rebuilt the first time the workspace opens.
+- **Call-graph cache rebuilt once on first launch**: the call-graph cache schema moves from version 17 to 20 (SFC positions, template edges, Vue identity), and the reverse index from version 4 to 5. A cache written by v1.23.x is discarded and rebuilt the first time the extension, CLI or MCP server opens the workspace. No action is needed.
+
+### Changed
+
+- **Vue 3 scripts at their real position** (#644, PR #647): `<script>` and `<script setup>` are parsed with one grammar per `.vue` file: TypeScript when a block is `lang="ts"` or `lang="tsx"`, JSX or TSX when a block allows JSX, JavaScript otherwise. Imports, symbols, call graph nodes and edges keep the line and column of the `.vue` file, so a click in any view opens the `.vue` file at the right place.
+- **Vue templates in the call graph** (#645, PR #648): each SFC has a component node named after the file, at its `<template>`. From it, a template component (`<Child />`, `<child-row>`), a handler (`@save="save"`), a slot or a custom directive is a `REFERENCES` edge, and a call in an interpolation or handler (`{{ format(count) }}`, `@click="save()"`) is a `CALLS` edge. Put the cursor in the `<template>` and run **Graph-It-Live: Show Call Graph**:
+
+```vue
+<script setup lang="ts">
+import { ref } from "vue";
+import Child from "./Child.vue";
+import { format } from "./utils/format";
+const count = ref(0);
+function save(): void { /* ... */ }
+</script>
+
+<template>
+  <Child @save="save" />                          <!-- REFERENCES Child, REFERENCES save -->
+  <button @click="save()">{{ format(count) }}</button>  <!-- CALLS save, CALLS format -->
+</template>
+```
+
+![Call graph of the Parent Vue component on a test fixture: Parent references the Child and ChildRow components, the save handler and the LazyPanel async component, and calls format from format.ts](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/vue-call-graph.png)
+
+- **Template-only use is a use** (#645, PR #648): a component, function or variable used only in the `<template>` is no longer reported unused by dead-code scans, the unused-symbol results of the MCP tools, or `review-pr`.
+- **External `<script src>` and `<template src>`** (#646, PR #649): an external script and an HTML template inside the workspace are dependencies of their `.vue` (import edges in the file graph). The template is read like an inline one, and editing either file refreshes the `.vue` that reads it in the extension and the MCP server. A `<template src>` outside the workspace, reached through a symbolic link, or larger than 2 MiB is not read.
+- **Vue identity in every view** (#646, PR #649): `.vue` files and the SFC component node show the Vue logo and green in the file graph, Symbol View, call graph, legends and HTML exports (`graph-it export --format html` included), apart from React.
+
+![File graph of Parent.vue on a test fixture: Parent.vue imports format.ts, ChildRow.vue and Child.vue, and the .vue files are green with the Vue logo](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/vue-file-graph.png)
+
+- **Props and events in reviews** (#646, PR #649): `graph-it review-pr`, `graphitlive_review_pr` and Branch Watch compare the props and events a changed `.vue` declares (`defineProps`, `defineEmits`, `props`, `emits`) by name, for example `prop 'label' removed` or `event 'close' added`, with the files that render the component. A contract typed by an imported type or built at runtime is reported as partial. Type compatibility is not checked; impact results on `.vue` references say so.
+- **Not resolved, never guessed**: Vue 2, Nuxt and other auto-imports, globally or plugin-registered components, a dynamic `:is`, and `pug` templates. A template that cannot be read fully counts every script binding as used.
+- **Known limit**: an external template edited while no Graph-It-Live process watches it (VS Code closed, no `graph-it serve` running) is read again only when its `.vue` changes or the index is rebuilt. A CLI command does not watch files: it reads the edited template again after `--reindex` or a change of its `.vue`.
+- **Dependency**: `@vue/compiler-dom` parses SFC templates. It is bundled into the extension, the MCP server and the CLI, and loaded only when a `.vue` file is analyzed. The VSIX is 13 MB.
+
+### Tests
+
+- New VS Code E2E suite `vueCallGraph`: template edges in the real call graph view, a click on a template target opens its `.vue` file at `<template>`, and saving an inline or external template refreshes the edges.
 
 ## v1.23.1
 
