@@ -66,6 +66,7 @@ describe('formatToolResponse', () => {
       edges: [{ source: 'src/a.ts', target: 'src/b.ts' }],
     });
     expect(result.content[0].text).not.toContain('relativePath');
+    expect(formatToolResponse(response, 'toon').content[0].text).not.toContain('relativePath');
   });
 
   it('redacts internal and external absolute paths in public output', () => {
