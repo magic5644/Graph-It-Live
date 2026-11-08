@@ -17,12 +17,12 @@ import { wasmBuilt } from "../../mcp/tools/callGraphWorkspace";
 
 const FIXTURES = path.resolve(__dirname, "../fixtures/vue");
 
-/** The fixture corpus: relative path → content (tsconfig.json excluded: it is not code). */
+/** The fixture corpus: relative path → LF content, as committed (a Windows checkout may use CRLF); tsconfig.json excluded. */
 function readCorpus(): Record<string, string> {
   const corpus: Record<string, string> = {};
   for (const name of fs.readdirSync(FIXTURES, { recursive: true }) as string[]) {
     const file = path.join(FIXTURES, name);
-    if (fs.statSync(file).isFile() && !name.endsWith(".json")) corpus[name.replaceAll("\\", "/")] = fs.readFileSync(file, "utf8");
+    if (fs.statSync(file).isFile() && !name.endsWith(".json")) corpus[name.replaceAll("\\", "/")] = fs.readFileSync(file, "utf8").replaceAll("\r\n", "\n");
   }
   return corpus;
 }
