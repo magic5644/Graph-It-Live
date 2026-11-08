@@ -22,7 +22,7 @@ import { computeRelatedNodes } from "../utils/graphTraversal";
 import { normalizePath } from "../utils/path";
 import { buildReactFlowGraph, GRAPH_LIMITS } from "./reactflow/buildGraph";
 import { CommunityLegend } from "./reactflow/CommunityLegend";
-import { ReactBadge } from './reactflow/LanguageIcon';
+import { FrameworkBadges } from './reactflow/LanguageIcon';
 import { collectFileCommunities, presentFileGraph } from "../utils/fileGraphPresentation";
 import {
   ExpansionOverlay,
@@ -1327,7 +1327,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
           gap: 8,
         }}
       >
-        {graph.nodes.some(node => node.data.framework === 'react') && <ReactBadge />}
+        <FrameworkBadges frameworks={graph.nodes.map(node => node.data.framework)} />
         {graph.cycles.size > 0 && (
           <div
             data-testid="cycles-badge"

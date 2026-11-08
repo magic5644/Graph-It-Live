@@ -465,6 +465,14 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     eventType: EventType,
   ): Promise<void> {
     if (this._isDisposing) return;
+    // HTML is watched for external Vue templates only: their owning `.vue` files re-read them, whatever happened.
+    if (/\.html?$/i.test(filePath)) {
+      const owners = this.spider?.getExternalTemplateOwners(filePath) ?? [];
+      // Their mtime did not move: the unused verdict cache would keep the old template's uses.
+      this.unusedAnalysisCache?.invalidate(owners);
+      await Promise.all(owners.map((owner) => this.handleFileChange(owner, "change")));
+      return;
+    }
     // Invalidate symbol graph cache when the analysed file changes on disk.
     if (this._symbolGraphCache?.filePath === filePath) {
       this._symbolGraphCache = null;

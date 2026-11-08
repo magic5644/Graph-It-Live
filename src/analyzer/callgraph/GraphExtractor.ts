@@ -380,10 +380,10 @@ async function readTemplateGraph(
   filePath: string,
   content: string,
   declared: ReadonlySet<string>,
-  resolution: { resolver: PathResolver; reads: DeclarationReads },
+  resolution: { resolver: PathResolver; reads: DeclarationReads; workspaceRoot: string },
 ): Promise<TemplateGraph> {
   const imported = new Set(importLocalNames(root));
-  const analysis = analyzeVueTemplate(filePath, content, new Set([...declared, ...imported]));
+  const analysis = analyzeVueTemplate(filePath, content, new Set([...declared, ...imported]), resolution.workspaceRoot);
   const used = new Set(analysis.usages.map(usage => usage.name).filter(name => imported.has(name)));
   const imports = used.size > 0 ? await resolveImportBindings(root, filePath, resolution.resolver, used, resolution.reads) : new Map<string, string | null>();
   return { analysis, imports };
@@ -400,7 +400,7 @@ function addTemplateGraph(template: TemplateGraph, base: Pick<CallGraphNode, "la
   const name = sfcComponentName(base.path);
   const startLine = analysis.template.line - 1;
   const id = `${base.path}:${name}:${startLine}`;
-  nodes.set(id, { ...base, id, name, type: "function", startLine, endLine: analysis.template.endLine - 1, startCol: analysis.template.column, isExported: true });
+  nodes.set(id, { ...base, id, name, type: "function", startLine, endLine: analysis.template.endLine - 1, startCol: analysis.template.column, isExported: true, framework: "vue" });
   const edges: CallGraphEdge[] = [];
   const seen = new Map<string, CallGraphEdge>();
   for (const usage of analysis.usages) {
@@ -542,7 +542,7 @@ export class GraphExtractor {
       const jsxImportSource = lang === 'typescript' || lang === 'javascript'
         ? await this.readJsxImportSource() : undefined;
       const template = VUE_FILE.test(normalizedPath)
-        ? await readTemplateGraph(tree.rootNode, normalizedPath, source, declared, { resolver, reads: passReads })
+        ? await readTemplateGraph(tree.rootNode, normalizedPath, source, declared, { resolver, reads: passReads, workspaceRoot: this.config.workspaceRoot })
         : undefined;
       return this.processCaptures(captures, normalizedPath, lang, script, importTargets, { jsxImportSource, template });
     } finally {

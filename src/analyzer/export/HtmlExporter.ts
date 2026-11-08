@@ -1,9 +1,9 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { GraphData } from '../../shared/graph-types';
+import type { Framework, GraphData } from '../../shared/graph-types';
 import { getRelativePath, normalizePath } from '../../shared/path';
 import { COMMUNITY_PALETTE } from '../../shared/communityPalette';
-import { REACT_IDENTITY } from '../../shared/constants';
+import { FRAMEWORK_IDENTITIES } from '../../shared/constants';
 import { aggregateCommunityGroups } from '../community/groupAggregation';
 
 /** What was analysed and how it was grouped, stated in the page header. */
@@ -122,15 +122,18 @@ function buildHeader(workspaceName: string, context: HtmlExportContext, model: R
   ].filter(Boolean).join(' · ');
 }
 
-function buildLegend(groups: HtmlGroup[], communityMode: string, hasReact: boolean): string {
+const frameworkImage = (framework: Framework) =>
+  `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FRAMEWORK_IDENTITIES[framework].svg)}`;
+
+function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: ReadonlySet<Framework>): string {
   if (groups.length === 0) return '';
   const items = groups.toSorted((a, b) => b.fileCount - a.fileCount || a.id - b.id).map(group =>
     `<div class="legend-item"><span class="swatch" style="background:${group.color};"></span>` +
     `<span>${htmlEscape(group.label)} — ${group.fileCount} file(s), ${group.internalEdgeCount} internal edge(s)</span></div>`,
   ).join('\n');
-  const framework = hasReact
-    ? `<div class="legend-item"><img alt="" width="20" height="20" src="data:image/svg+xml;charset=utf-8,${encodeURIComponent(REACT_IDENTITY.svg)}"><span>React component files</span></div>`
-    : '';
+  const framework = (Object.keys(FRAMEWORK_IDENTITIES) as Framework[]).filter(name => frameworks.has(name)).map(name =>
+    `<div class="legend-item"><img alt="" width="20" height="20" src="${frameworkImage(name)}"><span>${FRAMEWORK_IDENTITIES[name].label} component files</span></div>`,
+  ).join('\n');
   return `<div id="legend"><div class="legend-title">Groups (${htmlEscape(communityMode)})</div>\n${items}\n${framework}` +
     '<div class="legend-hint">Ellipse = group, box = file. Double-click a group to expand it, a file to collapse its group. ' +
     'Click an edge to list the file pairs behind its count.</div></div>';
@@ -143,9 +146,9 @@ export function exportHtml(config: HtmlExporterConfig): void {
 
   const model = buildHtmlGraphModel(config.graphData, config.workspaceRoot);
   const header = buildHeader(config.workspaceName, config.context, model);
-  const reactFiles = model.files.filter(file => file.framework === 'react');
-  const legend = buildLegend(model.groups, config.context.communityMode, reactFiles.length > 0);
-  const graphLabel = htmlEscape(['Dependency graph', ...reactFiles.map(file => `React: ${file.label}`)].join('. '));
+  const frameworkFiles = model.files.flatMap(file => file.framework ? [{ label: file.label, framework: file.framework }] : []);
+  const legend = buildLegend(model.groups, config.context.communityMode, new Set(frameworkFiles.map(file => file.framework)));
+  const graphLabel = htmlEscape(['Dependency graph', ...frameworkFiles.map(file => `${FRAMEWORK_IDENTITIES[file.framework].label}: ${file.label}`)].join('. '));
   const title = htmlEscape(config.workspaceName);
 
   // Groups are collapsed by the page itself, not by vis-network clustering: a vis cluster
@@ -195,7 +198,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
   <script>
     const groupsData = ${jsonForScript(model.groups)};
     const filesData = ${jsonForScript(model.files)};
-    const reactImage = ${jsonForScript(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(REACT_IDENTITY.svg)}`)};
+    const frameworks = ${jsonForScript(Object.fromEntries((Object.keys(FRAMEWORK_IDENTITIES) as Framework[]).map(name => [name, { label: FRAMEWORK_IDENTITIES[name].label, image: frameworkImage(name) }])))};
     const edgesData = ${jsonForScript(model.edges)};
     const PAGE_SIZE = 50;
     const groupById = new Map(groupsData.map(g => [g.id, g]));
@@ -256,12 +259,13 @@ export function exportHtml(config: HtmlExporterConfig): void {
       };
     }
     function fileNode(f, position) {
-      const frameworkLabel = f.framework === 'react' ? ' [React]' : '';
+      const framework = frameworks[f.framework];
+      const frameworkLabel = framework ? ' [' + framework.label + ']' : '';
       return {
         id: f.id, label: f.label.split('/').pop() + frameworkLabel, ...position,
         title: f.label + frameworkLabel + ' (group: ' + groupById.get(f.group).label + '). Double-click to collapse the group.',
         color: f.color, borderWidth: f.borderWidth,
-        ...(f.framework === 'react' ? { shape: 'image', image: reactImage, shapeProperties: { useBorderWithImage: true } } : {}),
+        ...(framework ? { shape: 'image', image: framework.image, shapeProperties: { useBorderWithImage: true } } : {}),
       };
     }
 

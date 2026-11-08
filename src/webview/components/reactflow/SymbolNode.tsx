@@ -1,13 +1,13 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
 import { CATEGORY_ICONS, getSymbolStyle } from '../../utils/symbolUtils';
-import { REACT_IDENTITY } from '../../../shared/constants';
-import { frameworkName, frameworkSelectionOutline, ReactIcon } from './LanguageIcon';
+import type { Framework } from '../../../shared/graph-types';
+import { FrameworkIcon, frameworkIdentity, frameworkName, frameworkSelectionOutline } from './LanguageIcon';
 
 export interface SymbolNodeData {
     label: string;
     fullPath: string; // The ID of the symbol (path:name)
-    framework?: 'react';
+    framework?: Framework;
     kind: string; // 'Function', 'Class', etc.
     category: string; // 'function', 'class', etc.
     line: number;
@@ -31,9 +31,10 @@ export interface SymbolNodeData {
 
 const actionButtonSize = 20;
 
-function symbolNodeStyle(category: string, framework?: 'react'): ReturnType<typeof getSymbolStyle> {
-    return framework === 'react'
-        ? { bg: REACT_IDENTITY.color, border: REACT_IDENTITY.color, text: REACT_IDENTITY.foreground }
+function symbolNodeStyle(category: string, framework?: Framework): ReturnType<typeof getSymbolStyle> {
+    const identity = frameworkIdentity(framework);
+    return identity
+        ? { bg: identity.color, border: identity.color, text: identity.foreground }
         : getSymbolStyle(category);
 }
 
@@ -128,7 +129,7 @@ export const SymbolNode = React.memo<NodeProps<SymbolNodeData>>(function SymbolN
                 fontWeight: 'bold',
                 color: data.isRoot ? style.text : 'var(--vscode-editor-foreground)',
             }}>
-                {data.framework === 'react' ? <ReactIcon /> : icon}
+                {data.framework ? <FrameworkIcon framework={data.framework} /> : icon}
             </div>
 
             {/* Label below the node */}

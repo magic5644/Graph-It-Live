@@ -11,6 +11,7 @@ import { renderArchitectureMarkdown, type ArchitectureReview } from "./architect
 import { ARCHITECTURE_BASELINE_FILE, ARCHITECTURE_CONFIG_FILE } from "./architecture/architectureRules";
 import { SignatureAnalyzer, type BreakingChange, type ReexportedModule, type SignatureComparisonResult, type SignatureInfo } from "./SignatureAnalyzer";
 import type { SymbolDependency, SymbolInfo } from "./types";
+import { compareVueContracts, readVueContract } from "./sfc/vueContract";
 import { PathResolver } from "./utils/PathResolver";
 import { maskNonCode } from "./utils/maskNonCode";
 import { findRemovedNameImporters } from "./utils/removedNameImporters";
@@ -429,6 +430,8 @@ export class ReviewGateAnalyzer {
     if (oldContent === null) return [];
     const scope: MoveScope = { relativePath, absolutePath, oldContent, headRef, changedFiles, moves, limitations };
     const comparisons = await this.analyzeSignatures(scope, newContent, limitations);
+    const contract = /\.vue$/i.test(relativePath) ? addVueContractChange(comparisons, absolutePath, oldContent, newContent) : undefined;
+    if (contract?.partial) limitations.push(`${relativePath}: ${contract.partial.detail}`);
     // The evidence only scores changed symbols: a body or comment edit needs none of its index lookups (#605).
     if (comparisons.length === 0) return [];
     const fileEvidence = {
@@ -436,7 +439,9 @@ export class ReviewGateAnalyzer {
       inFileCycle: moves.cycleFiles.then((files) => files.has(relativePath)),
       functions: this.extractTopLevelFunctions(absolutePath, newContent),
     };
-    return Promise.all(comparisons.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, fileEvidence, changedFiles, headRef)));
+    const symbols = await Promise.all(comparisons.map((comparison) => this.createReviewSymbol(comparison, absolutePath, relativePath, maxDepth, fileEvidence, changedFiles, headRef)));
+    if (contract) symbols.find((symbol) => symbol.name === contract.symbolName)?.evidence.push(...contract.evidence);
+    return symbols;
   }
 
   /** analyzeBreakingChanges, memoized in the caller's cache (least recently used out); a copy, so callers may change it. */
@@ -1394,6 +1399,37 @@ function recheckReason(changes: BreakingChange[]): string {
 }
 
 /** Every member of a moved class meets the same ambiguity: report it once. */
+/**
+ * Props and events a changed `.vue` adds or removes by name (#646), on its `<Component>.props` contract symbol, so its
+ * file-level consumers are reported: a removal breaks them, an addition or a contract read in part is evidence only.
+ * No type is compared; a removal the signature comparison already reports is not repeated.
+ */
+function addVueContractChange(
+  comparisons: ReviewComparison[],
+  filePath: string,
+  oldContent: string,
+  newContent: string,
+): { symbolName: string; evidence: ReviewEvidence[]; partial?: ReviewEvidence } | undefined {
+  const change = compareVueContracts(readVueContract(filePath, oldContent), readVueContract(filePath, newContent));
+  if (change.removed.length + change.added.length + change.partial.length === 0) return undefined;
+  const symbolName = `${path.basename(filePath, path.extname(filePath))}.props`;
+  let comparison = comparisons.find((candidate) => candidate.symbolName === symbolName);
+  if (!comparison) {
+    comparison = { symbolName, breakingChanges: [] };
+    comparisons.push(comparison);
+  }
+  const reported = new Set(comparison.breakingChanges.map((breaking) => breaking.symbolName));
+  for (const { name, detail } of change.removed) {
+    const member = `${symbolName}.${name}`;
+    if (!reported.has(member)) comparison.breakingChanges.push({ type: "member-removed", symbolName: member, description: detail, severity: "error" });
+  }
+  const partial = change.partial.length > 0
+    ? { kind: "partial" as const, detail: `Vue props/emits contract read in part (${change.partial.join("; ")}): names may be missing.` }
+    : undefined;
+  const evidence: ReviewEvidence[] = change.added.map(({ detail }) => ({ kind: "impact", detail }));
+  return { symbolName, evidence: partial ? [...evidence, partial] : evidence, ...(partial ? { partial } : {}) };
+}
+
 function addLimitation(limitations: string[], limitation: string): void {
   if (!limitations.includes(limitation)) limitations.push(limitation);
 }

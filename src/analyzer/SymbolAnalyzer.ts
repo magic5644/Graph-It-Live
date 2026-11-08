@@ -263,8 +263,11 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   private readonly maxFiles: number;
   private fileCount = 0;
   private readonly fileReader: FileReader;
+  /** Bounds the external `<template src>` files a Vue template analysis reads. */
+  private readonly rootDir?: string;
 
   constructor(_rootDir?: string, options: SymbolAnalyzerOptions = {}) {
+    this.rootDir = _rootDir;
     this.maxFiles = options.maxFiles ?? 100;
     this.project = this.createProject();
     this.fileReader = new FileReader();
@@ -926,7 +929,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     localNames: Set<string>,
   ): UsedSymbol[] {
     const bindings = new Set([...importMap.keys(), ...localNames]);
-    const { usages, complete, template } = analyzeVueTemplate(filePath, content, bindings);
+    const { usages, complete, template } = analyzeVueTemplate(filePath, content, bindings, this.rootDir);
     // Uses may be missing from a partial template (`pug`, external `src`, dynamic `:is`): any binding may be used.
     const assumed = complete ? [] : [...bindings].map((name) => ({ kind: "reference" as const, name, line: template?.line ?? 1 }));
     const used: UsedSymbol[] = [];

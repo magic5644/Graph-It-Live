@@ -18,6 +18,7 @@ function createOptions(overrides: Partial<EventHubOptions> = {}): EventHubOption
     handleResolverConfigChange: vi.fn(),
     isResolverConfig: vi.fn((file: string) => /(?:package|tsconfig[^\\/]*)\.json$/.test(file) || file.endsWith("base.json")),
     handleFileDeleted: vi.fn(),
+    getExternalTemplateOwners: vi.fn((file: string) => (file.endsWith("host.html") ? ["/workspace/src/Host.vue"] : [])),
   };
   const stateManager = {
     currentSymbol: undefined,
@@ -153,6 +154,19 @@ describe("ExtensionEventHub", () => {
 
     expect(options.spider?.reanalyzeFile).toHaveBeenCalledTimes(1);
     expect(options.updateGraph).not.toHaveBeenCalled();
+  });
+
+  it("re-analyses the .vue owning a saved external template, and nothing for any other HTML file", async () => {
+    const options = createOptions();
+    const hub = new ExtensionEventHub(options);
+
+    await hub.handleFileSaved("/workspace/src/other.html");
+    expect(options.spider?.reanalyzeFile).not.toHaveBeenCalled();
+
+    await hub.handleFileSaved("/workspace/src/host.html");
+    expect(options.spider?.reanalyzeFile).toHaveBeenCalledWith("/workspace/src/Host.vue");
+    expect(options.unusedAnalysisCache?.invalidate).toHaveBeenCalledWith(["/workspace/src/Host.vue"]);
+    expect(options.updateGraph).toHaveBeenCalledTimes(1);
   });
 
   it("does nothing without a spider", async () => {

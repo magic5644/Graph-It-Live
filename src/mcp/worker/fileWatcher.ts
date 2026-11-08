@@ -43,12 +43,15 @@ const FILE_CHANGE_DEBOUNCE_MS = 300;
 /** Extensions to watch for changes */
 const WATCHED_EXTENSIONS = SUPPORTED_FILE_EXTENSIONS;
 
+/** A Vue `<template src>` candidate: kept only when the index knows a `.vue` reading it. */
+const HTML_FILE = /\.html?$/i;
+
 /**
  * Source files, and the JSON configs their imports resolve through (#419): tsconfig / package.json and the
  * `extends` targets named otherwise (#431). Which JSON file counts is decided per event, as the set follows `extends`.
  */
 const isWatchedFile = (filePath: string): boolean =>
-  WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext)) || filePath.endsWith(".json");
+  WATCHED_EXTENSIONS.some(ext => filePath.endsWith(ext)) || filePath.endsWith(".json") || HTML_FILE.test(filePath);
 
 /**
  * Setup chokidar file watcher for automatic cache invalidation
@@ -292,8 +295,11 @@ function performFileInvalidation(
     postMessage({ type: "file-invalidated" as const, filePath, event } as McpWorkerResponse);
     return;
   }
-  // Any other JSON file is no source: it only reached here to be checked against the `extends` targets.
-  if (filePath.endsWith(".json")) return;
+  // An external Vue template: its owners re-read it, whatever happened to it.
+  for (const owner of workerState.spider.getExternalTemplateOwners(filePath)) performFileInvalidation(postMessage, "change", owner);
+  // Any other JSON or HTML file is no source: it only reached here to be checked against the `extends` targets
+  // or the external templates.
+  if (filePath.endsWith(".json") || HTML_FILE.test(filePath)) return;
 
   // The call graph has its own database; Spider invalidation does not refresh it.
   // Re-extract the file on the next graph query, even if its mtime did not move.

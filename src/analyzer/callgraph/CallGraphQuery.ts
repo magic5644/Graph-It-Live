@@ -12,6 +12,8 @@
  */
 
 import { detectCycleEdges } from "@/shared/cycleUtils";
+import { isFramework } from "@/shared/constants";
+import type { Framework } from "@/shared/graph-types";
 import { REACT_FRAMEWORK_SQL } from './CallGraphIndexer';
 import type {
   RelationType,
@@ -63,7 +65,7 @@ interface RawNode {
   end_line: number;
   start_col: number;
   is_exported: number;
-  framework?: 'react';
+  framework?: Framework;
 }
 
 interface RawEdge {
@@ -275,7 +277,7 @@ function fetchNodes(db: Database, ids: Set<string>): RawNode[] {
     end_line: row[7] as number,
     start_col: row[8] as number,
     is_exported: row[9] as number,
-    ...(row[10] === 'react' ? { framework: 'react' as const } : {}),
+    ...(isFramework(row[10]) ? { framework: row[10] } : {}),
   }));
 }
 

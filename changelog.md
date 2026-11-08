@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- **Vue 3 single-file components** (#568: #644, #645, #646): a `.vue` file is parsed by block. Imports, symbols, call graph nodes and edges keep the line and column of the `.vue` file, the grammar follows `<script lang>`, and the template links `<Child />`, `@click="save"` (reference), `save()` (call), interpolations, slots and custom directives to the script bindings they use. A component used only in the template is no longer reported unused. `<script src>` and an HTML `<template src>` inside the workspace are dependencies of their `.vue`, and editing them refreshes it. `.vue` files and the SFC component node show the Vue logo and green in the file, symbol and call graphs, legends and HTML exports, apart from React (`framework: 'vue'`). `review-pr` and Branch Watch list props and events added or removed by name (`prop 'label' removed`, `event 'close' added`) with the files that render the component; a contract typed by an imported type or built at runtime is reported as partial. Not resolved: Vue 2, auto-imports, global components, dynamic `:is`, `pug` templates.
+
+### Breaking / Behavior changes
+
+- **Call-graph cache rebuilt once**: the call-graph schema moves from version 17 to 20 (SFC positions, template edges, Vue identity). A cache written by an earlier version is rebuilt the first time the workspace opens.
+
 ## v1.23.1
 
 Patch release. The CLI and the MCP server no longer index a folder that is not a project, such as a home directory, `/` or a downloads folder (#639, #640). Before, the CLI walked and indexed every file below it, and the MCP server indexed its working directory. The REPL now indexes on first use. Development and CI move to Node.js 24; the runtime still supports Node.js 22. No command, tool or setting is added or removed.

@@ -137,7 +137,7 @@ async function handleInit(cfg: McpWorkerConfig): Promise<void> {
   );
 
   // Initialize AstWorkerHost
-  workerState.astWorkerHost = new AstWorkerHost(undefined, cfg.extensionPath);
+  workerState.astWorkerHost = new AstWorkerHost(undefined, cfg.extensionPath, cfg.rootDir);
   await workerState.astWorkerHost.start();
   log.info("AstWorkerHost started");
 

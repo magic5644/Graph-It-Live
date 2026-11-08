@@ -1,8 +1,7 @@
 import React from "react";
 import { SymbolDependency, SymbolInfo } from "../../shared/types";
 import { getFileName } from "../utils/nodeUtils";
-import { REACT_IDENTITY } from '../../shared/constants';
-import { frameworkName, ReactIcon } from './reactflow/LanguageIcon';
+import { FrameworkIcon, frameworkIdentity, frameworkName } from './reactflow/LanguageIcon';
 
 interface SymbolCardViewProps {
   filePath: string;
@@ -40,8 +39,9 @@ const CATEGORY_ICONS: Record<string, string> = {
 };
 
 function cardColors(symbol: SymbolInfo): { bg: string; text: string } {
-  return symbol.framework === 'react'
-    ? { bg: REACT_IDENTITY.color, text: REACT_IDENTITY.foreground }
+  const identity = frameworkIdentity(symbol.framework);
+  return identity
+    ? { bg: identity.color, text: identity.foreground }
     : CATEGORY_COLORS[symbol.category] || CATEGORY_COLORS.other;
 }
 
@@ -540,7 +540,7 @@ const SymbolCard: React.FC<SymbolCardProps> = ({
             color: colors.text,
           }}
         >
-          {symbol.framework === 'react' ? <ReactIcon /> : icon}
+          {symbol.framework ? <FrameworkIcon framework={symbol.framework} /> : icon}
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div
@@ -627,7 +627,7 @@ const SymbolCard: React.FC<SymbolCardProps> = ({
                     color: memberColors.text,
                   }}
                 >
-                  {member.framework === 'react' ? <ReactIcon /> : memberIcon}
+                  {member.framework ? <FrameworkIcon framework={member.framework} /> : memberIcon}
                 </span>
                 <span
                   style={{ fontSize: 12, color: "var(--vscode-foreground)" }}

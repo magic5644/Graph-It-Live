@@ -4,8 +4,10 @@
  * and related structures for symbol-level dependency analysis.
  */
 
+import type { Framework } from './graph-types';
+
 export interface SymbolNode {
-  framework?: 'react';
+  framework?: Framework;
   id: string;
   name: string;
   originalName?: string;
@@ -46,7 +48,7 @@ export interface BreadcrumbPath {
 }
 
 export interface SymbolInfo {
-  framework?: 'react';
+  framework?: Framework;
   name: string;
   kind: string;
   line: number;

@@ -1,3 +1,5 @@
+import type { Framework } from "../shared/graph-types";
+
 export { normalizePath, normalizePathForComparison } from "../shared/path";
 
 /**
@@ -243,7 +245,7 @@ export interface SerializedReverseIndex {
 }
 
 export interface SymbolInfo {
-  framework?: 'react';
+  framework?: Framework;
   name: string;
   kind: string; // 'Function', 'Class', 'Interface', 'Variable', etc.
   line: number;

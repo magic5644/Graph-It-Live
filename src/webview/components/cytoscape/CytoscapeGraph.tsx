@@ -30,7 +30,7 @@ import type {
 import { buildCallGraphStylesheet } from "./CytoscapeTheme";
 import { GraphLegend } from "./GraphLegend";
 import { LoadingState } from "../LoadingState";
-import { frameworkName, ReactBadge } from "../reactflow/LanguageIcon";
+import { FrameworkBadges, frameworkName } from "../reactflow/LanguageIcon";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -107,7 +107,7 @@ function computeCallOrder(edges: SerializedCallEdge[]): Map<string, number> {
 // Helper: build Cytoscape elements from graph data
 // ---------------------------------------------------------------------------
 
-const REACT_BADGE_STYLE: React.CSSProperties = {
+const FRAMEWORK_BADGE_STYLE: React.CSSProperties = {
   position: "absolute", top: "12px", right: "12px", zIndex: 20, borderRadius: "6px",
   border: "1px solid var(--vscode-panel-border, rgba(128,128,128,0.3))",
 };
@@ -736,9 +736,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
         </div>
       )}
 
-      {!isLoading && graphNodes.some(node => node.framework === 'react') && (
-        <ReactBadge style={REACT_BADGE_STYLE} />
-      )}
+      {!isLoading && <FrameworkBadges frameworks={graphNodes.map(node => node.framework)} style={FRAMEWORK_BADGE_STYLE} />}
 
       {/* T027: Filter legend */}
       {!isLoading && !isEmpty && (

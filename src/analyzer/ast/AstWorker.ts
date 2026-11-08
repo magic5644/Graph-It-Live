@@ -49,6 +49,8 @@ import type { WorkerRequest, WorkerResponse } from './AstWorkerProtocol';
 
 // Worker data
 interface WorkerData {
+  /** Workspace root: bounds the external `<template src>` files a Vue template analysis reads. */
+  rootDir?: string;
   /**
    * Path to the VS Code extension directory.
    * Required for WASM parser initialization (locating .wasm files in dist/).
@@ -69,7 +71,7 @@ const extensionPath = data.extensionPath ?? process.cwd();
 
 // Initialize analyzers
 const log = getLogger('AstWorker');
-const symbolAnalyzer = new SymbolAnalyzer(undefined, { maxFiles: 100 });
+const symbolAnalyzer = new SymbolAnalyzer(data.rootDir, { maxFiles: 100 });
 
 // Initialize WASM-based symbol analyzers with extensionPath
 // The extensionPath is required for Python and Rust analyzers to locate WASM files

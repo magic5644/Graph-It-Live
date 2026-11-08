@@ -1,5 +1,9 @@
 import type { Node as BabelNode } from "@babel/types";
 import type { DirectiveNode, ElementNode, ExpressionNode, RootNode, SimpleExpressionNode, TemplateChildNode } from "@vue/compiler-dom";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { validateWorkspacePath } from "@/shared/pathSecurity";
+import { MAX_TEXT_FILE_BYTES } from "../utils/workspaceText";
 import { loadCompilerDom, parseSfc, type SfcDescriptor } from "./sfcBlocks";
 
 /** `component`: a tag naming a component; `call`: `save()`; `reference`: any other use (`save`, `{{ total }}`). */
@@ -18,7 +22,7 @@ export interface TemplateUsage extends TemplatePosition {
 }
 
 export interface VueTemplateAnalysis {
-  /** The `<template>` element, absent for an SFC without one or with an external `src` template. */
+  /** The `<template>` element, absent for an SFC without one or with an external `src` template it could not read. */
   template?: TemplatePosition & { endLine: number };
   usages: TemplateUsage[];
   /**
@@ -27,7 +31,7 @@ export interface VueTemplateAnalysis {
    */
   unresolved: Array<TemplatePosition & { name: string }>;
   /**
-   * False when some uses may be missing: an external `src` or non-HTML (`pug`) template, a template or expression
+   * False when some uses may be missing: an unread external `src` or non-HTML (`pug`) template, a template or expression
    * the compiler could not read, or a dynamic `:is`. A usage verdict must then count every script binding as used.
    */
   complete: boolean;
@@ -93,21 +97,43 @@ function componentAliases(scriptView: string): Map<string, string> {
   return aliases;
 }
 
-const cache = new WeakMap<SfcDescriptor, RawTemplate>();
+/** `external`: the `<template src>` text the uses were read from (null: none), so an edit of that file is read again. */
+const cache = new WeakMap<SfcDescriptor, { raw: RawTemplate; external: string | null }>();
+
+const HTML_FILE = /\.html?$/i;
+
+/**
+ * The text of an HTML `<template src>`, or undefined when it is not HTML, lies outside `rootDir` (symbolic links
+ * included), is missing or over the size limit: the template then stays partial.
+ */
+export function readExternalTemplate(filePath: string, src: string, rootDir: string | undefined): string | undefined {
+  if (!rootDir || !HTML_FILE.test(src)) return undefined;
+  try {
+    const target = validateWorkspacePath(path.resolve(path.dirname(filePath), src), rootDir);
+    if (fs.statSync(target).size > MAX_TEXT_FILE_BYTES) return undefined;
+    return fs.readFileSync(target, "utf8");
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Component, binding, handler and slot uses of a Vue SFC template, at their `.vue` positions, linked to the
  * script bindings that `scriptBindings` lists (imports and top-level declarations). A name no binding proves
  * (built-in, native element, global component, template-local `v-for`/`v-slot` variable) links nowhere. Never
- * throws: a malformed template gives the uses read before the error.
+ * throws: a malformed template gives the uses read before the error. An HTML `<template src>` inside `rootDir` is
+ * read too, its uses placed at the `<template src>` element (the `.vue` owns them).
  */
-export function analyzeVueTemplate(filePath: string, content: string, scriptBindings: ReadonlySet<string>): VueTemplateAnalysis {
+export function analyzeVueTemplate(filePath: string, content: string, scriptBindings: ReadonlySet<string>, rootDir?: string): VueTemplateAnalysis {
   const descriptor = parseSfc(filePath, content);
-  let raw = cache.get(descriptor);
-  if (!raw) {
-    raw = readTemplate(content, descriptor);
-    cache.set(descriptor, raw);
+  const src = descriptor.template?.src;
+  const external = (src === undefined ? undefined : readExternalTemplate(filePath, src, rootDir)) ?? null;
+  let entry = cache.get(descriptor);
+  if (entry?.external !== external) {
+    entry = { raw: readTemplate(content, descriptor, external), external };
+    cache.set(descriptor, entry);
   }
+  const { raw } = entry;
   const { aliases } = raw;
   const bound = (name: string) => (scriptBindings.has(name) ? name : undefined);
   const usages: TemplateUsage[] = [];
@@ -120,12 +146,12 @@ export function analyzeVueTemplate(filePath: string, content: string, scriptBind
   return { ...(raw.template ? { template: raw.template } : {}), usages, unresolved, complete: raw.complete };
 }
 
-function readTemplate(content: string, descriptor: SfcDescriptor): RawTemplate {
+function readTemplate(content: string, descriptor: SfcDescriptor, external: string | null): RawTemplate {
   const raw: RawTemplate = { complete: true, usages: [], dynamic: [], aliases: new Map() };
   const block = descriptor.template;
   if (!block) return raw;
   raw.complete = false;
-  if (block.src !== undefined) return raw;
+  if (block.src !== undefined && external === null) return raw;
   const lineStarts = [0];
   for (let i = content.indexOf("\n"); i !== -1; i = content.indexOf("\n", i + 1)) lineStarts.push(i + 1);
   const at = (offset: number): TemplatePosition => {
@@ -138,12 +164,14 @@ function readTemplate(content: string, descriptor: SfcDescriptor): RawTemplate {
     }
     return { line: low + 1, column: offset - lineStarts[low] };
   };
-  raw.template = { ...at(block.element.start), endLine: at(Math.max(block.element.start, block.element.end - 1)).line };
+  const template = { ...at(block.element.start), endLine: at(Math.max(block.element.start, block.element.end - 1)).line };
+  raw.template = template;
   raw.aliases = componentAliases(descriptor.scriptView);
   let root: RootNode;
   try {
     // The first parse (blocks) skips expressions; this one has Babel parse each non-static expression.
-    root = loadCompilerDom().parse(content, { parseMode: "sfc", prefixIdentifiers: true, onError: () => undefined });
+    const source = external === null ? content : `<template>${external}</template>`;
+    root = loadCompilerDom().parse(source, { parseMode: "sfc", prefixIdentifiers: true, onError: () => undefined });
   } catch {
     return raw;
   }
@@ -151,7 +179,8 @@ function readTemplate(content: string, descriptor: SfcDescriptor): RawTemplate {
   const lang = element?.props.find((prop) => prop.type === NODE_ATTRIBUTE && prop.name === "lang");
   // A `pug` (or other) template is raw text to compiler-dom: nothing to read.
   if (!element || (lang?.type === NODE_ATTRIBUTE && lang.value && lang.value.content !== "html")) return raw;
-  const reader = new TemplateReader(raw, at);
+  // An external template's offsets are those of another file: its uses sit at the `<template src>` element.
+  const reader = new TemplateReader(raw, external === null ? at : () => ({ line: template.line, column: template.column }));
   for (const child of element.children) reader.visit(child, new Set());
   raw.complete = raw.dynamic.length === 0 && !raw.malformed;
   return raw;

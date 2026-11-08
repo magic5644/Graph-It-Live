@@ -3,6 +3,7 @@ import { Spider } from "../../analyzer/Spider";
 import { convertSpiderToLspFormat } from "../../shared/converters";
 import { normalizePath } from "../../shared/path";
 import { enrichReactSymbols } from "../../analyzer/ReactIdentity";
+import type { Framework } from "../../shared/graph-types";
 import type { GraphNodeMetadata, IntraFileGraph, SymbolDependency, SymbolInfo } from "../../shared/types";
 import type { ICallGraphQueryService } from "./ICallGraphQueryService";
 
@@ -36,6 +37,14 @@ interface SymbolGraphResult {
  * Uses AST-based analysis (ts-morph / tree-sitter) for fast, accurate
  * symbol extraction and dependency analysis.
  */
+/** The symbol view's root is the file: a Vue component as a `.vue`, React when one of its symbols is a component. */
+function rootMetadata(rootNodeId: string, filePath: string, symbols: readonly SymbolInfo[]): Record<string, GraphNodeMetadata> | undefined {
+  let framework: Framework | undefined;
+  if (/\.vue$/i.test(filePath)) framework = "vue";
+  else if (symbols.some((symbol) => symbol.framework === "react")) framework = "react";
+  return framework ? { [normalizePath(rootNodeId)]: { hubScore: 0, framework } } : undefined;
+}
+
 export class SymbolViewService {
   private callGraphQuery?: ICallGraphQueryService;
 
@@ -124,9 +133,7 @@ export class SymbolViewService {
           ? { [rootNodeId]: referencingFiles.length }
           : undefined,
       intraFileGraph,
-      nodeMetadata: symbolData.symbols.some(symbol => symbol.framework === 'react')
-        ? { [normalizePath(rootNodeId)]: { hubScore: 0, framework: 'react' } }
-        : undefined,
+      nodeMetadata: rootMetadata(rootNodeId, resolvedFilePath, symbolData.symbols),
     };
   }
 

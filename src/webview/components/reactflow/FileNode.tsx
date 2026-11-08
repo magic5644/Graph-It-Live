@@ -1,14 +1,15 @@
 import React from 'react';
 import { Handle, Position, type NodeProps } from 'reactflow';
-import { EXTENSION_COLORS, LANGUAGE_COLORS, REACT_IDENTITY } from '../../../shared/constants';
+import { EXTENSION_COLORS, LANGUAGE_COLORS } from '../../../shared/constants';
+import type { Framework } from '../../../shared/graph-types';
 import { actionButtonSize, cycleIndicatorSize } from '../../utils/nodeUtils';
 import { communityColor } from '../../utils/communityColor';
-import { frameworkName, frameworkSelectionOutline, LanguageIcon } from './LanguageIcon';
+import { frameworkIdentity, frameworkName, frameworkSelectionOutline, LanguageIcon } from './LanguageIcon';
 
 export interface FileNodeData {
   label: string;
   fullPath: string;
-  framework?: 'react';
+  framework?: Framework;
   isRoot: boolean;
   isParent: boolean;
   isInCycle: boolean;
@@ -59,8 +60,9 @@ export function getHubBorderWidth(score: number | undefined): number {
   return 2;
 }
 
-function getFileBorderColor(label: string, fullPath: string, framework?: 'react'): string {
-  if (framework === 'react') return REACT_IDENTITY.color;
+function getFileBorderColor(label: string, fullPath: string, framework?: Framework): string {
+  const identity = frameworkIdentity(framework);
+  if (identity) return identity.color;
   if (isExternalPackage(fullPath || label)) {
     return EXTERNAL_PACKAGE_COLOR;
   }
@@ -70,8 +72,8 @@ function getFileBorderColor(label: string, fullPath: string, framework?: 'react'
   return EXTERNAL_PACKAGE_COLOR;
 }
 
-function rootTextColor(framework?: 'react'): string {
-  return framework === 'react' ? REACT_IDENTITY.foreground : '#000';
+function rootTextColor(framework?: Framework): string {
+  return frameworkIdentity(framework)?.foreground ?? '#000';
 }
 
 export const FileNode = React.memo<NodeProps<FileNodeData>>(function FileNode({ data, id }) {

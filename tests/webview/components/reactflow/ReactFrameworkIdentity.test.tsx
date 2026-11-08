@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { REACT_IDENTITY } from '@/shared/constants';
 import { FileNode, type FileNodeData } from '@/webview/components/reactflow/FileNode';
 import { SymbolNode, type SymbolNodeData } from '@/webview/components/reactflow/SymbolNode';
-import { LanguageIcon, ReactBadge } from '@/webview/components/reactflow/LanguageIcon';
+import { FrameworkBadges, LanguageIcon } from '@/webview/components/reactflow/LanguageIcon';
 import { buildCallGraphStylesheet } from '@/webview/components/cytoscape/CytoscapeTheme';
 import { buildReactFlowGraph } from '@/webview/components/reactflow/buildGraph';
 import { AtomicSymbolGraph } from '@/webview/components/AtomicSymbolGraph';
@@ -119,11 +119,11 @@ describe('proven React identity', () => {
   });
 
   it.each([undefined, { position: 'absolute' as const, top: '12px' }])('shows the shared React badge with style %o', style => {
-    render(<ReactBadge style={style} />);
+    const { container } = render(<FrameworkBadges frameworks={['react', undefined, 'react']} style={style} />);
     const badge = screen.getByTestId('react-badge');
+    expect((container.firstChild as HTMLElement).style.position).toBe(style?.position ?? '');
     expect(badge.textContent).toBe('React');
     expect(screen.getByAltText('React')).toBeTruthy();
-    expect(badge.style.position).toBe(style?.position ?? '');
   });
 
   it.each([true, false])('uses the shared icon and readable foreground in dark=%s call graphs', dark => {

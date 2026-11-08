@@ -1,5 +1,6 @@
 import React from 'react';
-import { LANGUAGE_COLORS, REACT_IDENTITY } from '../../../shared/constants';
+import { FRAMEWORK_IDENTITIES, LANGUAGE_COLORS, VUE_IDENTITY } from '../../../shared/constants';
+import type { Framework } from '../../../shared/graph-types';
 
 /**
  * Language icon component for file nodes
@@ -10,7 +11,7 @@ import { LANGUAGE_COLORS, REACT_IDENTITY } from '../../../shared/constants';
 interface LanguageIconProps {
   filePath: string;
   label: string;
-  framework?: 'react';
+  framework?: Framework;
 }
 
 interface LanguageConfig {
@@ -26,7 +27,7 @@ const SVG_ICONS = {
   javascript: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="m0 0H512V512H0" fill="#fff"/><path d="m0 0H512V512H0" fill="#f7df1e"/><path d="m324 370q17 29 45 29 35 0 35-27c0-11-15-21-39-31q-67-22-66-75c0-36 27-64 70-64q48 0 68 39l-37 24q-12-22-31-21-22 1-23 21c0 14 9 20 39 33 43 17 67 36 67 77q-3 65-79 67-63 0-89-49zm-170 4c8 13 13 25 33 25q24 0 24-30V203h48v164q-1 71-72 72-53-1-72-44z"/></svg>',
   python: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="m0 0H512V512H0" fill="#fff"/><g fill="#5a9fd4"><path id="p" d="M254 64c-16 0-31 1-44 4-39 7-46 21-46 47v35h92v12H130c-27 0-50 16-58 46-8 35-8 57 0 93 7 28 23 47 49 47h32v-42c0-30 26-57 57-57h91c26 0 46-21 46-46v-88c0-24-21-43-46-47-15-3-32-4-47-4zm-50 28c10 0 17 8 17 18 0 9-7 17-17 17-9 0-17-8-17-17 0-10 8-18 17-18z"/></g><use href="#p" fill="#ffd43b" transform="rotate(180,256,255)"/></svg>',
   rust: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="m0 0H512V512H0" fill="#fff"/><g transform="translate(256 256)"><g id="d"><g id="c"><g id="b"><path id="a" d="M20-183 6-206c-3-5-9-5-12 0l-14 23m0 366 14 23c3 5 9 5 12 0l14-23"/><use href="#a" transform="rotate(11.25)"/></g><use href="#b" transform="rotate(22.5)"/></g><use href="#c" transform="rotate(45)"/></g><use href="#d" transform="rotate(90)"/><g id="f"><path id="e" d="M-101-161a190 190 0 00-76 230l32-16a154 154 0 01-8-73l25-13c6-3 9-9 5-15l-11-26a155 155 0 0159-61m-88 82c5-16 29-7 24 8s-29 8-24-8"/><use href="#e" transform="rotate(72)"/></g><use href="#f" transform="rotate(144)"/><use href="#e" transform="rotate(-72)"/><path d="M135 10s4 32-18 32-6-24-43-51c0 0 31-13 31-47s-40-48-57-48h-187v46h35v99h-52v49H4V42h-39V14H5c41 0 13 76 60 76h99V10M-35-28v-30h54c22 0 23 30 0 30"/></g></svg>',
-  vue: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="m0 0H512V512H0" fill="#fff"/><path fill="#42b883" d="m64 100h148l44 77 44-77h148L256 433"/><path fill="#35495e" d="m141 100h71l44 77 44-77h71L256 300"/></svg>',
+  vue: VUE_IDENTITY.svg,
   svelte: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="m0 0H512V512H0" fill="#fff"/><path fill="#ff3e00" d="M149 138a103 103 0 00-36 138A115 115 0 00274 431l89-57a108 108 0 0036-138A115 115 0 00238 81zm99 256a70 70 0 01-102-83 109 109 0 0043 21 22 22 0 0032 23l89-57a20 20 0 00-23-33l-34 21A66 66 0 01175 175l89-57a70 70 0 01102 83 115 115 0 00-43-21 21 21 0 00-32-23l-89 57a20 20 0 0023 33l34-21a66 66 0 0178 111z"/></svg>',
   graphql: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="#e10098"><path d="m0 0H512V512H0" fill="#fff"/><g id="b" stroke="#e10098" transform="translate(-127 -127) scale(1.5)"><g id="a"><path stroke-width="11" d="m256 151-91 52"/><circle cx="256" cy="151" r="22"/></g><use href="#a" transform="rotate(60 256 256)"/><path stroke-width="11" d="m256 151-94 162"/></g><use href="#b" transform="rotate(120 256 256)"/><use href="#b" transform="rotate(-120 256 256)"/></svg>',
   toml: '<svg viewBox="0 0 24 24"><rect width="24" height="24" rx="2" fill="white"/><path fill="#9c4221" d="M6 7h4v2H8v8H6zm6 0h4a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-4v-2h4V9h-4z"/></svg>',
@@ -108,37 +109,52 @@ function getLanguageConfig(filePath: string, label: string): LanguageConfig {
   return DEFAULT_CONFIG;
 }
 
-/** Accessible name carrying the framework, so color is never the only cue. */
-export function frameworkName(name: string, framework?: 'react'): string | undefined {
-  return framework === 'react' ? `${REACT_IDENTITY.label}: ${name}` : undefined;
+/** The identity (label, color, text color, icon) of a framework node; undefined for a plain node. */
+export function frameworkIdentity(framework?: Framework): (typeof FRAMEWORK_IDENTITIES)[Framework] | undefined {
+  return framework ? FRAMEWORK_IDENTITIES[framework] : undefined;
 }
 
-/** React cyan sits close to the selection blue: an outline keeps selection visible in every theme. */
-export function frameworkSelectionOutline(selected: boolean, framework?: 'react'): React.CSSProperties {
-  return selected && framework === 'react'
+/** Accessible name carrying the framework, so color is never the only cue. */
+export function frameworkName(name: string, framework?: Framework): string | undefined {
+  const identity = frameworkIdentity(framework);
+  return identity ? `${identity.label}: ${name}` : undefined;
+}
+
+/** A framework fill hides the selection color (React cyan sits close to it): an outline keeps selection visible in every theme. */
+export function frameworkSelectionOutline(selected: boolean, framework?: Framework): React.CSSProperties {
+  return selected && framework
     ? { outlineStyle: 'solid', outlineColor: 'var(--vscode-contrastActiveBorder, var(--vscode-editor-foreground))', outlineWidth: 2, outlineOffset: 2 }
     : {};
 }
 
-export function ReactIcon(): React.JSX.Element {
-  return <img alt={REACT_IDENTITY.label} width={16} height={16}
-    src={`data:image/svg+xml,${encodeURIComponent(REACT_IDENTITY.svg)}`}
-    style={{ background: REACT_IDENTITY.color, borderRadius: 2, flexShrink: 0 }} />;
+export function FrameworkIcon({ framework }: Readonly<{ framework: Framework }>): React.JSX.Element {
+  const identity = FRAMEWORK_IDENTITIES[framework];
+  return <img alt={identity.label} width={16} height={16}
+    src={`data:image/svg+xml,${encodeURIComponent(identity.svg)}`}
+    style={{ background: identity.color, borderRadius: 2, flexShrink: 0 }} />;
 }
 
-/** Framework key shown beside a graph that holds at least one React node. */
-export function ReactBadge({ style }: Readonly<{ style?: React.CSSProperties }>): React.JSX.Element {
+/** Framework keys shown beside a graph, one per framework among its nodes (React first). */
+export function FrameworkBadges({ frameworks, style }: Readonly<{ frameworks: Iterable<Framework | undefined>; style?: React.CSSProperties }>): React.JSX.Element | null {
+  const present = new Set(frameworks);
+  const shown = (Object.keys(FRAMEWORK_IDENTITIES) as Framework[]).filter((framework) => present.has(framework));
+  if (shown.length === 0) return null;
   return (
-    <div data-testid="react-badge" style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
-      background: 'var(--vscode-editor-background)', color: 'var(--vscode-editor-foreground)', ...style }}>
-      <ReactIcon /><span>{REACT_IDENTITY.label}</span>
+    <div style={{ display: 'flex', flexDirection: 'column', ...style }}>
+      {shown.map((framework) => (
+        <div key={framework} data-testid={`${framework}-badge`} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px',
+          background: 'var(--vscode-editor-background)', color: 'var(--vscode-editor-foreground)' }}>
+          <FrameworkIcon framework={framework} /><span>{FRAMEWORK_IDENTITIES[framework].label}</span>
+        </div>
+      ))}
     </div>
   );
 }
 
 export const LanguageIcon: React.FC<LanguageIconProps> = ({ filePath, label, framework }) => {
-  const config = framework === 'react'
-    ? { id: REACT_IDENTITY.label, color: REACT_IDENTITY.color, svg: REACT_IDENTITY.svg }
+  const identity = frameworkIdentity(framework);
+  const config = identity
+    ? { id: identity.label, color: identity.color, svg: identity.svg }
     : getLanguageConfig(filePath, label);
 
   return (
@@ -150,7 +166,7 @@ export const LanguageIcon: React.FC<LanguageIconProps> = ({ filePath, label, fra
         width: 8,
         height: 8,
         borderRadius: 2,
-        background: framework === 'react' ? REACT_IDENTITY.color : 'white',
+        background: identity?.color ?? 'white',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',

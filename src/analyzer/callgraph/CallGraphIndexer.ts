@@ -14,6 +14,8 @@
  */
 
 import type { RelationType, SupportedLang, SymbolType } from "@/shared/callgraph-types";
+import { isFramework } from "@/shared/constants";
+import type { Framework } from "@/shared/graph-types";
 import { detectCycleEdges } from "@/shared/cycleUtils";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -25,7 +27,7 @@ import { type FileDeclaration, ownedMethod, QUALIFIED_PREFIX, qualifiedCandidate
 // ---------------------------------------------------------------------------
 
 export interface CallGraphNode {
-  framework?: 'react';
+  framework?: Framework;
   /** False for a non-JS/TS file or an explicit competing JSX runtime. */
   reactEligible?: boolean;
   /** Stable ID: normalizedFilePath:symbolName:startLine */
@@ -78,8 +80,11 @@ export interface CallGraphIndexSnapshot {
 // SQLite schema (inlined — matches contracts/db-schema.sql)
 // ---------------------------------------------------------------------------
 
-/** JSX target evidence is derived at read time so removing an importer removes its badge too. */
-export const REACT_FRAMEWORK_SQL = `CASE WHEN framework = 'react' OR
+/**
+ * The node's framework: a stored `vue` (SFC component node), else React, whose JSX target evidence is derived at read
+ * time so removing an importer removes its badge too.
+ */
+export const REACT_FRAMEWORK_SQL = `CASE WHEN framework = 'vue' THEN 'vue' WHEN framework = 'react' OR
   (react_eligible = 1 AND EXISTS (SELECT 1 FROM edges AS react_edges
     WHERE react_edges.target_id = nodes.id AND react_edges.react_component = 1))
   THEN 'react' ELSE NULL END`;
@@ -111,7 +116,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     is_exported INTEGER  NOT NULL DEFAULT 0,
     owner       TEXT     NOT NULL DEFAULT '',
     returns     TEXT     NOT NULL DEFAULT '',
-    framework   TEXT     CHECK (framework IS NULL OR framework = 'react'),
+    framework   TEXT     CHECK (framework IS NULL OR framework IN ('react', 'vue')),
     react_eligible INTEGER NOT NULL DEFAULT 1,
     indexed_at  INTEGER  NOT NULL,
     PRIMARY KEY (id),
@@ -173,8 +178,9 @@ CREATE TABLE IF NOT EXISTS metadata (
  *      grammar follows the `<script lang>` (#644).
  * v19: a Vue SFC has a component node at its `<template>`, with template REFERENCES/CALLS edges; compiler macros
  *      are no call targets; `defineAsyncComponent(() => import('./literal'))` resolves like `lazy()` (#645).
+ * v20: the Vue SFC component node carries `framework = 'vue'`; an HTML `<template src>` inside the workspace is read (#646).
  */
-const CURRENT_SCHEMA_VERSION = 19;
+const CURRENT_SCHEMA_VERSION = 20;
 
 /**
  * Optional FTS5 schema for fast symbol name search.
@@ -779,7 +785,7 @@ export class CallGraphIndexer {
         startCol: row[8] as number,
         isExported: row[9] === 1,
         indexedAt: row[10] as number,
-        ...(row[11] === 'react' ? { framework: 'react' as const } : {}),
+        ...(isFramework(row[11]) ? { framework: row[11] } : {}),
       })),
       edges: (edgeRows[0]?.values ?? []).map((row) => ({
         sourceId: row[0] as string,

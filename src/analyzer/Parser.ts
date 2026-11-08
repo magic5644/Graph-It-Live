@@ -53,12 +53,17 @@ export class Parser implements ILanguageAnalyzer {
    * @param filePath Optional file path to detect Vue/Svelte/GraphQL files
    */
   parse(content: string, filePath?: string): ParsedImport[] {
+    const imports: ParsedImport[] = [];
+
     // Vue/Svelte: the same-length script view keeps import lines those of the SFC.
     if (filePath && isSfcFile(filePath)) {
-      content = parseSfc(filePath, content).scriptView;
+      const sfc = parseSfc(filePath, content);
+      // `<script src>` / `<template src>`: the external file is a dependency, so its edits invalidate the SFC.
+      for (const block of [...sfc.scripts, ...(sfc.template ? [sfc.template] : [])]) {
+        if (block.src) imports.push({ module: block.src, type: "import", line: this.getLineNumber(content, block.loc.start) });
+      }
+      content = sfc.scriptView;
     }
-
-    const imports: ParsedImport[] = [];
 
     // Track processed modules to avoid duplicates
     const seen = new Set<string>();

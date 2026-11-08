@@ -1,3 +1,5 @@
+import type { Framework } from './graph-types';
+
 // Extensions by language for type-safe language detection
 export const TYPESCRIPT_EXTENSIONS = ['.ts', '.tsx'] as const;
 export const JAVASCRIPT_EXTENSIONS = ['.js', '.jsx', '.mjs', '.cjs'] as const;
@@ -55,7 +57,8 @@ export const IGNORED_DIRECTORIES = [
 ];
 
 
-export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,gql,graphql,py,pyi,rs,toml,cs,csproj,go,java}";
+// `html`: an external Vue `<template src>`, acted on only when the index knows a `.vue` reading it.
+export const WATCH_GLOB = "**/*.{ts,tsx,js,jsx,mjs,cjs,vue,svelte,gql,graphql,py,pyi,rs,toml,cs,csproj,go,java,html}";
 /** graphit.architecture.json and its baseline (architectureRules.ts); the view reads them at the root only, so a nested match changes nothing. */
 export const ARCHITECTURE_RULES_GLOB = "**/graphit.architecture{,.baseline}.json";
 /**
@@ -104,6 +107,25 @@ export const REACT_IDENTITY = {
     foreground: '#ffffff',
     svg: `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32"><rect width="32" height="32" rx="3" fill="${REACT_COLOR}"/><g fill="none" stroke="#ffffff" stroke-width="1.5"><ellipse cx="16" cy="16" rx="14" ry="5.5"/><ellipse cx="16" cy="16" rx="14" ry="5.5" transform="rotate(60 16 16)"/><ellipse cx="16" cy="16" rx="14" ry="5.5" transform="rotate(120 16 16)"/></g><circle cx="16" cy="16" r="2.5" fill="#ffffff"/></svg>`,
 } as const;
+
+/** Vue green with dark text: white text on it fails WCAG contrast; the Vue logo the language icon already shows. */
+export const VUE_IDENTITY = {
+    label: 'Vue',
+    color: LANGUAGE_COLORS.vue,
+    foreground: '#000000',
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><path d="m0 0H512V512H0" fill="#fff"/><path fill="#42b883" d="m64 100h148l44 77 44-77h148L256 433"/><path fill="#35495e" d="m141 100h71l44 77 44-77h71L256 300"/></svg>',
+} as const;
+
+/** Each framework's identity: label (accessible name and legend), color, text color on it, icon. */
+export const FRAMEWORK_IDENTITIES: Readonly<Record<Framework, { label: string; color: string; foreground: string; svg: string }>> = {
+    react: REACT_IDENTITY,
+    vue: VUE_IDENTITY,
+};
+
+/** True for a framework name the graphs know, e.g. read back from the call graph database. */
+export function isFramework(value: unknown): value is Framework {
+    return typeof value === 'string' && Object.hasOwn(FRAMEWORK_IDENTITIES, value);
+}
 
 // File extension to color mapping for border colors in graph visualization
 // Maps file extensions to their respective language colors

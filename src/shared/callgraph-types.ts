@@ -10,6 +10,8 @@
  *   - webview → extension: discriminated union on `command`
  */
 
+import type { Framework } from './graph-types';
+
 // ---------------------------------------------------------------------------
 // Shared primitive types
 // ---------------------------------------------------------------------------
@@ -38,7 +40,7 @@ export type SupportedLang = "typescript" | "javascript" | "python" | "rust" | "c
 
 export interface SerializedCallNode {
   /** Proven component identity; lang remains JavaScript/TypeScript. */
-  framework?: 'react';
+  framework?: Framework;
   /** Stable ID: normalizedFilePath:symbolName:startLine */
   id: string;
   /** Symbol's bare display name */

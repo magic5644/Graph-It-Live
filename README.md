@@ -475,11 +475,16 @@ Use `pull_request`, not `pull_request_target`, for untrusted pull requests. The 
 | --- | :---: | :---: | :---: |
 | TypeScript / JavaScript | Yes | Yes | Yes |
 | React (JSX / TSX) | Yes | Yes | Yes |
-| Vue / Svelte | Yes | Yes | Yes |
+| Vue 3 (SFC) | Yes | Yes | Yes |
+| Svelte | Yes | Yes | Yes |
 | Python | Yes | Yes | Yes |
 | Rust | Yes | Yes | Yes |
 | C# / Go / Java | Yes | No | Yes |
 | GraphQL | Yes | No | Yes |
+
+**Vue 3 single-file components** (Vue 3.x, `<script>` and `<script setup>`, JS, TS, JSX and TSX): imports, symbols and call graph nodes keep the line and column of the `.vue` file. The template links `<Child />`, handlers (`@click="save"` passes, `save()` calls), interpolations, slots and custom directives to the script bindings they use, so a component used only in the template is not reported unused. `<script src>` and an HTML `<template src>` inside the workspace are read, and an edit of the external file refreshes its `.vue`. `.vue` files and the SFC component node show the Vue logo and green in every graph, apart from React. Review and Branch Watch report props and events added or removed by name.
+
+Not resolved, and never guessed: Vue 2, Nuxt and other auto-imports, globally or plugin-registered components, a dynamic `:is`, a `pug` template, and an external file outside the workspace or reached through a symbolic link. A template that cannot be read fully counts every script binding as used. Props and events typed by an imported type or built at runtime are reported as partial; props/emits type compatibility is not checked. An external template edited while no Graph-It process is watching it is read again when its `.vue` changes or the index is rebuilt.
 
 ## Documentation
 
