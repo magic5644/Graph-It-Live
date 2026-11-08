@@ -61,6 +61,7 @@ describe("readVueContract", () => {
     ["a computed event", "const name = 'save';\ndefineEmits({ [name]: null });", "emits hold a spread or computed entry"],
     ["an event typed by a type", "type Name = 'save';\ndefineEmits<{ (e: Name): void }>();", "emits hold a member whose name is not a literal"],
     ["a model named at runtime", "const name = 'x';\ndefineModel(name);", "defineModel names its prop at runtime"],
+    ["props of an interface that extends another", "interface Base { id: string }\ninterface Props extends Base { label: string }\ndefineProps<Props>();", "props extend a type not read"],
     ["Options API props from a variable", "const props = ['label'];\nexport default { props };", "props are built at runtime"],
   ])("marks %s as partial and keeps the literal names", (_case, script, reason) => {
     expect(contract(script, 'setup lang="ts"').partial).toEqual([reason]);

@@ -69,6 +69,13 @@ describe("analyzeVueTemplate with an external template", () => {
     expect(analysis.template).toBeUndefined();
   });
 
+  it("reads an empty external template as complete, with no use", () => {
+    write("Empty.vue", '<script setup>\nimport Child from "./Child.vue";\n</script>\n<template src="./empty.html"></template>\n');
+    write("empty.html", "");
+    const analysis = uses("Empty.vue", ["Child"], root);
+    expect([analysis.uses, analysis.complete, analysis.template?.line]).toEqual([[], true, 4]);
+  });
+
   it("reads the external template again once it is edited, the .vue unchanged", () => {
     write("card.html", "<div><Child /></div>\n");
     try {

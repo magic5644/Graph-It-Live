@@ -7,7 +7,7 @@ export interface VueContract {
   emits: string[];
   /** Why some names may be missing: typed by an imported type, built at runtime, external `<script src>`. */
   partial: string[];
-  /** The declarations read, as written: a change the names do not show (an imported type swapped) still shows here. */
+  /** The declarations read, as written: a change the names do not show (another imported type named) still shows here. */
   declarations: string[];
 }
 
@@ -128,6 +128,8 @@ function readType(type: ts.TypeNode, kind: Kind, reader: Reader): void {
   const local = ts.isTypeReferenceNode(type) && ts.isIdentifier(type.typeName) ? localType(type.typeName.text, reader.source) : undefined;
   if (local) {
     reader.declarations.push(local.declaration.getText(reader.source));
+    // `interface Props extends Base`: the inherited members are not followed.
+    if (ts.isInterfaceDeclaration(local.declaration) && local.declaration.heritageClauses) reader.partial.add(`${kind} extend a type not read`);
     return readMembers(local.members, kind, reader);
   }
   reader.partial.add(`${kind} are typed by '${type.getText(reader.source)}', not declared in this file`);
