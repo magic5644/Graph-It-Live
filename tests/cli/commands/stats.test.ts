@@ -28,7 +28,7 @@ function makeSnapshot(
     },
     totals: { calls: 2, jsonTokens: 100, toonTokens: 60, savings: 40, truncations: 0 },
     llmUsage: { calls: 1, tokensUsed: 500 },
-    estimationMethod: "chars/4 heuristic",
+    estimationMethod: "cl100k_base",
   };
 }
 
@@ -59,7 +59,7 @@ describe("cli stats command", () => {
     const output = await run(["--stats-dir", missingDir], fakeRuntime, "text");
 
     expect(output).toContain("TOON encoding size vs JSON equivalent");
-    expect(output).toContain("estimated (chars/4 heuristic)");
+    expect(output).toContain("estimated (cl100k_base tokenizer)");
     expect(output).toContain("(no persisted sessions found)");
     expect(output).toContain("(no TOON-encoded responses recorded in this session)");
   });
@@ -82,7 +82,7 @@ describe("cli stats command", () => {
     const output = await run(["--stats-dir", tempDir], fakeRuntime, "text");
 
     expect(output).toContain("TOON encoding size vs JSON equivalent");
-    expect(output).toContain("estimated (chars/4 heuristic)");
+    expect(output).toContain("estimated (cl100k_base tokenizer)");
     expect(output).toContain("llmUsage");
     expect(output).toContain("never summed into the estimated totals");
     expect(output).toContain("tokens used: 777");
@@ -146,9 +146,9 @@ describe("cli stats command", () => {
     const parsed = JSON.parse(output);
 
     expect(parsed.description).toBe("TOON encoding size vs JSON equivalent");
-    expect(parsed.estimationNote).toBe("estimated (chars/4 heuristic)");
+    expect(parsed.estimationNote).toBe("estimated (cl100k_base tokenizer)");
     expect(parsed.history.persistedSessions).toBe(1);
     expect(parsed.history.bySource.cli.llmTokensUsed).toBe(500);
-    expect(parsed.currentSession.estimationMethod).toBe("chars/4 heuristic");
+    expect(parsed.currentSession.estimationMethod).toBe("cl100k_base");
   });
 });

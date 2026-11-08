@@ -376,8 +376,8 @@ export function toonToJson(toonStr: string, options: ToonOptions = {}): unknown[
 }
 
 /**
- * Estimate the exact token count of a string using the cl100k_base encoding
- * (same family used by Claude/GPT tokenizers), replacing the previous
+ * Count the tokens of a string with the cl100k_base encoding: exact for that
+ * OpenAI tokenizer, an estimate for other models. Replaces the previous
  * chars/4 heuristic.
  *
  * @param str - String to tokenize

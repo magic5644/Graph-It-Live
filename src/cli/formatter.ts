@@ -100,8 +100,8 @@ function formatToon(data: unknown, command: string): string {
     }
     const savings = estimateTokenSavings(encoded.encodedJson, encoded.content);
 
-    // Session stats: TOON encoding size vs JSON equivalent (estimated, chars/4
-    // heuristic). Recorded only on successful TOON conversion, like the MCP side.
+    // Session stats: TOON encoding size vs JSON equivalent (estimated, cl100k_base
+    // tokenizer). Recorded only on successful TOON conversion, like the MCP side.
     sessionStats.record({
       toolName: command,
       jsonTokens: savings.jsonTokens,

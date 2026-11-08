@@ -12,6 +12,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   flushSession,
+  CL100K_COUNTING_SINCE,
   getDefaultStatsDir,
   readAllSessions,
   rotate,
@@ -30,7 +31,7 @@ function makeSnapshot(overrides: Partial<SessionStatsSnapshot> = {}): SessionSta
     },
     totals: { calls: 1, jsonTokens: 100, toonTokens: 60, savings: 40, truncations: 0 },
     llmUsage: { calls: 0, tokensUsed: 0 },
-    estimationMethod: 'chars/4 heuristic',
+    estimationMethod: 'cl100k_base',
     ...overrides,
   };
 }
@@ -66,6 +67,37 @@ describe('statsPersistence', () => {
   it('getDefaultStatsDir() points under homedir/.graph-it/stats', () => {
     const dir = getDefaultStatsDir();
     expect(dir).toBe(path.join(os.homedir(), '.graph-it', 'stats'));
+  });
+
+  describe('sessions written by older releases', () => {
+    // Written as an older release did: a raw file, not through flushSession.
+    const writeRaw = (snapshot: unknown, id: string) => fs.writeFileSync(path.join(baseDir, `mcp-${id}.json`), JSON.stringify(snapshot));
+
+    it('loads a session counted with cl100k_base but labelled chars/4, under the cl100k_base label', () => {
+      const mislabelled = { ...makeSnapshot(), estimationMethod: 'chars/4 heuristic', startedAt: CL100K_COUNTING_SINCE };
+      writeRaw(mislabelled, mislabelled.sessionId);
+
+      expect(readAllSessions(baseDir)).toEqual([{ ...mislabelled, estimationMethod: 'cl100k_base' }]);
+    });
+
+    it('skips a session started before v1.14.1, counted as chars/4, so history never mixes units', () => {
+      const charsBased = { ...makeSnapshot(), estimationMethod: 'chars/4 heuristic', startedAt: CL100K_COUNTING_SINCE - 1 };
+      writeRaw(charsBased, charsBased.sessionId);
+      const current = makeSnapshot({ source: 'cli' });
+      flushSession(current, baseDir);
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      expect(readAllSessions(baseDir)).toEqual([current]);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('rejects a session without a numeric startedAt as invalid', () => {
+      writeRaw({ ...makeSnapshot(), startedAt: 'yesterday' }, 'bad');
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      expect(readAllSessions(baseDir)).toEqual([]);
+      expect(warn).toHaveBeenCalledWith('graph-it stats: skipping invalid stats file: mcp-bad.json');
+    });
   });
 
   it('flushSession + readAllSessions roundtrip', () => {

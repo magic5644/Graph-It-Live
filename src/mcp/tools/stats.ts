@@ -2,7 +2,7 @@
  * MCP Session Stats Tool — get_session_stats
  *
  * Reports session statistics: TOON encoding size vs JSON equivalent
- * (estimated, chars/4 heuristic) plus real LLM token usage (exact,
+ * (estimated, cl100k_base tokenizer) plus real LLM token usage (exact,
  * provider-reported) as a SEPARATE section — never summed into the
  * estimated encoding totals, mixing them would produce a dishonest metric.
  *
@@ -15,6 +15,7 @@
 import { z } from "zod/v4";
 import { readAllSessions } from "../../analyzer/stats/statsPersistence";
 import {
+  ESTIMATION_NOTE,
   sessionStats,
   type SessionStatsSnapshot,
   type SessionStatsSource,
@@ -50,7 +51,7 @@ export interface GetSessionStatsResult {
   /** What the numbers measure. */
   description: "TOON encoding size vs JSON equivalent";
   /** How the numbers are computed. */
-  estimationNote: "estimated (chars/4 heuristic)";
+  estimationNote: typeof ESTIMATION_NOTE;
   /** Why llmUsage is reported separately, and why it stays 0 on the MCP side. */
   llmUsageNote: string;
   /** Current in-memory session (llmUsage is a separate section inside the snapshot). */
@@ -129,7 +130,7 @@ export function executeGetSessionStats(statsDir?: string): GetSessionStatsResult
 
   return {
     description: "TOON encoding size vs JSON equivalent",
-    estimationNote: "estimated (chars/4 heuristic)",
+    estimationNote: ESTIMATION_NOTE,
     llmUsageNote,
     currentSession,
     history,

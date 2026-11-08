@@ -114,7 +114,7 @@ describe('SessionStatsCollector', () => {
   it('snapshot() carries schemaVersion, estimationMethod and timestamps', () => {
     const snap = collector.snapshot();
     expect(snap.schemaVersion).toBe(1);
-    expect(snap.estimationMethod).toBe('chars/4 heuristic');
+    expect(snap.estimationMethod).toBe('cl100k_base');
     expect(snap.startedAt).toBeTypeOf('number');
     expect(snap.endedAt).toBeTypeOf('number');
     expect(snap.endedAt!).toBeGreaterThanOrEqual(snap.startedAt);

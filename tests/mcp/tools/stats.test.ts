@@ -29,7 +29,7 @@ function makeSnapshot(
     },
     totals: { calls: 2, jsonTokens: 100, toonTokens: 60, savings: 40, truncations: 0 },
     llmUsage: { calls: 1, tokensUsed: 500 },
-    estimationMethod: "chars/4 heuristic",
+    estimationMethod: "cl100k_base",
     ...overrides,
   };
 }
@@ -63,9 +63,9 @@ describe("get_session_stats tool", () => {
     const result = executeGetSessionStats(tempDir);
 
     expect(result.description).toBe("TOON encoding size vs JSON equivalent");
-    expect(result.estimationNote).toBe("estimated (chars/4 heuristic)");
+    expect(result.estimationNote).toBe("estimated (cl100k_base tokenizer)");
     expect(result.llmUsageNote).toContain("never summed into the estimated encoding totals");
-    expect(result.currentSession.estimationMethod).toBe("chars/4 heuristic");
+    expect(result.currentSession.estimationMethod).toBe("cl100k_base");
   });
 
   it("explains why llmUsage is 0 for an MCP session with no LLM calls", () => {
