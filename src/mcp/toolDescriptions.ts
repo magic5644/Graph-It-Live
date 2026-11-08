@@ -41,7 +41,7 @@ const OPEN_ENDED_HINT =
   "For an open-ended question, start with graphitlive_graph_context and come here when you need this specific cut.";
 /** Supported React baseline (#575), shared by every tool that reports call or reference edges. */
 const REACT_BASELINE =
-  "REFERENCES: a function passed as an argument (register(save), items.map(format), Python cb=save, Java this::save, C# Register(Save)), and in .jsx/.tsx files a JSX component (<Card />, <UI.Card />) or an attribute value (onClick={save}, render={Row}), is a REFERENCES edge: rendered or passed, never reported as a call; register(save()) and onClick={() => save()} are CALLS edges at their line. REACT: Imports resolve through aliases, barrels and default exports to the declaration (a default export keeps its declared name), and memo(), forwardRef() and lazy(() => import('./literal')) to the wrapped component. Lowercase intrinsic tags, parameters or locals named like a function, members of objects other than this/self, non-literal or unknown wrappers, and unimported or ambiguous names stay unresolved, never guessed; props contracts are not analysed.";
+  "REFERENCES: a function passed as an argument (register(save), items.map(format), Python cb=save, Java this::save, C# Register(Save)), and in .jsx/.tsx files a JSX component (<Card />, <UI.Card />) or an attribute value (onClick={save}, render={Row}), is a REFERENCES edge: rendered or passed, never reported as a call; register(save()) and onClick={() => save()} are CALLS edges at their line. REACT: Imports resolve through aliases, barrels and default exports to the declaration (a default export keeps its declared name), and memo(), forwardRef() and lazy(() => import('./literal')) to the wrapped component. Lowercase intrinsic tags, parameters or locals named like a function, members of objects other than this/self, non-literal or unknown wrappers, and unimported or ambiguous names stay unresolved, never guessed; props contracts are not analysed. VUE: a Vue 3 .vue file has a component node named after the file at its <template>; a template <Child />, handler (@click=save) or interpolation is a REFERENCES edge from it and save() a CALLS edge, also from an HTML <template src> of the workspace. Global, auto-imported and dynamic :is components stay unresolved.";
 const TOKEN_BUDGET_LIMIT =
   "output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.";
 const LM_CALL_GRAPH_INDEX =
@@ -77,7 +77,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
         mcp: "RETURNS: per statement - module specifier, resolved absolute path, workspace-relative path, import type (import, require, export, dynamic, side-effect, mod = Rust `mod x;` declaration), line number.",
         lm: "RETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic, side-effect, mod = Rust `mod x;` declaration), line number. Unresolved and external imports are left out.",
       },
-      "SUPPORTS: TypeScript, JavaScript, Vue, Svelte, GraphQL.",
+      "SUPPORTS: TypeScript, JavaScript, Vue 3 (<script src> and <template src> are dependencies), Svelte, GraphQL.",
     ],
   },
   crawl_dependency_graph: {
@@ -257,7 +257,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       "WHEN: before opening a pull request, or as a CI gate.",
       "WHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.",
-      "RETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed. With graphit.architecture.json, `architecture` says whether the diff degrades or improves the declared rules: new, resolved and unchanged violations per rule, unit cycles, rules-file edits; a new error violation raises the risk.",
+      "RETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed. With graphit.architecture.json, `architecture` says whether the diff degrades or improves the declared rules: new, resolved and unchanged violations per rule, unit cycles, rules-file edits; a new error violation raises the risk. A changed .vue lists the props and events it adds or removes by name (no type check), a contract typed by an imported type or built at runtime as partial.",
       { lm: "LIMITS: runs git in the first workspace folder; impact counts are incomplete while background indexing runs." },
     ],
   },
@@ -293,7 +293,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "WHEN: getting oriented in an unfamiliar file, or gathering the full context of a file before refactoring it.",
       "WHY: one call in place of analyze_dependencies, get_symbol_graph and find_referencing_files together, plus the calls between the file's own symbols.",
       "RETURNS: path, language, line count, exported and internal symbols, dependencies, dependents, intra-file call flow, cycle detection.",
-      "SUPPORTS: TypeScript, JavaScript, Python, Rust, Vue, Svelte.",
+      "SUPPORTS: TypeScript, JavaScript, Python, Rust, Vue 3, Svelte.",
     ],
   },
   query_call_graph: {

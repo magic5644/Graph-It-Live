@@ -319,7 +319,7 @@ export class Spider {
       this.resolver = new PathResolver(config.tsConfigPath, this.config.excludeNodeModules, config.rootDir);
       this.cache = new Cache({ maxSize: this.config.maxCacheSize, enableLRU: true });
       this.symbolCache = new Cache({ maxSize: this.config.maxSymbolCacheSize, enableLRU: true });
-      this.astWorkerHost = new AstWorkerHost(undefined, config.extensionPath);
+      this.astWorkerHost = new AstWorkerHost(undefined, config.extensionPath, config.rootDir);
       this.reverseIndexManager = new ReverseIndexManager(this.config.rootDir);
       this.fileReader = new FileReader();
       this.indexerStatus = new IndexerStatus();
@@ -780,6 +780,15 @@ export class Spider {
   /** Indexed importers only: no fallback scan and no file read, for paths that run on every file event. */
   getIndexedReferencingFiles(targetPath: string): Dependency[] {
     return this.reverseIndexManager.getReferencingFiles(normalizePath(targetPath));
+  }
+
+  /**
+   * The indexed `.vue` files whose `<template src>` is `filePath`, an HTML file: they read it, so its events are
+   * theirs. Empty for any other file.
+   */
+  getExternalTemplateOwners(filePath: string): string[] {
+    if (!/\.html?$/i.test(filePath)) return [];
+    return this.getIndexedReferencingFiles(filePath).map((dependency) => dependency.path).filter((owner) => /\.vue$/i.test(owner));
   }
 
   /** Direct referencers, then consumers behind re-export barrels with the barrel as `via`. */

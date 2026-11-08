@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ts } from 'ts-morph';
 import { normalizePath } from '@/shared/path';
-import type { GraphData } from '@/shared/graph-types';
+import type { Framework, GraphData } from '@/shared/graph-types';
 import { mapWithConcurrency } from '@/shared/concurrency';
 import { PathResolver } from './utils/PathResolver';
 import { DEFAULT_ONLY, findDeclaration, type DeclarationReads } from './utils/declarations';
@@ -28,6 +28,7 @@ const IDENTITY_CACHE_LIMIT = 20_000;
 const identityCache = new Map<string, { mtimeMs: number; size: number; runtime?: string; identity: ReactIdentity }>();
 const COMPONENT_FACTORY = /^(?:memo|forwardRef|lazy)$/;
 const JS_TS_FILE = /\.[cm]?[jt]sx?$/i;
+const VUE_FILE = /\.vue$/i;
 /** TypeScript reads `<X>` as a type assertion in .ts, .mts and .cts files: they cannot render JSX. */
 const NO_JSX_FILE = /\.[cm]?ts$/i;
 
@@ -247,13 +248,15 @@ export async function enrichReactFramework(graphData: GraphData, workspaceRoot: 
     const metadata = graphData.nodeMetadata?.[key];
     if (!metadata) continue;
     delete metadata.framework;
-    if (proven.has(key) || targets.has(key)) metadata.framework = 'react';
+    // A `.vue` file is a Vue component by itself.
+    if (VUE_FILE.test(key)) metadata.framework = 'vue';
+    else if (proven.has(key) || targets.has(key)) metadata.framework = 'react';
   }
 }
 
 /** JSX-only targets are components too; callbacks in the same import remain ordinary symbols. */
 export async function enrichReactSymbols(
-  symbols: Array<{ name: string; line: number; framework?: 'react' }>,
+  symbols: Array<{ name: string; line: number; framework?: Framework }>,
   filePath: string,
   referencingPaths: readonly string[],
   workspaceRoot: string,

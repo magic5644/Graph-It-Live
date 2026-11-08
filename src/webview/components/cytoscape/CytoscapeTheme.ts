@@ -10,7 +10,7 @@
  */
 
 import cytoscape from "cytoscape";
-import { LANGUAGE_COLORS, REACT_IDENTITY } from "../../../shared/constants";
+import { FRAMEWORK_IDENTITIES, LANGUAGE_COLORS } from "../../../shared/constants";
 import { ARCHITECTURE_FONT_SIZE } from "../architecture/architectureElements";
 import { type ThemeKind, unitTone } from "../architecture/unitColors";
 
@@ -389,25 +389,27 @@ export function buildCallGraphStylesheet(isDark = true): CyStylesheet[] {
         "shadow-offset-y": 0,
       },
     },
-    {
-      selector: 'node[framework="react"]',
-      style: {
-        "background-color": REACT_IDENTITY.color,
-        "border-color": REACT_IDENTITY.color,
-        color: REACT_IDENTITY.foreground,
-        "text-outline-color": REACT_IDENTITY.color,
-        "background-image": `data:image/svg+xml,${encodeURIComponent(REACT_IDENTITY.svg)}`,
-        "background-width": 16,
-        "background-height": 16,
-        "background-position-x": 4,
-        "background-position-y": 4,
-        padding: "18px",
+    ...Object.entries(FRAMEWORK_IDENTITIES).flatMap(([framework, identity]) => [
+      {
+        selector: `node[framework="${framework}"]`,
+        style: {
+          "background-color": identity.color,
+          "border-color": identity.color,
+          color: identity.foreground,
+          "text-outline-color": identity.color,
+          "background-image": `data:image/svg+xml,${encodeURIComponent(identity.svg)}`,
+          "background-width": 16,
+          "background-height": 16,
+          "background-position-x": 4,
+          "background-position-y": 4,
+          padding: "18px",
+        },
       },
-    },
-    {
-      selector: 'node[framework="react"][?isRoot], node[framework="react"]:selected',
-      style: { "border-color": t.selectionBorder, "border-width": 4 },
-    },
+      {
+        selector: `node[framework="${framework}"][?isRoot], node[framework="${framework}"]:selected`,
+        style: { "border-color": t.selectionBorder, "border-width": 4 },
+      },
+    ]),
   ];
 }
 

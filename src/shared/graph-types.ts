@@ -15,13 +15,16 @@ export interface GraphEdge {
 export const COMMUNITY_MODES = ["path", "louvain"] as const;
 export type CommunityMode = (typeof COMMUNITY_MODES)[number];
 
+/** A UI framework whose components the graphs tell apart from plain functions and files. */
+export type Framework = 'react' | 'vue';
+
 /**
  * Per-node metadata for the file-level dependency graph.
  * All fields except hubScore are optional — absent means "not available", never default to 0.
  */
 export interface GraphNodeMetadata {
   /** Proven framework identity, independent of the source language. */
-  framework?: 'react';
+  framework?: Framework;
   /** Normalized hub score in [0-1]: incoming degree / max incoming degree across workspace. Guard: max === 0 → 0. */
   hubScore: number;
   /** Raw line count from file content. Absent means not computed — consumers MUST NOT use ?? 0. */

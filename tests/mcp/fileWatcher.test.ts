@@ -130,6 +130,34 @@ describe('MCP file watcher', () => {
     }, { timeout: eventTimeout });
   }, testTimeout);
 
+  // #646: a `.vue` reads its HTML `<template src>`, so an edit of the HTML is an edit of the `.vue`.
+  it('invalidates the .vue owning an edited external template, and ignores any other HTML file', async () => {
+    const card = normalizePath(path.join(root, 'src/Card.vue'));
+    const template = normalizePath(path.join(root, 'src/card.html'));
+    const other = normalizePath(path.join(root, 'src/other.html'));
+    await fs.writeFile(template, '<p />\n');
+    await fs.writeFile(card, '<script setup>\n</script>\n<template src="./card.html"></template>\n');
+    await vi.waitFor(() => expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ filePath: card })), { timeout: eventTimeout });
+    await workerState.spider!.analyze(card);
+    expect(workerState.spider!.getExternalTemplateOwners(template)).toEqual([card]);
+    const stale = vi.spyOn(workerState, 'markCallGraphStale');
+    postMessage.mockClear();
+
+    try {
+      await fs.writeFile(other, '<p />\n');
+      await fs.writeFile(template, '<div />\n');
+      await vi.waitFor(() => {
+        expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({ event: 'change', filePath: card }));
+      }, { timeout: eventTimeout });
+      expect(stale).toHaveBeenCalledWith([card]);
+      expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ filePath: template }));
+      expect(postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ filePath: other }));
+    } finally {
+      // workerState outlives the test: a spy left on it would wrap the next test's spy.
+      stale.mockRestore();
+    }
+  }, testTimeout);
+
   it('ignores a JSON file no tsconfig extends', async () => {
     const data = normalizePath(path.join(root, 'data.json'));
     const handle = vi.spyOn(workerState.spider!, 'handleResolverConfigChange');

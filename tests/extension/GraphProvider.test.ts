@@ -889,3 +889,33 @@ describe("GraphProvider", () => {
     expect(dispose).toHaveBeenCalled();
   });
 });
+
+describe("GraphProvider external Vue templates (#646)", () => {
+  /** handleFileChange on a stand-in `this`: the owners lookup, the unused cache and the recursive call are observed. */
+  function standIn(owners: Record<string, string[]>) {
+    const self = {
+      _isDisposing: false,
+      spider: { getExternalTemplateOwners: vi.fn((file: string) => owners[file] ?? []) },
+      unusedAnalysisCache: { invalidate: vi.fn() },
+      architectureViewService: { markStale: vi.fn() },
+      handleFileChange: vi.fn().mockResolvedValue(undefined),
+    };
+    const run = (file: string, event: "create" | "change" | "delete") => GraphProvider.prototype.handleFileChange.call(self as never, file, event);
+    return { self, run };
+  }
+
+  it("turns any event on an external template into a change of each .vue reading it", async () => {
+    const { self, run } = standIn({ "/w/src/card.html": ["/w/src/Card.vue", "/w/src/Other.vue"] });
+    await run("/w/src/card.html", "delete");
+    expect(self.unusedAnalysisCache.invalidate).toHaveBeenCalledWith(["/w/src/Card.vue", "/w/src/Other.vue"]);
+    expect(self.handleFileChange.mock.calls).toEqual([["/w/src/Card.vue", "change"], ["/w/src/Other.vue", "change"]]);
+    expect(self.architectureViewService.markStale).not.toHaveBeenCalled();
+  });
+
+  it("ignores an HTML file no .vue reads, without marking the architecture stale", async () => {
+    const { self, run } = standIn({});
+    await run("/w/index.html", "create");
+    expect(self.handleFileChange).not.toHaveBeenCalled();
+    expect(self.architectureViewService.markStale).not.toHaveBeenCalled();
+  });
+});

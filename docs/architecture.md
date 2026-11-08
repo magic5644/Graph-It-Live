@@ -395,6 +395,8 @@ A role describes a unit. It comes from the unit's manifest, top-level configs, `
 | `function` | `@types/aws-lambda`, `aws-lambda`, `@azure/functions` or `firebase-functions` dependency; `serverless.yml`, `host.json`, or a SAM `template.yaml` in the unit; an exported `handler` in its entry (`main`, `index.*`, `handler.*`) |
 | `micro-frontend` | `@module-federation/*` or `single-spa` dependency; `ModuleFederationPlugin` in a bundler config |
 | `frontend` | `react`, `vue`, `@angular/core`, `svelte` or `solid-js` dependency, with an `index.html` or a bundler config (vite, webpack, next, nuxt, rspack, `angular.json`) |
+
+A Vue SFC counts its imports, its `<script src>` and its HTML `<template src>` as dependencies: an external block is an import edge of its `.vue`, inside the workspace only (a symbolic link that leaves it is refused).
 | `service` | `express`, `fastify`, `@nestjs/core`, `koa` or `hono` dependency; a `Dockerfile` with `EXPOSE` |
 | `library` | none of the above, and imported by another unit (unless all its files are tooling) |
 | `tooling` | only scripts, tests or config files (`scripts/`, `tools/`, `e2e/`, `tests/`, `.github/`, `*.test.*`, `*.config.*`), even when imported |

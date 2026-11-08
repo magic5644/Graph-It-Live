@@ -2,7 +2,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import ReactFlowGraph from '../../../src/webview/components/ReactFlowGraph';
 import { CytoscapeGraph } from '../../../src/webview/components/cytoscape/CytoscapeGraph';
-import { REACT_IDENTITY } from '../../../src/shared/constants';
+import { REACT_IDENTITY, VUE_IDENTITY } from '../../../src/shared/constants';
 import type { GraphData, ShowCallGraphMessage, SymbolInfo } from '../../../src/shared/types';
 import type { Core } from 'cytoscape';
 
@@ -16,6 +16,7 @@ const files: GraphData = {
   nodeMetadata: Object.fromEntries(paths.map(file => [file, {
     hubScore: file === card ? 0.9 : 0,
     ...([app, card].includes(file) ? { framework: 'react' as const } : {}),
+    ...(file === vue ? { framework: 'vue' as const } : {}),
   }])),
 };
 const symbols: SymbolInfo[] = ['Card', 'helper'].map(name => ({
@@ -24,13 +25,18 @@ const symbols: SymbolInfo[] = ['Card', 'helper'].map(name => ({
 }));
 const callGraph: ShowCallGraphMessage = {
   type: 'showCallGraph', rootSymbolId: 'app', depth: 1, timestamp: Date.now(), compounds: [],
-  nodes: ['app', 'card', 'helper'].map((id, i) => ({
-    id, name: ['App', 'Card', 'helper'][i], type: 'function', lang: 'typescript',
+  nodes: [...['app', 'card', 'helper'].map((id, i) => ({
+    id, name: ['App', 'Card', 'helper'][i], type: 'function' as const, lang: 'typescript' as const,
     path: i === 0 ? app : card, folder: '', startLine: i, endLine: i + 1,
     startCol: 0, isExported: true, isRoot: i === 0,
     ...(id === 'helper' ? {} : { framework: 'react' as const }),
-  })),
+  })), {
+    // The SFC component node of a `.vue` file, as the extractor names it.
+    id: 'button', name: 'Button', type: 'function' as const, lang: 'typescript' as const, path: vue, folder: '',
+    startLine: 0, endLine: 2, startCol: 0, isExported: true, isRoot: false, framework: 'vue' as const,
+  }],
   edges: [
+    { sourceId: 'app', targetId: 'button', typeRelation: 'REFERENCES', isCyclic: false, sourceLine: 4, direction: 'outgoing' },
     { sourceId: 'app', targetId: 'card', typeRelation: 'REFERENCES', isCyclic: true, sourceLine: 1, direction: 'outgoing' },
     { sourceId: 'card', targetId: 'app', typeRelation: 'REFERENCES', isCyclic: true, sourceLine: 2, direction: 'incoming' },
     { sourceId: 'card', targetId: 'helper', typeRelation: 'CALLS', isCyclic: false, sourceLine: 3, direction: 'lateral' },
@@ -89,7 +95,9 @@ async function run(): Promise<void> {
   await until(() => !!accessible('symbols', 'React: Card'), 'Symbol component identity missing');
   check(accessible('files', 'React: App.tsx'), 'Selected React file has no accessible framework name');
   check(accessible('files', 'React: Card.tsx'), 'Risky React file has no accessible framework name');
-  check(fileNode(vue)?.querySelector('[aria-label="vue file"]'), 'Vue identity changed');
+  check(accessible('files', 'Vue: Button.vue'), 'Vue file has no accessible framework name');
+  check(fileNode(vue)?.querySelector('[aria-label="Vue file"]'), 'Vue file lost its Vue logo');
+  check(!fileNode(vue)?.querySelector('[aria-label*="React"]'), 'Vue file was identified as React');
   for (const [file, language] of [[plain, 'typescript'], [other, 'javascript']]) {
     check(fileNode(file)?.querySelector(`[aria-label="${language} file"]`), `${file} lost its language fallback`);
     check(!fileNode(file)?.querySelector('[aria-label*="React"]'), `${file} was identified as React without proof`);
@@ -102,23 +110,33 @@ async function run(): Promise<void> {
   const callName = document.querySelector('#calls [data-testid="cytoscape-container"]')?.getAttribute('aria-label');
   check(callName?.includes('React: Card'), 'Call graph has no accessible React component');
   check(!callName.includes('React: helper'), 'Plain call graph symbol became React');
+  check(callName.includes('Vue: Button') && !callName.includes('React: Button'), 'Call graph has no accessible Vue component');
   const callContainer = document.querySelector('#calls [data-testid="cytoscape-container"]') as HTMLElement & { _cyreg: { cy: Core } };
   const cy = callContainer._cyreg.cy;
-  check(cy.edges().length === 3, 'Call graph lost edges');
+  check(cy.edges().length === 4, 'Call graph lost edges');
   check(cy.edges('[?isCyclic]').length === 2, 'Call graph lost JSX cycle evidence');
   check(cy.edges('[?isCyclic]').every(edge => edge.style('line-color') === 'rgb(255,77,77)'), 'React styling hides cyclic edges');
   const beforeSelection = Number.parseFloat(cy.getElementById('card').style('border-width'));
   cy.getElementById('card').select();
   check(Number.parseFloat(cy.getElementById('card').style('border-width')) > beforeSelection, 'React styling hides call graph selection');
   check(cy.getElementById('card').style('background-color') === `rgb(${rgb(REACT_IDENTITY.color).join(',')})`, 'Call graph selection hides React fill');
+  const button = cy.getElementById('button');
+  check(button.style('background-color') === `rgb(${rgb(VUE_IDENTITY.color).join(',')})`, 'Call graph Vue node lost the Vue fill');
+  check(button.style('color') === `rgb(${rgb(VUE_IDENTITY.foreground).join(',')})`, 'Call graph Vue node lost its readable label color');
+  const beforeVueSelection = Number.parseFloat(button.style('border-width'));
+  button.select();
+  check(Number.parseFloat(button.style('border-width')) > beforeVueSelection, 'Vue styling hides call graph selection');
   // Identity screenshots use fixed positions so fcose randomness cannot obscure a component under the legend.
-  cy.nodes().positions(node => ({ x: ({ app: 0, card: 160, helper: 320 } as Record<string, number>)[node.id()], y: 80 }));
+  cy.nodes().positions(node => ({ x: ({ app: 0, card: 160, helper: 320, button: 160 } as Record<string, number>)[node.id()], y: node.id() === 'button' ? 180 : 80 }));
   cy.fit(cy.elements(), 60);
   cy.forceRender();
   const canvas = document.querySelector<HTMLCanvasElement>('#calls canvas');
   check(canvas && canvas.width > 0 && canvas.height > 0, 'Call graph has no rendered canvas');
   await until(() => !!document.querySelector('#calls [data-testid="react-badge"]')?.textContent?.includes('React'), 'Call graph omits the React badge');
   check(contrast(rgb(REACT_IDENTITY.color), rgb(REACT_IDENTITY.foreground)) >= 4.5, 'React badge text/icon contrast is insufficient');
+  await until(() => !!document.querySelector('#calls [data-testid="vue-badge"]')?.textContent?.includes('Vue'), 'Call graph omits the Vue badge');
+  check(document.querySelector('#files [data-testid="vue-badge"]'), 'File graph omits the Vue badge');
+  check(contrast(rgb(VUE_IDENTITY.color), rgb(VUE_IDENTITY.foreground)) >= 4.5, 'Vue node label contrast is insufficient');
   const background = getComputedStyle(document.body).backgroundColor.match(/\d+/g)?.slice(0, 3).map(Number);
   check(background && contrast(rgb(REACT_IDENTITY.color), background) >= 3, 'React border contrast is insufficient in the active VS Code theme');
   await new Promise(resolve => setTimeout(resolve, 1000));

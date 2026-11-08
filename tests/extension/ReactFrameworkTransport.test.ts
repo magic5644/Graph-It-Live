@@ -52,6 +52,21 @@ describe('React framework transport', () => {
     expect(graph.nodeMetadata?.[plain]?.framework).toBeUndefined();
   });
 
+  it('tells a Vue file from a React one in a mixed graph, and roots a .vue symbol view as Vue', async () => {
+    const view = normalizePath(path.join(root, 'View.vue'));
+    await fs.writeFile(view, '<script setup lang="ts">\nexport const n = 1;\n</script>\n<template><p /></template>\n');
+    const analyzer = spider();
+    Object.assign(analyzer, {
+      crawl: vi.fn().mockResolvedValue({ nodes: [component, plain, view], edges: [] }),
+      getSymbolGraph: vi.fn().mockResolvedValue({ symbols: [], dependencies: [] }),
+      findReferencingFiles: vi.fn().mockResolvedValue([]),
+    });
+    const graph = await new GraphViewService(analyzer, logger, { unusedAnalysisConcurrency: 1, unusedAnalysisMaxEdges: 0 }).buildGraphData(component);
+    expect([component, plain, view].map(file => graph.nodeMetadata?.[file]?.framework)).toEqual(['react', undefined, 'vue']);
+    const symbols = await new SymbolViewService(analyzer, logger).buildSymbolGraph(view, view);
+    expect(symbols.nodeMetadata?.[view]?.framework).toBe('vue');
+  });
+
   it('keeps component identity in the intra-file view without marking utilities', async () => {
     const analyzer = spider();
     Object.assign(analyzer, {

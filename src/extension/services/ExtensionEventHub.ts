@@ -75,6 +75,8 @@ export class ExtensionEventHub {
     }
 
     if (!SUPPORTED_SOURCE_FILE_REGEX.test(filePath)) {
+      // An external Vue template: its owning `.vue` files re-read it.
+      await Promise.all(this.spider.getExternalTemplateOwners(filePath).map((owner) => this.processFileSaved(owner)));
       return;
     }
 

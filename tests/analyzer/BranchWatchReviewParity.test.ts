@@ -106,6 +106,47 @@ describe("Branch Watch and review-pr review the same diff alike (#546)", { timeo
     expect(reviewPr.limitations.join(" ")).toContain("Vue props/emits");
   });
 
+  describe("Vue props/emits contract evidence (#646)", () => {
+    const child = (script: string) => `<script setup lang="ts">\n${script}\n</script>\n\n<template>\n  <p>{{ label }}</p>\n</template>\n`;
+    const base = {
+      "src/Child.vue": child("defineProps(['label', 'size']);\ndefineEmits(['save']);"),
+      "src/Parent.vue": '<script setup lang="ts">\nimport Child from "./Child.vue";\nfunction onSave(): void {}\n</script>\n\n<template>\n  <Child label="x" :size="1" @save="onSave" />\n</template>\n',
+    };
+
+    it("names the props and events added or removed, and the template consumers, alike on both surfaces", async () => {
+      const { reviewPr, branchWatch } = await bothReviews(base, { "src/Child.vue": child("defineModel('size');\ndefineProps(['label']);\ndefineEmits(['save', 'close']);") });
+      expect(branchWatch).toEqual(reviewPr);
+      const contract = reviewPr.symbols.find((s) => s.name === "Child.props")!;
+      // `size` stays a prop through defineModel, which adds its `update:size` event.
+      expect(contract.changes).toEqual([]);
+      expect(contract.evidence.filter((e) => e.kind === "impact" && e.detail.endsWith(" added")).map((e) => e.detail)).toEqual(["event 'close' added", "event 'update:size' added"]);
+
+      const removed = await bothReviews(base, { "src/Child.vue": child("defineProps<{ label: string }>();\ndefineEmits<{ (e: 'close'): void }>();") });
+      expect(removed.branchWatch).toEqual(removed.reviewPr);
+      const symbol = removed.reviewPr.symbols.find((s) => s.name === "Child.props")!;
+      // The typed head form is also compared member by member by the signature analysis.
+      expect(symbol.evidence.filter((e) => e.kind === "breaking-change").map((e) => e.detail)).toEqual(expect.arrayContaining(["prop 'size' removed", "event 'save' removed"]));
+      expect(symbol.evidence.filter((e) => e.kind === "impact" && e.detail.endsWith(" added")).map((e) => e.detail)).toEqual(["event 'close' added"]);
+      expect(symbol.consumers.unverified).toEqual(["src/Parent.vue"]);
+      expect(symbol.evidence.find((e) => e.kind === "consumers")?.detail).toContain("src/Parent.vue");
+      expect(removed.reviewPr.isPartial).toBe(false);
+    });
+
+    it("marks a contract typed by an imported type as partial, and ignores an unchanged contract", async () => {
+      const partial = await bothReviews({ ...base, "src/props.ts": "export interface ChildProps { label: string }\n" }, {
+        "src/Child.vue": child("import type { ChildProps } from './props';\ndefineProps<ChildProps>();\ndefineEmits(['save']);"),
+      });
+      expect(partial.branchWatch).toEqual(partial.reviewPr);
+      expect(partial.reviewPr.limitations.join(" ")).toContain("src/Child.vue: Vue props/emits contract read in part (props are typed by 'ChildProps', not declared in this file)");
+      expect(partial.reviewPr.symbols.find((s) => s.name === "Child.props")?.evidence).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: "partial", detail: expect.stringContaining("read in part") }),
+      ]));
+
+      const unchanged = await bothReviews(base, { "src/Child.vue": child("defineProps(['label', 'size']);\ndefineEmits(['save']);\nconst local = 1;") });
+      expect(unchanged.reviewPr.symbols.some((s) => s.name === "Child.props")).toBe(false);
+    });
+  });
+
   it.each<{
     name: string; base: Files; head: Files;
     expected: { name: string; consumers?: string[]; exhaustive?: string[]; tests?: string[]; limitation?: string };

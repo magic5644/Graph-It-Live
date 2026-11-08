@@ -1049,7 +1049,19 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       const savedPath = normalizePath(doc.uri.fsPath);
       if (this.currentNeighbourhoodPaths.has(savedPath)) {
         this.scheduleRefresh(savedPath, doc.languageId, workspaceRoot);
+      } else if (/\.html?$/i.test(savedPath)) {
+        this.refreshTemplateOwner(savedPath, workspaceRoot);
       }
+    });
+  }
+
+  /** An external Vue `<template src>` was saved: refresh the shown `.vue` that reads it. */
+  private refreshTemplateOwner(templatePath: string, workspaceRoot: string): void {
+    this.trackOperation(this.findImporters(templatePath)).then((importers) => {
+      const owner = importers.map((file) => normalizePath(file)).find((file) => /\.vue$/i.test(file) && this.currentNeighbourhoodPaths.has(file));
+      if (owner) this.scheduleRefresh(owner, "vue", workspaceRoot);
+    }).catch((err: unknown) => {
+      this.log(`[CallGraph] refresh error: ${errorMessage(err)}`);
     });
   }
 

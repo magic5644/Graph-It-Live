@@ -29,7 +29,7 @@ import { aggregateCommunityGroups } from '../../../src/analyzer/community/groupA
 import { COMMUNITY_PALETTE } from '../../../src/shared/communityPalette';
 import type { GraphData } from '../../../src/shared/graph-types';
 import { normalizePath } from '../../../src/shared/path';
-import { REACT_IDENTITY } from '../../../src/shared/constants';
+import { REACT_IDENTITY, VUE_IDENTITY } from '../../../src/shared/constants';
 
 /** Two path groups plus one unassigned file; a cycle between core and ui. */
 function sampleGraph(root = '/ws'): GraphData {
@@ -420,6 +420,20 @@ describe('exportHtml', () => {
     expect(page.nodes.get('/ws/src/core/b.ts').image).toBeUndefined();
     expect(html).toContain('React component files');
     expect(html).toContain('aria-label="Dependency graph. React: src/core/a.ts"');
+  });
+
+  it('exports React and Vue files with their own icon, label and legend key in a mixed graph', () => {
+    const graphData = sampleGraph();
+    graphData.nodeMetadata!['/ws/src/core/a.ts'].framework = 'react';
+    graphData.nodeMetadata!['/ws/src/core/b.ts'].framework = 'vue';
+    const html = render({ ...baseConfig, graphData });
+    const page = runPage(html);
+    const vue = page.nodes.get('/ws/src/core/b.ts');
+    expect(vue.label).toBe('b.ts [Vue]');
+    expect(vue.image).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(VUE_IDENTITY.svg)}`);
+    expect(page.nodes.get('/ws/src/core/a.ts').label).toBe('a.ts [React]');
+    expect(html.indexOf('React component files')).toBeLessThan(html.indexOf('Vue component files'));
+    expect(html).toContain('aria-label="Dependency graph. React: src/core/a.ts. Vue: src/core/b.ts"');
   });
 
   it('collapses groups into directed group edges whose counts match the aggregation', () => {

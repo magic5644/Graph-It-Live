@@ -810,7 +810,7 @@ export class SpiderBuilder {
         enableLRU: true 
       });
     
-    const astWorkerHost = this.customAstWorkerHost ?? new AstWorkerHost(undefined, this.extensionPath);
+    const astWorkerHost = this.customAstWorkerHost ?? new AstWorkerHost(undefined, this.extensionPath, this.rootDir);
     
     const reverseIndexManager = this.customReverseIndexManager ?? 
       new ReverseIndexManager(this.rootDir!);

@@ -61,7 +61,7 @@ describe('file graph React enrichment', () => {
   let root: string | undefined;
   afterEach(async () => { if (root) await fs.rm(root, { recursive: true, force: true }); });
 
-  it('resolves JSX targets through a barrel, keeps callbacks and Vue unchanged, and clears stale evidence', async () => {
+  it('resolves JSX targets through a barrel, keeps callbacks ordinary, marks Vue files, and clears stale evidence', async () => {
     root = await fs.mkdtemp(path.join(os.tmpdir(), 'gil-react-identity-'));
     const files: Record<string, string> = {
       'Card.ts': `export function Card() { return null; } export function save() {}`,
@@ -75,12 +75,14 @@ describe('file graph React enrichment', () => {
     const graph: GraphData = { nodes, edges: [], nodeMetadata: Object.fromEntries(nodes.map(node => [normalizePath(node), { hubScore: 0 }])) };
     await enrichReactFramework(graph, root);
     expect(nodes.filter(node => graph.nodeMetadata?.[normalizePath(node)]?.framework === 'react').map(node => path.basename(node)).sort()).toEqual(['App.tsx', 'Card.ts']);
-    const symbols: Array<{ name: string; line: number; framework?: 'react' }> = [{ name: 'Card', line: 1 }, { name: 'save', line: 1 }];
+    const symbols: Array<{ name: string; line: number; framework?: 'react' | 'vue' }> = [{ name: 'Card', line: 1 }, { name: 'save', line: 1 }];
     await enrichReactSymbols(symbols, path.join(root, 'Card.ts'), [path.join(root, 'App.tsx')], root);
     expect(symbols.filter(symbol => symbol.framework).map(symbol => symbol.name)).toEqual(['Card']);
     await fs.writeFile(path.join(root, 'App.tsx'), `export const count = 1;`);
     await enrichReactFramework(graph, root);
-    expect(nodes.some(node => graph.nodeMetadata?.[normalizePath(node)]?.framework)).toBe(false);
+    // A `.vue` file is a Vue component whatever its importers render; the React evidence is gone.
+    expect(nodes.filter(node => graph.nodeMetadata?.[normalizePath(node)]?.framework).map(node => path.basename(node))).toEqual(['View.vue']);
+    expect(graph.nodeMetadata?.[normalizePath(path.join(root, 'View.vue'))]?.framework).toBe('vue');
     await enrichReactSymbols(symbols, path.join(root, 'Card.ts'), [path.join(root, 'App.tsx')], root);
     expect(symbols.some(symbol => symbol.framework)).toBe(false);
   });
@@ -118,7 +120,7 @@ describe('file graph React enrichment', () => {
       const readPaths = read.mock.calls.map(([filePath]) => normalizePath(String(filePath)));
       expect(readPaths.filter(filePath => tsImporters.some(importer => normalizePath(importer) === filePath))).toEqual([]);
       // A .ts graph file is still read: its own evidence may prove it a component.
-      const symbols: Array<{ name: string; line: number; framework?: 'react' }> = [{ name: 'Card', line: 1 }];
+      const symbols: Array<{ name: string; line: number; framework?: 'react' | 'vue' }> = [{ name: 'Card', line: 1 }];
       await enrichReactSymbols(symbols, card, [...tsImporters, path.join(root, 'App.tsx')], root);
       expect(symbols[0].framework).toBe('react');
     } finally {

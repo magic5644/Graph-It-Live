@@ -37,6 +37,7 @@ export class AstWorkerHost {
   private readonly pendingRequests = new Map<number, PendingRequest>();
   private readonly workerPath: string;
   private readonly extensionPath?: string;
+  private readonly rootDir?: string;
   private isStopping = false;
   private isDisposed = false;
   private stopPromise: Promise<void> | null = null;
@@ -44,9 +45,11 @@ export class AstWorkerHost {
   /**
    * @param workerPath - Absolute path to the compiled astWorker.js bundle
    * @param extensionPath - Absolute path to the extension directory (for WASM files)
+   * @param rootDir - Workspace root, bounding the external Vue `<template src>` files the worker reads
    */
-  constructor(workerPath?: string, extensionPath?: string) {
+  constructor(workerPath?: string, extensionPath?: string, rootDir?: string) {
     this.extensionPath = extensionPath;
+    this.rootDir = rootDir;
     // Default to dist/astWorker.js relative to __dirname
     // When running from dist/extension.js: __dirname = dist/, so look for ./astWorker.js
     // When running from src/analyzer/ast/: __dirname = src/analyzer/ast/, so look for ../../../dist/astWorker.js
@@ -94,7 +97,7 @@ export class AstWorkerHost {
 
     try {
       this.worker = new Worker(this.workerPath, {
-        workerData: { extensionPath: this.extensionPath },
+        workerData: { extensionPath: this.extensionPath, rootDir: this.rootDir },
       });
 
       this.worker.on('message', (response: WorkerResponse) => {

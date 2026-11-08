@@ -1,7 +1,8 @@
 /**
  * Vue templates in the real call graph view (#645): the SFC component node at the `<template>` shows the
  * template's components and calls, a click on a template target opens its `.vue` file at its `<template>`,
- * and saving an edited template refreshes the displayed edges.
+ * and saving an edited template refreshes the displayed edges. An HTML `<template src>` (#646) is read like an inline
+ * template, its uses at the `<template src>` element, and saving it refreshes the `.vue` that reads it.
  */
 import * as assert from 'node:assert';
 import * as path from 'node:path';
@@ -27,10 +28,21 @@ import { format } from "./format";
 </template>
 `;
 
+const HOST = `<script setup lang="ts">
+import Child from "./Child.vue";
+import { format } from "./format";
+</script>
+
+<template src="./host.html"></template>
+`;
+const HOST_HTML = '<section>\n  <Child />\n  <p>{{ format(1) }}</p>\n</section>\n';
+
 suite('Vue templates in the call graph view', () => {
   const parent = () => getProjectFile(PROJECT, 'Parent.vue');
   const child = () => getProjectFile(PROJECT, 'Child.vue');
-  const files = () => [child(), getProjectFile(PROJECT, 'format.ts'), parent()];
+  const host = () => getProjectFile(PROJECT, 'Host.vue');
+  const hostHtml = () => getProjectFile(PROJECT, 'host.html');
+  const files = () => [child(), getProjectFile(PROJECT, 'format.ts'), parent(), hostHtml(), host()];
 
   /** Open Parent.vue with the cursor inside its template and show the component node's call graph. */
   async function showParentGraph(expected: string[]): Promise<void> {
@@ -102,5 +114,23 @@ suite('Vue templates in the call graph view', () => {
     // The call becomes a handler reference, and the component comes back one line lower.
     await saveText(parent(), PARENT.replace('{{ format(1) }}', '<button @click="format">x</button>').replace('    <Child />\n', '    <hr />\n    <Child />\n'));
     await waitForRootEdges(['Parent -REFERENCES@10-> format', 'Parent -REFERENCES@9-> Child']);
+  });
+
+  test('reads an external <template src> and refreshes the displayed edges when it is edited', async function () {
+    this.timeout(180000);
+    await vscode.workspace.fs.writeFile(hostHtml(), Buffer.from(HOST_HTML));
+    await vscode.workspace.fs.writeFile(host(), Buffer.from(HOST));
+    const document = await vscode.workspace.openTextDocument(host());
+    // The cursor on `<template src>`: the component node sits there, and so do the external template's uses.
+    const position = new vscode.Position(5, 2);
+    await vscode.window.showTextDocument(document, { selection: new vscode.Range(position, position) });
+    await showCallGraphAndWait(60000, 200);
+    await waitForRootEdges(['Host -CALLS@6-> format', 'Host -REFERENCES@6-> Child']);
+    const graph = (await shownGraph())!;
+    assert.strictEqual(graph.nodes.find(node => node.id === graph.rootSymbolId)?.framework, 'vue', 'The SFC component node is a Vue node');
+
+    // Only the external file changes: the `.vue` that reads it is extracted again.
+    await saveText(hostHtml(), '<section>\n  <p>{{ format(2) }}</p>\n</section>\n');
+    await waitForRootEdges(['Host -CALLS@6-> format']);
   });
 });

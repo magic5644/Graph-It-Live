@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from "react";
 import type { IntraFileGraph, SymbolDependency, SymbolInfo } from "../../shared/types";
-import { frameworkName, ReactIcon } from './reactflow/LanguageIcon';
-import { REACT_IDENTITY } from '../../shared/constants';
+import { FrameworkIcon, frameworkIdentity, frameworkName } from './reactflow/LanguageIcon';
+import type { Framework } from '../../shared/graph-types';
 
 interface AtomicSymbolGraphProps {
   symbols: SymbolInfo[];
@@ -17,7 +17,7 @@ interface TreeNode {
   name: string;
   kind: string;
   category: string;
-  framework?: 'react';
+  framework?: Framework;
   line: number;
   children: TreeNode[];
   isExpanded: boolean;
@@ -314,12 +314,12 @@ export const AtomicSymbolGraph: React.FC<AtomicSymbolGraphProps> = ({
 
           <span
             style={{
-              color: node.framework === 'react' ? REACT_IDENTITY.color : getColorForCategory(node.category),
+              color: frameworkIdentity(node.framework)?.color ?? getColorForCategory(node.category),
               fontWeight: '700',
               marginRight: '4px',
             }}
           >
-            {node.framework === 'react' ? <ReactIcon /> : getIconForKind(node.kind)}
+            {node.framework ? <FrameworkIcon framework={node.framework} /> : getIconForKind(node.kind)}
           </span>
 
           <span style={{ flex: 1, fontWeight: isSelected ? '600' : '500' }}>

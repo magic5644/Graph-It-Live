@@ -219,7 +219,7 @@ export class CliRuntime {
     //   - First arg (workerPath): undefined → uses default dist/astWorker.js resolution
     //   - Second arg (extensionPath): cliExtensionPath → enables WASM parsers for
     //     Python/Rust symbol extraction (tree-sitter-python.wasm, tree-sitter-rust.wasm)
-    workerState.astWorkerHost = new AstWorkerHost(undefined, cliExtensionPath);
+    workerState.astWorkerHost = new AstWorkerHost(undefined, cliExtensionPath, this.workspaceRoot);
     await workerState.astWorkerHost.start();
 
     // Build Spider via SpiderBuilder

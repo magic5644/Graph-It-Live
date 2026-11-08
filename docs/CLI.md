@@ -1330,6 +1330,14 @@ review does not discard them merely because the consumer passes a value instead 
 React props-contract compatibility is not checked (**contrat de props non analysé**):
 review affected consumers manually; impact is not proof that their props are broken or compatible.
 
+A changed Vue SFC is compared by the names of the props and events it declares: `defineProps` (array,
+object, type literal, a local interface or type alias, also under `withDefaults`), `defineEmits` (array, object,
+type literal, call signatures), `defineModel('x')` (prop `x` and event `update:x`) and Options API `props` /
+`emits`. The `<Component>.props` symbol then lists `prop 'label' removed` (breaking) or `event 'close' added`
+(evidence), with the files that render the component as its consumers. Types are not compared. A contract typed by
+an imported type, built at runtime or held in an external `<script src>` is reported as read in part: the evidence
+and a limitation say so, and the review is partial. Branch Watch reports the same evidence.
+
 Run a deterministic local review of a Git diff:
 
 ```bash

@@ -270,6 +270,24 @@ describe.skipIf(!wasmBuilt)("Vue SFC call graph (GraphExtractor)", { timeout: 12
     }
   });
 
+  it("marks the SFC component node Vue in the database, and links the uses of an HTML <template src> at its element", async () => {
+    const indexer = await harness.newIndexer();
+    try {
+      // Not a call graph language: written beside the indexed files, read by the `.vue` that names it.
+      fs.writeFileSync(path.join(harness.root, "card.html"), "<div>\n  <Child />\n</div>\n");
+      await harness.indexInto(indexer, {
+        "Child.vue": CORPUS["Child.vue"],
+        "Card.vue": '<script setup>\nimport Child from "./Child.vue";\n</script>\n<template src="./card.html"></template>\n',
+        "plain.ts": "export function plain(): void {}\n",
+      });
+      const framed = indexer.getIndexSnapshot().nodes.filter((n) => n.framework).map((n) => `${path.basename(n.path)}#${n.name} ${n.framework}`);
+      expect(framed.sort()).toEqual(["Card.vue#Card vue", "Child.vue#Child vue"]);
+      expect(harness.describe(indexer).edges).toEqual(["Card.vue#Card -REFERENCES@3-> Child.vue#Child"]);
+    } finally {
+      indexer.dispose();
+    }
+  });
+
   it("resolves defineAsyncComponent(() => import('./X.vue')) in a plain module too, like React's lazy()", async () => {
     const routes = 'import { defineAsyncComponent } from "vue";\nexport const LazyRow = defineAsyncComponent(() => import("./ChildRow.vue"));\n';
     const { edges } = await harness.index({ "ChildRow.vue": CORPUS["ChildRow.vue"], "routes.ts": routes });
@@ -295,6 +313,8 @@ describe.skipIf(!wasmBuilt)("Vue SFC through Spider", { timeout: 120_000 }, () =
     fs.cpSync(FIXTURES, root, { recursive: true });
     fs.writeFileSync(path.join(root, "package.json"), "{}");
     fs.writeFileSync(path.join(root, "Pug.vue"), '<script setup lang="ts">\nimport { format } from "./utils/format";\n</script>\n<template lang="pug">\np {{ format(1) }}\n</template>\n');
+    fs.writeFileSync(path.join(root, "Ext.vue"), '<script setup lang="ts">\nimport { format } from "./utils/format";\nimport { add } from "./utils/math";\n</script>\n<template src="./ext.html"></template>\n');
+    fs.writeFileSync(path.join(root, "ext.html"), "<p>{{ format(1) }}</p>\n");
     fs.writeFileSync(path.join(root, "Page.svelte"), '<script>\n  import { format } from "./utils/format";\n  export const unused = 1;\n</script>\n<p>{format(1)}</p>\n');
     spider = new SpiderBuilder().withRootDir(root).withReverseIndex(true).build();
     await spider.buildFullIndex();
@@ -318,6 +338,11 @@ describe.skipIf(!wasmBuilt)("Vue SFC through Spider", { timeout: 120_000 }, () =
     expect(await spider.verifyDependencyUsage(file("Parent.vue"), file("utils/format.ts"))).toBe(true);
     const batch = await spider.verifyDependencyUsageBatch(file("Parent.vue"), [file("Child.vue"), file("ChildRow.vue"), file("utils/format.ts")]);
     expect([...batch.values()]).toEqual([true, true, true]);
+  });
+
+  it("reads an external <template src> in the AST worker too: an import only the HTML uses is used, another is not (#646)", async () => {
+    const batch = await spider.verifyDependencyUsageBatch(file("Ext.vue"), [file("utils/format.ts"), file("utils/math.ts")]);
+    expect([...batch.values()]).toEqual([true, false]);
   });
 
   it("reports an import that neither the script nor the template uses", async () => {
