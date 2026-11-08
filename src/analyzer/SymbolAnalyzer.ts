@@ -12,6 +12,7 @@ import { ISymbolAnalyzer, SymbolDependency, SymbolInfo } from "./types";
 import { defaultExportNameOf, isComponentFactory } from "./utils/declarations";
 import { analyzeReactIdentity } from "./ReactIdentity";
 import { isSfcFile, langOf, parseSfc, scriptKindOf, type ScriptLang } from "./sfc/sfcBlocks";
+import { analyzeVueTemplate } from "./sfc/vueTemplate";
 
 /** A symbol referenced from a declaration, with the line where it is used */
 type UsedSymbol = {
@@ -24,6 +25,7 @@ type UsedSymbol = {
 
 /** Files whose JSX ts-morph parses, as the call graph does (`.js` keeps the TypeScript grammar there). */
 const JSX_FILE = /\.[jt]sx$/i;
+const VUE_FILE = /\.vue$/i;
 // The TypeScript program drops a file of unknown extension (no checker, so no exports): an SFC script view is
 // analyzed under `<file>.vue.sfc.<lang>`, and every path read back from ts-morph is the SFC's own.
 const SFC_ANALYZED_PATH = /(\.(?:vue|svelte))\.sfc\.[jt]sx?$/i;
@@ -124,16 +126,23 @@ function localReferenceNames(declarations: Array<{ getName(): string | undefined
   return names;
 }
 
+/** Adds `dependency` unless the same target is already recorded with the same relation. */
+function addUnique(dependencies: UsedSymbol[], dependency: UsedSymbol): void {
+  if (!dependencies.some((d) => d.symbolId === dependency.symbolId && d.relation === dependency.relation)) dependencies.push(dependency);
+}
+
+/** A use of a top-level declaration of `filePath`: REFERENCES unless it is a call (a Vue template's `save()`). */
+function localUse(filePath: string, name: string, line: number, called = false): UsedSymbol {
+  return { symbolId: `${filePath}:${name}`, filePath, isTypeOnly: false, line, ...(!called && { relation: "REFERENCES" as const }) };
+}
+
 /** A JSX tag or attribute value naming a top-level declaration of this file: one REFERENCES dependency per target. */
 function addLocalReference(identifier: Node, name: string, dependencies: UsedSymbol[]): void {
   // `<Ext.Card />` references whatever `Ext` holds, not a declaration of this file.
   if (Node.isPropertyAccessExpression(identifier.getParent())) return;
   const jsx = JSX_FILE.test(identifier.getSourceFile().getFilePath());
   if (!isRuntimeReference(identifier, jsx) || (jsx && isIntrinsicTag(identifier)) || isShadowed(identifier, name)) return;
-  const filePath = filePathOf(identifier.getSourceFile());
-  const symbolId = `${filePath}:${name}`;
-  if (dependencies.some((d) => d.symbolId === symbolId && d.relation === "REFERENCES")) return;
-  dependencies.push({ symbolId, filePath, isTypeOnly: false, line: identifier.getStartLineNumber(), relation: "REFERENCES" });
+  addUnique(dependencies, localUse(filePathOf(identifier.getSourceFile()), name, identifier.getStartLineNumber()));
 }
 
 /** `import('./m')` written as the body of `lazy(() => import('./m'))`: the component is loaded, not called. */
@@ -346,7 +355,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     );
 
     // Build dependencies
-    this.buildDependencies(sourceFile, dependencies);
+    this.buildDependencies(sourceFile, dependencies, content);
 
     this.attachReactIdentity(symbols, filePath, content);
 
@@ -531,9 +540,10 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   private buildDependencies(
     sourceFile: SourceFile,
     dependencies: SymbolDependency[],
+    content: string,
   ): void {
     const importMap = this.buildImportMap(sourceFile);
-    const symbolUsage = this.findSymbolUsage(sourceFile, importMap);
+    const symbolUsage = this.findSymbolUsage(sourceFile, importMap, content);
 
     for (const [symbolId, usedSymbols] of Object.entries(symbolUsage)) {
       for (const usedSymbol of usedSymbols) {
@@ -834,6 +844,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       string,
       { originalName: string; modulePath: string; isType: boolean }
     >,
+    content: string,
   ): Record<
     string,
     Array<UsedSymbol>
@@ -892,6 +903,8 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       fileScopeUsages.push(...deps);
     }
 
+    if (VUE_FILE.test(filePath)) fileScopeUsages.push(...this.templateUsages(filePath, content, importMap, localNames));
+
     if (fileScopeUsages.length > 0) {
       // Use a special ID for file-scope usage
       const fileScopeId = `${filePath}:(file)`;
@@ -902,9 +915,37 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   /**
-   * Extract dependencies for a single symbol declaration
-   * Now includes type-only imports with isTypeOnly flag
+   * A Vue template's uses of the script's imports and top-level declarations (`<Child />`, `@click="save"`,
+   * `{{ total() }}`), owned by the file scope like a top-level statement, at their `.vue` lines. A template read
+   * only in part uses every binding, so no usage verdict reports one unused.
    */
+  private templateUsages(
+    filePath: string,
+    content: string,
+    importMap: Map<string, { originalName: string; modulePath: string; isType: boolean }>,
+    localNames: Set<string>,
+  ): UsedSymbol[] {
+    const bindings = new Set([...importMap.keys(), ...localNames]);
+    const { usages, complete, template } = analyzeVueTemplate(filePath, content, bindings);
+    // Uses may be missing from a partial template (`pug`, external `src`, dynamic `:is`): any binding may be used.
+    const assumed = complete ? [] : [...bindings].map((name) => ({ kind: "reference" as const, name, line: template?.line ?? 1 }));
+    const used: UsedSymbol[] = [];
+    for (const { kind, name, line } of [...usages, ...assumed]) {
+      const importInfo = importMap.get(name);
+      const called = kind === "call";
+      addUnique(used, importInfo
+        ? {
+          symbolId: this.buildTargetSymbolId(importInfo),
+          filePath: importInfo.modulePath,
+          isTypeOnly: importInfo.isType,
+          line,
+          ...(!called && { relation: "REFERENCES" as const }),
+        }
+        : localUse(filePath, name, line, called));
+    }
+    return used;
+  }
+
   /**
    * Extract dependencies for a single symbol declaration or node
    * Now includes type-only imports with isTypeOnly flag
@@ -952,9 +993,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         continue;
       }
       const dependency = this.importDependency(identifier, text, importInfo, jsx);
-      if (dependency && !dependencies.some((d) => d.symbolId === dependency.symbolId && d.relation === dependency.relation)) {
-        dependencies.push(dependency);
-      }
+      if (dependency) addUnique(dependencies, dependency);
     }
   }
 

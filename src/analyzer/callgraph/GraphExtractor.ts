@@ -27,7 +27,8 @@
 import { WasmParserFactory } from "@/analyzer/languages/WasmParserFactory";
 import { analyzeReactIdentity, readReactJsxImportSource } from '@/analyzer/ReactIdentity';
 import { PathResolver } from "@/analyzer/utils/PathResolver";
-import { isSfcFile, langOf, parseSfc, type ScriptLang } from "@/analyzer/sfc/sfcBlocks";
+import { isSfcFile, langOf, parseSfc, VUE_COMPILER_MACROS, type ScriptLang } from "@/analyzer/sfc/sfcBlocks";
+import { analyzeVueTemplate, sfcComponentName, type VueTemplateAnalysis } from "@/analyzer/sfc/vueTemplate";
 import type { RelationType, SupportedLang, SymbolType } from "@/shared/callgraph-types";
 import { mapWithConcurrency } from "@/shared/concurrency";
 import { getLogger } from "@/shared/logger";
@@ -37,7 +38,7 @@ import path from "node:path";
 import type { Node as TreeNode } from "web-tree-sitter";
 import { Query } from "web-tree-sitter";
 import type { CallGraphEdge, CallGraphNode } from "./CallGraphIndexer";
-import { resolveNamedImportCalls } from "./importBindings";
+import { importLocalNames, resolveImportBindings, resolveNamedImportCalls } from "./importBindings";
 import { isComponentFactory, type DeclarationReads } from "@/analyzer/utils/declarations";
 import { LOCAL_ONLY, resolvePythonImportCalls } from "./pythonImportBindings";
 import { fileReturns, type FileReturns } from "./returnedTypes";
@@ -365,6 +366,52 @@ function addEdge(seen: Map<string, CallGraphEdge>, edges: CallGraphEdge[], edge:
   edges.push(edge);
 }
 
+const VUE_FILE = /\.vue$/i;
+
+/** A Vue SFC's template uses, and the `@@import:` stubs of the import bindings they name. */
+interface TemplateGraph {
+  analysis: VueTemplateAnalysis;
+  imports: Map<string, string | null>;
+}
+
+/** Reads a Vue template and resolves the imports it uses while the script tree is alive. */
+async function readTemplateGraph(
+  root: TreeNode,
+  filePath: string,
+  content: string,
+  declared: ReadonlySet<string>,
+  resolution: { resolver: PathResolver; reads: DeclarationReads },
+): Promise<TemplateGraph> {
+  const imported = new Set(importLocalNames(root));
+  const analysis = analyzeVueTemplate(filePath, content, new Set([...declared, ...imported]));
+  const used = new Set(analysis.usages.map(usage => usage.name).filter(name => imported.has(name)));
+  const imports = used.size > 0 ? await resolveImportBindings(root, filePath, resolution.resolver, used, resolution.reads) : new Map<string, string | null>();
+  return { analysis, imports };
+}
+
+/**
+ * The SFC component node (named after the file, at its `<template>`) and its template edges: `<Child />` and
+ * `@click="save"` are REFERENCES, `save()` is CALLS. A use reaches an import or the single same-file declaration of
+ * its name, never a name guessed across the workspace.
+ */
+function addTemplateGraph(template: TemplateGraph, base: Pick<CallGraphNode, "lang" | "path" | "folder">, nodes: Map<string, CallGraphNode>, nameToNodeIds: Map<string, string[]>): CallGraphEdge[] {
+  const { analysis, imports } = template;
+  if (!analysis.template) return [];
+  const name = sfcComponentName(base.path);
+  const startLine = analysis.template.line - 1;
+  const id = `${base.path}:${name}:${startLine}`;
+  nodes.set(id, { ...base, id, name, type: "function", startLine, endLine: analysis.template.endLine - 1, startCol: analysis.template.column, isExported: true });
+  const edges: CallGraphEdge[] = [];
+  const seen = new Map<string, CallGraphEdge>();
+  for (const usage of analysis.usages) {
+    const local = nameToNodeIds.get(usage.name);
+    const targetId = imports.has(usage.name) ? imports.get(usage.name) : local?.length === 1 && local[0];
+    if (!targetId) continue;
+    addEdge(seen, edges, { sourceId: id, targetId, typeRelation: usage.kind === "call" ? "CALLS" : "REFERENCES", sourceLine: usage.line - 1 }, false);
+  }
+  return edges;
+}
+
 // ---------------------------------------------------------------------------
 // GraphExtractor
 // ---------------------------------------------------------------------------
@@ -494,7 +541,10 @@ export class GraphExtractor {
       }
       const jsxImportSource = lang === 'typescript' || lang === 'javascript'
         ? await this.readJsxImportSource() : undefined;
-      return this.processCaptures(captures, normalizedPath, lang, script, importTargets, jsxImportSource);
+      const template = VUE_FILE.test(normalizedPath)
+        ? await readTemplateGraph(tree.rootNode, normalizedPath, source, declared, { resolver, reads: passReads })
+        : undefined;
+      return this.processCaptures(captures, normalizedPath, lang, script, importTargets, { jsxImportSource, template });
     } finally {
       tree.delete();
     }
@@ -556,7 +606,7 @@ export class GraphExtractor {
     lang: SupportedLang,
     source: string,
     importTargets: Map<number, string | null>,
-    jsxImportSource?: string,
+    { jsxImportSource, template }: { jsxImportSource?: string; template?: TemplateGraph } = {},
   ): ExtractionResult {
     const folder = this.computeFolder(normalizedFilePath);
     const { nodeMap, positionToNodeId, nameToNodeIds, definitions } =
@@ -566,7 +616,10 @@ export class GraphExtractor {
       node.reactEligible = identity.eligible;
       if (identity.components.some(component => component.name === node.name && component.startLine === node.startLine)) node.framework = 'react';
     }
-    const edges = this.buildEdges(captures, positionToNodeId, nameToNodeIds, definitions, importTargets, identity.isReact);
+    // Vue compiler macros are compiled away: never a call target, even of a same-named workspace function.
+    const edgeCaptures = template ? captures.filter(c => c.name !== "call" || !VUE_COMPILER_MACROS.has(c.node.text)) : captures;
+    const edges = this.buildEdges(edgeCaptures, positionToNodeId, nameToNodeIds, definitions, importTargets, identity.isReact);
+    if (template) edges.push(...addTemplateGraph(template, { lang, path: normalizedFilePath, folder }, nodeMap, nameToNodeIds));
     return { nodes: [...nodeMap.values()], edges };
   }
 

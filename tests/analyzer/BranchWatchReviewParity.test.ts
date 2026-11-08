@@ -89,6 +89,23 @@ describe("Branch Watch and review-pr review the same diff alike (#546)", { timeo
     expect(card.evidence.find((e) => e.kind === "consumers")?.detail).toContain("require manual review");
   });
 
+  it("retains Vue template-only consumers when a handler loses an optional parameter (#645)", async () => {
+    const base = {
+      "src/format.ts": "export function format(n = 0): string { return String(n); }\n",
+      "src/Page.vue": '<script setup lang="ts">\nimport { format } from "./format";\n</script>\n\n<template>\n  <button @click="format">x</button>\n</template>\n',
+      "src/Total.vue": '<template>\n  <p>{{ format(1) }}</p>\n</template>\n<script setup lang="ts">\nimport { format } from "./format";\n</script>\n',
+    };
+    const { reviewPr, branchWatch } = await bothReviews(base, { "src/format.ts": "export function format(): string { return \"\"; }\n" });
+    expect(branchWatch).toEqual(reviewPr);
+    const format = reviewPr.symbols.find((s) => s.name === "format")!;
+    expect([...format.consumers.updated, ...format.consumers.covered, ...format.consumers.unverified].sort()).toEqual(["src/Page.vue", "src/Total.vue"]);
+    expect(format.evidence).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: "impact", detail: expect.stringContaining("src/Page.vue:6") }),
+      expect.objectContaining({ kind: "partial", detail: expect.stringContaining("Vue props/emits compatibility is not checked") }),
+    ]));
+    expect(reviewPr.limitations.join(" ")).toContain("Vue props/emits");
+  });
+
   it.each<{
     name: string; base: Files; head: Files;
     expected: { name: string; consumers?: string[]; exhaustive?: string[]; tests?: string[]; limitation?: string };

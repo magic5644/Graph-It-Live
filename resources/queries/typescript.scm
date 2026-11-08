@@ -33,20 +33,21 @@
     value: [(arrow_function) (function_expression)]))
 
 ; React component factories assigned to a const/let/var: `const Card = memo(...)`,
-; `forwardRef(...)`, `lazy(...)`, bare or as `React.*`. The component is the variable.
+; `forwardRef(...)`, `lazy(...)`, bare or as `React.*`, and Vue's `defineAsyncComponent(...)`.
+; The component is the variable.
 (lexical_declaration
   (variable_declarator
     name: (identifier) @def.function
     value: (call_expression
       function: [(identifier) (member_expression)] @_factory))
-  (#match? @_factory "^(React\\.)?(memo|forwardRef|lazy)$"))
+  (#match? @_factory "^((React\\.)?(memo|forwardRef|lazy)|defineAsyncComponent)$"))
 
 (variable_declaration
   (variable_declarator
     name: (identifier) @def.function
     value: (call_expression
       function: [(identifier) (member_expression)] @_factory))
-  (#match? @_factory "^(React\\.)?(memo|forwardRef|lazy)$"))
+  (#match? @_factory "^((React\\.)?(memo|forwardRef|lazy)|defineAsyncComponent)$"))
 
 ; Class declarations
 (class_declaration
@@ -89,7 +90,8 @@
   constructor: (member_expression
     property: (property_identifier) @call))
 
-; lazy(() => import('./Card')): the component is the module's default export.
+; lazy(() => import('./Card')) and defineAsyncComponent(() => import('./Card.vue')): the component is
+; the module's default export.
 ; A non-literal specifier is not captured: it stays unresolved.
 (call_expression
   function: [(identifier) (member_expression)] @_lazy
@@ -98,7 +100,7 @@
       body: (call_expression
         function: (import)
         arguments: (arguments (string (string_fragment) @lazy)))))
-  (#match? @_lazy "^(React\\.)?lazy$"))
+  (#match? @_lazy "^((React\\.)?lazy|defineAsyncComponent)$"))
 
 ; --------------------------------------------------------------------------
 ; INHERITS (class extends)

@@ -171,8 +171,10 @@ CREATE TABLE IF NOT EXISTS metadata (
  *      declarations retain their return annotation (`nodes.returns`) (#623).
  * v18: Vue/Svelte nodes and edges carry the lines/columns of the SFC, not of its concatenated script blocks; the
  *      grammar follows the `<script lang>` (#644).
+ * v19: a Vue SFC has a component node at its `<template>`, with template REFERENCES/CALLS edges; compiler macros
+ *      are no call targets; `defineAsyncComponent(() => import('./literal'))` resolves like `lazy()` (#645).
  */
-const CURRENT_SCHEMA_VERSION = 18;
+const CURRENT_SCHEMA_VERSION = 19;
 
 /**
  * Optional FTS5 schema for fast symbol name search.

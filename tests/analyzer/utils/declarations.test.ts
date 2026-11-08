@@ -70,9 +70,18 @@ describe("findDeclaration", () => {
       "diamondB.ts": "export * from './Card';\n",
       "diamond.ts": "export * from './diamondA';\nexport * from './diamondB';\n",
       "node_modules/pkg/index.js": "export function a() {}\n",
+      "child-row.vue": '<template><li /></template>\n<script>\nexport default { name: "Other" };\n</script>\n',
+      "Page.svelte": "<script>\n  export let title;\n</script>\n",
     });
   });
   afterAll(() => fs.rm(root, { recursive: true, force: true }));
+
+  it("resolves a .vue default export to its SFC component, named after the file (#645)", async () => {
+    expect(await find("child-row.vue", "default")).toEqual({ filePath: file("child-row.vue"), name: "ChildRow" });
+    expect(await find("Missing.vue", "default")).toBeNull();
+    // Svelte keeps the generic lookup.
+    expect(await find("Page.svelte", "default")).not.toEqual(expect.objectContaining({ name: "Page" }));
+  });
 
   it("resolves each barrel re-export once per reads, with the results of fresh reads (#575)", async () => {
     const lookups: Array<[string, string]> = [["index.ts", "Card"], ["index.ts", "Button"], ["index.ts", "Panel"], ["index.ts", "Anon"],
