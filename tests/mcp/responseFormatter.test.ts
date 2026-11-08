@@ -9,15 +9,16 @@ describe('formatToolResponse', () => {
     const result = formatToolResponse(response, 'json');
 
     expect(result.structuredContent).not.toBe(response);
-    expect(result.structuredContent.metadata.workspaceRoot).toBe('.');
+    expect(result.structuredContent?.metadata.workspaceRoot).toBe('.');
     expect(result.content[0].text).toContain('"success": true');
   });
 
-  it('includes structuredContent for markdown output', () => {
+  // Claude Code shows structuredContent instead of the text (#654).
+  it('omits structuredContent for markdown output', () => {
     const response = createSuccessResponse({ ok: true }, 5, '/workspace');
     const result = formatToolResponse(response, 'markdown');
 
-    expect(result.structuredContent).not.toBe(response);
+    expect(result).not.toHaveProperty('structuredContent');
     expect(result.content[0].text).toBe('- **ok**: true');
   });
 
@@ -29,7 +30,7 @@ describe('formatToolResponse', () => {
     const response = createSuccessResponse(data, 5, '/workspace');
     const result = formatToolResponse(response, 'toon');
 
-    expect(result.structuredContent).not.toBe(response);
+    expect(result).not.toHaveProperty('structuredContent');
     // inferObjectName detects 'file' key and uses 'files' as object name
     expect(result.content[0].text).toContain('files(');
     expect(result.content[0].text).toContain('[main.ts,10]');
@@ -58,9 +59,9 @@ describe('formatToolResponse', () => {
       edges: [{ source: '/workspace/src/a.ts', target: '/workspace/src/b.ts', sourceRelative: 'src/a.ts', targetRelative: 'src/b.ts' }],
     }, 5, '/workspace');
 
-    const result = formatToolResponse(response, 'toon');
+    const result = formatToolResponse(response, 'json');
 
-    expect(result.structuredContent.data).toEqual({
+    expect(result.structuredContent?.data).toEqual({
       nodes: [{ path: 'src/a.ts' }],
       edges: [{ source: 'src/a.ts', target: 'src/b.ts' }],
     });
@@ -75,7 +76,7 @@ describe('formatToolResponse', () => {
 
     const result = formatToolResponse(response, 'json');
 
-    expect(result.structuredContent.data).toEqual({
+    expect(result.structuredContent?.data).toEqual({
       filePath: 'src/main.ts',
       externalPath: '[external:secret.ts]',
     });
@@ -126,7 +127,7 @@ describe('formatToolResponse failures and metadata (#238)', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('File not found: src/missing.ts');
-    expect(result.structuredContent.success).toBe(false);
+    expect(result.structuredContent?.success).toBe(format === 'json' ? false : undefined);
   });
 
   it('gives a failed TOON call an errors section instead of an empty data section', () => {

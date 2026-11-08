@@ -246,27 +246,6 @@ function getWorkspaceRoot(): string {
 const ResponseFormatSchema = z
   .enum(["json", "markdown", "toon"])
   .default("toon");
-const PaginationInfoSchema = z.object({
-  total: z.number(),
-  limit: z.number(),
-  offset: z.number(),
-  hasMore: z.boolean(),
-});
-const McpResponseMetadataSchema = z.object({
-  executionTimeMs: z.number(),
-  toolVersion: z.string(),
-  timestamp: z.string(),
-  workspaceRoot: z.string(),
-  indexedAt: z.string().nullable().optional(),
-  stale: z.boolean().optional(),
-});
-const McpToolResponseSchema = z.object({
-  success: z.boolean(),
-  data: z.any(),
-  metadata: McpResponseMetadataSchema,
-  pagination: PaginationInfoSchema.optional(),
-  error: z.string().optional(),
-});
 
 // ============================================================================
 // Server Setup
@@ -605,7 +584,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: false,
       destructiveHint: false,
@@ -769,7 +747,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -806,7 +783,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -868,7 +844,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -902,7 +877,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -939,7 +913,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -973,7 +946,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1007,7 +979,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: false,
       destructiveHint: true,
@@ -1052,7 +1023,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: false,
       destructiveHint: true,
@@ -1095,7 +1065,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1129,7 +1098,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1163,7 +1131,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1201,7 +1168,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1238,7 +1204,6 @@ server.registerTool(
     inputSchema: ReviewPrParamsSchema.extend({
       response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown' (readable lists and tables), or 'toon'"),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
   },
   async ({ baseRef, headRef, maxFiles, maxDepth, response_format }) => {
@@ -1263,7 +1228,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1309,7 +1273,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1342,7 +1305,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1376,7 +1338,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1406,7 +1367,6 @@ server.registerTool(
     title: "Retrieve Unified Graph Context",
     description: mcpToolDescription("graph_context"),
     inputSchema: GraphContextParamsSchema,
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1440,7 +1400,6 @@ server.registerTool(
     title: "Explore Grouped Architecture",
     description: mcpToolDescription("explore_architecture"),
     inputSchema: ExploreArchitectureParamsSchema,
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1466,7 +1425,6 @@ server.registerTool(
     title: "Check Architecture Rules",
     description: mcpToolDescription("check_architecture"),
     inputSchema: CheckArchitectureParamsSchema,
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1492,7 +1450,6 @@ server.registerTool(
     title: "Export Architecture Diagram",
     description: mcpToolDescription("export_architecture_diagram"),
     inputSchema: ExportArchitectureDiagramParamsSchema,
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: false,
       // Overwrites output, or architecture.<format> for a diagram over the inline cap.
@@ -1523,7 +1480,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1557,7 +1513,6 @@ server.registerTool(
         "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: json). scope and exclude filtering is applied before generation — limitations are documented in the generated wiki itself.",
       ),
     }),
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: false,
       destructiveHint: false,
@@ -1589,7 +1544,6 @@ server.registerTool(
     title: "Get Session Token Stats",
     description: mcpToolDescription("get_session_stats"),
     inputSchema: GetSessionStatsSchema,
-    outputSchema: McpToolResponseSchema,
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
