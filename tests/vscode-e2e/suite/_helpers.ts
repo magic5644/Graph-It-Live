@@ -178,7 +178,8 @@ export function rootCallGraphEdges(graph: ShownCallGraph | null): string[] {
   const edges = graph.edges
     .filter(edge => edge.sourceId === graph.rootSymbolId)
     .map(edge => `${name(edge.sourceId)} -${edge.typeRelation}@${edge.sourceLine + 1}-> ${name(edge.targetId)}`);
-  return [...new Set(edges)].sort();
+  // Code-unit order, as the expected arrays are written.
+  return [...new Set(edges)].sort((a, b) => (a < b ? -1 : Number(a > b)));
 }
 
 /**

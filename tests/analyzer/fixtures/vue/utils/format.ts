@@ -1,5 +1,5 @@
 export function format(value: number): string {
-  return String(value);
+  return value.toFixed(0);
 }
 
-export function track(): void {}
+export function track(): number { return 0; }
