@@ -218,7 +218,7 @@ All analysis commands support multiple output formats via `--format`:
 | `markdown` | Data wrapped in a Markdown code block | Reports, documentation |
 | `mermaid` | Mermaid flowchart diagram syntax | Architecture docs, README, Notion |
 
-`toon` output is compacted: paths are workspace-relative, and keys that repeat a sibling are dropped (`relativePath` and `id` when equal to `path`, `sourceRelative`/`targetRelative`, and `sourceFile`/`targetFile` already carried by `sourceId`/`targetId`). MCP responses apply the same rule in every format. `json` keeps the full, uncompacted fields listed below.
+`toon` output is compacted: paths are workspace-relative, and keys that repeat a sibling are dropped (`relativePath` and `id` when equal to `path`, `sourceRelative`/`targetRelative`, and `sourceFile`/`targetFile` already carried by `sourceId`/`targetId`). MCP responses apply the same rule in every format. CLI `json` keeps the full, uncompacted fields listed below.
 
 MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is readable Markdown with the same content as `toon`: the error of a failed call, freshness and pagination, scalar fields as a list, then one table per array. `structuredContent` is sent only for `json`, and no tool declares an `outputSchema`: clients such as Claude Code show `structuredContent` instead of the text, so `toon` and `markdown` return text only. A failed call sets `isError: true` in every format.
 

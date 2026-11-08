@@ -154,7 +154,7 @@ A result without any array stays one row, named after the tool's object name.
 
 #### Request Format Parameter
 
-All MCP tools accept a `response_format` parameter:
+MCP tools accept a `response_format` parameter (`get_session_stats` always answers in `json`):
 
 ```json
 {
@@ -169,7 +169,7 @@ All MCP tools accept a `response_format` parameter:
 **Available formats**:
 - `toon` (default): Compact TOON format
 - `markdown`: Readable lists and tables with the same content as `toon`
-- `json`: The full response envelope (`success`, `data`, `metadata`)
+- `json`: The response envelope as JSON (`success`, `data`, `metadata`, plus `pagination` and `error` when set), compacted like `toon`
 
 #### Tool result shape
 
