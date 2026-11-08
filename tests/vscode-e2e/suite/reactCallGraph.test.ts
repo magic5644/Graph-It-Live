@@ -23,7 +23,7 @@ export function Page() {
 
 /** Parsed JSON answer of a Graph-It-Live language model tool. */
 async function invokeTool<T>(name: string, input: object): Promise<T | null> {
-  const result = await vscode.lm.invokeTool(name, { input, toolInvocationToken: undefined });
+  const result = await vscode.lm.invokeTool(name, { input: { ...input, response_format: 'json' }, toolInvocationToken: undefined });
   const part = result.content.find(p => p instanceof vscode.LanguageModelTextPart);
   return part instanceof vscode.LanguageModelTextPart ? JSON.parse(part.value) as T : null;
 }

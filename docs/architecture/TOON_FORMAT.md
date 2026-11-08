@@ -175,6 +175,16 @@ MCP tools accept a `response_format` parameter (`get_session_stats` always answe
 
 The text in `content` is always the requested format. `structuredContent` is sent only for `json`, and no tool declares an `outputSchema` (#654). Some clients, such as Claude Code, show `structuredContent` to the model instead of the text: sending it with `toon` or `markdown` would replace the compact text with the full JSON. A failed call sets `isError: true` in every format.
 
+### Usage in VS Code Language Model tools
+
+The native tools that Copilot Agent mode calls (`graph-it-live_*`, `src/extension/services/LmToolsService.ts`) accept the same optional `response_format` input. `package.json` declares it on every tool, and `npm run sync:tool-descriptions` keeps it in sync with `LM_RESPONSE_FORMAT_PROPERTY` (`src/mcp/toolDescriptions.ts`):
+
+- `toon` (default): the result goes through the MCP `formatToolResponse()`, so it has the same TOON content as the MCP server, with workspace-relative paths, an `errors` block for a failure, and the `meta` freshness row. `indexedAt` is the end of the last full index pass in this session (empty for an index restored from cache). The extension re-analyzes each changed file on its own, so `stale` is true only while an index pass or a file change job is still running.
+- `markdown`: the same content as readable lists and tables.
+- `json`: the redacted payload object, without the MCP envelope. Code that parses the result, such as the VS Code E2E suites, asks for this one.
+
+Paths are redacted (`redactPublicValue`) before encoding, in every format.
+
 #### Automatic Format Suggestion
 
 The server automatically suggests TOON format for large datasets (>10 items).

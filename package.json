@@ -637,13 +637,6 @@
             "cursor": {
               "type": "string"
             },
-            "format": {
-              "type": "string",
-              "enum": [
-                "toon",
-                "json"
-              ]
-            },
             "detail": {
               "type": "string",
               "enum": [
@@ -652,6 +645,16 @@
                 "full"
               ],
               "description": "Output detail; use compact for token-efficient agent context"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           }
         }
@@ -675,6 +678,16 @@
             "targetPath": {
               "type": "string",
               "description": "The absolute path to the file to find references for"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -701,6 +714,16 @@
             "filePath": {
               "type": "string",
               "description": "The absolute path to the file to analyze"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -731,6 +754,16 @@
             "maxDepth": {
               "type": "number",
               "description": "Maximum depth to crawl (optional, defaults to the configured maxDepth setting)"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -757,6 +790,16 @@
             "filePath": {
               "type": "string",
               "description": "The absolute path to the file to inspect"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -783,6 +826,16 @@
             "filePath": {
               "type": "string",
               "description": "The absolute path to the file to check for unused exports"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -817,6 +870,16 @@
             "includeTypeOnly": {
               "type": "boolean",
               "description": "Also include type-only references (interfaces, type aliases). Default is false: only call sites are returned."
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -856,6 +919,16 @@
             "maxDepth": {
               "type": "number",
               "description": "Maximum transitive depth to traverse when includeTransitive is true (default: 3)"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -879,7 +952,18 @@
         "modelDescription": "Reports the state of the dependency index backing the other tools.\n\nWHEN: checking readiness before a large analysis, or explaining unexpectedly empty or incomplete results.\nWHY: distinguishes \"no results\" from \"index not built yet\", and tells whether imports were skipped because they resolve outside the workspace root (a monorepo sub-package misses its sibling packages).\nRETURNS: index state, readiness flag, whether the reverse index exists, cache size, reverse-index statistics (files indexed included), cacheFiles (on-disk bytes of the cached reverse index and call graph), and outOfRootImports (with examples, the relative monorepoRoot and a warning when above 0).",
         "inputSchema": {
           "type": "object",
-          "properties": {}
+          "properties": {
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+            }
+          }
         }
       },
       {
@@ -901,6 +985,16 @@
             "filePath": {
               "type": "string",
               "description": "The absolute path to the file to parse imports from"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -927,6 +1021,16 @@
             "filePath": {
               "type": "string",
               "description": "The absolute path to the file to generate a code map for"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -960,6 +1064,16 @@
                 "type": "string"
               },
               "description": "List of file paths already known — newly discovered nodes will exclude these"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -990,6 +1104,16 @@
             "targetFile": {
               "type": "string",
               "description": "The absolute path to the imported file"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -1020,6 +1144,16 @@
                 "type": "string"
               },
               "description": "Absolute paths of the files to invalidate from the cache"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -1042,7 +1176,18 @@
         "modelDescription": "Clears all cached analysis and re-indexes the whole workspace.\n\nWHEN: after a branch switch or large refactor when the index no longer matches the tree; invalidate_files is enough for a few files.\nWHY: restores a graph that is consistent with what is on disk.\nRETURNS: rebuild duration and new cache size.\nLIMITS: takes seconds on a large workspace.",
         "inputSchema": {
           "type": "object",
-          "properties": {}
+          "properties": {
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+            }
+          }
         }
       },
       {
@@ -1068,6 +1213,16 @@
             "symbolName": {
               "type": "string",
               "description": "The name of the symbol to find dependents for"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -1103,6 +1258,16 @@
             "maxDepth": {
               "type": "number",
               "description": "Maximum call chain depth to follow (default: 10)"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -1130,6 +1295,16 @@
             "filePath": {
               "type": "string",
               "description": "The absolute path to the file to analyze"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -1160,6 +1335,16 @@
             "moduleSpecifier": {
               "type": "string",
               "description": "The module specifier to resolve (e.g. './utils', '@/components/Button', 'lodash')"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -1199,6 +1384,16 @@
             "newContent": {
               "type": "string",
               "description": "The new file content (if omitted, reads the current file from disk)"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -1265,6 +1460,16 @@
                 ]
               },
               "description": "Filter by relation types (default: all types included)"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -1296,6 +1501,16 @@
             "maxFiles": {
               "type": "number",
               "description": "Optional maximum number of files to process (defaults to no limit)"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           }
         }
@@ -1331,6 +1546,16 @@
             "maxDepth": {
               "type": "number",
               "description": "Optional impact traversal depth (1-10, default 3)"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -1369,6 +1594,16 @@
             "fileFilter": {
               "type": "string",
               "description": "Optional workspace-relative glob restricting the search, for example src/**"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           },
           "required": [
@@ -1437,6 +1672,16 @@
             "output": {
               "type": "string",
               "description": "Optional file to write, relative to the workspace; without it a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec)"
+            },
+            "response_format": {
+              "type": "string",
+              "enum": [
+                "toon",
+                "markdown",
+                "json"
+              ],
+              "default": "toon",
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
             }
           }
         }

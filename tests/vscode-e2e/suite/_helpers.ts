@@ -152,7 +152,7 @@ export const lmToolsSupported = (): boolean =>
 /** Invoke the get_index_status LM tool and parse its JSON payload. */
 export async function getIndexStatus<T>(): Promise<T> {
   const result = await vscode.lm.invokeTool('graph-it-live_get_index_status', {
-    input: {},
+    input: { response_format: 'json' },
     toolInvocationToken: undefined,
   });
   const text = result.content

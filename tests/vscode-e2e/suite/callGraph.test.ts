@@ -76,7 +76,7 @@ suite('Call Graph Test Suite', () => {
     this.timeout(90000);
     await openCallGraphFor('symbols', 'alias-target.ts');
     const result = await vscode.lm.invokeTool('graph-it-live_query_call_graph', {
-      input: { filePath: getProjectFile('symbols', 'alias-target.ts').fsPath, symbolName: 'aliasTarget398', direction: 'callers' },
+      input: { filePath: getProjectFile('symbols', 'alias-target.ts').fsPath, symbolName: 'aliasTarget398', direction: 'callers', response_format: 'json' },
       toolInvocationToken: undefined,
     });
     const part = result.content.find(p => p instanceof vscode.LanguageModelTextPart);
@@ -96,7 +96,7 @@ suite('Call Graph Test Suite', () => {
     const callerNames = async (): Promise<string[]> => {
       await openCallGraphFor('sample-project', 'src', 'e2eAliasTarget432.ts');
       const result = await vscode.lm.invokeTool('graph-it-live_query_call_graph', {
-        input: { filePath: target.fsPath, symbolName: 'aliasTarget432', direction: 'callers' },
+        input: { filePath: target.fsPath, symbolName: 'aliasTarget432', direction: 'callers', response_format: 'json' },
         toolInvocationToken: undefined,
       });
       const part = result.content.find(p => p instanceof vscode.LanguageModelTextPart);

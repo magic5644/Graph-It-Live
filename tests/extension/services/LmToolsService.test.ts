@@ -155,6 +155,11 @@ function createProvider(overrides: Partial<{
     traceFunctionExecution: vi.fn().mockResolvedValue({ rootSymbol: { id: '', filePath: '', symbolName: '' }, callChain: [], visitedSymbols: [], maxDepthReached: false }),
   };
 
+  // Every encoded result reads the index freshness.
+  if (typeof spider === 'object' && spider !== null && !('getIndexStatus' in spider)) {
+    Object.assign(spider, { getIndexStatus: vi.fn().mockReturnValue({ state: 'complete' }) });
+  }
+
   return {
     getSpiderForLmTools: vi.fn().mockReturnValue(spider),
     getCallGraphViewServiceForLmTools: vi.fn().mockReturnValue(overrides.callGraphService ?? null),
@@ -175,10 +180,11 @@ function parseResult(result: unknown): unknown {
   return JSON.parse(parts[0].value);
 }
 
+/** Invokes a tool with `response_format: 'json'` so assertions read the raw payload. */
 async function invokeTool<T>(name: string, input: T): Promise<unknown> {
   const handler = registeredTools.get(name);
   if (!handler) throw new Error(`Tool "${name}" not registered`);
-  return parseResult(await handler.invoke(makeOptions(input), fakeToken));
+  return parseResult(await handler.invoke(makeOptions({ response_format: 'json', ...input }), fakeToken));
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -324,7 +330,7 @@ describe('LmToolsService', () => {
     const result = await invokeTool('graph-it-live_graph_context', { question: 'where is auth?' });
     expect(result).toEqual({ mode: 'search', nodes: [], edges: [] });
     expect(executeGraphContextWithIndexes).toHaveBeenCalledWith(
-      { question: 'where is auth?' },
+      { question: 'where is auth?', response_format: 'json' },
       expect.objectContaining({ rootDir: '/workspace', spider }),
       expect.any(AbortSignal),
     );
@@ -398,7 +404,7 @@ describe('LmToolsService', () => {
       'tokenBudget',
       'directed',
       'cursor',
-      'format',
+      'response_format',
     ]));
     expect(tool?.inputSchema.properties.seeds.items?.properties).toMatchObject({
       id: { type: 'string' },
@@ -484,7 +490,7 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool(TOOL, { folder: 'src', rules: true });
 
-      expect(exportArchitectureDiagram).toHaveBeenCalledWith('/workspace', expect.any(Function), { folder: 'src', rules: true }, expect.any(AbortSignal));
+      expect(exportArchitectureDiagram).toHaveBeenCalledWith('/workspace', expect.any(Function), { folder: 'src', rules: true, response_format: 'json' }, expect.any(AbortSignal));
       // The chat's cancellation aborts the analysis.
       const onCancel = vi.mocked(fakeToken.onCancellationRequested).mock.calls.at(-1)?.[0] as () => void;
       const signal = exportArchitectureDiagram.mock.calls[0][3] as AbortSignal;
@@ -1659,6 +1665,170 @@ describe('LmToolsService', () => {
         truncated: false,
         entries: [{ relativePath: 'src/a.ts', unusedCount: 1 }],
       });
+    });
+  });
+
+  // ─── response_format ──────────────────────────────────────────────────────
+
+  describe('response_format', () => {
+    const TOOL = 'graph-it-live_find_referencing_files';
+    const references = [
+      { path: '/workspace/src/b.ts', type: 'import', line: 3, module: './a' },
+      { path: '/elsewhere/lib/d.ts', type: 'import', line: 1, module: '../a' },
+    ];
+
+    async function invokeText(name: string, input: Record<string, unknown>, provider: GraphProvider): Promise<string> {
+      new LmToolsService({ provider, logger }).registerAll();
+      const handler = registeredTools.get(name);
+      if (!handler) throw new Error(`Tool "${name}" not registered`);
+      const result = await handler.invoke(makeOptions(input), fakeToken) as { parts: { value: string }[] };
+      return result.parts[0].value;
+    }
+
+    function referencingProvider(found: unknown[], status: Record<string, unknown> = { state: 'complete', completedAt: Date.UTC(2026, 10, 8) }): GraphProvider {
+      return createProvider({
+        spider: {
+          findReferencingFilesThroughBarrels: vi.fn().mockResolvedValue(found),
+          getIndexStatus: vi.fn().mockReturnValue(status),
+        },
+      });
+    }
+
+    it('returns TOON by default, with workspace-relative paths and the index freshness', async () => {
+      const text = await invokeText(TOOL, { targetPath: '/workspace/src/a.ts' }, referencingProvider(references));
+
+      expect(() => JSON.parse(text)).toThrow();
+      expect(text).toContain('meta(indexedAt,stale)\n[2026-11-08T00:00:00.000Z,false]');
+      expect(text).toContain('referencingFiles(path,type,line,module)\n[src/b.ts,import,3,./a]');
+      expect(text).toContain('src/b.ts');
+      expect(text).toContain(String.raw`[\[external:d.ts\],import,1,../a]`);
+      expect(text).not.toContain('/workspace');
+      expect(text).not.toContain('/elsewhere');
+    });
+
+    it('returns readable markdown on request', async () => {
+      const text = await invokeText(TOOL, { targetPath: '/workspace/src/a.ts', response_format: 'markdown' }, referencingProvider(references));
+
+      expect(text).toContain('- **stale**: false');
+      expect(text).toContain('| src/b.ts |');
+      expect(text).not.toContain('/workspace');
+    });
+
+    it('returns the redacted JSON payload on request', async () => {
+      const text = await invokeText(TOOL, { targetPath: '/workspace/src/a.ts', response_format: 'json' }, referencingProvider(references));
+
+      expect(JSON.parse(text)).toEqual({
+        targetPath: 'src/a.ts',
+        referencingFileCount: 2,
+        referencingFiles: [
+          { path: 'src/b.ts', relativePath: 'src/b.ts', type: 'import', line: 3, module: './a' },
+          { path: '[external:d.ts]', relativePath: '[external:d.ts]', type: 'import', line: 1, module: '../a' },
+        ],
+      });
+    });
+
+    it('falls back to TOON for an unknown format', async () => {
+      const text = await invokeText(TOOL, { targetPath: '/workspace/src/a.ts', response_format: 'yaml' }, referencingProvider(references));
+
+      expect(() => JSON.parse(text)).toThrow();
+      expect(text).toContain('src/b.ts');
+    });
+
+    it('keeps an empty result readable in every format', async () => {
+      const input = { targetPath: '/workspace/src/a.ts' };
+      const toon = await invokeText(TOOL, input, referencingProvider([]));
+      const markdown = await invokeText(TOOL, { ...input, response_format: 'markdown' }, referencingProvider([]));
+      const json = await invokeText(TOOL, { ...input, response_format: 'json' }, referencingProvider([]));
+
+      expect(toon).toContain('data(targetPath,referencingFileCount,referencingFiles)\n[src/a.ts,0,]');
+      expect(markdown).toContain('- **referencingFileCount**: 0');
+      expect(JSON.parse(json)).toEqual({ targetPath: 'src/a.ts', referencingFileCount: 0, referencingFiles: [] });
+    });
+
+    it('keeps an error readable in every format', async () => {
+      const failing = () => createProvider({
+        spider: {
+          findReferencingFilesThroughBarrels: vi.fn().mockRejectedValue(new Error('cannot read src/a.ts')),
+          getIndexStatus: vi.fn().mockReturnValue({ state: 'indexing' }),
+        },
+      });
+      const input = { targetPath: '/workspace/src/a.ts' };
+
+      const toon = await invokeText(TOOL, input, failing());
+      const markdown = await invokeText(TOOL, { ...input, response_format: 'markdown' }, failing());
+      const json = await invokeText(TOOL, { ...input, response_format: 'json' }, failing());
+
+      expect(toon).toBe('errors(message)\n[cannot read src/a.ts]');
+      expect(markdown).toContain('**Error:** cannot read');
+      expect(JSON.parse(json)).toEqual({ error: 'cannot read src/a.ts' });
+    });
+
+    it('reports no freshness without a dependency index', async () => {
+      const provider = createProvider();
+      vi.mocked(provider.getSpiderForLmTools).mockReturnValue(undefined);
+
+      const text = await invokeText(TOOL, { targetPath: '/workspace/src/a.ts' }, provider);
+
+      expect(text).toBe('errors(message)\n[No workspace open or dependency index not initialized.]');
+    });
+
+    it('reports a stale index only while an index pass or a file change job runs', async () => {
+      const input = { targetPath: '/workspace/src/a.ts' };
+      const withPending = (pending: number, state = 'complete') => Object.assign(
+        referencingProvider(references, { state, completedAt: Date.UTC(2026, 10, 8) }),
+        { fileChangeScheduler: { getPendingCount: () => pending } },
+      );
+
+      expect(await invokeText(TOOL, input, withPending(1))).toContain('meta(indexedAt,stale)\n[2026-11-08T00:00:00.000Z,true]');
+      expect(await invokeText(TOOL, input, withPending(0))).toContain('meta(indexedAt,stale)\n[2026-11-08T00:00:00.000Z,false]');
+      expect(await invokeText(TOOL, input, withPending(0, 'validating'))).toContain('[2026-11-08T00:00:00.000Z,true]');
+    });
+
+    it('reports an index pass that never completed as not indexed yet and stale', async () => {
+      const text = await invokeText(TOOL, { targetPath: '/workspace/src/a.ts' }, referencingProvider(references, { state: 'indexing' }));
+
+      expect(text).toContain('meta(indexedAt,stale)\n[,true]');
+    });
+
+    it('reports a restored index with no pass in this session as fresh, with no indexedAt', async () => {
+      const text = await invokeText(TOOL, { targetPath: '/workspace/src/a.ts' }, referencingProvider(references, { state: 'idle' }));
+
+      expect(text).toContain('meta(indexedAt,stale)\n[,false]');
+    });
+
+    it('encodes graph context with its own TOON sections', async () => {
+      executeGraphContextWithIndexes.mockResolvedValueOnce({
+        indexRevision: 'r1', fresh: true, mode: 'search', tokenEstimate: 10, truncated: false,
+        seeds: [], nodes: [{ id: 'n1', kind: 'file', name: 'a.ts', path: '/workspace/src/a.ts' }],
+        edges: [], paths: [], ambiguous: [], omitted: { nodes: 0, edges: 0 }, nextQueries: [],
+      });
+      const callGraphService = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue({ getDb: vi.fn() }) };
+
+      const text = await invokeText('graph-it-live_graph_context', { question: 'auth' }, createProvider({ callGraphService }));
+
+      expect(text).toContain('graph_context(indexRevision,fresh,mode,tokenEstimate,truncated,nextCursor)\n[r1,true,search,10,false,]');
+      expect(text).toContain('src/a.ts');
+      expect(text).not.toContain('/workspace');
+    });
+
+    it('asks the query engine for a TOON subgraph only when TOON is requested', async () => {
+      queryEngineQuery.mockReset();
+      queryEngineQuery.mockResolvedValue({
+        question: 'auth', extractedKeywords: ['auth'], nodeCount: 1, edgeCount: 0,
+        nodes: [{ id: 'n1', name: 'login', type: 'function', path: '/workspace/src/auth.ts' }], edges: [],
+        json: JSON.stringify({ nodes: [{ id: 'login', n: 'login', t: 'Function', p: '/workspace/src/auth.ts', l: 1, r: 0.9 }], edges: [], nodeCount: 1, edgeCount: 0, truncated: false }),
+        meta: { llmProvider: 'none', keywordExtractionMs: 0, bfsMs: 0, totalMs: 1, tokenEstimate: 5, truncated: false },
+      });
+      const callGraphService = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue({ getDb: () => ({}) }) };
+
+      const toon = await invokeText('graph-it-live_query_natural_language', { question: 'auth' }, createProvider({ callGraphService }));
+      expect(queryEngineQuery).toHaveBeenLastCalledWith(expect.objectContaining({ outputFormat: 'toon' }));
+      expect(toon).toContain('query(question,keywords,llmProvider,totalMs,tokenEstimate)');
+      expect(toon).toContain('login');
+      expect(toon).not.toContain('/workspace');
+
+      await invokeText('graph-it-live_query_natural_language', { question: 'auth', response_format: 'markdown' }, createProvider({ callGraphService }));
+      expect(queryEngineQuery).toHaveBeenLastCalledWith(expect.objectContaining({ outputFormat: 'json' }));
     });
   });
 });

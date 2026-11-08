@@ -34,6 +34,7 @@ import { QueryEngine } from "../../../src/analyzer/QueryEngine";
 import { workerState } from "../../../src/mcp/shared/state";
 import {
   executeQueryNaturalLanguage,
+  queryNaturalLanguageWithDb,
   QueryNaturalLanguageSchema,
 } from "../../../src/mcp/tools/query";
 import { validateToolParams } from "../../../src/mcp/types";
@@ -452,6 +453,52 @@ describe("executeQueryNaturalLanguage", () => {
 // ---------------------------------------------------------------------------
 // 9. Zod description non-regression (documentation keywords)
 // ---------------------------------------------------------------------------
+
+describe("queryNaturalLanguageWithDb", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("queries the given database without the worker state, as TOON by default", async () => {
+    const query = vi.spyOn(QueryEngine.prototype, "query").mockResolvedValue(makeMockQueryResult());
+
+    const result = await queryNaturalLanguageWithDb(makeMockDb() as never, WORKSPACE, { question: "indexer?" });
+
+    expect(query).toHaveBeenCalledWith(expect.objectContaining({ workspaceRoot: WORKSPACE, depth: 2, tokenBudget: 4000, outputFormat: "toon" }));
+    expect(result.toon).toContain("src/a.ts");
+    expect(result.toon).not.toContain(WORKSPACE);
+    expect(result.nodes).toBeUndefined();
+  });
+
+  it("returns the nodes and edges for json", async () => {
+    vi.spyOn(QueryEngine.prototype, "query").mockResolvedValue(makeMockQueryResult());
+
+    const result = await queryNaturalLanguageWithDb(makeMockDb() as never, WORKSPACE, { question: "indexer?", outputFormat: "json" });
+
+    expect(result.toon).toBeUndefined();
+    expect(result.nodes?.[0]?.path).toBe(FILE_A);
+  });
+
+  it("keeps only the file name of a path outside the workspace root", async () => {
+    const outside = JSON.stringify({
+      nodes: [{ id: "x", n: "x", t: "Function", p: "/other-root/lib/x.ts", l: 1, r: 0.5 }],
+      edges: [], nodeCount: 1, edgeCount: 0, truncated: false,
+    });
+    vi.spyOn(QueryEngine.prototype, "query").mockResolvedValue(makeMockQueryResult({ json: outside }));
+
+    const result = await queryNaturalLanguageWithDb(makeMockDb() as never, WORKSPACE, { question: "x?" });
+
+    expect(result.toon).toContain(String.raw`\[external:x.ts\]`);
+    expect(result.toon).not.toContain("/other-root");
+  });
+
+  it("fails when the engine returns no compact payload for TOON", async () => {
+    vi.spyOn(QueryEngine.prototype, "query").mockResolvedValue(makeMockQueryResult({ json: undefined }));
+
+    await expect(queryNaturalLanguageWithDb(makeMockDb() as never, WORKSPACE, { question: "x?" }))
+      .rejects.toThrow("did not return a compact JSON payload");
+  });
+});
 
 describe("QueryNaturalLanguageSchema outputFormat description", () => {
   it("documents TOON vs JSON tradeoffs for LLM client indexing", () => {

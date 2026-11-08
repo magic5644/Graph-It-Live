@@ -101,7 +101,8 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
   let mcp: { tmpDir: string; runtime: CliRuntime };
 
   async function invoke<T>(tool: string, input: Record<string, unknown>): Promise<T> {
-    const result = await state.tools.get(tool)!.invoke({ input }, {});
+    // json: the parity checks compare the raw payloads.
+    const result = await state.tools.get(tool)!.invoke({ input: { ...input, response_format: "json" } }, {});
     return JSON.parse(result.content[0].value) as T;
   }
 

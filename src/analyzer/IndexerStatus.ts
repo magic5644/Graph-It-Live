@@ -37,6 +37,8 @@ export interface IndexerStatusSnapshot {
   startTime?: number;
   /** Estimated time remaining in milliseconds */
   estimatedTimeRemaining?: number;
+  /** Timestamp when the last full indexing pass completed */
+  completedAt?: number;
   /** Error message if state is 'error' */
   errorMessage?: string;
   /** Whether the indexer has been cancelled */
@@ -57,6 +59,7 @@ export class IndexerStatus {
   private _total = 0;
   private _currentFile?: string;
   private _startTime?: number;
+  private _completedAt?: number;
   private _errorMessage?: string;
   private _cancelled = false;
   
@@ -107,6 +110,7 @@ export class IndexerStatus {
       percentage,
       startTime: this._startTime,
       estimatedTimeRemaining,
+      completedAt: this._completedAt,
       errorMessage: this._errorMessage,
       cancelled: this._cancelled,
     };
@@ -165,6 +169,7 @@ export class IndexerStatus {
    */
   complete(): void {
     this._state = 'complete';
+    this._completedAt = Date.now();
     this._currentFile = undefined;
     this._notifyListeners(true);
   }
@@ -198,6 +203,7 @@ export class IndexerStatus {
     this._total = 0;
     this._currentFile = undefined;
     this._startTime = undefined;
+    this._completedAt = undefined;
     this._errorMessage = undefined;
     this._cancelled = false;
     this._notifyListeners(true);
