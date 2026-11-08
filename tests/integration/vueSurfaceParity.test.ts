@@ -1,18 +1,24 @@
 /**
- * Vue SFC parity (#644): the CLI binary and the MCP tool answer the same script-level call graph queries with the
- * same targets and the positions of the `.vue` files. Each surface builds its own index, as in production.
+ * Vue SFC parity (#644, #645): the CLI binary and the MCP tools (which the VS Code LM tools run) answer the same
+ * script and template call graph and impact queries with the same targets and the positions of the `.vue` files.
+ * Each surface builds its own index, as in production.
  */
 import { execFileSync } from "node:child_process";
 import * as fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { CliRuntime } from "@/cli/runtime";
+import { CliRuntime } from "@/cli/runtime";
+import { workerState } from "@/mcp/shared/state";
 import { executeQueryCallGraph } from "@/mcp/tools/callgraph";
+import { executeGetImpactAnalysis } from "@/mcp/tools/impact";
 import { indexWorkspace, REPO_ROOT, wasmBuilt } from "../mcp/tools/callGraphWorkspace";
 
 const DIST_ENTRY = path.join(REPO_ROOT, "dist/graph-it.js");
 const FIXTURES = path.resolve(__dirname, "../analyzer/fixtures/vue");
-const QUERIES = ["ScriptSetupTs.vue#total", "TwoBlocks.vue#capped", "OptionsApi.vue#run", "TsxSetup.vue#Badge", "utils/math.ts#add"];
+const QUERIES = [
+  "ScriptSetupTs.vue#total", "TwoBlocks.vue#capped", "OptionsApi.vue#run", "TsxSetup.vue#Badge", "utils/math.ts#add",
+  "Parent.vue#Parent", "Child.vue#Child", "utils/format.ts#format",
+];
 
 interface CallEdge { relation: string; sourceLine: number; sourceName: string; sourceFile: string; targetName: string; targetFile: string }
 interface CallGraphAnswer { symbol: { name: string; filePath: string; startLine: number; endLine: number } | null; reason?: string; callers: CallEdge[]; callees: CallEdge[] }
@@ -64,7 +70,18 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("Vue SFC parity across
       "OptionsApi.vue#run callee: src/OptionsApi.vue#run -CALLS@12-> src/utils/math.ts#add",
       "TsxSetup.vue#Badge callee: src/TsxSetup.vue#Badge -CALLS@4-> src/utils/math.ts#add",
       "utils/math.ts#add caller: src/TwoBlocks.vue#capped -CALLS@13-> src/utils/math.ts#add",
+      "Parent.vue#Parent symbol: src/Parent.vue#Parent@17-25",
+      "Parent.vue#Parent callee: src/Parent.vue#Parent -REFERENCES@19-> src/Child.vue#Child",
+      "Parent.vue#Parent callee: src/Parent.vue#Parent -CALLS@21-> src/utils/format.ts#format",
+      "Child.vue#Child caller: src/Parent.vue#Parent -REFERENCES@19-> src/Child.vue#Child",
+      "utils/format.ts#format caller: src/Parent.vue#Parent -CALLS@21-> src/utils/format.ts#format",
     ]));
+    const impact = await executeGetImpactAnalysis({ filePath: path.join(mcp.tmpDir, "src/utils/format.ts"), symbolName: "format" });
+    const impacted = impact.impactedItems.map((i) => `${i.relativePath}:${i.line}:${i.usageType}`);
+    expect(impacted).toEqual(["src/Parent.vue:21:runtime"]);
+    const handler = await executeGetImpactAnalysis({ filePath: path.join(mcp.tmpDir, "src/utils/format.ts"), symbolName: "track" });
+    expect(handler.impactedItems.map((i) => `${i.relativePath}:${i.line}:${i.relation}`)).toEqual(["src/Parent.vue:19:REFERENCES"]);
+    expect(handler.summary).toContain("Vue props/emits compatibility is not checked");
 
     const cliRoot = fs.realpathSync(fs.mkdtempSync(path.join(path.dirname(mcp.tmpDir), "vue-cli-")));
     try {
@@ -75,8 +92,31 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("Vue SFC parity across
         return Promise.resolve(JSON.parse(out.slice(out.indexOf("{"))) as CallGraphAnswer);
       };
       expect(await answers(cliRoot, cli)).toEqual(mcpAnswers);
+      const out = execFileSync(process.execPath, [DIST_ENTRY, "tool", "get_impact_analysis", `--filePath=${path.join(cliRoot, "src/utils/format.ts")}`,
+        "--symbolName=format", "-w", cliRoot, "--format", "json"], { cwd: cliRoot, encoding: "utf-8", stdio: ["ignore", "pipe", "ignore"] });
+      const cliImpact = JSON.parse(out.slice(out.indexOf("{"))) as typeof impact;
+      expect(cliImpact.impactedItems.map((i) => `${i.relativePath}:${i.line}:${i.usageType}`)).toEqual(impacted);
     } finally {
       fs.rmSync(cliRoot, { recursive: true, force: true });
     }
+  });
+
+  it("answers the same from a restored index as from the cold one, template edges and impact included", async () => {
+    const query = (filePath: string, symbolName: string) =>
+      executeQueryCallGraph({ filePath, symbolName, direction: "both", depth: 1 }) as Promise<CallGraphAnswer>;
+    const impact = async () => (await executeGetImpactAnalysis({ filePath: path.join(mcp.tmpDir, "src/utils/format.ts"), symbolName: "track" }))
+      .impactedItems.map((i) => `${i.relativePath}:${i.line}:${i.relation}`);
+    const cold = await answers(mcp.tmpDir, query);
+    const coldImpact = await impact();
+    await mcp.runtime.dispose();
+
+    mcp.runtime = new CliRuntime(mcp.tmpDir);
+    await mcp.runtime.init();
+    workerState.config = { ...workerState.getConfig(), extensionPath: REPO_ROOT };
+    await mcp.runtime.ensureIndexed({ silent: true });
+
+    expect(await answers(mcp.tmpDir, query)).toEqual(cold);
+    expect(await impact()).toEqual(coldImpact);
+    expect(cold).toContain("Child.vue#Child caller: src/Parent.vue#Parent -REFERENCES@19-> src/Child.vue#Child");
   });
 });

@@ -38,7 +38,7 @@ export class UnusedAnalysisCache {
   private isDirty = false;
   private saveTimer?: NodeJS.Timeout;
   private cleanupTimer?: NodeJS.Timeout;
-  private readonly CACHE_VERSION = 2; // Bumped for lastAccess field
+  private readonly CACHE_VERSION = 3; // 2: lastAccess field; 3: Vue template uses count (#645)
   private readonly MAX_CACHE_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
   private readonly MAX_ENTRIES: number;
   private hitCount = 0;

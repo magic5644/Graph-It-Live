@@ -189,6 +189,26 @@ function callStub(declaration: ImportedDeclaration | null | undefined): string |
   return declaration && !declaration.typeOnly ? `@@import:${JSON.stringify([declaration.filePath, declaration.name])}` : null;
 }
 
+/** Local names of the file's named and default import bindings. */
+export function importLocalNames(root: TreeNode): string[] {
+  return root.namedChildren.filter(node => node.type === "import_statement").flatMap(importedNames).map(({ local }) => local.text);
+}
+
+/**
+ * `@@import:` stubs of the named and default import bindings in `names` (a Vue template's uses), by local name;
+ * null for a type-only import or one that links nowhere. A name no import binds is absent.
+ */
+export async function resolveImportBindings(
+  root: TreeNode,
+  filePath: string,
+  resolver: PathResolver,
+  names: ReadonlySet<string>,
+  reads: DeclarationReads = new Map(),
+): Promise<Map<string, string | null>> {
+  const imports = await collectNamedImports(root, filePath, resolver, reads, new Set(names));
+  return new Map([...imports].filter(([name]) => names.has(name)).map(([name, declaration]) => [name, callStub(declaration)]));
+}
+
 /**
  * Types of the receivers of member calls that an import binds (#499): `c.compute()` with `c: Calc`,
  * `new Calc().compute()`, `Calc.create()`; by call node id.

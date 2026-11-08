@@ -71,6 +71,8 @@ describe("Vue SFC symbols (SymbolAnalyzer)", () => {
     expect(dependencies.map((d) => `${d.sourceSymbolId} -> ${d.targetSymbolId} @ ${d.targetFilePath}`)).toEqual([
       "/w/TwoBlocks.vue:capped -> ./utils/math:add @ ./utils/math",
       "/w/TwoBlocks.vue:capped -> /w/TwoBlocks.vue:LIMIT @ /w/TwoBlocks.vue",
+      // The template's `{{ capped(12) }}`, owned by the file scope.
+      "/w/TwoBlocks.vue:(file) -> /w/TwoBlocks.vue:capped @ /w/TwoBlocks.vue",
     ]);
   });
 
@@ -99,6 +101,36 @@ describe("Vue SFC symbols (SymbolAnalyzer)", () => {
     expect(symbols.map((s) => s.id)).toEqual([`${filePath}:base`, `${filePath}:capped`]);
     expect(dependencies.map((d) => normalizePath(d.targetFilePath).endsWith("/w/src/App.vue"))).toEqual([true]);
     expect(JSON.stringify(dependencies)).not.toContain(".sfc.");
+  });
+
+  it("records the template's uses of imports and declarations at their .vue lines, owned by the file scope", () => {
+    const fileUses = analyze("Parent.vue").dependencies.filter((d) => d.sourceSymbolId === "/w/Parent.vue:(file)")
+      .map((d) => `${d.targetSymbolId} ${d.relation ?? "call"}@${d.line}`);
+
+    // The v-for `format` alias shadows the import; the defineProps/defineEmits macros are no dependency.
+    expect(fileUses).toEqual([
+      "/w/Parent.vue:save REFERENCES@19",
+      "./utils/format:track REFERENCES@19",
+      "./Child.vue:default REFERENCES@19",
+      "/w/Parent.vue:props REFERENCES@20",
+      "./ChildRow.vue:default REFERENCES@20",
+      "/w/Parent.vue:save call@21",
+      "./utils/format:format call@21",
+      "/w/Parent.vue:count REFERENCES@21",
+      "/w/Parent.vue:LazyPanel REFERENCES@22",
+    ]);
+  });
+
+  it("counts every script binding as used by a template it reads only in part", () => {
+    const pug = '<script setup lang="ts">\nimport { format } from "./utils/format";\nconst label = "x";\n</script>\n\n<template lang="pug">\np {{ format(label) }}\n</template>\n';
+    const fileUses = analyze("Pug.vue", pug).dependencies.filter((d) => d.sourceSymbolId === "/w/Pug.vue:(file)")
+      .map((d) => `${d.targetSymbolId} ${d.relation}@${d.line}`);
+    expect(fileUses).toEqual(["./utils/format:format REFERENCES@6", "/w/Pug.vue:label REFERENCES@6"]);
+  });
+
+  it("gives a template-only SFC and a static template no dependency", () => {
+    expect(analyze("TemplateOnly.vue").dependencies).toEqual([]);
+    expect(analyze("ChildRow.vue").dependencies).toEqual([]);
   });
 
   it("never gives an SFC the React identity", () => {
@@ -139,22 +171,54 @@ describe.skipIf(!wasmBuilt)("Vue SFC call graph (GraphExtractor)", { timeout: 12
       const nodes = indexer.getIndexSnapshot().nodes.map((n) => `${path.basename(n.path)}#${n.name} ${n.startLine}-${n.endLine}:${n.startCol}`);
 
       expect(nodes.sort()).toEqual([
+        // Each SFC with a template has a component node, named after the file, at its `<template>` element.
+        "Child.vue#Child 8-10:0",
+        "ChildRow.vue#ChildRow 0-2:0",
+        "CompositionApi.vue#CompositionApi 12-14:0",
         "CompositionApi.vue#setup 5-8:2",
         "CompositionApi.vue#sum 6-6:10",
+        "Malformed.vue#Malformed 0-2:0",
+        "OptionsApi.vue#OptionsApi 0-2:0",
         "OptionsApi.vue#run 10-12:4",
+        "Parent.vue#LazyPanel 8-8:6",
+        "Parent.vue#Parent 16-24:0",
+        "Parent.vue#save 11-13:9",
+        "ScriptSetupJs.vue#ScriptSetupJs 0-2:0",
         "ScriptSetupJs.vue#twice 5-7:9",
+        "ScriptSetupTs.vue#ScriptSetupTs 0-4:0",
         "ScriptSetupTs.vue#total 9-11:9",
+        "TemplateOnly.vue#TemplateOnly 0-2:0",
         "TsxSetup.vue#Badge 3-3:6",
+        "TwoBlocks.vue#TwoBlocks 4-6:0",
         "TwoBlocks.vue#capped 11-13:9",
+        "UnusedImport.vue#UnusedImport 4-6:0",
+        "format.ts#format 0-2:16",
+        "format.ts#track 4-4:16",
         "math.ts#add 0-2:16",
       ]);
       // The alias + barrel import (`@/utils`) and the tsx block resolve like the others.
       expect(harness.describe(indexer).edges.sort()).toEqual([
+        "CompositionApi.vue#CompositionApi -CALLS@13-> CompositionApi.vue#sum",
         "CompositionApi.vue#sum -CALLS@6-> utils/math.ts#add",
+        "OptionsApi.vue#OptionsApi -REFERENCES@1-> OptionsApi.vue#run",
         "OptionsApi.vue#run -CALLS@11-> utils/math.ts#add",
+        // defineAsyncComponent(() => import('./ChildRow.vue')) loads ChildRow's component, like React's lazy().
+        "Parent.vue#LazyPanel -REFERENCES@8-> ChildRow.vue#ChildRow",
+        // `save()` calls, `@save="save"` passes: one edge per relation. The v-for `format` alias, the
+        // `<Transition>` built-in, the unbound `<GlobalWidget>` and the defineProps/defineEmits macros link nowhere.
+        "Parent.vue#Parent -CALLS@20-> Parent.vue#save",
+        "Parent.vue#Parent -CALLS@20-> utils/format.ts#format",
+        "Parent.vue#Parent -REFERENCES@18-> Child.vue#Child",
+        "Parent.vue#Parent -REFERENCES@18-> Parent.vue#save",
+        "Parent.vue#Parent -REFERENCES@18-> utils/format.ts#track",
+        "Parent.vue#Parent -REFERENCES@19-> ChildRow.vue#ChildRow",
+        "Parent.vue#Parent -REFERENCES@21-> Parent.vue#LazyPanel",
+        "ScriptSetupJs.vue#ScriptSetupJs -CALLS@1-> ScriptSetupJs.vue#twice",
         "ScriptSetupJs.vue#twice -CALLS@6-> utils/math.ts#add",
+        "ScriptSetupTs.vue#ScriptSetupTs -CALLS@2-> ScriptSetupTs.vue#total",
         "ScriptSetupTs.vue#total -CALLS@10-> utils/math.ts#add",
         "TsxSetup.vue#Badge -CALLS@3-> utils/math.ts#add",
+        "TwoBlocks.vue#TwoBlocks -CALLS@5-> TwoBlocks.vue#capped",
         "TwoBlocks.vue#capped -CALLS@12-> utils/math.ts#add",
       ]);
     } finally {
@@ -166,7 +230,8 @@ describe.skipIf(!wasmBuilt)("Vue SFC call graph (GraphExtractor)", { timeout: 12
     const { nodes, edges } = await harness.index({ "utils/math.ts": CORPUS["utils/math.ts"], "Crlf.vue": crlf("ScriptSetupTs.vue") });
 
     expect(nodes.find((n) => n.key === "Crlf.vue#total")).toMatchObject({ startLine: 9, endLine: 11 });
-    expect(edges).toEqual(["Crlf.vue#total -CALLS@10-> utils/math.ts#add"]);
+    expect(nodes.find((n) => n.key === "Crlf.vue#Crlf")).toMatchObject({ startLine: 0, endLine: 4 });
+    expect(edges.sort()).toEqual(["Crlf.vue#Crlf -CALLS@2-> Crlf.vue#total", "Crlf.vue#total -CALLS@10-> utils/math.ts#add"]);
   });
 
   it("indexes a Svelte SFC (block regex) at its .svelte lines", async () => {
@@ -175,6 +240,41 @@ describe.skipIf(!wasmBuilt)("Vue SFC call graph (GraphExtractor)", { timeout: 12
 
     expect(nodes.find((n) => n.key === "Page.svelte#shout")).toMatchObject({ startLine: 8, endLine: 10 });
     expect(edges).toEqual(["Page.svelte#shout -CALLS@9-> utils/math.ts#add"]);
+  });
+
+  it("never links a compiler macro, even to a same-named workspace function", async () => {
+    const sfc = '<script setup lang="ts">\nfunction props() {\n  return withDefaults(defineProps<{ a?: number }>(), { a: 1 });\n}\n</script>\n<template>\n  <p>{{ props() }}</p>\n</template>\n';
+    const { edges } = await harness.index({ "utils/macros.ts": "export function defineProps() {}\nexport function withDefaults() {}\n", "Macro.vue": sfc });
+
+    expect(edges).toEqual(["Macro.vue#Macro -CALLS@6-> Macro.vue#props"]);
+  });
+
+  it("links a template use of a type-only or unresolvable import nowhere", async () => {
+    const sfc = '<script setup lang="ts">\nimport type Child from "./Child.vue";\nimport Missing from "./Missing.vue";\n</script>\n<template>\n  <Child /><Missing />\n</template>\n';
+    const { edges } = await harness.index({ "Child.vue": CORPUS["Child.vue"], "Types.vue": sfc });
+
+    expect(edges).toEqual([]);
+  });
+
+  it("follows a template edit and a changed component import on re-index, without stale edges", async () => {
+    const indexer = await harness.newIndexer();
+    try {
+      const files = { "Child.vue": CORPUS["Child.vue"], "ChildRow.vue": CORPUS["ChildRow.vue"] };
+      await harness.indexInto(indexer, { ...files, "Host.vue": '<script setup>\nimport Child from "./Child.vue";\n</script>\n<template>\n  <Child />\n</template>\n' });
+      expect(harness.describe(indexer).edges).toEqual(["Host.vue#Host -REFERENCES@4-> Child.vue#Child"]);
+
+      await harness.indexInto(indexer, { "Host.vue": '<script setup>\nimport Row from "./ChildRow.vue";\n</script>\n<template>\n  <p />\n  <Row />\n</template>\n' });
+      expect(harness.describe(indexer).edges).toEqual(["Host.vue#Host -REFERENCES@5-> ChildRow.vue#ChildRow"]);
+    } finally {
+      indexer.dispose();
+    }
+  });
+
+  it("resolves defineAsyncComponent(() => import('./X.vue')) in a plain module too, like React's lazy()", async () => {
+    const routes = 'import { defineAsyncComponent } from "vue";\nexport const LazyRow = defineAsyncComponent(() => import("./ChildRow.vue"));\n';
+    const { edges } = await harness.index({ "ChildRow.vue": CORPUS["ChildRow.vue"], "routes.ts": routes });
+
+    expect(edges).toEqual(["routes.ts#LazyRow -REFERENCES@1-> ChildRow.vue#ChildRow"]);
   });
 
   it("parses lang=tsx with the tsx grammar: JSX is not a syntax error", async () => {
@@ -194,6 +294,8 @@ describe.skipIf(!wasmBuilt)("Vue SFC through Spider", { timeout: 120_000 }, () =
     root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "vue-spider-")));
     fs.cpSync(FIXTURES, root, { recursive: true });
     fs.writeFileSync(path.join(root, "package.json"), "{}");
+    fs.writeFileSync(path.join(root, "Pug.vue"), '<script setup lang="ts">\nimport { format } from "./utils/format";\n</script>\n<template lang="pug">\np {{ format(1) }}\n</template>\n');
+    fs.writeFileSync(path.join(root, "Page.svelte"), '<script>\n  import { format } from "./utils/format";\n  export const unused = 1;\n</script>\n<p>{format(1)}</p>\n');
     spider = new SpiderBuilder().withRootDir(root).withReverseIndex(true).build();
     await spider.buildFullIndex();
   }, 120_000);
@@ -211,10 +313,32 @@ describe.skipIf(!wasmBuilt)("Vue SFC through Spider", { timeout: 120_000 }, () =
     expect((await spider.findUnusedSymbols(file("utils/math.ts"))).map((s) => s.name)).toEqual([]);
   });
 
-  it("stays conservative where the template is not analyzed yet: no unused import or export in an SFC", async () => {
+  it("credits an export or a component used only by a template", async () => {
+    expect(await spider.findUnusedSymbols(file("utils/format.ts"))).toEqual([]);
+    expect(await spider.verifyDependencyUsage(file("Parent.vue"), file("utils/format.ts"))).toBe(true);
+    const batch = await spider.verifyDependencyUsageBatch(file("Parent.vue"), [file("Child.vue"), file("ChildRow.vue"), file("utils/format.ts")]);
+    expect([...batch.values()]).toEqual([true, true, true]);
+  });
+
+  it("reports an import that neither the script nor the template uses", async () => {
+    expect(await spider.verifyDependencyUsage(file("UnusedImport.vue"), file("utils/format.ts"))).toBe(false);
+    const batch = await spider.verifyDependencyUsageBatch(file("UnusedImport.vue"), [file("utils/format.ts")]);
+    expect([...batch.values()]).toEqual([false]);
+  });
+
+  it("treats a .vue default export as an entry point, and checks its other exports", async () => {
+    expect(await spider.findUnusedSymbols(file("OptionsApi.vue"))).toEqual([]);
+    // CHILD_VERSION is exported from a plain <script> block and used by nobody; the setup block passes LIMIT.
+    expect((await spider.findUnusedSymbols(file("Child.vue"))).map((s) => s.name)).toEqual(["CHILD_VERSION"]);
     expect(await spider.findUnusedSymbols(file("TwoBlocks.vue"))).toEqual([]);
-    expect(await spider.verifyDependencyUsage(file("TemplateOnly.vue"), file("utils/math.ts"))).toBe(true);
-    const batch = await spider.verifyDependencyUsageBatch(file("TemplateOnly.vue"), [file("utils/math.ts")]);
-    expect([...batch.values()]).toEqual([true]);
+  });
+
+  it("keeps an import used by a template read only in part (pug) used", async () => {
+    expect(await spider.verifyDependencyUsage(file("Pug.vue"), file("utils/format.ts"))).toBe(true);
+  });
+
+  it("keeps Svelte conservative: its markup is not analyzed", async () => {
+    expect(await spider.verifyDependencyUsage(file("Page.svelte"), file("utils/format.ts"))).toBe(true);
+    expect(await spider.findUnusedSymbols(file("Page.svelte"))).toEqual([]);
   });
 });

@@ -6,13 +6,10 @@
 import * as assert from 'node:assert';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { getContextKey, getProjectFile, settleFileEvents, showCallGraphAndWait, sleep } from './_helpers';
-
-interface ShownGraph {
-  rootSymbolId: string;
-  nodes: Array<{ id: string; name: string; path: string; startLine: number; startCol: number; framework?: string }>;
-  edges: Array<{ sourceId: string; targetId: string; typeRelation: string; sourceLine: number }>;
-}
+import {
+  getProjectFile, saveDocumentText as saveText, settleFileEvents, showCallGraphAndWait, shownCallGraph as shownGraph,
+  waitForRootCallGraphEdges,
+} from './_helpers';
 
 const PROJECT = 'react-e2e-591';
 const CARD = "import React from 'react';\nexport function Card() { return <section />; }\nexport default function Panel() { return <aside />; }\n";
@@ -23,18 +20,6 @@ export function Page() {
   return <main><UI.Card /><Tile /><Panel /></main>;
 }
 `;
-
-const shownGraph = async () => (await getContextKey<ShownGraph | null>('graph-it-live.callGraph')) ?? null;
-
-/** `Source -RELATION@line-> Target` edges leaving the graph root, with 1-based lines, deduplicated. */
-function rootEdges(graph: ShownGraph | null): string[] {
-  if (!graph) return [];
-  const name = (id: string) => graph.nodes.find(node => node.id === id)?.name ?? id;
-  const edges = graph.edges
-    .filter(edge => edge.sourceId === graph.rootSymbolId)
-    .map(edge => `${name(edge.sourceId)} -${edge.typeRelation}@${edge.sourceLine + 1}-> ${name(edge.targetId)}`);
-  return [...new Set(edges)].sort();
-}
 
 /** Parsed JSON answer of a Graph-It-Live language model tool. */
 async function invokeTool<T>(name: string, input: object): Promise<T | null> {
@@ -57,18 +42,8 @@ async function indexState(): Promise<string> {
   return `Card in the call graph index: ${indexed}; ui/index.ts in the dependency index: ${barrel}`;
 }
 
-/** Wait until the displayed root edges equal `expected`; a save refresh is debounced and re-extracts importers. */
-async function waitForRootEdges(expected: string[], timeoutMs = 20000, deadline = Date.now() + timeoutMs): Promise<void> {
-  const graph = await shownGraph();
-  const actual = rootEdges(graph);
-  if (JSON.stringify(actual) === JSON.stringify(expected)) return;
-  if (Date.now() >= deadline) {
-    const shown = graph ? `root ${graph.rootSymbolId}, nodes ${graph.nodes.map(node => node.name).join(', ')}` : 'no graph';
-    assert.deepStrictEqual(actual, expected, `Displayed call graph edges did not refresh (${shown}; ${await indexState()})`);
-  }
-  await sleep(250);
-  return waitForRootEdges(expected, timeoutMs, deadline);
-}
+/** Wait for the displayed root edges, with the index state in the failure message. */
+const waitForRootEdges = (expected: string[], timeoutMs?: number) => waitForRootCallGraphEdges(expected, { timeoutMs, detail: indexState });
 
 /**
  * Open Page.tsx with the cursor on `Page` and show its call graph, which must draw `expected` at once: show()
@@ -80,15 +55,6 @@ async function showPageGraph(expected: string[]): Promise<void> {
   await vscode.window.showTextDocument(document, { selection: new vscode.Range(position, position) });
   await showCallGraphAndWait(60000, 200);
   return waitForRootEdges(expected, 0);
-}
-
-/** Replace the whole text of a file through its document and save it, as a user would. */
-async function saveText(file: vscode.Uri, text: string): Promise<void> {
-  const document = await vscode.workspace.openTextDocument(file);
-  const edit = new vscode.WorkspaceEdit();
-  edit.replace(file, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), text);
-  assert.ok(await vscode.workspace.applyEdit(edit), `Could not edit ${file.fsPath}`);
-  assert.ok(await document.save(), `Could not save ${file.fsPath}`);
 }
 
 suite('React components in the call graph view', () => {

@@ -58,7 +58,7 @@ describe("parseSfc (Vue)", () => {
 
     expect(sfc.scripts).toEqual([{ lang: "js", setup: true, loc: expect.anything(), src: "./s.ts" }]);
     expect(sfc.scripts[0].loc.end).toBe(sfc.scripts[0].loc.start);
-    expect(sfc.template).toEqual({ loc: expect.anything(), content: "", src: "./t.html" });
+    expect(sfc.template).toEqual({ loc: expect.anything(), element: { start: 0, end: 36 }, content: "", src: "./t.html" });
     expect(sfc.scriptView.trim()).toBe("");
   });
 

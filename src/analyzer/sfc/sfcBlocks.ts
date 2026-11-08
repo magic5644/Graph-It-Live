@@ -20,9 +20,19 @@ export interface SfcScript {
 
 export interface SfcTemplate {
   loc: SfcRange;
+  /** Offsets of the whole `<template>` element, tags included. */
+  element: SfcRange;
   src?: string;
   content: string;
 }
+
+/**
+ * Vue compiler macros: compiled away, never runtime calls, so they are no call target even when a workspace
+ * declares a function of the same name.
+ */
+export const VUE_COMPILER_MACROS: ReadonlySet<string> = new Set([
+  "defineProps", "defineEmits", "defineExpose", "defineModel", "defineSlots", "defineOptions", "withDefaults",
+]);
 
 export interface SfcDescriptor {
   /**
@@ -43,7 +53,7 @@ let compilerDom: CompilerDom | undefined;
  * Loaded on the first `.vue` only, so a workspace without Vue never pays its startup time or memory. A synchronous
  * `require` keeps every caller synchronous; esbuild bundles the module and defers its initialization to this call.
  */
-function loadCompilerDom(): CompilerDom {
+export function loadCompilerDom(): CompilerDom {
   compilerDom ??= require("@vue/compiler-dom") as CompilerDom; // eslint-disable-line @typescript-eslint/no-require-imports
   return compilerDom;
 }
@@ -111,7 +121,8 @@ function addVueBlock(node: ElementNode, content: string, blocks: { scripts: SfcS
   if (node.tag === "script") {
     blocks.scripts.push({ lang: normalizeLang(attribute(node, "lang")), setup: attribute(node, "setup") !== undefined, loc, ...external });
   } else if (node.tag === "template" && !blocks.template) {
-    blocks.template = { loc, content: content.slice(loc.start, loc.end), ...external };
+    const element = { start: node.loc.start.offset, end: Math.max(node.loc.end.offset, end) };
+    blocks.template = { loc, element, content: content.slice(loc.start, loc.end), ...external };
   }
 }
 

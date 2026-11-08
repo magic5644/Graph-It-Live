@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import { ts } from "ts-morph";
 import { normalizePath } from "@/shared/path";
+import { sfcComponentName } from "../sfc/vueTemplate";
 import { isInIgnoredDirectory } from "./PathPredicates";
 import type { PathResolver } from "./PathResolver";
 import { declaresExport, exportsOnlyAsDefault, mayReExport, memoByContent, parseReExports, type ReExport, type ReExportTarget } from "./reExports";
@@ -155,6 +156,8 @@ export async function findDeclaration(
   visited.add(key);
   const content = await readModule(filePath, reads);
   if (content === null) return null;
+  // A `.vue` file is its component: its default export is the SFC component node, named after the file.
+  if (name === "default" && /\.vue$/i.test(normalized)) return { filePath: normalized, name: sfcComponentName(normalized) };
   if (name === "default") {
     const declared = defaultExportName(filePath, content);
     if (declared) return { filePath: normalized, name: declared };

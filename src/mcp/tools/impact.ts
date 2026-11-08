@@ -429,6 +429,9 @@ export async function executeGetImpactAnalysis(
   if (impactedItems.some((item) => item.relation === "REFERENCES" && /\.[jt]sx$/i.test(item.filePath))) {
     summary += "\nReact props-contract compatibility is not checked (contrat de props non analysé).";
   }
+  if (impactedItems.some((item) => item.relation === "REFERENCES" && /\.vue$/i.test(item.filePath))) {
+    summary += "\nVue props/emits compatibility is not checked (contrat de props/emits non analysé).";
+  }
 
   return {
     targetSymbol: {

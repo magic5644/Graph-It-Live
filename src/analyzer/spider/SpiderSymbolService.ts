@@ -13,7 +13,6 @@ import type { Dependency, ReferencingFile, SpiderConfig, SymbolDependency, Symbo
 import { SpiderError, SpiderErrorCode, normalizePath } from '../types';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { PathResolver } from '../utils/PathResolver';
-import { isSfcFile } from '../sfc/sfcBlocks';
 import { importBindings, namespaceUse, type ImportBinding, type NamespaceUse } from '../utils/namespaceUsage';
 import { extractFilePath } from '../utils/PathExtractor';
 import { isPythonOrRust, namesModule, pythonStarExports, readImportBindings } from '../utils/pyRsImports';
@@ -37,6 +36,8 @@ export interface TraceCallEntry {
 
 /** JS/TS modules, whose barrels and default exports `findDeclaration` follows. */
 const JS_TS_MODULE = /\.[cm]?[jt]sx?$/i;
+const VUE_FILE = /\.vue$/i;
+const SVELTE_FILE = /\.svelte$/i;
 
 const SYMBOL_ANALYSIS_EXTENSIONS: ReadonlySet<string> = new Set(SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS);
 
@@ -137,7 +138,7 @@ export class SpiderSymbolService {
   async findUnusedSymbols(filePath: string, reExportMemo: ReExportMemo = new Map()): Promise<SymbolInfo[]> {
     try {
       const normalizedTarget = normalizePath(filePath);
-      if (isSfcFile(normalizedTarget)) return [];
+      if (SVELTE_FILE.test(normalizedTarget)) return [];
       const { symbols, dependencies } = await this.getSymbolGraph(normalizedTarget);
       const exportedSymbols = symbols.filter((s) => s.isExported);
       if (exportedSymbols.length === 0) {
@@ -173,10 +174,12 @@ export class SpiderSymbolService {
         used.add(normalizePath(dep.targetSymbolId));
       }
     }
-    if (!/\.[jt]sx$/i.test(filePath)) return;
-    // JSX defaults may be framework entry points with no in-workspace importer.
+    // A `.vue` default export is the SFC component itself (`export default {}`, `defineComponent()`).
+    const vue = VUE_FILE.test(filePath);
+    if (!vue && !/\.[jt]sx$/i.test(filePath)) return;
+    // JSX and Vue defaults may be framework entry points with no in-workspace importer.
     for (const symbol of graph.symbols) {
-      if (symbol.isDefaultExport && (symbol.category === "function" || symbol.category === "class")) used.add(normalizePath(symbol.id));
+      if (symbol.isDefaultExport && (vue || symbol.category === "function" || symbol.category === "class")) used.add(normalizePath(symbol.id));
     }
   }
 
@@ -882,11 +885,12 @@ export class SpiderSymbolService {
   }
 
   /**
-   * Usage verdicts (unused import, unused export) need every use of a file. An SFC template is not analyzed
-   * (#645), so a component, prop or binding used only there must never be reported unused: SFCs stay conservative.
+   * Usage verdicts (unused import, unused export) need every use of a file. A Vue template's uses are part of the
+   * SFC's symbol graph (#645); Svelte markup is not analyzed, so a binding used only there must never be reported
+   * unused: Svelte files stay conservative.
    */
   private isUsageUnverifiable(filePath: string): boolean {
-    return this.isAstUnsupportedFile(filePath) || isSfcFile(filePath);
+    return this.isAstUnsupportedFile(filePath) || SVELTE_FILE.test(filePath);
   }
 
   // ──────────────────────────────────────────────────────────────────────────

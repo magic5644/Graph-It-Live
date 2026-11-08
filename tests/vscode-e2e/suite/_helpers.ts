@@ -160,3 +160,53 @@ export async function getIndexStatus<T>(): Promise<T> {
     .join('');
   return JSON.parse(text) as T;
 }
+
+/** The call graph the view displays, as the `graph-it-live.callGraph` context key exposes it. */
+export interface ShownCallGraph {
+  rootSymbolId: string;
+  nodes: Array<{ id: string; name: string; path: string; startLine: number; startCol: number; framework?: string }>;
+  edges: Array<{ sourceId: string; targetId: string; typeRelation: string; sourceLine: number }>;
+}
+
+export const shownCallGraph = async (): Promise<ShownCallGraph | null> =>
+  (await getContextKey<ShownCallGraph | null>('graph-it-live.callGraph')) ?? null;
+
+/** `Source -RELATION@line-> Target` edges leaving the graph root, with 1-based lines, deduplicated. */
+export function rootCallGraphEdges(graph: ShownCallGraph | null): string[] {
+  if (!graph) return [];
+  const name = (id: string) => graph.nodes.find(node => node.id === id)?.name ?? id;
+  const edges = graph.edges
+    .filter(edge => edge.sourceId === graph.rootSymbolId)
+    .map(edge => `${name(edge.sourceId)} -${edge.typeRelation}@${edge.sourceLine + 1}-> ${name(edge.targetId)}`);
+  return [...new Set(edges)].sort();
+}
+
+/**
+ * Wait until the displayed root edges equal `expected`: a save refresh is debounced and re-extracts importers.
+ * `detail` adds index state to the failure message.
+ */
+export async function waitForRootCallGraphEdges(
+  expected: string[],
+  { timeoutMs = 20000, detail }: { timeoutMs?: number; detail?: () => Promise<string> } = {},
+  deadline = Date.now() + timeoutMs,
+): Promise<void> {
+  const graph = await shownCallGraph();
+  const actual = rootCallGraphEdges(graph);
+  if (JSON.stringify(actual) === JSON.stringify(expected)) return;
+  if (Date.now() >= deadline) {
+    const shown = graph ? `root ${graph.rootSymbolId}, nodes ${graph.nodes.map(node => node.name).join(', ')}` : 'no graph';
+    const extra = detail ? `; ${await detail()}` : '';
+    assert.deepStrictEqual(actual, expected, `Displayed call graph edges did not refresh (${shown}${extra})`);
+  }
+  await sleep(250);
+  return waitForRootCallGraphEdges(expected, { timeoutMs, detail }, deadline);
+}
+
+/** Replace the whole text of a file through its document and save it, as a user would. */
+export async function saveDocumentText(file: vscode.Uri, text: string): Promise<void> {
+  const document = await vscode.workspace.openTextDocument(file);
+  const edit = new vscode.WorkspaceEdit();
+  edit.replace(file, new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)), text);
+  assert.ok(await vscode.workspace.applyEdit(edit), `Could not edit ${file.fsPath}`);
+  assert.ok(await document.save(), `Could not save ${file.fsPath}`);
+}

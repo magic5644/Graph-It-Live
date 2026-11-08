@@ -30,6 +30,7 @@ const ARCHITECTURE_ERROR_SCORE = 50;
 /** Bound on the reverse-index walk used to decide whether a consumer is under test. */
 const MAX_COVERAGE_LOOKUP_FILES = 200;
 const REACT_PROPS_LIMITATION = "React props-contract compatibility is not checked (contrat de props non analysé); JSX consumers must be reviewed manually.";
+const VUE_PROPS_LIMITATION = "Vue props/emits compatibility is not checked (contrat de props/emits non analysé); template consumers must be reviewed manually.";
 const SIGNATURE_ANALYSIS_EXTENSIONS = new Set([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".vue", ".py"]);
 
 /** Whether the review compares signatures of `file`: the one list review-pr and Branch Watch share. */
@@ -281,8 +282,8 @@ export class ReviewGateAnalyzer {
       symbols.push(...fileSymbols);
       limitations.push(...fileLimitations);
     }
-    if (symbols.some((symbol) => symbol.evidence.some((item) => item.detail === REACT_PROPS_LIMITATION))) {
-      limitations.push(REACT_PROPS_LIMITATION);
+    for (const limitation of [REACT_PROPS_LIMITATION, VUE_PROPS_LIMITATION]) {
+      if (symbols.some((symbol) => symbol.evidence.some((item) => item.detail === limitation))) limitations.push(limitation);
     }
 
     const architecture = await architecturePromise;
@@ -1375,6 +1376,7 @@ function referenceEvidence(references: ReferenceConsumer[]): ReviewEvidence[] {
   if (references.length === 0) return [];
   const evidence = references.map((reference): ReviewEvidence => ({ kind: "impact", detail: `${reference.filePath}:${reference.line ?? "?"}: proven runtime reference consumer.` }));
   if (references.some((reference) => /\.[jt]sx$/i.test(reference.filePath))) evidence.push({ kind: "partial", detail: REACT_PROPS_LIMITATION });
+  if (references.some((reference) => /\.vue$/i.test(reference.filePath))) evidence.push({ kind: "partial", detail: VUE_PROPS_LIMITATION });
   return evidence;
 }
 
