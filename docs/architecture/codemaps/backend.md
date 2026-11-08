@@ -287,7 +287,7 @@ QueryEngine.ts, LspCallHierarchyAnalyzer.ts, ReferencingFilesFinder.ts, IndexerS
 
 ```
 languages/WasmParserFactory.ts
-├→ Loads tree-sitter WASM parsers for Python, Rust, C#, Go, and Java
+├→ Loads tree-sitter WASM parsers for TypeScript, TSX, Python, Rust, C#, Go, and Java
 ├→ Resolves WASM file paths relative to extension dist/wasm/
 └→ getSupportedLanguageParser(lang, extensionPath) → Parser
 ```
@@ -297,7 +297,7 @@ languages/WasmParserFactory.ts
 ```
 callgraph/GraphExtractor.ts (521 lines)
 ├→ Extracts symbol nodes and call edges using tree-sitter .scm queries
-├→ Supports TypeScript, JavaScript, Python, Rust, C#, Go, Java
+├→ Supports TypeScript, JavaScript, Vue and Svelte script blocks, Python, Rust, C#, Go, Java; GraphQL without tree-sitter
 ├→ extract(filePath, content) → ExtractionResult { nodes, edges }
 └→ Filters false-positive cross-file edges from member access calls
 
