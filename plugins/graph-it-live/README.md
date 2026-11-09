@@ -32,6 +32,6 @@ CLI also checks for updates and reports `graph-it update`; run
 npm publish, the repository workflow runs
 `node scripts/sync-agent-plugin-version.mjs`, which writes the published
 version into every manifest and derives `.claude-plugin/plugin.json`,
-`.codex-plugin/plugin.json`, `mcp.json`, `.mcp.json` and the Claude marketplace
-entry. Do not edit those derived fields by hand: the
+`.codex-plugin/plugin.json`, `mcp.json`, `.mcp.json`, the Claude marketplace
+entry and its Copilot copy `.github/plugin/marketplace.json`. Do not edit those derived fields by hand: the
 `tests/scripts/syncAgentPluginVersion.test.ts` drift test fails.

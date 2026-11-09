@@ -37,7 +37,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if git diff --quiet -- plugins/graph-it-live .claude-plugin/marketplace.json; then
+          # git status also reports untracked files, such as a newly created catalog.
+          if [ -z "$(git status --porcelain -- plugins/graph-it-live .claude-plugin/marketplace.json .github/plugin/marketplace.json)" ]; then
             echo 'Plugin manifests are already current.'
             exit 0
           fi
@@ -46,7 +47,7 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git switch -c "$branch"
-          git add plugins/graph-it-live .claude-plugin/marketplace.json
+          git add plugins/graph-it-live .claude-plugin/marketplace.json .github/plugin/marketplace.json
           git commit -m 'chore(plugin): sync version with published CLI'
 
           if git ls-remote --exit-code --heads origin "$branch" >/dev/null; then

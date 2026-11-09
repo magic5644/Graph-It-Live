@@ -419,8 +419,8 @@ These clients can use the MCP server directly. Add this server entry to the clie
 Use the client's MCP configuration file and its expected top-level key (`servers` or `mcpServers`).
 See the [MCP server instructions](#mcp-server) for ready-to-copy VS Code, Cursor, and Codex examples.
 
-The repository also includes marketplace catalogs for [Claude Code](.claude-plugin/marketplace.json)
-and [Codex](.agents/plugins/marketplace.json). The MCP entry pins the
+The repository also includes marketplace catalogs for [Claude Code](.claude-plugin/marketplace.json),
+[GitHub Copilot](.github/plugin/marketplace.json) and [Codex](.agents/plugins/marketplace.json). The MCP entry pins the
 latest published `@magic5644/graph-it-live` version and starts it with `npx`, so a
 cached package starts without a new download (npm still revalidates the package metadata); a workflow updates the pin, the plugin manifests and
 the marketplace versions after each npm publish.
