@@ -96,7 +96,7 @@ graph-it architecture --level units --format toon              # packages (else 
 graph-it architecture --groups --format toon                   # folder groups, groupEdges, totals
 graph-it architecture --folder "(root)/src" --format toon      # one level below a unit or folder key
 graph-it architecture --level units --from apps/web --to packages/core --format toon   # file pairs behind a unit edge
-graph-it architecture --level units --matrix --format toon     # dependency structure matrix (also --format csv)
+graph-it architecture --level units --matrix --format toon     # dependency structure matrix (--format csv only for a spreadsheet export)
 graph-it architecture --maxFiles 300 --format toon             # cap analyzed files on a large workspace
 ```
 

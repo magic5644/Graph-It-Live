@@ -192,8 +192,8 @@ module with its blast-radius recommendation, and the critical-path Mermaid diagr
 
 ## Tips
 
-- On a **monorepo**, tour from the monorepo root with `graph-it -w <monorepoRoot> ...` (see Choose the Workspace Root). Narrow to one package with `--maxFiles` or per-package file paths, not by changing the root.
-- If the architecture graph returns too much data, lower `--maxFiles` or tour one package/folder at a time.
+- On a **monorepo**, tour from the monorepo root with `graph-it -w <monorepoRoot> ...` (see Choose the Workspace Root). Narrow to one package with `graph-it architecture --folder <key> --format toon` or per-package file paths, not by changing the root.
+- If the architecture graph returns too much data, tour one unit or folder at a time with `--level units` then `--folder <key>`. `--maxFiles` caps analysed files, not scope: a capped pass is partial, say so.
 - If indexing is incomplete or `scan` warns about out-of-root imports, report the unanalysed area rather than guessing.
 - The "most complex module" heuristic is architectural, not cyclomatic. For line-level complexity, combine with a linter.
 - After the tour, run the **dead-code-hunter** skill to find safe cleanup targets before the new developer starts writing code — a clean codebase is much easier to onboard into.
