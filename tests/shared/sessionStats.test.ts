@@ -4,7 +4,7 @@
  * Pure in-memory module — no fs/os/path/vscode, no mocks needed.
  */
 
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   SessionStatsCollector,
   sessionStats,
@@ -30,9 +30,9 @@ describe('SessionStatsCollector', () => {
     collector = new SessionStatsCollector();
   });
 
-  it('defaults source to "extension"', () => {
-    expect(collector.getSource()).toBe('extension');
-    expect(collector.snapshot().source).toBe('extension');
+  it('defaults source to "vscode"', () => {
+    expect(collector.getSource()).toBe('vscode');
+    expect(collector.snapshot().source).toBe('vscode');
   });
 
   it('accepts source in constructor', () => {
@@ -154,10 +154,22 @@ describe('SessionStatsCollector', () => {
     const json = JSON.stringify(collector.snapshot());
     expect(json).not.toMatch(/[A-Za-z]:\\|\/Users\/|\/home\//);
   });
+
+  it('notifies onRecord listeners for both kinds of records until unsubscribed', () => {
+    const listener = vi.fn();
+    const unsubscribe = collector.onRecord(listener);
+    collector.record(makeEntry());
+    collector.recordLlmUsage({ provider: 'anthropic', tokensUsed: 1, timestamp: Date.now() });
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+    collector.record(makeEntry());
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe('sessionStats singleton', () => {
-  it('is a SessionStatsCollector instance with default source extension', () => {
+  it('is a SessionStatsCollector instance with default source vscode', () => {
     expect(sessionStats).toBeInstanceOf(SessionStatsCollector);
   });
 });

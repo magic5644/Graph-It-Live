@@ -13,13 +13,14 @@
  */
 
 import { z } from "zod/v4";
-import { readAllSessions } from "../../analyzer/stats/statsPersistence";
 import {
-  ESTIMATION_NOTE,
-  sessionStats,
-  type SessionStatsSnapshot,
-  type SessionStatsSource,
-} from "../../shared/sessionStats";
+  readAllSessions,
+  readCumulative,
+  summarizeSessions,
+  type CumulativeSummary,
+  type HistorySummary,
+} from "../../analyzer/stats/statsPersistence";
+import { ESTIMATION_NOTE, sessionStats, type SessionStatsSnapshot } from "../../shared/sessionStats";
 
 // ---------------------------------------------------------------------------
 // Zod schema (exported for mcpServer registration)
@@ -34,19 +35,6 @@ export type GetSessionStatsParams = z.infer<typeof GetSessionStatsSchema>;
 // Result types
 // ---------------------------------------------------------------------------
 
-/** Aggregated persisted history for one source (mcp/cli/extension). */
-export interface HistorySourceAggregate {
-  sessions: number;
-  calls: number;
-  jsonTokens: number;
-  toonTokens: number;
-  savings: number;
-  truncations: number;
-  /** Real provider-reported LLM tokens — kept separate, never summed into estimated totals. */
-  llmTokensUsed: number;
-  llmCalls: number;
-}
-
 export interface GetSessionStatsResult {
   /** What the numbers measure. */
   description: "TOON encoding size vs JSON equivalent";
@@ -56,50 +44,15 @@ export interface GetSessionStatsResult {
   llmUsageNote: string;
   /** Current in-memory session (llmUsage is a separate section inside the snapshot). */
   currentSession: SessionStatsSnapshot;
-  /** Persisted session history aggregated by source. Empty when no history exists. */
-  history: {
-    persistedSessions: number;
-    bySource: Partial<Record<SessionStatsSource, HistorySourceAggregate>>;
-  };
+  /** Persisted session window (last 50 per source) by source and in total. Empty when no history exists. */
+  history: HistorySummary;
+  /** Totals since the first counted session, rotation included. Absent before the first write. */
+  cumulative?: CumulativeSummary;
 }
 
 // ---------------------------------------------------------------------------
 // Executor
 // ---------------------------------------------------------------------------
-
-function emptyHistoryAggregate(): HistorySourceAggregate {
-  return {
-    sessions: 0,
-    calls: 0,
-    jsonTokens: 0,
-    toonTokens: 0,
-    savings: 0,
-    truncations: 0,
-    llmTokensUsed: 0,
-    llmCalls: 0,
-  };
-}
-
-function aggregateHistory(
-  snapshots: SessionStatsSnapshot[],
-): GetSessionStatsResult["history"] {
-  const bySource: Partial<Record<SessionStatsSource, HistorySourceAggregate>> = {};
-
-  for (const snap of snapshots) {
-    const agg = (bySource[snap.source] ??= emptyHistoryAggregate());
-    agg.sessions += 1;
-    agg.calls += snap.totals.calls;
-    agg.jsonTokens += snap.totals.jsonTokens;
-    agg.toonTokens += snap.totals.toonTokens;
-    agg.savings += snap.totals.savings;
-    agg.truncations += snap.totals.truncations;
-    // Separate lane: real LLM usage is never merged into the estimated fields above.
-    agg.llmTokensUsed += snap.llmUsage.tokensUsed;
-    agg.llmCalls += snap.llmUsage.calls;
-  }
-
-  return { persistedSessions: snapshots.length, bySource };
-}
 
 /**
  * Build the session stats report: current in-memory session + persisted history.
@@ -109,12 +62,11 @@ function aggregateHistory(
 export function executeGetSessionStats(statsDir?: string): GetSessionStatsResult {
   const currentSession = sessionStats.snapshot();
 
-  let history: GetSessionStatsResult["history"] = {
-    persistedSessions: 0,
-    bySource: {},
-  };
+  let history = summarizeSessions([]);
+  let cumulative: CumulativeSummary | undefined;
   try {
-    history = aggregateHistory(readAllSessions(statsDir));
+    history = summarizeSessions(readAllSessions(statsDir));
+    cumulative = readCumulative(statsDir);
   } catch {
     // History is best-effort — the current session must always be reported.
   }
@@ -134,5 +86,6 @@ export function executeGetSessionStats(statsDir?: string): GetSessionStatsResult
     llmUsageNote,
     currentSession,
     history,
+    ...(cumulative && { cumulative }),
   };
 }

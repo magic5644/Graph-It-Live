@@ -14,10 +14,14 @@ import {
   flushSession,
   CL100K_COUNTING_SINCE,
   getDefaultStatsDir,
+  PERIODIC_FLUSH_DELAY_MS,
   readAllSessions,
+  readCumulative,
   rotate,
+  startPeriodicFlush,
+  summarizeSessions,
 } from '../../../src/analyzer/stats/statsPersistence';
-import type { SessionStatsSnapshot } from '../../../src/shared/sessionStats';
+import { SessionStatsCollector, type SessionStatsSnapshot } from '../../../src/shared/sessionStats';
 
 function makeSnapshot(overrides: Partial<SessionStatsSnapshot> = {}): SessionStatsSnapshot {
   return {
@@ -34,6 +38,11 @@ function makeSnapshot(overrides: Partial<SessionStatsSnapshot> = {}): SessionSta
     estimationMethod: 'cl100k_base',
     ...overrides,
   };
+}
+
+/** Session files only: the cumulative totals file sits next to them. */
+function sessionFiles(dir: string): string[] {
+  return fs.readdirSync(dir).filter(f => f !== 'cumulative.totals');
 }
 
 function emptySnapshot(): SessionStatsSnapshot {
@@ -104,8 +113,7 @@ describe('statsPersistence', () => {
     const snapshot = makeSnapshot();
     flushSession(snapshot, baseDir);
 
-    const files = fs.readdirSync(baseDir);
-    expect(files).toEqual([`mcp-${snapshot.sessionId}.json`]);
+    expect(sessionFiles(baseDir)).toEqual([`mcp-${snapshot.sessionId}.json`]);
 
     const sessions = readAllSessions(baseDir);
     expect(sessions).toHaveLength(1);
@@ -115,7 +123,7 @@ describe('statsPersistence', () => {
   it('flushSession creates the directory recursively when absent', () => {
     const nested = path.join(baseDir, 'a', 'b', 'stats');
     flushSession(makeSnapshot(), nested);
-    expect(fs.readdirSync(nested)).toHaveLength(1);
+    expect(sessionFiles(nested)).toHaveLength(1);
   });
 
   it('flushSession leaves no temp files behind (atomic rename)', () => {
@@ -130,8 +138,7 @@ describe('statsPersistence', () => {
     const updated = { ...snapshot, endedAt: Date.now() + 5000 };
     flushSession(updated, baseDir);
 
-    const files = fs.readdirSync(baseDir);
-    expect(files).toHaveLength(1);
+    expect(sessionFiles(baseDir)).toHaveLength(1);
     const sessions = readAllSessions(baseDir);
     expect(sessions[0].endedAt).toBe(updated.endedAt);
   });
@@ -145,7 +152,7 @@ describe('statsPersistence', () => {
     const snapshot = emptySnapshot();
     snapshot.llmUsage = { calls: 2, tokensUsed: 900 };
     flushSession(snapshot, baseDir);
-    expect(fs.readdirSync(baseDir)).toHaveLength(1);
+    expect(sessionFiles(baseDir)).toHaveLength(1);
   });
 
   it('GRAPH_IT_NO_STATS=1 disables persistence entirely', () => {
@@ -231,5 +238,196 @@ describe('statsPersistence', () => {
     const mcpFiles = fs.readdirSync(baseDir).filter(f => f.startsWith('mcp-'));
     expect(mcpFiles).toHaveLength(50);
     expect(mcpFiles).not.toContain('mcp-old-000.json');
+  });
+  it('rotate never lets vscode sessions evict cli or mcp ones', () => {
+    for (let i = 0; i < 55; i++) {
+      fs.writeFileSync(path.join(baseDir, `vscode-${i}.json`), '{}', 'utf8');
+    }
+    for (const source of ['cli', 'mcp']) {
+      const file = path.join(baseDir, `${source}-old.json`);
+      fs.writeFileSync(file, '{}', 'utf8');
+      const past = new Date(Date.now() - 3_600_000);
+      fs.utimesSync(file, past, past);
+    }
+    rotate(baseDir);
+    const files = fs.readdirSync(baseDir);
+    expect(files.filter(f => f.startsWith('vscode-'))).toHaveLength(50);
+    expect(files).toEqual(expect.arrayContaining(['cli-old.json', 'mcp-old.json']));
+  });
+
+  describe('summarizeSessions', () => {
+    it('aggregates by source and adds an all-sources total', () => {
+      const summary = summarizeSessions([
+        makeSnapshot(),
+        makeSnapshot({ source: 'vscode' }),
+        makeSnapshot({ source: 'vscode', llmUsage: { calls: 1, tokensUsed: 50 } }),
+      ]);
+      expect(summary.persistedSessions).toBe(3);
+      expect(summary.bySource.mcp).toMatchObject({ sessions: 1, calls: 1, jsonTokens: 100 });
+      expect(summary.bySource.vscode).toMatchObject({ sessions: 2, calls: 2, llmTokensUsed: 50 });
+      expect(summary.total).toEqual({
+        sessions: 3, calls: 3, jsonTokens: 300, toonTokens: 180, savings: 120, truncations: 0, llmCalls: 1, llmTokensUsed: 50,
+      });
+    });
+
+    it('returns zero totals for no session', () => {
+      const summary = summarizeSessions([]);
+      expect(summary).toMatchObject({ persistedSessions: 0, bySource: {} });
+      expect(summary.total.sessions).toBe(0);
+    });
+  });
+
+  describe('cumulative totals', () => {
+    const cumulativePath = () => path.join(baseDir, 'cumulative.totals');
+
+    it('is undefined before any session is written', () => {
+      expect(readCumulative(baseDir)).toBeUndefined();
+    });
+
+    it('counts a session once, however often it is rewritten', () => {
+      const snapshot = makeSnapshot();
+      flushSession(snapshot, baseDir);
+      flushSession({ ...snapshot, totals: { ...snapshot.totals, calls: 4 } }, baseDir);
+
+      const cumulative = readCumulative(baseDir);
+      expect(cumulative?.total).toMatchObject({ sessions: 1, calls: 4 });
+      expect(cumulative?.since).toBe(new Date(snapshot.startedAt).toISOString());
+    });
+
+    it('survives rotation and keeps the date of the first session', () => {
+      const first = makeSnapshot({ startedAt: Date.now() - 86_400_000 });
+      flushSession(first, baseDir);
+      const firstFile = path.join(baseDir, `mcp-${first.sessionId}.json`);
+      const past = new Date(Date.now() - 3_600_000);
+      fs.utimesSync(firstFile, past, past);
+
+      let last = makeSnapshot();
+      for (let i = 0; i < 50; i++) {
+        last = makeSnapshot();
+        flushSession(last, baseDir);
+      }
+      expect(fs.existsSync(firstFile)).toBe(false);
+      flushSession(last, baseDir); // rewrite after rotation: still counted once
+
+      const cumulative = readCumulative(baseDir);
+      expect(cumulative?.total).toMatchObject({ sessions: 51, calls: 51 });
+      expect(cumulative?.bySource.mcp?.sessions).toBe(51);
+      expect(cumulative?.since).toBe(new Date(first.startedAt).toISOString());
+      expect(summarizeSessions(readAllSessions(baseDir)).total.sessions).toBe(50);
+    });
+
+    it('starts from the history older releases left on disk', () => {
+      const old = makeSnapshot({ source: 'cli', startedAt: CL100K_COUNTING_SINCE + 1 });
+      fs.writeFileSync(path.join(baseDir, `cli-${old.sessionId}.json`), JSON.stringify(old));
+      flushSession(makeSnapshot(), baseDir);
+
+      const cumulative = readCumulative(baseDir);
+      expect(cumulative?.total.sessions).toBe(2);
+      expect(cumulative?.since).toBe(new Date(old.startedAt).toISOString());
+    });
+
+    it.each([
+      ['corrupted', '{ not json'],
+      ['unknown format', '{"schemaVersion":2,"since":1}'],
+    ])('tolerates a %s file: warns, then rebuilds it from the sessions on disk', (_label, content) => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      fs.writeFileSync(cumulativePath(), content);
+      expect(readCumulative(baseDir)).toBeUndefined();
+
+      flushSession(makeSnapshot(), baseDir);
+      expect(readCumulative(baseDir)?.total.sessions).toBe(1);
+      expect(warn).toHaveBeenCalledWith('graph-it stats: ignoring invalid cumulative totals file: cumulative.totals');
+    });
+
+    it('is never written with GRAPH_IT_NO_STATS=1', () => {
+      process.env.GRAPH_IT_NO_STATS = '1';
+      flushSession(makeSnapshot(), baseDir);
+      expect(fs.existsSync(cumulativePath())).toBe(false);
+    });
+
+    it('is ignored by readAllSessions', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      flushSession(makeSnapshot(), baseDir);
+      expect(readAllSessions(baseDir)).toHaveLength(1);
+      expect(warn).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('startPeriodicFlush', () => {
+    let collector: SessionStatsCollector;
+    const sessionFile = () => path.join(baseDir, `vscode-${collector.getSessionId()}.json`);
+    const record = () =>
+      collector.record({ toolName: 't', jsonTokens: 10, toonTokens: 6, savings: 4, truncated: false, timestamp: 0 });
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      collector = new SessionStatsCollector('vscode');
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('writes the session once the delay after a record has passed', () => {
+      startPeriodicFlush(collector, { baseDir });
+      record();
+      vi.advanceTimersByTime(PERIODIC_FLUSH_DELAY_MS - 1);
+      expect(fs.existsSync(sessionFile())).toBe(false);
+      vi.advanceTimersByTime(1);
+      expect(fs.existsSync(sessionFile())).toBe(true);
+    });
+
+    it('coalesces records into one write within the delay', () => {
+      startPeriodicFlush(collector, { baseDir, delayMs: 100 });
+      record();
+      record();
+      collector.recordLlmUsage({ provider: 'anthropic', tokensUsed: 5, timestamp: 0 });
+      expect(vi.getTimerCount()).toBe(1);
+      vi.advanceTimersByTime(100);
+      expect(vi.getTimerCount()).toBe(0);
+      const written = JSON.parse(fs.readFileSync(sessionFile(), 'utf8')) as SessionStatsSnapshot;
+      expect(written.totals.calls).toBe(2);
+      expect(written.llmUsage.calls).toBe(1);
+    });
+
+    it('writes nothing while idle', () => {
+      const flusher = startPeriodicFlush(collector, { baseDir, delayMs: 100 });
+      vi.advanceTimersByTime(10_000);
+      flusher.dispose();
+      expect(fs.readdirSync(baseDir)).toEqual([]);
+    });
+
+    it('rewrites the same file after later activity', () => {
+      startPeriodicFlush(collector, { baseDir, delayMs: 100 });
+      record();
+      vi.advanceTimersByTime(100);
+      record();
+      vi.advanceTimersByTime(100);
+      expect(sessionFiles(baseDir)).toEqual([path.basename(sessionFile())]);
+      expect(readAllSessions(baseDir)[0].totals.calls).toBe(2);
+    });
+
+    it('dispose (shutdown, deactivate) flushes pending records, clears its timer and stops listening', () => {
+      const flusher = startPeriodicFlush(collector, { baseDir });
+      record();
+      flusher.dispose();
+      expect(vi.getTimerCount()).toBe(0);
+      expect(readAllSessions(baseDir)[0].totals.calls).toBe(1);
+
+      record();
+      expect(vi.getTimerCount()).toBe(0);
+      flusher.dispose();
+      expect(readAllSessions(baseDir)[0].totals.calls).toBe(1);
+    });
+
+    it('reports a failed write to onError instead of throwing', () => {
+      const blocker = path.join(baseDir, 'file');
+      fs.writeFileSync(blocker, '');
+      const onError = vi.fn();
+      const flusher = startPeriodicFlush(collector, { baseDir: path.join(blocker, 'stats'), onError });
+      record();
+      expect(() => flusher.dispose()).not.toThrow();
+      expect(onError).toHaveBeenCalledTimes(1);
+    });
   });
 });

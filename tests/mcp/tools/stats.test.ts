@@ -192,6 +192,8 @@ describe("get_session_stats tool", () => {
 
     expect(result.history.persistedSessions).toBe(0);
     expect(result.history.bySource).toEqual({});
+    expect(result.history.total.sessions).toBe(0);
+    expect(result).not.toHaveProperty("cumulative");
   });
 
   it("aggregates persisted history by source, llm lane separate", () => {
@@ -218,6 +220,8 @@ describe("get_session_stats tool", () => {
     });
     // Estimated totals never absorb the LLM lane.
     expect(result.history.bySource.mcp!.jsonTokens).toBe(200);
+    expect(result.history.total).toMatchObject({ sessions: 3, calls: 6, jsonTokens: 300, llmTokensUsed: 1500 });
+    expect(result.cumulative?.total).toMatchObject({ sessions: 3, calls: 6 });
   });
 
   it("contains no absolute paths in the serialized result", () => {

@@ -12,12 +12,18 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
-import { readAllSessions } from "../../analyzer/stats/statsPersistence.js";
+import {
+  readAllSessions,
+  readCumulative,
+  summarizeSessions,
+  type CumulativeSummary,
+  type SourceAggregate,
+  type SourceAggregates,
+} from "../../analyzer/stats/statsPersistence.js";
 import {
   ESTIMATION_NOTE,
   sessionStats,
   type SessionStatsSnapshot,
-  type SessionStatsSource,
   type StatsAggregate,
 } from "../../shared/sessionStats.js";
 import type { CliOutputFormat } from "../formatter.js";
@@ -46,44 +52,6 @@ function parseStatsDir(args: string[]): string | undefined {
     return args[idx + 1];
   }
   return undefined;
-}
-
-interface SourceAggregate extends StatsAggregate {
-  sessions: number;
-  llmCalls: number;
-  llmTokensUsed: number;
-}
-
-function emptySourceAggregate(): SourceAggregate {
-  return {
-    sessions: 0,
-    calls: 0,
-    jsonTokens: 0,
-    toonTokens: 0,
-    savings: 0,
-    truncations: 0,
-    llmCalls: 0,
-    llmTokensUsed: 0,
-  };
-}
-
-function aggregateBySource(
-  snapshots: SessionStatsSnapshot[],
-): Partial<Record<SessionStatsSource, SourceAggregate>> {
-  const bySource: Partial<Record<SessionStatsSource, SourceAggregate>> = {};
-  for (const snap of snapshots) {
-    const agg = (bySource[snap.source] ??= emptySourceAggregate());
-    agg.sessions += 1;
-    agg.calls += snap.totals.calls;
-    agg.jsonTokens += snap.totals.jsonTokens;
-    agg.toonTokens += snap.totals.toonTokens;
-    agg.savings += snap.totals.savings;
-    agg.truncations += snap.totals.truncations;
-    // Separate lane — real LLM tokens are never merged into the estimated fields.
-    agg.llmCalls += snap.llmUsage.calls;
-    agg.llmTokensUsed += snap.llmUsage.tokensUsed;
-  }
-  return bySource;
 }
 
 function aggregateByTool(
@@ -129,29 +97,27 @@ function renderToolTable(byTool: Record<string, StatsAggregate>): string[] {
   return lines;
 }
 
-function renderSourceTable(
-  bySource: Partial<Record<SessionStatsSource, SourceAggregate>>,
-): string[] {
+function sourceRow(label: string, s: SourceAggregate): string {
+  return `| ${label} | ${s.sessions} | ${s.calls} | ${s.jsonTokens} | ${s.toonTokens} | ${s.savings} | ${s.llmCalls} | ${s.llmTokensUsed} |`;
+}
+
+function renderSourceTable(bySource: SourceAggregates, total: SourceAggregate): string[] {
   const lines: string[] = [
     "| Source | Sessions | Calls | JSON tokens | TOON tokens | Delta | LLM calls | LLM tokens (real) |",
     "|--------|----------|-------|-------------|-------------|-------|-----------|-------------------|",
   ];
-  const sources = Object.keys(bySource).sort((a, b) => a.localeCompare(b));
-  for (const source of sources) {
-    const s = bySource[source as SessionStatsSource];
-    if (!s) {
-      continue;
-    }
-    lines.push(
-      `| ${escapeCell(source)} | ${s.sessions} | ${s.calls} | ${s.jsonTokens} | ${s.toonTokens} | ${s.savings} | ${s.llmCalls} | ${s.llmTokensUsed} |`,
-    );
+  const entries = Object.entries(bySource).sort(([a], [b]) => a.localeCompare(b));
+  for (const [source, s] of entries) {
+    lines.push(sourceRow(escapeCell(source), s));
   }
+  lines.push(sourceRow("**all sources**", total));
   return lines;
 }
 
 function renderText(
   current: SessionStatsSnapshot,
   history: SessionStatsSnapshot[],
+  cumulative: CumulativeSummary | undefined,
 ): string {
   const currentLines: string[] = [
     `# ${HEADER}`,
@@ -178,13 +144,14 @@ function renderText(
           `LLM calls: ${current.llmUsage.calls}, tokens used: ${current.llmUsage.tokensUsed} (real, provider-reported).`,
         ];
 
+  const summary = summarizeSessions(history);
   const historyDetails =
     history.length === 0
       ? ["(no persisted sessions found)"]
       : [
           "### By source",
           "",
-          ...renderSourceTable(aggregateBySource(history)),
+          ...renderSourceTable(summary.bySource, summary.total),
           "",
           "### By tool",
           "",
@@ -201,9 +168,15 @@ function renderText(
       "",
       LLM_NOTE,
       "",
-      "## History (persisted sessions)",
+      "## History (last 50 persisted sessions per source)",
       "",
       historyDetails,
+      "",
+      cumulative ? `## Cumulative (since ${cumulative.since})` : "## Cumulative",
+      "",
+      cumulative
+        ? renderSourceTable(cumulative.bySource, cumulative.total)
+        : ["(no cumulative totals yet)"],
     )
     .join("\n");
 }
@@ -223,6 +196,7 @@ export async function run(
   // readAllSessions handles a missing directory (returns []) and skips
   // corrupted files with a stderr warning — clean empty state guaranteed.
   const history = readAllSessions(statsDir);
+  const cumulative = readCumulative(statsDir);
 
   if (format === "json") {
     return JSON.stringify(
@@ -232,10 +206,10 @@ export async function run(
         llmUsageNote: LLM_NOTE,
         currentSession: current,
         history: {
-          persistedSessions: history.length,
-          bySource: aggregateBySource(history),
+          ...summarizeSessions(history),
           byTool: aggregateByTool(history),
         },
+        ...(cumulative && { cumulative }),
       },
       null,
       2,
@@ -243,5 +217,5 @@ export async function run(
   }
 
   // text / markdown / toon fall back to the markdown-style report
-  return renderText(current, history);
+  return renderText(current, history, cumulative);
 }

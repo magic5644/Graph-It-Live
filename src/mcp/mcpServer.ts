@@ -154,27 +154,19 @@ import {
 import type { GraphContextResponse } from "../shared/graph-context-types";
 import { GenerateWikiSchema } from "./tools/wiki.js";
 import { executeGetSessionStats, GetSessionStatsSchema, type GetSessionStatsResult } from "./tools/stats.js";
-import { flushSession } from "../analyzer/stats/statsPersistence";
+import { startPeriodicFlush } from "../analyzer/stats/statsPersistence";
 import { findProjectRoot } from "../analyzer/utils/workspaceBoundary";
 import { sessionStats } from "../shared/sessionStats";
 
 // Session stats: this process is the MCP entry point.
 sessionStats.setSource("mcp");
 
-// Idempotent stats flush — signal handlers and exit path may all fire.
-let statsFlushed = false;
-function flushStatsOnce(): void {
-  if (statsFlushed) {
-    return;
-  }
-  statsFlushed = true;
-  try {
-    // flushSession is synchronous — safe inside signal/exit handlers.
-    flushSession(sessionStats.snapshot());
-  } catch (error) {
-    debugLog(`[McpServer] Stats flush failed: ${error instanceof Error ? error.message : String(error)}`);
-  }
-}
+// Rewrites the session file shortly after activity; dispose() flushes on shutdown.
+// flushSession is synchronous — safe inside signal/exit handlers.
+const statsFlush = startPeriodicFlush(sessionStats, {
+  onError: (error) =>
+    debugLog(`[McpServer] Stats flush failed: ${error instanceof Error ? error.message : String(error)}`),
+});
 
 // ============================================================================
 // Environment Configuration
@@ -1595,7 +1587,7 @@ async function main(): Promise<void> {
   // Handle graceful shutdown
   const shutdown = (reason: string): void => {
     debugLog(`[McpServer] ${reason}, shutting down...`);
-    flushStatsOnce();
+    statsFlush.dispose();
     void workerHost?.dispose().then(() => process.exit(0)).catch(() => process.exit(0));
     if (!workerHost) process.exit(0);
   };
@@ -1605,9 +1597,9 @@ async function main(): Promise<void> {
   // ends `graph-it serve`, whose parent may not forward signals (Windows).
   process.stdin.on("end", () => shutdown("stdin closed"));
 
-  // Covers stdio transport close / normal exit paths (flushStatsOnce is idempotent).
+  // Covers stdio transport close / normal exit paths (dispose is idempotent).
   process.on("exit", () => {
-    flushStatsOnce();
+    statsFlush.dispose();
   });
 }
 
