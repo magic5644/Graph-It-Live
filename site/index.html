@@ -295,7 +295,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       Graph-It-Live
     </a>
     <nav class="nav-links">
-      <a href="#views">Views</a>
+      <a href="#why">Why</a>
       <a href="#features">Features</a>
       <a href="#ai">AI &amp; MCP</a>
       <a href="#cli">CLI</a>
@@ -345,16 +345,16 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Graph-It-Live — 75-second tour (sound on)</span></div>
       <video src="media/graph-it-live-promo.mp4" poster="media/graph-it-live-promo-poster.png" controls playsinline preload="metadata" aria-label="75-second Graph-It-Live tour: file graph with import clusters, dependency structure matrix, architecture rules in graphit.architecture.json, and an AI agent fixing a violation through the MCP server"></video>
     </div>
-    <div class="demo-caption"><span>YOUR CODE. THE CONNECTIONS. THE WHOLE PICTURE.</span><a href="#views">Explore the three views ↗</a></div>
+    <div class="demo-caption"><span>YOUR CODE. THE CONNECTIONS. THE WHOLE PICTURE.</span><a href="#features">See the features ↗</a></div>
     <div class="frame" style="margin-top:40px">
       <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>A real architecture fix in 120 seconds (sound on)</span></div>
       <video src="media/graph-it-live-architecture-fix.mp4" poster="media/graph-it-live-architecture-fix-poster.png" controls playsinline preload="none" aria-label="120-second real architecture fix from this repository (issue #434): circular import in the live dependency graph, units in layers with a cycle in the Architecture view, call graph, matrix cycle between analyzer and shared, graph-it check-architecture failing, REPL results navigation, an AI agent inverting the dependency through the MCP server, the pull request review gate, and the check back to green"></video>
     </div>
     <div class="demo-caption"><span>A REAL FIX, FROM CYCLE TO GREEN CHECK.</span><a href="#ai">Connect your AI ↗</a></div>
     <div class="stats rv">
-      <div class="stat"><b>24</b><span>MCP graph tools</span></div>
+      <div class="stat"><b>25</b><span>MCP graph tools</span></div>
       <div class="stat"><b>10+</b><span>Languages parsed</span></div>
-      <div class="stat"><b>3</b><span>Graph views</span></div>
+      <div class="stat"><b>~50%</b><span>Fewer agent tokens with TOON</span></div>
       <div class="stat"><b>100%</b><span>Local analysis</span></div>
     </div>
     <div class="badges">
@@ -368,29 +368,44 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
   </div>
 </section>
 
-<!-- ============ VIEWS ============ -->
-<section id="views">
+<!-- ============ WHY ============ -->
+<section id="why">
   <div class="wrap">
     <div class="sec-head rv">
-      <div class="eyebrow">Three views, one graph</div>
-      <h2>From file imports down to a single call</h2>
-      <p>The same indexed graph powers navigation, review, codemaps, and the context you hand to an AI assistant.</p>
+      <div class="eyebrow">Why Graph-It-Live</div>
+      <h2>Know what a change touches before you make it</h2>
+      <p>One local index of imports, symbols and calls answers the questions that grep and file-by-file reading cannot: who depends on this, what breaks, what nobody uses.</p>
     </div>
     <div class="grid g3">
       <div class="card rv">
-        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/><path d="M10 6.5h4a3 3 0 0 1 3 3V14"/></svg></div>
-        <h3>File graph</h3>
-        <p>Which files import this file? What depends on this module? Regex and AST parsing across the whole workspace, with cycle detection.</p>
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="10" width="16" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></div>
+        <h3>Local and private</h3>
+        <p>Tree-sitter parses your code on your machine. No upload, no account, and no LLM is needed to build or query the graph.</p>
       </div>
       <div class="card rv">
-        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="6" cy="6" r="2.5"/><circle cx="18" cy="12" r="2.5"/><circle cx="6" cy="18" r="2.5"/><path d="M8.3 7.2 15.7 11M15.7 13 8.3 16.8"/></svg></div>
-        <h3>Symbol view</h3>
-        <p>Drill into a file to see functions, classes, outgoing calls, incoming callers and recursion. Click a symbol to jump to its definition.</p>
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="9"/></svg></div>
+        <h3>Evidence, not guesses</h3>
+        <p>Every answer points to a file, a symbol and a line. Impact, callers and cycles come from the graph, so you can check them.</p>
       </div>
       <div class="card rv">
-        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="2.2"/><circle cx="5" cy="17" r="2.2"/><circle cx="19" cy="17" r="2.2"/><path d="M10.6 6.8 6.4 15.2M13.4 6.8l4.2 8.4M7.2 17h9.6"/></svg></div>
-        <h3>Live call graph</h3>
-        <p>Cross-file symbol relationships in a Cytoscape.js panel. Expand callers and callees up to depth 5, group by folder, highlight recursion.</p>
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 18h16M7 18V9M12 18V5M17 18v-6"/></svg></div>
+        <h3>Half the tokens for your agent</h3>
+        <p>MCP and Copilot tools answer in compact TOON. On this repository, 1,822 tool calls used 644,751 tokens instead of 1,336,776 in JSON.</p>
+      </div>
+      <div class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="12" cy="20" r="2"/><path d="M6.5 6.5 10 10M17.5 6.5 14 10M12 15v3"/></svg></div>
+        <h3>One index, three surfaces</h3>
+        <p>The VS Code extension, the <code>graph-it</code> CLI and the MCP server share one cache. Index once, then use it in the editor, the terminal or your assistant.</p>
+      </div>
+      <div class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4 6v6c0 4.5 3.4 8 8 9 4.6-1 8-4.5 8-9V6l-8-3Z"/></svg></div>
+        <h3>Architecture that stays clean</h3>
+        <p>Write layer rules once in <code>graphit.architecture.json</code>. The view, <code>check-architecture</code> and the pull request gate catch every new violation.</p>
+      </div>
+      <div class="card rv">
+        <div class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7 3 12l5 5M16 7l5 5-5 5M14 4l-4 16"/></svg></div>
+        <h3>Ten languages, no setup</h3>
+        <p>TypeScript, JavaScript, React, Vue, Svelte, Python, Rust, C#, Go, Java and GraphQL. Grammars ship with the extension and the CLI; no language server required.</p>
       </div>
     </div>
   </div>
@@ -459,8 +474,8 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 
     <div class="shot rev rv" style="margin-bottom:64px">
       <div class="shot-txt">
-        <h3>Drill down into any file</h3>
-        <p>Symbol View turns a file into its own little graph — exports, internals, and who calls what.</p>
+        <h3>From file imports down to a single symbol</h3>
+        <p>The file graph shows what a file imports and what depends on it, with cycles. Double-click a file: Symbol View turns it into its own little graph — exports, internals, and who calls what.</p>
         <ul>
           <li>Functions, classes and variables with export status</li>
           <li>Outgoing calls and incoming callers side by side</li>
@@ -493,51 +508,18 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 
     <div class="shot rev rv" style="margin-bottom:64px">
       <div class="shot-txt">
-        <h3>See React components for what they are</h3>
-        <p>In <code>.jsx</code> and <code>.tsx</code> files, a rendered component or a passed handler is a reference, not a call. Open any <code>.jsx</code> or <code>.tsx</code> file to see the React marks.</p>
+        <h3>React and Vue components for what they are</h3>
+        <p>A rendered component or a passed handler is a reference, not a call. Open a <code>.jsx</code>, <code>.tsx</code> or <code>.vue</code> file, or put the cursor in a Vue template and run <em>Show Call Graph</em>.</p>
         <ul>
-          <li><code>&lt;Card /&gt;</code> and <code>onClick={save}</code> as <code>REFERENCES</code> edges</li>
+          <li><code>&lt;Card /&gt;</code>, <code>onClick={save}</code> and <code>@save="save"</code> as <code>REFERENCES</code> edges, <code>{{ format(count) }}</code> as a call</li>
           <li>Resolved through aliases, barrels, default exports, <code>memo()</code>, <code>forwardRef()</code> and <code>lazy()</code></li>
-          <li>React icon and color in the file graph, Symbol View and call graph</li>
-          <li>The same edges in dead code, impact and <code>review-pr</code></li>
+          <li>Vue <code>&lt;script&gt;</code> and <code>&lt;script setup&gt;</code>, at the line and column of the <code>.vue</code> file</li>
+          <li>A component used only in a template is not reported unused</li>
         </ul>
       </div>
       <div class="frame">
-        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>React components</span></div>
-        <img src="media/react-identity-views.png" alt="React test fixture in three views: file graph with App.tsx and Card.tsx marked React, Symbol View with the Card component, call graph where App and Card reference each other in a cycle" loading="lazy">
-      </div>
-    </div>
-
-    <div class="shot rv" style="margin-bottom:64px">
-      <div class="shot-txt">
-        <h3>Follow Vue templates, not just scripts</h3>
-        <p>In a Vue 3 single-file component, the <code>&lt;template&gt;</code> links to the script bindings it uses. Put the cursor in a <code>.vue</code> template and run <em>Show Call Graph</em>.</p>
-        <ul>
-          <li><code>&lt;Child /&gt;</code> and <code>@save="save"</code> as <code>REFERENCES</code> edges, <code>{{ format(count) }}</code> as a call</li>
-          <li><code>&lt;script&gt;</code>, <code>&lt;script setup&gt;</code>, JS, TS, JSX and TSX, at the line and column of the <code>.vue</code> file</li>
-          <li>A component used only in its template is not reported unused</li>
-          <li>Vue logo and green in the file graph, Symbol View and call graph</li>
-        </ul>
-      </div>
-      <div class="frame">
-        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Vue templates</span></div>
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Vue template call graph</span></div>
         <img src="media/vue-call-graph.png" alt="Call graph of the Parent Vue component on a test fixture: Parent references the Child and ChildRow components, the save handler and the LazyPanel async component, and calls format from format.ts" loading="lazy">
-      </div>
-    </div>
-
-    <div class="shot rev rv" style="margin-bottom:64px">
-      <div class="shot-txt">
-        <h3>Know what a view is waiting for</h3>
-        <p>Every view shares one loading state with the Graph-It-Live logo. You see it when a view opens before its data is ready, for example <em>Show Call Graph</em> on a workspace not indexed yet.</p>
-        <ul>
-          <li>What the view waits for: graph data, indexing, the Architecture build, the matrix</li>
-          <li>A progress bar once the percentage is known</li>
-          <li>Light, dark and high-contrast themes</li>
-        </ul>
-      </div>
-      <div class="frame">
-        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Loading state</span></div>
-        <img src="media/loading-state-views.png" alt="The four loading states: file and symbol views waiting for graph data, call graph indexing at 40 percent, Architecture view building 120 of 400 files, matrix building" loading="lazy">
       </div>
     </div>
 
@@ -566,7 +548,23 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     <div class="sec-head rv">
       <div class="eyebrow">AI integrations</div>
       <h2>Give your assistant a map, not a haystack</h2>
-      <p>25 MCP tools expose the same local graph to GitHub Copilot, Claude, Cursor, Windsurf, Antigravity and any MCP client.</p>
+      <p>Your assistant stops reading file after file. It asks the graph — who calls this, what breaks, which layer may import which — and gets a short answer with file and line evidence. 25 MCP tools for GitHub Copilot, Claude, Cursor, Windsurf, Antigravity and any MCP client.</p>
+    </div>
+
+    <div class="shot rv" style="margin-bottom:48px">
+      <div class="shot-txt">
+        <h3>Half the tokens, same answers</h3>
+        <p>MCP tools and the native Copilot tools answer in compact TOON by default; ask for <code>response_format: "json"</code> only when a script parses the result. Run <code>graph-it stats</code> to see your own numbers.</p>
+        <ul>
+          <li>Totals per source: CLI, MCP server and VS Code (Copilot agent mode)</li>
+          <li>An <em>all sources</em> row and cumulative totals that rotation never reduces</li>
+          <li>Large results stay bounded: token budgets, cursors and offsets</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>graph-it stats</span></div>
+        <img src="media/stats-cumulative-totals.png" alt="graph-it stats on this repository: 1,822 tool calls over the CLI and MCP sources used 644,751 TOON tokens instead of 1,336,776 in JSON, in both the history window and the cumulative totals" loading="lazy">
+      </div>
     </div>
 
     <details class="card rv" id="mcp-tools" style="margin-bottom:34px">
@@ -604,9 +602,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
           </tbody>
         </table>
       </div>
-      <p style="margin-top:16px"><code>crawl_dependency_graph</code> and <code>query_call_graph</code> accept <code>tokenBudget</code> (<code>0</code> disables the cap). Pass a returned <code>nextOffset</code> as <code>offset</code> to continue; <code>graph_context</code> uses cursor pagination.</p>
-      <p style="margin-top:16px">The MCP server does not register <code>get_symbol_callers</code>, <code>get_symbol_dependents</code>, <code>parse_imports</code>, <code>expand_node</code> or <code>analyze_file_logic</code>. Use <code>query_call_graph</code> (callers, depth 1), <code>analyze_dependencies</code>, <code>crawl_dependency_graph</code> and <code>generate_codemap</code> respectively. <code>graph-it tool</code> rejects the five old names since v1.20.0 and names the replacement.</p>
-      <p style="margin-top:16px">The CLI's <code>tool --list</code> has 19 entries, all shared analysis tools. MCP-only <code>set_workspace</code> corresponds to CLI <code>--workspace</code>; use <code>review-pr</code>, <code>query</code>, <code>wiki</code> and <code>stats</code> for the other four MCP capabilities.</p>
+      <p style="margin-top:16px">Full parameters: <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/CLI.md" style="color:#93c5fd;font-weight:600" target="_blank" rel="noopener">CLI and MCP reference →</a></p>
     </details>
 
     <div class="grid g2 rv" style="margin-bottom:34px">
@@ -725,7 +721,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     <div class="sec-head rv">
       <div class="eyebrow">Standalone CLI</div>
       <h2>The same engine, without VS Code</h2>
-      <p>Requires Node.js 22+. Index a workspace, trace a symbol, export a graph, or start the MCP server — straight from your terminal.</p>
+      <p>Answer a dependency question in one command, script it, or fail a pull request on a broken layer rule. The CLI runs the same index as the extension, on any machine with Node.js 22+.</p>
     </div>
 
     <div class="grid g2">
@@ -760,33 +756,21 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
           <div class="code-head"><span class="file">common commands</span><button class="copy">Copy</button></div>
 <pre><code><span class="c-cmd">graph-it</span> scan                         <span class="c-dim"># Index workspace</span>
 <span class="c-cmd">graph-it</span> summary                      <span class="c-dim"># Workspace overview</span>
-<span class="c-cmd">graph-it</span> summary src/index.ts         <span class="c-dim"># File codemap</span>
-<span class="c-cmd">graph-it</span> architecture                 <span class="c-dim"># Workspace graph</span>
 <span class="c-cmd">graph-it</span> architecture --level units    <span class="c-dim"># Packages in layers</span>
 <span class="c-cmd">graph-it</span> check-architecture           <span class="c-dim"># Check graphit.architecture.json</span>
 <span class="c-cmd">graph-it</span> trace src/index.ts#main      <span class="c-dim"># Trace execution</span>
-<span class="c-cmd">graph-it</span> explain src/index.ts         <span class="c-dim"># Intra-file flow</span>
-<span class="c-cmd">graph-it</span> path src/index.ts            <span class="c-dim"># Dependencies</span>
-<span class="c-cmd">graph-it</span> path-in src/index.ts         <span class="c-dim"># Reverse dependencies</span>
-<span class="c-cmd">graph-it</span> check-dependencies src/index.ts <span class="c-dim"># Both directions</span>
+<span class="c-cmd">graph-it</span> check-dependencies src/index.ts <span class="c-dim"># Imports and importers</span>
 <span class="c-cmd">graph-it</span> cycles src/index.ts          <span class="c-dim"># Circular imports</span>
 <span class="c-cmd">graph-it</span> check                        <span class="c-dim"># Unused exports</span>
 <span class="c-cmd">graph-it</span> query <span class="c-str">"what calls main"</span>     <span class="c-dim"># Ask the graph</span>
 <span class="c-cmd">graph-it</span> context <span class="c-str">"what calls main"</span>   <span class="c-dim"># Bounded context</span>
 <span class="c-cmd">graph-it</span> review-pr --base origin/main <span class="c-dim"># Local diff review</span>
 <span class="c-cmd">graph-it</span> wiki --output wiki           <span class="c-dim"># Markdown wiki</span>
-<span class="c-cmd">graph-it</span> export                       <span class="c-dim"># Export as HTML</span>
 <span class="c-cmd">graph-it</span> stats                        <span class="c-dim"># Token statistics</span>
-<span class="c-cmd">graph-it</span> tool --list                  <span class="c-dim"># Discover tools</span>
-<span class="c-cmd">graph-it</span> serve --workspace /path/to/project <span class="c-dim"># MCP server</span>
-<span class="c-cmd">graph-it</span> install                      <span class="c-dim"># Expose bundled CLI</span>
-<span class="c-cmd">graph-it</span> update                       <span class="c-dim"># Update CLI</span>
-<span class="c-cmd">graph-it</span> --help                       <span class="c-dim"># Commands and options</span>
-<span class="c-cmd">graph-it</span> --version                    <span class="c-dim"># Installed version</span></code></pre>
+<span class="c-cmd">graph-it</span> serve --workspace /path/to/project <span class="c-dim"># MCP server</span></code></pre>
         </div>
         <p style="color:var(--muted);font-size:14.5px;margin-top:16px">
-          Output defaults to <code>text</code>. Use <code>json</code> for scripts and <code>toon</code> for compact AI context. Most analysis commands also support <code>markdown</code>; <code>trace</code> and <code>path</code> emit Mermaid. <code>query</code> supports text/JSON/TOON (Markdown and Mermaid fall back to text); <code>wiki</code> supports JSON/TOON/Markdown.
-          Global <code>--workspace</code> and <code>--format</code> options work before or after the command.
+          <code>--format toon</code> for compact AI context, <code>json</code> for scripts, <code>markdown</code> for pull request comments. Run <code>graph-it</code> alone for the interactive REPL.
           <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/CLI.md" style="color:#93c5fd;font-weight:600" target="_blank" rel="noopener">Full CLI reference →</a>
         </p>
       </div>
@@ -808,7 +792,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
           </tbody>
         </table>
       </div>
-      <p style="margin-top:16px">Type <code>file#Symbol</code> with <code>/trace</code>, <code>/callers</code> or <code>/impact</code> for symbol completion. Up/Down scroll the results and Ctrl+P/Ctrl+N recall history; Tab inserts a suggested follow-up command. Press <code>Esc</code> on an empty line to move into the results: <code>[</code>/<code>]</code> jump between results, <code>Space</code> folds one, and <code>Enter</code> on a file or symbol line opens its actions. File rows are clickable OSC 8 links; <code>/mouse on</code> adds wheel and click support. <code>/scope</code> replaces <code>/path</code> in the palette; the old alias still works.</p>
+      <p style="margin-top:16px">Type <code>file#Symbol</code> with <code>/trace</code>, <code>/callers</code> or <code>/impact</code> for symbol completion. Press <code>Esc</code> to move into the results, <code>Enter</code> on a file or symbol line to open its actions. <a href="https://github.com/magic5644/Graph-It-Live/blob/main/docs/CLI.md#results-navigation" style="color:#93c5fd" target="_blank" rel="noopener">Key reference</a>.</p>
       <div class="frame" style="margin-top:16px">
         <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>graph-it REPL</span></div>
         <img src="media/repl-results-navigation.gif" alt="graph-it REPL on this repository: Esc moves focus into the results, the cursor jumps between result titles, a result folds, Enter on a file line opens the actions menu" loading="lazy">
