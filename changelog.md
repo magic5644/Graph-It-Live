@@ -1,5 +1,28 @@
 # Changelog
 
+## v1.24.2
+
+Patch release. The dead-code scan and the PR review no longer stop at a hidden file cap (#670, PR #671), and GitHub Copilot CLI gets its own plugin catalog, kept in sync on every publish (#669, PR #672). No command, setting, MCP tool or Copilot tool is added or removed. Read *Breaking / Behavior changes* if a script relies on the old `scan_dead_code` default of 500 files.
+
+### Breaking / Behavior changes
+
+- **`scan_dead_code` scans the whole scope by default** (#670, PR #671): without `maxFiles`, every analysable file in scope is now scanned, on MCP, `graph-it tool` and the Copilot tool alike. The analyzer used to stop at 500 files, even where the Copilot tool said "no limit". `maxFiles` still caps the scan and accepts any integer of at least `1` (the former maximum was `10000`). `truncated: true` with `filesBeyondLimit > 0` means a partial result. Memory stays flat; on a recent laptop 12,000 files take about 90 s. To keep the old bound, pass it explicitly: `graph-it tool scan_dead_code --maxFiles=500`.
+- **`review_pr` and `graph-it review-pr` accept more than 1,000 changed files** (PR #671): `--max-files` / `maxFiles` still defaults to `200` but has no upper bound, and the changed-path list is read with a 64 MiB buffer instead of 1 MiB, which failed near 10,000 files with long paths. Time and memory grow with the limit: the base and head text of every analysed file stays in memory during the review. The `graph-it-review-gate` Action input `max-files` accepts the same values with CLI 1.24.2 or later.
+
+### Changed
+
+- **MCP: 10-minute timeout for `scan_dead_code` and `review_pr`** (PR #671): these two tools now stop after 10 minutes instead of 1, so a full-workspace scan or a large review finishes. Other tools keep 1 minute, and other tool calls wait while a long one runs: narrow `scopePath` or set `maxFiles` on very large repositories. `graph-it tool` and the Copilot tool have no time limit.
+- **Copilot tool: `scan_dead_code` can be cancelled** (PR #671): stopping the chat request stops the scan between files. `maxFiles` is now checked with the same rule as MCP and the CLI.
+- **Branch Watch honours its `graph-it-live.branchWatch.maxFiles` setting up to `2000`** (PR #671): it used to be cut to 1,000 files. The setting keeps its maximum because Branch Watch reruns by itself after edits.
+- **GitHub Copilot CLI plugin catalog** (#669, PR #672): the repository now ships `.github/plugin/marketplace.json`, where Copilot CLI looks for a catalog:
+
+  ```bash
+  copilot plugin marketplace add magic5644/Graph-It-Live
+  copilot plugin install graph-it-live@graph-it-live
+  ```
+
+  The catalog is derived from the Claude Code catalog `.claude-plugin/marketplace.json`, and the plugin version sync after each npm publish updates both in the same commit.
+
 ## v1.24.1
 
 Patch release focused on token efficiency for AI agents (#396: issues #654, #655, #656, #657, #660). Compact TOON answers now reach the model in MCP clients such as Claude Code and GitHub Copilot CLI, the native Copilot tools answer in TOON too, `graph-it stats` counts every source (CLI, MCP and VS Code) with an all-sources row and cumulative totals, and the agent skills load about a third fewer tokens. No command, setting or MCP tool is added or removed. Read *Breaking / Behavior changes* if a script reads `structuredContent`, the Copilot tool JSON or the stats labels.
