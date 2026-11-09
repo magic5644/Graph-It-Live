@@ -34,8 +34,22 @@ graph-it context --from 'src/api.ts#handle' --to 'DatabasePool' --mode path --de
 - `--seeds` (repeatable) and `--from`/`--to` take `file#symbol` or `symbol`.
 - `--relations` (repeatable, e.g. `CALLS`, `IMPORTS`), `--scope <glob>`, `--depth 1-5`,
   `--max-nodes 1-500`, `--token-budget 500-16000`, `--directed`, `--detail compact|standard|full`.
-- `truncated=true` returns `nextCursor`: continue with `--cursor <nextCursor>` rather than raising the
-  budget.
+- `truncated=true` returns `nextCursor` and `omitted` counts. See "Budgets and complete results" below.
+
+### Budgets and complete results
+
+Every CLI call costs a turn and an index load, so size the budget to answer in one call:
+
+1. Pick the budget for the task: about 2000 to locate code, 4000-8000 for impact or refactor, 16000 at most.
+2. On `truncated=true`, stop if the seeds and top-ranked nodes already answer.
+3. Otherwise narrow the request (`--scope`, `--seeds`, `--relations`, `--depth`): cheaper than reading more.
+4. When every result is needed (importers before a refactor, all callers before a deletion), rerun once
+   with `--token-budget 16000`; page with `--cursor <nextCursor>` only if that is still truncated.
+   Pages do not repeat nodes.
+5. `--mode search` ranks the whole graph: never page it to the end.
+
+`query_call_graph --tokenBudget=0` returns every caller in one call; with a budget, pass `nextOffset`
+as `--offset`. `get_impact_analysis` has no budget and returns the whole result.
 
 `graph-it query "<question>"` (`--depth`, `--token-budget`, `--format text|json|toon`) answers in
 natural language. It uses `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` when set and falls back to keyword
@@ -82,7 +96,7 @@ graph-it tool analyze_breaking_changes --args '{"filePath":"/abs/src/a.ts","symb
 ```
 
 - `query_call_graph`: `--direction callers|callees|both` (default both), `--depth 1-10` (default 2),
-  `--includeTypeOnly=true` adds type-only `USES` edges, `--tokenBudget` (default 4000) with `offset` paging.
+  `--includeTypeOnly=true` adds type-only `USES` edges, `--tokenBudget` (default 4000, `0` = no limit) with `--offset <nextOffset>` paging.
   A bare name shared by several symbols returns `reason=ambiguous` with candidates; pick one with
   `--symbolId` or `--startLine`. Call sites are not all symbol references.
 - `get_impact_analysis`: `--includeTransitive` (default false), `--maxDepth 1-20` (default 3).
