@@ -31,6 +31,8 @@ import type {
 
 const MAX_FILES_PER_SOURCE = 50;
 const CUMULATIVE_FILE = 'cumulative.totals';
+// shortcut: an evicted session rewritten after 500 later evictions counts twice; raise if that ever happens.
+const MAX_EVICTED_TRACKED = 500;
 /** Delay between the first unsaved record and the periodic session rewrite. */
 export const PERIODIC_FLUSH_DELAY_MS = 30_000;
 
@@ -81,7 +83,7 @@ export function flushSession(snapshot: SessionStatsSnapshot, baseDir?: string): 
   writeAtomic(dir, fileName, JSON.stringify(snapshot, null, 2));
 
   rotate(dir);
-  updateCumulative(dir, snapshot);
+  updateCumulative(dir, snapshot.startedAt);
 }
 
 function writeAtomic(dir: string, fileName: string, content: string): void {
@@ -100,12 +102,16 @@ function writeAtomic(dir: string, fileName: string, content: string): void {
  *   are labelled cl100k_base, whatever label they were written with.
  *
  * @param baseDir override of the stats directory (tests); defaults to ~/.graph-it/stats
+ * @param quiet skip the warnings (background flushes)
  */
 /** Release date of v1.14.1, the first release whose stats count tokens with cl100k_base. */
 export const CL100K_COUNTING_SINCE = Date.parse('2026-08-28T14:13:27Z');
 
-export function readAllSessions(baseDir?: string): SessionStatsSnapshot[] {
+export function readAllSessions(baseDir?: string, quiet = false): SessionStatsSnapshot[] {
   const dir = baseDir ?? getDefaultStatsDir();
+  const warn = (message: string): void => {
+    if (!quiet) console.warn(message);
+  };
 
   let fileNames: string[];
   try {
@@ -130,10 +136,10 @@ export function readAllSessions(baseDir?: string): SessionStatsSnapshot[] {
         // Releases up to v1.24.0 wrote 'chars/4 heuristic' while counting with cl100k_base.
         snapshots.push({ ...parsed, estimationMethod: 'cl100k_base' });
       } else {
-        console.warn(`graph-it stats: skipping invalid stats file: ${name}`);
+        warn(`graph-it stats: skipping invalid stats file: ${name}`);
       }
     } catch {
-      console.warn(`graph-it stats: skipping corrupted stats file: ${name}`);
+      warn(`graph-it stats: skipping corrupted stats file: ${name}`);
     }
   }
   return snapshots;
@@ -230,8 +236,10 @@ type SessionContribution = Pick<SessionStatsSnapshot, 'source' | 'startedAt' | '
 interface CumulativeFile {
   schemaVersion: 1;
   since: number;
-  /** Sessions whose file rotation deleted: kept as sums only. */
+  /** Sessions evicted long ago: kept as sums only. */
   retired: SourceAggregates;
+  /** Recently evicted sessions, keyed by file name: a live process may still rewrite their file. */
+  evicted?: Record<string, SessionContribution>;
   /** Sessions still on disk, keyed by file name; a rewrite replaces its entry. */
   sessions: Record<string, SessionContribution>;
 }
@@ -281,7 +289,8 @@ function isCumulativeFile(value: unknown): value is CumulativeFile {
   return (
     typeof file === 'object' && file !== null && file.schemaVersion === 1 && typeof file.since === 'number' &&
     typeof file.retired === 'object' && file.retired !== null &&
-    typeof file.sessions === 'object' && file.sessions !== null
+    typeof file.sessions === 'object' && file.sessions !== null &&
+    (file.evicted === undefined || (typeof file.evicted === 'object' && file.evicted !== null))
   );
 }
 
@@ -303,30 +312,36 @@ function readCumulativeFile(dir: string): CumulativeFile | undefined {
   return undefined;
 }
 
-/** First run (or unreadable file): start from the sessions already on disk. */
-function seedCumulative(dir: string, fallbackSince: number): CumulativeFile {
+/**
+ * Session files on disk are the truth for live sessions: the map is rebuilt
+ * from them on every write, so a rewrite replaces its contribution and a
+ * concurrent writer's lost update heals at the next write. Evicted sessions
+ * stay keyed by file name, so folding them twice is idempotent and a file
+ * that reappears (rewritten by its live process) replaces its old entry.
+ */
+function updateCumulative(dir: string, fallbackSince: number): void {
+  const previous = readCumulativeFile(dir);
   const sessions: Record<string, SessionContribution> = {};
-  let since = fallbackSince;
-  for (const snapshot of readAllSessions(dir)) {
+  let since = previous?.since ?? fallbackSince;
+  for (const snapshot of readAllSessions(dir, true)) {
     sessions[sessionFileName(snapshot)] = contribution(snapshot);
     since = Math.min(since, snapshot.startedAt);
   }
-  return { schemaVersion: 1, since, retired: {}, sessions };
-}
 
-function updateCumulative(dir: string, snapshot: SessionStatsSnapshot): void {
-  const file = readCumulativeFile(dir) ?? seedCumulative(dir, snapshot.startedAt);
-  file.sessions[sessionFileName(snapshot)] = contribution(snapshot);
-  file.since = Math.min(file.since, snapshot.startedAt);
-
-  // Sessions rotation deleted cannot be rewritten any more: fold them into the sums.
-  const onDisk = new Set(fs.readdirSync(dir));
-  for (const [fileName, session] of Object.entries(file.sessions)) {
-    if (!onDisk.has(fileName)) {
-      addSession(file.retired, session);
-      delete file.sessions[fileName];
-    }
+  const evicted = { ...previous?.evicted };
+  for (const [fileName, session] of Object.entries(previous?.sessions ?? {})) {
+    if (!(fileName in sessions)) evicted[fileName] = session;
   }
+  for (const fileName of Object.keys(sessions)) delete evicted[fileName];
+
+  const retired = previous?.retired ?? {};
+  const byAge = Object.entries(evicted).sort(([, a], [, b]) => a.startedAt - b.startedAt);
+  for (const [fileName, session] of byAge.slice(0, Math.max(0, byAge.length - MAX_EVICTED_TRACKED))) {
+    addSession(retired, session);
+    delete evicted[fileName];
+  }
+
+  const file: CumulativeFile = { schemaVersion: 1, since, retired, evicted, sessions };
   writeAtomic(dir, CUMULATIVE_FILE, JSON.stringify(file));
 }
 
@@ -343,7 +358,9 @@ export function readCumulative(baseDir?: string): CumulativeSummary | undefined 
   for (const [source, agg] of Object.entries(file.retired)) {
     bySource[source as SessionStatsSource] = { ...emptySourceAggregate(), ...agg };
   }
-  for (const session of Object.values(file.sessions)) addSession(bySource, session);
+  for (const session of [...Object.values(file.evicted ?? {}), ...Object.values(file.sessions)]) {
+    addSession(bySource, session);
+  }
   return { since: new Date(file.since).toISOString(), bySource, total: totalOf(bySource) };
 }
 

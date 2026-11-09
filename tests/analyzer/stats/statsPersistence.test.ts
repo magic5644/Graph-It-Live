@@ -316,6 +316,44 @@ describe('statsPersistence', () => {
       expect(summarizeSessions(readAllSessions(baseDir)).total.sessions).toBe(50);
     });
 
+    it('counts once a session evicted by rotation then rewritten by its live process', () => {
+      const live = makeSnapshot();
+      flushSession(live, baseDir);
+      const liveFile = path.join(baseDir, `mcp-${live.sessionId}.json`);
+      const past = new Date(Date.now() - 3_600_000);
+      fs.utimesSync(liveFile, past, past);
+      for (let i = 0; i < 50; i++) flushSession(makeSnapshot(), baseDir);
+      expect(fs.existsSync(liveFile)).toBe(false);
+      expect(readCumulative(baseDir)?.total.calls).toBe(51);
+
+      flushSession({ ...live, totals: { ...live.totals, calls: 3 } }, baseDir);
+      const cumulative = readCumulative(baseDir);
+      // live counts once (3 calls), the 50 others once each; the oldest of them was evicted in turn.
+      expect(cumulative?.total).toMatchObject({ sessions: 51, calls: 53 });
+    });
+
+    it('folds the oldest evicted sessions into sums beyond 500 tracked', () => {
+      const evicted = Object.fromEntries(
+        Array.from({ length: 501 }, (_, i) => [`cli-old-${i}.json`, { ...makeSnapshot({ source: 'cli' }), startedAt: CL100K_COUNTING_SINCE + i }]),
+      );
+      fs.writeFileSync(cumulativePath(), JSON.stringify({ schemaVersion: 1, since: CL100K_COUNTING_SINCE, retired: {}, evicted, sessions: {} }));
+      flushSession(makeSnapshot(), baseDir);
+
+      const file = JSON.parse(fs.readFileSync(cumulativePath(), 'utf8'));
+      expect(Object.keys(file.evicted)).toHaveLength(500);
+      expect(file.evicted['cli-old-0.json']).toBeUndefined();
+      expect(file.retired.cli.sessions).toBe(1);
+      expect(readCumulative(baseDir)?.total.sessions).toBe(502);
+    });
+
+    it('loads a file written without the evicted map', () => {
+      const old = makeSnapshot({ source: 'cli' });
+      fs.writeFileSync(cumulativePath(), JSON.stringify({
+        schemaVersion: 1, since: old.startedAt, retired: { cli: { sessions: 2, calls: 5 } }, sessions: {},
+      }));
+      expect(readCumulative(baseDir)?.total).toMatchObject({ sessions: 2, calls: 5, jsonTokens: 0 });
+    });
+
     it('starts from the history older releases left on disk', () => {
       const old = makeSnapshot({ source: 'cli', startedAt: CL100K_COUNTING_SINCE + 1 });
       fs.writeFileSync(path.join(baseDir, `cli-${old.sessionId}.json`), JSON.stringify(old));
@@ -337,6 +375,26 @@ describe('statsPersistence', () => {
       flushSession(makeSnapshot(), baseDir);
       expect(readCumulative(baseDir)?.total.sessions).toBe(1);
       expect(warn).toHaveBeenCalledWith('graph-it stats: ignoring invalid cumulative totals file: cumulative.totals');
+    });
+
+    it('heals an update another process overwrote, at the next write', () => {
+      const lost = makeSnapshot({ source: 'vscode' });
+      flushSession(lost, baseDir);
+      // Another process read the file before `lost` was added, then wrote it back.
+      fs.writeFileSync(cumulativePath(), JSON.stringify({ schemaVersion: 1, since: Date.now(), retired: {}, sessions: {} }));
+      flushSession(makeSnapshot(), baseDir);
+
+      const cumulative = readCumulative(baseDir);
+      expect(cumulative?.total.sessions).toBe(2);
+      expect(cumulative?.since).toBe(new Date(lost.startedAt).toISOString());
+    });
+
+    it('writes without warning when a session file is corrupted', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      fs.writeFileSync(path.join(baseDir, 'mcp-broken.json'), '{ not json');
+      flushSession(makeSnapshot(), baseDir);
+      expect(readCumulative(baseDir)?.total.sessions).toBe(1);
+      expect(warn).not.toHaveBeenCalled();
     });
 
     it('is never written with GRAPH_IT_NO_STATS=1', () => {
