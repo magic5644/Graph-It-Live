@@ -18,53 +18,36 @@ context: fork
 AI-guided architectural tour of any codebase for a new developer.
 Powered by Graph-It-Live — extracts entry points, business logic, and the most complex module in one structured pass.
 
-## CLI and Capability Discovery
+## Setup, routing and format
 
-Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, check
-`graph-it --version` when the CLI and terminal are available; use only its existing newer-version
-notice and do not poll npm. Share discovery, version, and update decisions across Graph-It skills
-for the session. Run `graph-it tool --list` once, consult `graph-it --help` or command help as
-needed, and refresh only when the CLI/version, server, or workspace changes or a requested tool is
-unknown. Examples are illustrative, not a fixed inventory. Do not install automatically. If the
-CLI is unavailable or unsuitable, use MCP only when the connected host advertises a structurally
-equivalent tool and its schema; otherwise explain the gap. `graph-it tool <name>` invokes analysis
-directly through CLI; `graph-it serve` starts MCP. CLI `--format` and MCP `response_format` are
-distinct.
-
-If the CLI reports a newer version, interactive use requires explicit positive confirmation before
-running `graph-it update`; silence, timeout, refusal, non-TTY, or generic Agent mode is not consent.
-When automatic mode is explicitly enabled and pre-authorized, default the update decision to yes and
-run `graph-it update` without another prompt. After success, refresh the version and `--list`,
-invalidate cached capabilities, and advise that a running MCP server needs a host-authorized restart.
-On failure, keep using the existing CLI only if it remains usable; otherwise explain the failure
-and stop CLI analysis. Warn briefly and do not retry in a loop.
-
-These instructions require Graph-It-Live CLI **1.21.0 or later** (`check-architecture`, `architecture
---level units`, `--matrix`, and the 25 MCP tools). Compare the reported `graph-it --version` with
-1.21.0 at the same first activation. If it is older, say so once, name the commands it lacks, and
-offer `graph-it update` under the confirmation policy above; until it is updated, use only commands
-listed by that CLI's `--help` and `tool --list`, and never present output of a missing command as a
-result. If the version cannot be read, treat it as older.
+- Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, run
+  `graph-it --version` and `graph-it tool --list` once and share them across Graph-It skills. Requires
+  CLI **1.21.0 or later**: if older or unreadable, say so, name the missing commands, offer
+  `graph-it update`, and use only what `--help` and `tool --list` show. Do not install the CLI
+  automatically. Without it, use only an equivalent MCP tool the host advertises, with its schema;
+  otherwise explain the gap.
+- Run `graph-it update` only after explicit positive confirmation; silence, timeout, refusal, non-TTY
+  or generic Agent mode is not consent, an explicitly pre-authorized automatic mode is. After success,
+  refresh version and inventory; a running MCP server needs a host-authorized restart. On failure, keep
+  a usable CLI, warn once, do not retry.
+- Routing: the tour is graph-first (structure, entry points, fan-in). Once a file is selected, read
+  it directly and bounded; for a question about one already-known file, skip the tour and read it.
+- Format: `--format toon` for everything you read; `json` only when a script parses the output;
+  `--format mermaid` only for the critical-path diagram shown to the human.
 
 ## Choose the Workspace Root
 
-Graph-It-Live analyzes one workspace root and skips every import that resolves outside it. Without
-`--workspace`, the CLI uses the nearest directory, from the current one upward, holding a project
-marker of a supported language (`package.json`, `tsconfig.json`, `jsconfig.json`, `deno.json(c)`,
-`pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt`, `Pipfile`, `Cargo.toml`, `go.mod`,
-`go.work`, `pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`, `*.csproj`, `*.sln`, `*.slnx`,
-`Directory.Build.props`). Outside any project (a home directory, `/`) it exits with code `3`. An
-explicit `graph-it -w <dir>` forces the root: it is used exactly as given, marker or not. The index
-and cache (`.graph-it/`) are created in the chosen root.
+Graph-It-Live analyzes one workspace root and skips imports that resolve outside it. Without
+`--workspace`, the CLI uses the nearest project marker (`package.json`, `pyproject.toml`,
+`Cargo.toml`, `go.mod`, `pom.xml`, `*.csproj`, ...) and exits with code `3` outside any project;
+`graph-it -w <dir>` forces the root, where `.graph-it/` (index + cache) is created.
 
-- **Monorepo tour, entry points, dependents, impact, cross-package questions**: use the monorepo
-  root through `graph-it -w <monorepoRoot> <command>` rather than `cd` into a package.
-- **One package only**: scan that package, then say in the report that sibling packages are not
-  covered.
-- If `scan` prints `Warning: N imports resolve outside the workspace root`, the results cover the
-  current root only. Rerun with the `--workspace` it names, or report the limitation; never present
-  the narrow results as workspace-wide. `graph-it tool get_index_status` reports the same
-  `outOfRootImports` count and `monorepoRoot`.
+- **Monorepo tour, entry points, dependents, cross-package questions**: use
+  `graph-it -w <monorepoRoot> <command>` rather than `cd` into a package.
+- **One package only**: scan that package and say in the report that siblings are not covered.
+- If `scan` prints `Warning: N imports resolve outside the workspace root`, rerun with the
+  `--workspace` it names or report the limitation (`graph-it tool get_index_status` reports
+  `outOfRootImports` and `monorepoRoot`); never present narrow results as workspace-wide.
 
 ## When to Use
 
@@ -116,7 +99,7 @@ For each candidate entry file (max 5), run both directions:
 graph-it explain <filePath> --format toon
 
 # Incoming: who imports/calls this file
-graph-it tool find_referencing_files --targetPath=<path>
+graph-it tool find_referencing_files --targetPath=<path> --format toon
 ```
 
 `<path>` may be absolute or relative to the workspace root (for example `apps/worker/src/a.ts`).
@@ -144,7 +127,7 @@ For each candidate business logic file, run **both directions** to build a compl
 graph-it tool generate_codemap --filePath=<path> --format toon
 
 # Incoming: who depends on this file across the project
-graph-it tool find_referencing_files --targetPath=<path>
+graph-it tool find_referencing_files --targetPath=<path> --format toon
 ```
 
 The combination of both tells you:
@@ -181,7 +164,7 @@ For an open-ended follow-up, use the natural-language query as a hypothesis gene
 verify the answer with the deterministic scores above:
 
 ```bash
-graph-it query "which module has the deepest call stack and widest impact"
+graph-it query "which module has the deepest call stack and widest impact" --format toon
 ```
 
 ---
@@ -194,58 +177,16 @@ From the highest-scored entry point, trace the full execution chain:
 graph-it trace <entryFile>#<mainFunction> --format mermaid
 ```
 
-The output names each node by its symbol and workspace-relative file; calls into external modules
-are dashed `:::external` nodes:
-
-```mermaid
-graph TD
-  S0["main · src/index.ts"]
-  S1["parse · src/parser.ts"]
-  S2["tokenize · src/parser.ts"]
-  S3(["readFileSync · node:fs"]):::external
-  S0 --> S1
-  S1 --> S2
-  S0 --> S3
-  classDef external stroke-dasharray: 4 2
-```
-
-Use `--format mermaid` here because the output is intended for a human — the Mermaid diagram renders as a visual flowchart in VS Code, GitHub, Obsidian, and most Markdown preview panes. For all other graph-it calls in this workflow, prefer `--format toon` (token-efficient, AI-readable).
+Nodes are named by symbol and workspace-relative file; calls into external modules are dashed
+`:::external` nodes. Paste the diagram unchanged into the report.
 
 ---
 
 ## Output Format
 
-Synthesize steps 3–6 into this structured report:
-
----
-
-### Project Tour — `<ProjectName>`
-
-**3 Main Entry Points**
-
-| # | File | Role | Type |
-|---|------|------|------|
-| 1 | `src/index.ts` | Application bootstrap, wires all modules | True entry (no callers) |
-| 2 | `src/api/router.ts` | HTTP routing, dispatches to controllers | Called by index.ts |
-| 3 | `src/cli.ts` | CLI interface, alternative entry point | True entry (no callers) |
-
-**Business Logic Core**
-
-| File | Exported Symbols | Referenced By |
-|------|-----------------|---------------|
-| `src/services/orderService.ts` | 12 | 8 files |
-| `src/domain/pricing.ts` | 7 | 5 files |
-
-**Most Complex Module**
-
-> `src/services/orderService.ts` — 4 levels of internal call depth, 2 internal cycles, imported by 8 files.
-> **Recommendation**: Any change here has high blast radius. Run `get_impact_analysis` before modifying.
-
-**Critical Path (Mermaid)**
-
-```mermaid
-<trace output here>
-```
+Synthesize steps 3–6 with the template in `references/report-template.md`: the 3 main entry points
+(file, role, type), the business logic core (exported symbols, referencing files), the most complex
+module with its blast-radius recommendation, and the critical-path Mermaid diagram.
 
 ---
 

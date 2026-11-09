@@ -8,13 +8,12 @@ argument-hint: 'Which symbol, file or module do you want to refactor, and to wha
 
 Three phases: map (read-only), edit (sealed scope), verify. No edit before the plan; no "done" before verification.
 
-## CLI and Capability Discovery
+## Setup, routing and format
 
-Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, run `graph-it --version` and `graph-it tool --list` once when the CLI and a terminal are available; consult `graph-it <command> --help` only for a flag you need. Share this inventory across Graph-It skills; refresh only when the CLI, version, or workspace changes or a command fails. Do not poll npm and do not install the CLI. If the CLI is unavailable or unsuitable, use only MCP tools the host advertises, with their exact name and `inputSchema`. `graph-it tool <name>` calls analysis directly; `graph-it serve` starts MCP. Never guess a tool name, flag or schema. Use `--format toon` (CLI) or `response_format: "toon"` (MCP) only where the command or schema supports it.
-
-If the CLI reports a newer version, interactive use needs explicit positive confirmation before `graph-it update`; silence, timeout, refusal, non-TTY or generic Agent mode is not consent. When automatic mode is explicitly enabled and pre-authorized, default to yes. After success, re-read version and inventory; a running MCP server needs a host-authorized restart (do not edit MCP configuration). On failure, keep the usable CLI, report once, do not retry.
-
-Requires Graph-It-Live CLI **1.21.0 or later**. Compare `graph-it --version` with it once. If older or unreadable, say so, name the missing commands, offer `graph-it update` under the policy above, and use only commands listed by `--help` and `tool --list`.
+- Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, run `graph-it --version` and `graph-it tool --list` once and share them across Graph-It skills; read `graph-it <command> --help` only for a flag you need. Requires CLI **1.21.0 or later**: if older or unreadable, say so, name the missing commands, offer `graph-it update`, and use only what `--help` and `tool --list` show. Never install the CLI. Without it, use only MCP tools the host advertises, with their exact name and `inputSchema`. Never guess a tool name, flag or schema.
+- Run `graph-it update` only after explicit positive confirmation; silence, timeout, refusal, non-TTY or generic Agent mode is not consent, an explicitly pre-authorized automatic mode is. After success, re-read version and inventory; a running MCP server needs a host-authorized restart (do not edit MCP configuration). On failure, keep the usable CLI, report once, do not retry.
+- Routing: reading or editing a known file or symbol needs a bounded direct read, not a graph call. Finding who imports, calls or depends on the target always goes through the graph (Phase 1).
+- Format: `--format toon` for everything you read, with `--detail compact` and `--token-budget` on `context`; `json` only when a script parses the output. MCP: `response_format: "toon"` only where the schema advertises it.
 
 Run from the repository root with `graph-it -w <repoRoot> ...` so every package's consumers are indexed. If stderr warns that imports resolve outside the workspace root, impact outside it is not covered: rerun with the `--workspace` it names or report the gap.
 
@@ -33,11 +32,11 @@ graph-it context --mode refactor --seeds 'src/a/b.ts#symbol' --depth 4 --detail 
 3. Deepen only symbols that are exported, public, or widely used (high fan-in):
 
 ```bash
-graph-it tool get_impact_analysis --filePath=/abs/src/a/b.ts --symbolName=symbol --includeTransitive=true --format=toon
-graph-it tool query_call_graph --filePath=/abs/src/a/b.ts --symbolName=symbol --direction=callers --depth=2 --format=toon
+graph-it tool get_impact_analysis --filePath=/abs/src/a/b.ts --symbolName=symbol --includeTransitive=true --format toon
+graph-it tool query_call_graph --filePath=/abs/src/a/b.ts --symbolName=symbol --direction=callers --depth=2 --format toon
 ```
 
-4. For a move, delete or layer change, also run `graph-it cycles <file>` and, when `graphit.architecture.json` exists, `graph-it check-architecture --format toon` to record the baseline (violation count) before editing.
+4. For a move, delete or layer change, also run `graph-it cycles <file> --format toon` and, when `graphit.architecture.json` exists, `graph-it check-architecture --format toon` to record the baseline (violation count) before editing.
 5. Pick the tests that cover the target and its importers from step 2 (files under `tests/` or named `*.test.*`/`*.spec.*`). None found = a test must be written in Phase 2.
 
 Evidence rules:
