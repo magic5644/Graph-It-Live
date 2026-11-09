@@ -302,6 +302,14 @@ Use `--detail compact` and `--token-budget` for agent-oriented responses. See th
 
 Graph-It-Live exposes local graph analysis to GitHub Copilot, Claude, Cursor, Windsurf, Antigravity, and other MCP-compatible clients.
 
+### Token savings
+
+MCP tools and the native Copilot tools answer in compact TOON by default; pass `response_format: "json"` when a script parses the result. Run `graph-it stats` to see what that saves across the CLI, the MCP server and VS Code: the last 50 sessions per source, an **all sources** total, and cumulative totals that rotation never reduces.
+
+![graph-it stats on this repository: 1,822 tool calls over the CLI and MCP sources used 644,751 TOON tokens instead of 1,336,776 in JSON, in both the history window and the cumulative totals](media/stats-cumulative-totals.png)
+
+*`graph-it stats --format markdown` on this repository's own usage: TOON used about half the tokens of the same answers in JSON. Counts are `cl100k_base` estimates; your ratio depends on the tools you call.*
+
 ### Native Copilot tools
 
 When the extension is installed, use these tools in Copilot Agent mode without configuring MCP:
