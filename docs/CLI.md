@@ -1499,7 +1499,7 @@ graph-it stats [options]
 | `mcp` | MCP server tool responses | about 30 s after new activity, then again on shutdown |
 | `vscode` | VS Code language model tool responses (Copilot agent mode) | about 30 s after new activity, then again when the extension deactivates |
 
-Each session is one `<source>-<sessionId>.json` file; a periodic write rewrites the same file. Nothing is written for an empty or idle session, and a killed process loses at most the last 30 s. Rotation keeps 50 files per source, so one source never evicts another. `cumulative.totals` in the same directory counts every session once, rewrites included, and survives rotation; when missing or unreadable it is rebuilt from the session files on disk. `GRAPH_IT_NO_STATS=1` disables every write, cumulative file included.
+Each session is one `<source>-<sessionId>.json` file; a periodic write rewrites the same file. Nothing is written for an empty or idle session, and a killed process loses at most the last 30 s. Rotation keeps 50 files per source, so one source never evicts another. `cumulative.totals` in the same directory counts every session once, rewrites included, and survives rotation. Several processes may write it at once: each write rebuilds it from the session files on disk, so a concurrent update is never lost for long. When it is missing or unreadable, it restarts from the session files on disk, and sessions rotation already deleted are no longer counted. `GRAPH_IT_NO_STATS=1` disables every write, cumulative file included.
 
 **Local zero-LLM proof workflow:**
 
