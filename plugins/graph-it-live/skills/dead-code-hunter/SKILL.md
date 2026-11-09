@@ -18,32 +18,21 @@ context: fork
 Systematic scan of the dependency graph to surface orphan symbols and unreferenced files.
 Produces a ranked, safety-annotated deletion plan powered by Graph-It-Live.
 
-## CLI and Capability Discovery
+## Setup, routing and format
 
-Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, check
-`graph-it --version` when the CLI and terminal are available; use only its existing newer-version
-notice and do not poll npm. Share discovery, version, and update decisions across Graph-It skills
-for the session. Run `graph-it tool --list` once, consult `graph-it --help` or command help as
-needed, and refresh only when the CLI/version, server, or workspace changes or a requested tool is
-unknown. Examples are illustrative, not a fixed inventory. Do not install automatically. If the
-CLI is unavailable or unsuitable, use MCP only when the connected host advertises an equivalent
-tool and its schema; otherwise explain the gap. `graph-it tool <name>` invokes analysis directly
-through CLI; `graph-it serve` starts MCP. CLI `--format` and MCP `response_format` are distinct.
-
-If the CLI reports a newer version, interactive use requires explicit positive confirmation before
-running `graph-it update`; silence, timeout, refusal, non-TTY, or generic Agent mode is not consent.
-When automatic mode is explicitly enabled and pre-authorized, default the update decision to yes and
-run `graph-it update` without another prompt. After success, refresh the version and `--list`,
-invalidate cached capabilities, and advise that a running MCP server needs a host-authorized restart.
-On failure, keep using the existing CLI only if it remains usable; otherwise explain the failure
-and stop CLI analysis. Warn briefly and do not retry in a loop.
-
-These instructions require Graph-It-Live CLI **1.21.0 or later** (`check-architecture`, `architecture
---level units`, `--matrix`, and the 25 MCP tools). Compare the reported `graph-it --version` with
-1.21.0 at the same first activation. If it is older, say so once, name the commands it lacks, and
-offer `graph-it update` under the confirmation policy above; until it is updated, use only commands
-listed by that CLI's `--help` and `tool --list`, and never present output of a missing command as a
-result. If the version cannot be read, treat it as older.
+- Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, run
+  `graph-it --version` and `graph-it tool --list` once and share them across Graph-It skills. Requires
+  CLI **1.21.0 or later**: if older or unreadable, say so, name the missing commands, offer
+  `graph-it update`, and use only what `--help` and `tool --list` show. Do not install the CLI
+  automatically. Without it, use only an equivalent MCP tool the host advertises, with its exact
+  input schema; otherwise explain the gap.
+- Run `graph-it update` only after explicit positive confirmation; silence, timeout, refusal, non-TTY
+  or generic Agent mode is not consent, an explicitly pre-authorized automatic mode is. After success,
+  refresh version and inventory; a running MCP server needs a host-authorized restart. On failure, keep
+  a usable CLI, warn once, do not retry.
+- Routing: finding candidates and confirming references always goes through the graph. Read a
+  candidate file directly, bounded, only to judge it (dynamic use, framework magic, public API).
+- Format: `--format toon` for everything you read; `json` only when a script parses the output.
 
 ## When to Use
 
@@ -64,40 +53,33 @@ graph-it scan
 
 The reverse lookup index (who imports what, who calls what) is always built automatically — no extra flags needed.
 
-**Monorepos.** Scanning one package is fine for finding candidates (smaller and faster), but there
-"unused" means unused *inside that package*: a sibling package may still import the export. Without
-`--workspace`, the CLI uses the nearest directory, from the current one upward, holding a project
-marker of a supported language (`package.json`, `tsconfig.json`, `jsconfig.json`, `deno.json(c)`,
-`pyproject.toml`, `setup.py`, `setup.cfg`, `requirements.txt`, `Pipfile`, `Cargo.toml`, `go.mod`,
-`go.work`, `pom.xml`, `build.gradle(.kts)`, `settings.gradle(.kts)`, `*.csproj`, `*.sln`, `*.slnx`,
-`Directory.Build.props`); outside any project it exits with code `3`. `graph-it -w <dir>` forces the
-root: it is used exactly as given, and `.graph-it/` (index + cache) is created there. If
-`scan` prints `Warning: N imports resolve outside the workspace root`, imports to or from sibling
-packages are not in the index. Before recommending a deletion, confirm there is no consumer from the
-monorepo root (`graph-it -w <monorepoRoot> tool find_referencing_files --targetPath=<path>`), or
-state in the report that the result is limited to the selected package.
+**Monorepos.** Scanning one package finds candidates faster, but "unused" then means unused *inside
+that package*: a sibling package may still import the export. Without `--workspace` the CLI uses the
+nearest project marker (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, ...) and exits with
+code `3` outside any project; `graph-it -w <dir>` forces the root. If `scan` prints `Warning: N imports
+resolve outside the workspace root`, sibling-package imports are not indexed. Before recommending a
+deletion, confirm there is no consumer from the monorepo root
+(`graph-it -w <monorepoRoot> tool find_referencing_files --targetPath=<path> --format toon`), or state
+that the result is limited to the selected package.
 
 For a large or unfamiliar workspace, take a compact baseline before scanning:
 
 ```bash
-graph-it architecture --format toon
+graph-it architecture --level units --format toon
 ```
 
 Use it to identify packages, public entry points, and generated areas that require review rather than automatic deletion.
 
 ### Step 2 — Run a dead-code scan
 
-If the installed CLI inventory advertises `scan_dead_code`, it can be invoked directly for the
-workspace:
-
 ```bash
-graph-it tool scan_dead_code
+graph-it tool scan_dead_code --format toon
+graph-it tool scan_dead_code --scopePath=/abs/src --maxFiles=500 --format toon
 ```
 
-Use `--format` only as a CLI option supported by the installed command. For MCP, use an equivalent
-tool only if the host advertises it, and pass only parameters in its input schema. Restrict scope
-only when the current CLI help or MCP schema documents a scope parameter. A scan surfaces
-candidates; **confirm each high-priority candidate in Step 3 before recommending deletion.**
+`--scopePath` restricts the scan to a directory inside the workspace; `--maxFiles` (default 500) caps
+it and reports `truncated=true` with `filesBeyondLimit` when reached. A scan surfaces candidates;
+**confirm each high-priority candidate in Step 3 before recommending deletion.**
 
 ---
 
@@ -105,12 +87,17 @@ candidates; **confirm each high-priority candidate in Step 3 before recommending
 
 `scan_dead_code` uses static analysis. A symbol may be used dynamically, from outside the indexed
 workspace, or through a reference type the scan does not cover. For each symbol candidate, seek
-independent incoming-reference/dependent evidence, including type-only references when the
-available capability supports them. Use `get_impact_analysis` (runtime and type-only dependents)
-only if the installed CLI inventory advertises it and its supported parameters are known; for MCP,
-use only the connected host's exact tool name and input schema. `query_call_graph` callers, when
-available, describe call sites and resolved runtime references (`REFERENCES`: callbacks, JSX components) and are not a complete reference check. For a file candidate, check incoming file references
-with an advertised equivalent capability and separately rule out entry points/public API use.
+independent incoming-reference evidence, type-only references included:
+
+```bash
+graph-it tool get_impact_analysis --filePath=/abs/src/a.ts --symbolName=fn --format toon    # runtime and type-only dependents
+graph-it tool find_referencing_files --targetPath=/abs/src/a.ts --format toon               # incoming file references
+```
+
+`query_call_graph` callers describe call sites and resolved runtime references (`REFERENCES`:
+callbacks, JSX components); they are not a complete reference check. For a file candidate, check
+incoming file references and separately rule out entry points and public API use. MCP fallback: use
+only the host's exact tool name and input schema.
 
 - **Zero call sites alone** → unconfirmed, never a deletion basis
 - **Incoming references found** → retain or classify for review (test-only use is not automatically dead)
@@ -142,46 +129,9 @@ Apply this risk classification:
 
 ## Output Format
 
-Produce a **Deletion Plan** in this format:
-
----
-
-### Dead Code Scan Report
-
-**Scanned**: `<N>` files | **Candidates found**: `<M>` symbols + `<K>` ghost files
-
-#### Possible Ghost Files (confirmation required)
-
-| File | Last modified | Reason |
-|------|--------------|--------|
-| `src/utils/oldMigration.ts` | 2022-03-11 | No incoming file references confirmed; entry-point and external-use checks completed |
-
-#### Symbol Candidates — Manual Review
-
-| Symbol | File | Kind | Reference evidence |
-|--------|------|------|---------|
-| `formatLegacyCurrency` | `src/utils/format.ts` | function | Include incoming-reference and type-only check status |
-| `MD5Hash` | `src/services/auth.ts` | function | Include incoming-reference and type-only check status |
-
-#### Orphan Symbols — Review First
-
-| Symbol | File | Risk | Note |
-|--------|------|------|------|
-| `createReport` | `src/api/index.ts` | Barrel export | Check if consumed by external packages |
-
-#### Test-Only Symbols
-
-| Symbol | File | Test callers |
-|--------|------|-------------|
-| `mockPaymentGateway` | `src/mocks/payment.ts` | 3 test files |
-
----
-
-### Recommended Deletion Order
-
-1. Complete missing incoming-reference checks; keep unconfirmed candidates out of deletion recommendations
-2. Review possible ghost files, public APIs, barrel exports, and external consumers
-3. Review remaining symbol candidates and test-only use with the team
+Write a **Deletion Plan** with the template in `references/report-template.md`: scan totals, possible
+ghost files, symbol candidates for manual review, barrel exports to review first, test-only symbols,
+then the recommended deletion order. Every row states its reference evidence.
 
 ---
 
@@ -200,12 +150,11 @@ Produce a **Deletion Plan** in this format:
 
 ```bash
 graph-it scan
-graph-it check src/utils/format.ts
+graph-it check src/utils/format.ts --format toon
 ```
 
-`graph-it check` is file-scoped in the CLI help observed for this installation. Use a workspace or
-folder scan only through a capability and scope parameter documented by the installed CLI or the
-connected MCP host schema.
+`graph-it check` and `find_unused_symbols` are file-scoped; `scan_dead_code` covers the workspace or
+`--scopePath`.
 
 ---
 
@@ -214,7 +163,6 @@ connected MCP host schema.
 - **Dynamic dispatch** (`obj[methodName]()`, `require(variable)`) is invisible to static analysis — always review before deleting
 - **Monorepos**: a per-package scan only sees consumers inside that package; an export it reports as unused may be imported by a sibling package. Confirm from the monorepo root before deleting (see Step 1)
 - **Framework magic**: decorators (`@Component`, `@Injectable`) may make symbols appear unused but they're resolved at runtime — exclude framework entry files from the scan
-- The installed CLI help describes `graph-it check` as file-scoped. Use a workspace scan only through a currently advertised capability; apply scope only when its help or input schema documents it.
 
 ## Related Skills
 

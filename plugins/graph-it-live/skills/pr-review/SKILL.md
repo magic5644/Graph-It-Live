@@ -15,80 +15,51 @@ context: fork
 
 Use deterministic local diff analysis first. Deepen only findings that need additional evidence.
 
-## CLI and Capability Discovery
+## Setup, routing and format
 
-Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, check
-`graph-it --version` when the CLI and terminal are available; use only its existing newer-version
-notice and do not poll npm. Share discovery, version, and update decisions across Graph-It skills
-for the session. Run `graph-it tool --list` once, consult `graph-it --help` or command help as
-needed, and refresh only when the CLI/version, server, or workspace changes or a requested tool is
-unknown. Examples are illustrative, not a fixed inventory. Do not install automatically. If the
-CLI is unavailable or unsuitable, use MCP only when the connected host advertises a structurally
-equivalent tool and its schema; otherwise explain the gap. `graph-it tool <name>` invokes analysis
-directly through CLI; `graph-it serve` starts MCP. CLI `--format` and MCP `response_format` are
-distinct.
+- Prefer the Graph-It CLI. At the first activation of any Graph-It skill in a session, run
+  `graph-it --version` and `graph-it tool --list` once and share them across Graph-It skills. Requires
+  CLI **1.21.0 or later**: if older or unreadable, say so, name the missing commands, offer
+  `graph-it update`, and use only what `--help` and `tool --list` show. Do not install the CLI without
+  an explicit request. Without it, use only a structurally equivalent MCP tool the host advertises,
+  with its exact input schema; CLI options do not map to MCP parameters.
+- Run `graph-it update` only after explicit positive confirmation; silence, timeout, refusal, non-TTY
+  or generic Agent mode is not consent, an explicitly pre-authorized automatic mode is. After success,
+  refresh version and inventory; a running MCP server needs a host-authorized restart. On failure, keep
+  a usable CLI, warn once, do not retry.
+- Routing: `review-pr` comes first; then read the changed hunks and the files its findings name,
+  bounded, instead of re-exploring the repository.
+- Format: `--format toon` for everything you read; `json` only when a script parses the output;
+  `markdown` only when the report itself goes to a human or a PR comment.
 
-If the CLI reports a newer version, interactive use requires explicit positive confirmation before
-running `graph-it update`; silence, timeout, refusal, non-TTY, or generic Agent mode is not consent.
-When automatic mode is explicitly enabled and pre-authorized, default the update decision to yes and
-run `graph-it update` without another prompt. After success, refresh the version and `--list`,
-invalidate cached capabilities, and advise that a running MCP server needs a host-authorized restart.
-On failure, keep using the existing CLI only if it remains usable; otherwise explain the failure
-and stop CLI analysis. Warn briefly and do not retry in a loop. Do not install the CLI without an
-explicit request.
-
-These instructions require Graph-It-Live CLI **1.21.0 or later** (`check-architecture`, `architecture
---level units`, `--matrix`, and the 25 MCP tools). Compare the reported `graph-it --version` with
-1.21.0 at the same first activation. If it is older, say so once, name the commands it lacks, and
-offer `graph-it update` under the confirmation policy above; until it is updated, use only commands
-listed by that CLI's `--help` and `tool --list`, and never present output of a missing command as a
-result. If the version cannot be read, treat it as older.
-
-
-Fetch the Git base ref needed for review. The CLI indexes automatically for `review-pr`, so do not
-run `graph-it scan` first.
-
-Review from the repository (monorepo) root so consumers in every package are counted: pass it
-explicitly with `graph-it -w <repoRoot> review-pr ...` rather than relying on `cd`. An explicit
-`-w` is used exactly as given; without it the CLI uses the nearest directory holding a project
-marker (`package.json`, `tsconfig.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`,
-`*.csproj` and the others listed in `docs/CLI.md`), which inside a sub-package leaves sibling
-packages out, and exits with code `3` outside any project. The index and cache
-(`.graph-it/`) are created in that root. If stderr warns that imports resolve outside the workspace
-root, impact on the packages outside it is not covered: rerun with the `--workspace` it names or
-state the limitation in the review.
+Review from the repository (monorepo) root with `graph-it -w <repoRoot> review-pr ...` so consumers in
+every package count. Without `-w` the CLI uses the nearest project marker (`package.json`,
+`pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `*.csproj`, ...), which inside a sub-package
+leaves siblings out, and exits with code `3` outside any project. If stderr warns that imports resolve
+outside the workspace root, rerun with the `--workspace` it names or state the limitation.
 
 ## Local Review Workflow
 
 ### 1. Analyze the diff
 
-```bash
-graph-it review-pr --base origin/main --format markdown
-```
-
-Use explicit limits when needed:
+Fetch the base ref first. `review-pr` indexes automatically: do not run `graph-it scan` before it.
 
 ```bash
+graph-it review-pr --base origin/main --format toon
 graph-it review-pr --base origin/main --head feature/my-change --depth 3 --max-files 200 --format toon
 ```
 
-- `--base` is required.
-- Without `--head`, the command reviews the current working tree, including staged and unstaged contents.
-- With `--head <ref>`, both sides are committed Git refs; untracked working-tree files are excluded.
-- `--depth` limits transitive dependent traversal; use an integer from 1 to 10.
-- `--max-files` limits changed files; use an integer from 1 to 1000.
-- Use `--format markdown` for a human report; use `toon` or `json` for structured agent analysis.
+- `--base` is required. Without `--head`, the working tree is reviewed, staged and unstaged included.
+- With `--head <ref>`, both sides are committed refs; untracked files are excluded.
+- `--depth` limits transitive dependent traversal (1-10); `--max-files` caps changed files (1-1000).
 
-If `graphit.architecture.json` exists at the workspace root (or the diff edits it), the report also has
-an `architecture` section: the rules checked on the base and on the head, compared. Read its `verdict`
-(`degraded`, `improved`, `unchanged`), the `newViolations` of each rule (importing file and line, target
-file; `accepted` when the head baseline lists them), the `resolvedViolations`, the new `unitCycles`, and
-`configChange` when the diff edits the rules or their baseline. A new `error` violation the baseline does
-not accept (`newErrors` > 0) blocks the merge: it raises the risk and fails the Review Gate. Treat a
-`configChange` that weakens a rule, removes one, or accepts new baseline entries as a finding to justify.
-
-`graph-it check-architecture --format markdown` still gives the whole-workspace check against the
-baseline; add `--verbose` to list the accepted violations.
+With `graphit.architecture.json` at the workspace root (or edited by the diff), the report has an
+`architecture` section comparing the rules on base and head: `verdict` (`degraded`, `improved`,
+`unchanged`), each rule's `newViolations` (`accepted` when the head baseline lists them),
+`resolvedViolations`, new `unitCycles`, and `configChange`. `newErrors` > 0 blocks the merge and fails
+the Review Gate. A `configChange` that weakens or removes a rule or accepts new baseline entries is a
+finding to justify. `graph-it check-architecture --format toon` gives the whole-workspace check
+(`--verbose` lists accepted violations in text/markdown).
 
 ### 2. Interpret evidence before concluding
 
@@ -110,22 +81,20 @@ it does not replace tests, security review, or domain review.
 
 ### 3. Deepen high-risk findings
 
-These examples illustrate CLI use; verify tool names and parameters in the installed inventory/help.
-For MCP fallback, use only a structurally equivalent tool advertised by the connected host and its
-exact input schema. Use absolute paths when the selected CLI parameter requires them:
+Verify parameters with `graph-it tool <name> --help`; MCP fallback uses only the host-advertised schema.
 
 ```bash
 # Blast radius and known dependent symbols
-graph-it tool get_impact_analysis --filePath=/absolute/path/src/api.ts --symbolName=updateUser --format=toon
+graph-it tool get_impact_analysis --filePath=/abs/src/api.ts --symbolName=updateUser --format toon
 
 # Direct callers for a specific symbol
-graph-it tool query_call_graph --filePath=/absolute/path/src/api.ts --symbolName=updateUser --direction=callers --depth=1 --format=toon
+graph-it tool query_call_graph --filePath=/abs/src/api.ts --symbolName=updateUser --direction=callers --depth=1 --format toon
 
 # Broader caller/callee neighbourhood
-graph-it tool query_call_graph --filePath=/absolute/path/src/api.ts --symbolName=updateUser --depth=3 --format=toon
+graph-it tool query_call_graph --filePath=/abs/src/api.ts --symbolName=updateUser --depth=3 --format toon
 
 # Understand a changed implementation and its local call flow
-graph-it tool generate_codemap --filePath=/absolute/path/src/api.ts --format=toon
+graph-it tool generate_codemap --filePath=/abs/src/api.ts --format toon
 ```
 
 Check conventional test candidates reported by `review-pr`, then inspect the actual tests. Missing test
@@ -145,67 +114,9 @@ Do not invent runtime behavior from graph data. Cite the command output that sup
 
 ## GitHub Actions Gate
 
-When creating or modernizing a workflow, resolve the latest stable **official GitHub release**
-first, then resolve that release tag to its full commit SHA (dereference annotated tags when
-needed). Pin the action to that SHA and comment the corresponding release tag. Do not trust
-`target_commitish` as the tag's commit, use a floating ref, or copy this dated example without
-resolving the current release. This is a verified snapshot of `v1.17.0` as of 2026-10-02, not a
-claim that it remains the latest release:
-
-```yaml
-name: Graph-It Review Gate
-
-on:
-  pull_request:
-    types: [opened, synchronize, reopened]
-
-permissions:
-  contents: read
-  pull-requests: write
-
-jobs:
-  review:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@2f9d5cd9756c8add33e7a2b30e34be7c131048ac # v1.17.0
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          comment: ${{ github.event.pull_request.head.repo.fork && 'false' || 'true' }}
-          fail-on-risk: high
-          max-depth: "3"
-          max-files: "200"
-          cli-version: "" # empty installs the npm CLI @latest; independent of the pinned Action SHA
-```
-
-Action inputs:
-
-- `token` — required only when `comment: true`.
-- `base-ref` — optional; defaults to the pull request base SHA when available.
-- `comment` — updates a sticky pull-request comment; disable for fork PRs.
-- `fail-on-risk` — optional `high` or `critical` threshold; leave empty for an informative gate.
-- `cli-version` — optional npm version, tag, or range; empty installs `latest`.
-- `max-depth` and `max-files` — control bounded analysis.
-
-Action outputs: `risk`, `score`, `cli-version`.
-
-Use Dependabot to propose Action reference updates. Merge this entry into an existing
-`.github/dependabot.yml` rather than replacing other update configuration; Dependabot opens PRs and
-does not auto-merge them unless separately configured:
-
-```yaml
-version: 2
-updates:
-  - package-ecosystem: github-actions
-    directory: "/"
-    schedule:
-      interval: weekly
-```
-
-Use least privilege: remove `pull-requests: write` and set `comment: false` if comments are not needed.
-Do not expose write tokens to untrusted fork code.
+To create or modernize the `graph-it-review-gate` workflow, read `references/github-actions-gate.md`:
+pin the Action to the full commit SHA of the latest official release, least-privilege permissions,
+no write token for fork code, and Dependabot for Action updates.
 
 ## Boundaries
 
