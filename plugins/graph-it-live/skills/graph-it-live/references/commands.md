@@ -150,7 +150,7 @@ mermaid`, `graph-it architecture --groups --format mermaid`.
 ```bash
 graph-it wiki --output docs/wiki --top 15     # markdown wiki from the call graph (--scope, --exclude, --force)
 graph-it export src/analyzer --format html --output analyzer.html   # standalone HTML graph
-graph-it stats                                # session token stats, estimated with the cl100k_base tokenizer
+graph-it stats                                # token stats (cl100k_base estimate): session, last 50 per source + all-sources total, cumulative
 ```
 
 ## Review a diff

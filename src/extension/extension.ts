@@ -15,10 +15,14 @@ import { CommandRegistrationService } from './services/CommandRegistrationServic
 import { EditorEventsService } from './services/EditorEventsService';
 import { LmToolsService } from './services/LmToolsService';
 import { registerBranchWatch } from './services/BranchWatchService';
+import { startPeriodicFlush, type PeriodicFlush } from '../analyzer/stats/statsPersistence';
+import { sessionStats } from '../shared/sessionStats';
 
 // Keep track of MCP server provider for cleanup
 let mcpServerProvider: McpServerProvider | null = null;
 let graphProvider: GraphProvider | null = null;
+// Persists the language model tools' TOON stats under the 'vscode' source.
+let statsFlush: PeriodicFlush | null = null;
 
 function resolvePreferredWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
     const configuredPath = vscode.workspace.getConfiguration('graph-it-live').get<string>('workspaceFolder', '');
@@ -58,6 +62,11 @@ export function activate(context: vscode.ExtensionContext) {
     
     const log = getExtensionLogger('Extension');
     log.info('Graph-It-Live is now active!');
+
+    sessionStats.setSource('vscode');
+    statsFlush = startPeriodicFlush(sessionStats, {
+        onError: (error) => log.warn('Session stats flush failed:', error instanceof Error ? error.message : String(error)),
+    });
 
     const provider = new GraphProvider(context.extensionUri, context);
     graphProvider = provider; // Keep reference for deactivation
@@ -232,6 +241,9 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 export async function deactivate() {
+    statsFlush?.dispose();
+    statsFlush = null;
+
     await graphProvider?.dispose();
     graphProvider = null;
     

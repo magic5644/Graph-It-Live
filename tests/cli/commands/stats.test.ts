@@ -95,10 +95,14 @@ describe("cli stats command", () => {
     flushSession(makeSnapshot("mcp", "graphitlive_generate_codemap"), tempDir);
     flushSession(makeSnapshot("mcp", "graphitlive_query_call_graph"), tempDir);
     flushSession(makeSnapshot("cli", "graphitlive_generate_codemap"), tempDir);
+    flushSession(makeSnapshot("vscode", "graphitlive_find_referencing_files"), tempDir);
 
     const output = await run(["--stats-dir", tempDir], fakeRuntime, "text");
 
     expect(output).toContain("### By source");
+    expect(output).toMatch(/\| vscode \| 1 \| 2 \| 100 \| 60 \| 40 \| 1 \| 500 \|/);
+    expect(output).toMatch(/\| \*\*all sources\*\* \| 4 \| 8 \| 400 \| 240 \| 160 \| 4 \| 2000 \|/);
+    expect(output).toMatch(/## Cumulative \(since \d{4}-\d{2}-\d{2}T/);
     expect(output).toMatch(/\| mcp \| 2 \| 4 \| 200 \| 120 \| 80 \| 2 \| 1000 \|/);
     expect(output).toMatch(/\| cli \| 1 \| 2 \| 100 \| 60 \| 40 \| 1 \| 500 \|/);
     expect(output).toContain("### By tool");
@@ -149,6 +153,17 @@ describe("cli stats command", () => {
     expect(parsed.estimationNote).toBe("estimated (cl100k_base tokenizer)");
     expect(parsed.history.persistedSessions).toBe(1);
     expect(parsed.history.bySource.cli.llmTokensUsed).toBe(500);
+    expect(parsed.history.total).toMatchObject({ sessions: 1, calls: 2 });
+    expect(parsed.cumulative.total).toMatchObject({ sessions: 1, calls: 2 });
+    expect(parsed.cumulative.since).toEqual(expect.any(String));
     expect(parsed.currentSession.estimationMethod).toBe("cl100k_base");
+  });
+
+  it("says when no cumulative totals exist yet", async () => {
+    const output = await run(["--stats-dir", tempDir], fakeRuntime, "markdown");
+    expect(output).toContain("(no cumulative totals yet)");
+    const parsed = JSON.parse(await run(["--stats-dir", tempDir], fakeRuntime, "json"));
+    expect(parsed.cumulative).toBeUndefined();
+    expect(parsed.history.total.sessions).toBe(0);
   });
 });

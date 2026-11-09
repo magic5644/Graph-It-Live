@@ -1487,8 +1487,19 @@ graph-it stats [options]
 
 **What it reports:**
 - current process session (`byTool`, totals, `llmUsage`)
-- persisted history (`bySource`, `byTool`)
+- persisted history window: the last 50 sessions per source, by source with an **all sources** total row (`history.bySource`, `history.total`) and by tool (`history.byTool`)
+- cumulative totals since the first counted session (`cumulative.since`, `cumulative.bySource`, `cumulative.total`), kept apart from the 50-session window because rotation never reduces them
 - required wording that `llmUsage` is never summed into estimated encoding totals
+
+**Stats sources and when they are written:**
+
+| Source | Records | Written to `~/.graph-it/stats` |
+|--------|---------|--------------------------------|
+| `cli` | `graph-it` commands, including `graph-it query` LLM usage | once, when the command exits |
+| `mcp` | MCP server tool responses | about 30 s after new activity, then again on shutdown |
+| `vscode` | VS Code language model tool responses (Copilot agent mode) | about 30 s after new activity, then again when the extension deactivates |
+
+Each session is one `<source>-<sessionId>.json` file; a periodic write rewrites the same file. Nothing is written for an empty or idle session, and a killed process loses at most the last 30 s. Rotation keeps 50 files per source, so one source never evicts another. `cumulative.totals` in the same directory counts every session once, rewrites included, and survives rotation; when missing or unreadable it is rebuilt from the session files on disk. `GRAPH_IT_NO_STATS=1` disables every write, cumulative file included.
 
 **Local zero-LLM proof workflow:**
 

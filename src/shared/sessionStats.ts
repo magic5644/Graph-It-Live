@@ -16,13 +16,11 @@
 /**
  * Source of the stats collection — encoded into persisted file names.
  *
- * 'extension' is the safe default for the singleton: the extension host has
- * no TOON-encoding call sites and no flush wired (deliberate — MCP and CLI
- * are the only reporting surfaces), so extension-side collection stays
- * in-memory and inert. If extension code ever imports sessionStats, nothing
- * is persisted and nothing crashes.
+ * 'vscode' is the default for the singleton: the extension host records the
+ * TOON responses of its language model tools and flushes them periodically.
+ * Other entry points (mcp/cli) call setSource() before recording.
  */
-export type SessionStatsSource = 'mcp' | 'cli' | 'extension';
+export type SessionStatsSource = 'mcp' | 'cli' | 'vscode';
 
 /** One TOON-vs-JSON encoding comparison for a tool response. */
 export interface StatsEntry {
@@ -97,8 +95,9 @@ export class SessionStatsCollector {
   private totals: StatsAggregate = emptyAggregate();
   private llmCalls = 0;
   private llmTokensUsed = 0;
+  private readonly recordListeners = new Set<() => void>();
 
-  constructor(source: SessionStatsSource = 'extension') {
+  constructor(source: SessionStatsSource = 'vscode') {
     this.source = source;
     this.sessionId = globalThis.crypto.randomUUID();
     this.startedAt = Date.now();
@@ -122,12 +121,26 @@ export class SessionStatsCollector {
     this.byTool[entry.toolName] ??= emptyAggregate();
     accumulate(this.byTool[entry.toolName], entry);
     accumulate(this.totals, entry);
+    this.notifyRecord();
   }
 
   /** Record one real LLM usage event. Kept separate from encoding totals. */
   recordLlmUsage(entry: LlmUsageEntry): void {
     this.llmCalls += 1;
     this.llmTokensUsed += entry.tokensUsed;
+    this.notifyRecord();
+  }
+
+  /** Call `listener` after every record; returns the unsubscribe function. */
+  onRecord(listener: () => void): () => void {
+    this.recordListeners.add(listener);
+    return () => {
+      this.recordListeners.delete(listener);
+    };
+  }
+
+  private notifyRecord(): void {
+    for (const listener of this.recordListeners) listener();
   }
 
   /** True when at least one entry (encoding or LLM) has been recorded. */
