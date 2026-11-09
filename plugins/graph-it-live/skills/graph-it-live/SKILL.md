@@ -53,6 +53,10 @@ prove callers or impact.
 Use `--format toon` for every output the agent reads, with `--detail compact` and `--token-budget N`
 on `context` (`--token-budget` on `query`, `--tokenBudget` on `query_call_graph`). Use `json` only when
 a script parses the output, and `markdown` or `mermaid` only when the output itself goes to a human.
+Size the budget to answer in one call (about 2000 to locate, 4000-8000 for impact, 16000 at most). On
+`truncated=true`, stop if the top results answer. Otherwise narrow with `--scope`/`--seeds`, or, when
+every result is needed, rerun once at `--token-budget 16000`, then page with `--cursor <nextCursor>`.
+`query_call_graph --tokenBudget=0` returns all callers in one call.
 MCP `response_format` is a separate parameter (TOON by default on current servers); pass it only when
 the schema advertises it.
 

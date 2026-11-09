@@ -28,7 +28,7 @@ Do not edit source, run formatters or codemods, or use a package manager. Locate
 graph-it context --mode refactor --seeds 'src/a/b.ts#symbol' --depth 4 --detail compact --token-budget 4000 --format toon
 ```
 
-   It returns the seed, importers (tests included), `indexRevision`, `truncated` and `nextQueries`. Keep `--depth 4`: at the default depth, consumers behind a barrel or re-export are missed. Add `--scope '<glob>'` to narrow. If `truncated=true`, continue with `--cursor <nextCursor>` rather than raising the budget.
+   It returns the seed, importers (tests included), `indexRevision`, `truncated` and `nextQueries`. Keep `--depth 4`: at the default depth, consumers behind a barrel or re-export are missed. Add `--scope '<glob>'` to narrow. If `truncated=true`, the importer list is incomplete: rerun once with `--token-budget 16000` (the maximum) to get it in one call, and continue with `--cursor <nextCursor>` only if that is still truncated. Never plan on a truncated list.
 3. Deepen only symbols that are exported, public, or widely used (high fan-in):
 
 ```bash
