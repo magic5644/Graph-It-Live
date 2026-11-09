@@ -1,5 +1,42 @@
 # Changelog
 
+## v1.24.1
+
+Patch release focused on token efficiency for AI agents (#396: issues #654, #655, #656, #657, #660). Compact TOON answers now reach the model in MCP clients such as Claude Code and GitHub Copilot CLI, the native Copilot tools answer in TOON too, `graph-it stats` counts every source (CLI, MCP and VS Code) with an all-sources row and cumulative totals, and the agent skills load about a third fewer tokens. No command, setting or MCP tool is added or removed. Read *Breaking / Behavior changes* if a script reads `structuredContent`, the Copilot tool JSON or the stats labels.
+
+### Breaking / Behavior changes
+
+- **MCP: `structuredContent` only for `json`** (#654, PR #658): with `response_format: "toon"` (the default) or `"markdown"`, a tool result now carries only the formatted text, so that text is what the model reads. Claude Code and Copilot CLI used to show the model the JSON of `structuredContent` instead. A client that reads `structuredContent` must now pass `response_format: "json"`. The text in `content` is unchanged for every format, and `isError: true` is still set on failures. No tool declares an `outputSchema` any more: the SDK rejects a result without `structuredContent` when one is declared, and the schema (`data: any`) gave clients no typed contract.
+- **Native Copilot tools answer in TOON** (#655, PR #659): the `graph-it-live_*` language model tools (Copilot agent mode) used to send JSON. They now accept an optional `response_format` input: `toon` (default, the same content as MCP `toon`: workspace-relative paths, an `errors` block on failure, the `meta(indexedAt,stale)` freshness row and the tool's truncation fields), `markdown`, or `json` (the previous payload, byte for byte). The unused `format` property of the `graph_context` tool schema is removed.
+- **Stats labelled `cl100k_base`, not `chars/4`** (#656, PR #661): in `graphitlive_get_session_stats` and `graph-it stats`, `estimationNote`, the CLI note line and `--format json` now say `estimated (cl100k_base tokenizer)` instead of `estimated (chars/4 heuristic)`, and `currentSession.estimationMethod` is `cl100k_base` instead of `chars/4 heuristic`. Counting itself has used `cl100k_base` since v1.14.1; only the labels were wrong. Sessions started before v1.14.1 (2026-08-28) were really counted as chars/4: they are left out of the history totals, so the totals never add up two units. Sessions written by v1.14.1 to v1.24.0 load as `cl100k_base`.
+- **Stats output gains totals and a `vscode` source** (#660, PR #665), in `graph-it stats` and `graphitlive_get_session_stats`:
+  - `history.total`: all sources added up (sessions, calls, JSON/TOON tokens, delta, truncations, LLM calls and tokens). Text and Markdown: an **all sources** row in *By source*.
+  - `cumulative` (`since`, the ISO date of the first counted session, `bySource`, `total`): totals that rotation never reduces. It is absent until this release writes a session. Text and Markdown: a `## Cumulative (since …)` section.
+  - The history heading now reads `## History (last 50 persisted sessions per source)`.
+  - New `vscode` source for the native Copilot tool calls, written about 30 s after activity and when the extension deactivates. MCP sessions are now also written about 30 s after activity, not only on shutdown.
+
+### Changed
+
+- **See what TOON saves across every source** (#660, PR #665): run `graph-it stats` (or ask your assistant for `graphitlive_get_session_stats`). Each session is one `<source>-<sessionId>.json` file in `~/.graph-it/stats`, rotation keeps 50 files per source so one source never evicts another, and `cumulative.totals` in the same folder counts every session once, rewrites included. A killed process loses at most the last 30 s. `GRAPH_IT_NO_STATS=1` disables every write, cumulative file included. On this repository's own usage, 1,822 tool calls used 644,751 TOON tokens instead of 1,336,776 in JSON:
+
+  ![graph-it stats on the Graph-It-Live repository: by-source history with an all sources row, and cumulative totals since the first counted session](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/stats-cumulative-totals.png)
+
+- **TOON reaches the model** (#654, #655): measured on this repository, `cl100k_base` tokens of the text the model receives (these calls only, not a general promise):
+
+  | Call | Before | After (TOON) |
+  | --- | ---: | ---: |
+  | MCP `find_referencing_files` `src/shared/path.ts` (Claude Code) | 5,915 | 4,341 |
+  | MCP `graph_context` "How does the MCP server format tool responses?" | 4,043 | 2,806 |
+  | Copilot tool `find_referencing_files` `src/shared/path.ts` (JSON before) | 8,517 | 4,341 |
+  | Copilot tool `generate_codemap` `src/mcp/responseFormatter.ts` | 1,345 | 884 |
+
+  Ask for JSON only when a script parses the result, for example `graphitlive_find_referencing_files` with `{"targetPath": "src/shared/path.ts", "response_format": "json"}`.
+- **Smaller, task-routed agent skills** (#657, PRs #662, #663): the five plugin skills route each task (a known file or symbol is read directly; locating code, callers, impact and architecture go through the graph first), use `--format toon` consistently, and move detailed references to on-demand files (`graph-it-live/references/commands.md`, `references/setup.md`, `pr-review/references/github-actions-gate.md`, report templates). Always-loaded `SKILL.md` text drops from 14,724 to 9,235 tokens (−37 %). The skills also say how to get complete results in few calls: size `--token-budget` for one call (about 2,000 to locate, 4,000–8,000 for impact or refactor, 16,000 at most), narrow or page with `--cursor` on `truncated=true`, and use `query_call_graph --tokenBudget=0` to get every caller at once. Skill triggers are unchanged.
+
+### Security
+
+- **No absolute path in the natural-language TOON subgraph** (PR #659): in the TOON subgraph of `query_natural_language`, a path outside the workspace root now keeps only its file name (`[external:x.ts]`), on MCP and in the Copilot tool.
+
 ## v1.24.0
 
 Minor release. Graph-It-Live now understands Vue 3 single-file components (#568: issues #644, #645, #646, PRs #647, #648, #649). A `.vue` file is parsed block by block, so its imports, symbols and calls point at the right line of the `.vue` file. The `<template>` links each component, handler and interpolation to the script binding it uses, so a component used only in its template is no longer reported unused. `.vue` files carry the Vue logo in every graph, and `review-pr` and Branch Watch report the props and events a change adds or removes. No command, setting, MCP tool or Copilot tool is added or removed.
