@@ -1,4 +1,5 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import https from 'node:https';
 
 // Single sources: plugins/graph-it-live/plugin.json for the shared plugin
@@ -13,6 +14,8 @@ const nativeManifestPaths = [
 const portableMcpPath = 'plugins/graph-it-live/mcp.json';
 const nativeMcpPath = 'plugins/graph-it-live/.mcp.json';
 const claudeMarketplacePath = '.claude-plugin/marketplace.json';
+// Copilot CLI reads either catalog but documents this location; it mirrors the Claude one.
+const copilotMarketplacePath = '.github/plugin/marketplace.json';
 
 function isSemver(version) {
   return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version);
@@ -62,10 +65,16 @@ const mismatches = [];
 
 async function sync(path, content) {
   const text = `${JSON.stringify(content, null, 2)}\n`;
+  const current = await readFile(path, 'utf8').catch((error) => {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  });
   // Windows checkouts with core.autocrlf turn LF into CRLF; line endings are not drift.
-  if ((await readFile(path, 'utf8')).replaceAll('\r\n', '\n') === text) return;
+  if (current?.replaceAll('\r\n', '\n') === text) return;
   mismatches.push(path);
-  if (!checkOnly) await writeFile(path, text);
+  if (checkOnly) return;
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, text);
 }
 
 const pluginManifest = { ...await readJson(pluginManifestPath), version };
@@ -91,7 +100,9 @@ const marketplaceEntry = claudeMarketplace.plugins.find(({ name }) => name === '
 if (!marketplaceEntry) throw new Error(`Missing graph-it-live entry in ${claudeMarketplacePath}`);
 marketplaceEntry.version = version;
 marketplaceEntry.description = pluginManifest.description;
+marketplaceEntry.source = `./${dirname(pluginManifestPath)}`;
 await sync(claudeMarketplacePath, claudeMarketplace);
+await sync(copilotMarketplacePath, claudeMarketplace);
 
 if (checkOnly && mismatches.length > 0) {
   console.error(`Plugin manifests do not match ${packageName}@${version}; run node scripts/sync-agent-plugin-version.mjs ${version}:`);
