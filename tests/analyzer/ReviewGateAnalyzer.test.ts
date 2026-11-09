@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { treeAnalyzer } from "../../src/analyzer/architecture/architectureReview";
 import { addedFileCycles } from "../../src/analyzer/BranchWatchAnalyzer";
 import { createSpiderDependentsProvider } from "../../src/mcp/tools/impact";
+import { mapWithConcurrency } from "../../src/shared/concurrency";
 import { ReviewGateAnalyzer, renderReviewMarkdown, riskForScore, type SymbolDependentsProvider } from "../../src/analyzer/ReviewGateAnalyzer";
 
 const temporaryDirectories: string[] = [];
@@ -224,7 +225,8 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     // 12,000 paths of about 95 bytes: over the former 1 MiB git output buffer. Plain text keeps the review cheap.
     const directory = path.join(workspace, "notes", "a".repeat(60));
     await fs.mkdir(directory, { recursive: true });
-    await Promise.all(Array.from({ length: 12_000 }, (_unused, index) => fs.writeFile(path.join(directory, `note-${String(index).padStart(6, "0")}.txt`), "x\n")));
+    // Bounded writes: 12,000 opens at once hit EMFILE on macOS and Windows runners.
+    await mapWithConcurrency(Array.from({ length: 12_000 }, (_unused, index) => index), 16, (index) => fs.writeFile(path.join(directory, `note-${String(index).padStart(6, "0")}.txt`), "x\n"));
     execFileSync("git", ["add", "."], { cwd: workspace, stdio: "ignore" });
     execFileSync("git", ["commit", "-q", "-m", "many files"], { cwd: workspace, stdio: "ignore" });
 
