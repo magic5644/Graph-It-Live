@@ -344,6 +344,8 @@ async function doInitializeWorker(): Promise<void> {
     workerPath,
     warmupTimeout: 120000, // 2 minutes for large workspaces
     invokeTimeout: 60000, // 1 minute per tool call
+    // Both grow with file count and have no file cap (dead-code scan: 12,000 files measured at 87 s).
+    toolTimeouts: { scan_dead_code: 600_000, review_pr: 600_000 },
   });
 
   debugLog("[McpServer] Starting worker with warmup...");

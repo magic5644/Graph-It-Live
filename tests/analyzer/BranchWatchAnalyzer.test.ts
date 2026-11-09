@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BRANCH_WATCH_MAX_FILES, BRANCH_WATCH_MAX_FILES_LIMIT, BranchWatchAnalyzer, BranchWatchError,
   normalizeBranchWatchMaxFiles, parseCatFileBatch } from '@/analyzer/BranchWatchAnalyzer';
 import { LanguageService } from '@/analyzer/LanguageService';
+import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
 import type { Dependency } from '@/analyzer/types';
 import { Spider } from '@/analyzer/Spider';
 import { normalizePath } from '@/shared/path';
@@ -293,6 +294,20 @@ describe('BranchWatchAnalyzer capture', { timeout: GIT_TEST_TIMEOUT }, () => {
 });
 
 describe('BranchWatchAnalyzer findings', { timeout: GIT_TEST_TIMEOUT }, () => {
+  it('gives the review its whole file budget, above the review default and the former 1,000 cap (#670)', async () => {
+    const root = await workspace();
+    await fs.writeFile(path.join(root, 'api.ts'), 'export function value(n: string) { return n; }\n');
+    const review = vi.spyOn(ReviewGateAnalyzer.prototype, 'analyze');
+    try {
+      const analyzer = new BranchWatchAnalyzer(root, undefined, undefined, 'git', 1500);
+      await analyzer.analyze(await analyzer.capture('main'));
+
+      expect(review).toHaveBeenCalledWith(expect.objectContaining({ maxFiles: 1500 }));
+    } finally {
+      review.mockRestore();
+    }
+  });
+
   it('reports Vue prop contract changes through Branch Watch', async () => {
     const root = await workspace();
     await fs.writeFile(path.join(root, 'Child.vue'), '<script setup lang="ts">defineProps<{ oldName: string }>();</script><template />\n');

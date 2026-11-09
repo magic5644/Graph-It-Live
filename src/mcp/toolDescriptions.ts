@@ -258,7 +258,10 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "WHEN: before opening a pull request, or as a CI gate.",
       "WHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.",
       "RETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed. With graphit.architecture.json, `architecture` says whether the diff degrades or improves the declared rules: new, resolved and unchanged violations per rule, unit cycles, rules-file edits; a new error violation raises the risk. A changed .vue lists the props and events it adds or removes by name (no type check), a contract typed by an imported type or built at runtime as partial.",
-      { lm: "LIMITS: runs git in the first workspace folder; impact counts are incomplete while background indexing runs." },
+      {
+        mcp: "LIMITS: maxFiles caps changed files (default 200, no upper bound); time and memory grow with it, the call stops after 10 minutes and other tool calls wait until it ends.",
+        lm: "LIMITS: runs git in the first workspace folder; impact counts are incomplete while background indexing runs; maxFiles caps changed files (default 200, no upper bound), time and memory grow with it.",
+      },
     ],
   },
   get_impact_analysis: {
@@ -323,10 +326,10 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       "WHEN: auditing code quality, or cleaning up before a refactor; use find_unused_symbols for a single file.",
       "WHY: combines the reverse index with per-file symbol analysis, so the scan stays linear instead of comparing every file against every other.",
-      "RETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists, scan duration, and truncated with filesBeyondLimit when maxFiles stopped the scan.",
+      "RETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists, scan duration, and truncated with filesBeyondLimit when maxFiles stopped the scan. Without maxFiles every analysable file in scope is scanned (no upper bound). truncated=true means a partial result: report it as partial, never as the whole workspace.",
       {
-        mcp: "LIMITS: needs background indexing to have finished; an export reached only through a dynamic lookup can still be listed.",
-        lm: "LIMITS: scopePath must be an absolute path inside the workspace; results are incomplete while background indexing runs; an export reached only through a dynamic lookup can still be listed.",
+        mcp: "LIMITS: needs background indexing to have finished; duration grows with file count (about 90 s for 12,000 files), the call stops after 10 minutes and other tool calls wait until it ends, so narrow scopePath or set maxFiles on very large repositories; an export reached only through a dynamic lookup can still be listed.",
+        lm: "LIMITS: scopePath must be an absolute path inside the workspace; results are incomplete while background indexing runs; duration grows with file count (about 90 s for 12,000 files); an export reached only through a dynamic lookup can still be listed.",
       },
     ],
   },

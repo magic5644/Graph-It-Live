@@ -17,7 +17,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   }
   const headRef = readOption(args, "head");
   const maxDepth = readIntegerOption(args, "--depth", { min: 1, max: 10 });
-  const maxFiles = readIntegerOption(args, "--max-files", { min: 1, max: 1000 });
+  const maxFiles = readIntegerOption(args, "--max-files", { min: 1 });
   await runtime.ensureIndexed({ silent: true });
   const analyzer = new ReviewGateAnalyzer(runtime.workspaceRoot, createSpiderDependentsProvider(workerState.getSpider(), runtime.workspaceRoot, workerState.getConfig().extensionPath));
   const result = await analyzer.analyze({ baseRef, headRef, maxDepth, maxFiles });

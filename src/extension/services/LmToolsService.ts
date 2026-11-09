@@ -18,8 +18,10 @@ import {
   ExportArchitectureDiagramParamsSchema,
   createErrorResponse,
   createSuccessResponse,
+  INVALIDATE_FILES_MAX,
   QueryNaturalLanguageParamsSchema,
   ReviewPrParamsSchema,
+  ScanDeadCodeParamsSchema,
   type ExportArchitectureDiagramParams,
   type GraphContextParams,
   type QueryNaturalLanguageParams,
@@ -1170,8 +1172,8 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          if (options.input.filePaths.length > 10_000) {
-            return this.errorResult('At most 10000 files can be invalidated per invocation.');
+          if (options.input.filePaths.length > INVALIDATE_FILES_MAX) {
+            return this.errorResult(`At most ${INVALIDATE_FILES_MAX} files can be invalidated per invocation; use rebuild_index for the whole workspace.`);
           }
           const filePaths = options.input.filePaths.map((filePath) =>
             this.resolveWorkspacePath(filePath),
@@ -1633,9 +1635,8 @@ export class LmToolsService {
       {
         invoke: async (
           options: vscode.LanguageModelToolInvocationOptions<ScanDeadCodeInput>,
-          _token: vscode.CancellationToken,
+          token: vscode.CancellationToken,
         ): Promise<vscode.LanguageModelToolResult> => {
-          const { maxFiles } = options.input;
           const scopePath = options.input.scopePath
             ? this.resolveWorkspacePath(options.input.scopePath)
             : undefined;
@@ -1644,13 +1645,23 @@ export class LmToolsService {
           if (!spider || !rootDir) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
+          // Same maxFiles rule as MCP and CLI; scopePath may be workspace-relative here.
+          const maxFiles = ScanDeadCodeParamsSchema.shape.maxFiles.safeParse(options.input.maxFiles);
+          if (!maxFiles.success) {
+            return this.errorResult(`maxFiles: ${maxFiles.error.issues[0]?.message ?? 'invalid value'}`);
+          }
+          // A whole-workspace scan can take minutes: chat can cancel it between files.
+          const abort = new AbortController();
+          const cancellation = token.onCancellationRequested(() => abort.abort());
           try {
-            const result = await scanDeadCode(spider, rootDir, { scopePath, maxFiles });
+            const result = await scanDeadCode(spider, rootDir, { scopePath, maxFiles: maxFiles.data }, abort.signal);
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);
           } catch (error) {
             return this.errorResult(error instanceof Error ? error.message : String(error));
+          } finally {
+            cancellation.dispose();
           }
         },
       },

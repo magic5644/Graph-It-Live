@@ -1594,7 +1594,7 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool(TOOL, { filePaths: Array.from({ length: 10_001 }, () => A) });
 
-      expect(result).toEqual({ error: 'At most 10000 files can be invalidated per invocation.' });
+      expect(result).toEqual({ error: 'At most 10000 files can be invalidated per invocation; use rebuild_index for the whole workspace.' });
       expect(invalidateFile).not.toHaveBeenCalled();
     });
   });
@@ -1665,6 +1665,63 @@ describe('LmToolsService', () => {
         truncated: false,
         entries: [{ relativePath: 'src/a.ts', unusedCount: 1 }],
       });
+    });
+
+    const emptyScan = { entries: [], scannedFiles: 0, skippedFiles: 0, filesBeyondLimit: 0 };
+    /** Registers the tools over a spider whose scan is `scanDeadCode`, and returns that mock. */
+    const withScan = <T extends (...args: never[]) => unknown>(scanDeadCode: T): T => {
+      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode } }), logger }).registerAll();
+      return scanDeadCode;
+    };
+
+    it.each([
+      ['omitted (whole scope, same default as MCP and CLI)', undefined],
+      ['above the former 10,000 cap', 15_000],
+    ])('accepts maxFiles %s', async (_label, maxFiles) => {
+      const scanDeadCode = withScan(vi.fn().mockResolvedValue(emptyScan));
+
+      await invokeTool('graph-it-live_scan_dead_code', { maxFiles });
+
+      expect(scanDeadCode).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ maxFiles }));
+    });
+
+    it.each([0, -1, 1.5, '10', Number.NaN, Number.POSITIVE_INFINITY])('rejects maxFiles %s before scanning', async (maxFiles) => {
+      const scanDeadCode = withScan(vi.fn().mockResolvedValue(emptyScan));
+
+      const result = await invokeTool('graph-it-live_scan_dead_code', { maxFiles });
+
+      expect(result).toEqual({ error: expect.stringMatching(/^maxFiles: /) });
+      expect(scanDeadCode).not.toHaveBeenCalled();
+    });
+
+    it('reports a partial scan with truncated and filesBeyondLimit', async () => {
+      withScan(vi.fn().mockResolvedValue({ ...emptyScan, scannedFiles: 2, filesBeyondLimit: 3 }));
+
+      const result = await invokeTool('graph-it-live_scan_dead_code', { maxFiles: 2 });
+
+      expect(result).toMatchObject({ scannedFiles: 2, truncated: true, filesBeyondLimit: 3 });
+    });
+
+    it('aborts the scan when chat cancels it, and disposes the listener', async () => {
+      let cancel: (() => void) | undefined;
+      const dispose = vi.fn();
+      const token = {
+        isCancellationRequested: false,
+        onCancellationRequested: vi.fn((listener: () => void) => {
+          cancel = listener;
+          return { dispose };
+        }),
+      } as unknown as vscode.CancellationToken;
+      const scanDeadCode = withScan(vi.fn((_scope: string, options: { signal?: AbortSignal }) => new Promise((_resolve, reject) => {
+        options.signal?.addEventListener('abort', () => reject(new Error('scan cancelled')), { once: true });
+      })));
+
+      const invocation = registeredTools.get('graph-it-live_scan_dead_code')?.invoke(makeOptions({ response_format: 'json' }), token);
+      await vi.waitFor(() => expect(scanDeadCode).toHaveBeenCalled());
+      cancel?.();
+
+      expect(parseResult(await invocation)).toEqual({ error: 'scan cancelled' });
+      expect(dispose).toHaveBeenCalledTimes(1);
     });
   });
 

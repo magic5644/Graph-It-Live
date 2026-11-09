@@ -51,7 +51,7 @@ graph-it review-pr --base origin/main --head feature/my-change --depth 3 --max-f
 
 - `--base` is required. Without `--head`, the working tree is reviewed, staged and unstaged included.
 - With `--head <ref>`, both sides are committed refs; untracked files are excluded.
-- `--depth` limits transitive dependent traversal (1-10); `--max-files` caps changed files (1-1000).
+- `--depth` limits transitive dependent traversal (1-10); `--max-files` caps changed files (default 200, at least 1, no upper bound).
 
 With `graphit.architecture.json` at the workspace root (or edited by the diff), the report has an
 `architecture` section comparing the rules on base and head: `verdict` (`degraded`, `improved`,

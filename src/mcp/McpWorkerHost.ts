@@ -34,6 +34,8 @@ export interface McpWorkerHostOptions {
    * Measured from when the worker starts the request, not from when it was queued.
    */
   invokeTimeout?: number;
+  /** Per-tool timeouts in milliseconds that replace invokeTimeout for those tools. */
+  toolTimeouts?: Partial<Record<McpToolName, number>>;
 }
 
 export interface WarmupResult {
@@ -88,6 +90,7 @@ export class McpWorkerHost {
   private readonly workerPath: string;
   private readonly warmupTimeout: number;
   private readonly invokeTimeout: number;
+  private readonly toolTimeouts: Partial<Record<McpToolName, number>>;
   private isReady = false;
   private isStarting = false;
   /** Running and queued requests, in FIFO order (Map keeps insertion order) */
@@ -102,6 +105,7 @@ export class McpWorkerHost {
     this.workerPath = options.workerPath;
     this.warmupTimeout = options.warmupTimeout ?? 60000; // 1 minute default
     this.invokeTimeout = options.invokeTimeout ?? 30000; // 30 seconds default
+    this.toolTimeouts = options.toolTimeouts ?? {};
   }
 
   /**
@@ -267,6 +271,7 @@ export class McpWorkerHost {
     const [requestId, request] = next.value;
     this.activeRequestId = requestId;
     const waitedMs = Date.now() - request.queuedAt;
+    const timeoutMs = this.toolTimeouts[request.tool] ?? this.invokeTimeout;
 
     // ponytail: a timed-out request frees the slot at once. A handler that ignores
     // the cancel keeps running beside the next request; handlers that loop over
@@ -275,11 +280,11 @@ export class McpWorkerHost {
       this.worker?.postMessage({ type: 'cancel', requestId });
       const stillQueued = this.pendingRequests.size - 1;
       this.takeRequest(requestId)?.reject(new Error(
-        `Tool invocation timeout after ${this.invokeTimeout}ms of work ` +
+        `Tool invocation timeout after ${timeoutMs}ms of work ` +
         `(waited ${waitedMs}ms in queue behind ${request.queuedAhead} request(s); ` +
         `${stillQueued} still queued)`
       ));
-    }, this.invokeTimeout);
+    }, timeoutMs);
 
     this.postMessage({ type: 'invoke', requestId, tool: request.tool, params: request.params });
   }

@@ -903,7 +903,7 @@ export class SpiderSymbolService {
    * @param scopePath - Absolute path to a directory (or file) to scope the
    *   scan.  Must be inside the workspace root (caller is responsible for
    *   validating this).
-   * @param options.maxFiles - Hard cap on files analysed (default: 500).
+   * @param options.maxFiles - Optional cap on files analysed (default: every analysable file).
    * @param options.hasReverseIndex - Whether the reverse index is available.
    *   If false, throws INDEX_NOT_READY — we never fall back to O(n²) lookups.
    * @param options.signal - Aborts the scan between files.
@@ -914,7 +914,7 @@ export class SpiderSymbolService {
     scopePath: string,
     options: { maxFiles?: number; hasReverseIndex: boolean; signal?: AbortSignal }
   ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }>; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
-    const { maxFiles = 500, hasReverseIndex, signal } = options;
+    const { maxFiles = Number.POSITIVE_INFINITY, hasReverseIndex, signal } = options;
 
     if (!hasReverseIndex) {
       throw new SpiderError(

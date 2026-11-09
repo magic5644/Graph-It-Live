@@ -94,7 +94,9 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
 
   it("rejects invalid limits and renders hostile values as safe Markdown", async () => {
     const workspace = await createGitWorkspace();
-    await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main", maxFiles: 0 })).rejects.toThrow("maxFiles");
+    await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main", maxFiles: 0 })).rejects.toThrow("maxFiles must be an integer of at least 1");
+    await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main", maxFiles: 1.5 })).rejects.toThrow("maxFiles");
+    await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main", maxDepth: 11 })).rejects.toThrow("maxDepth must be an integer between 1 and 10");
     await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "--output=pwned.txt" })).rejects.toThrow("baseRef");
     await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main", headRef: "-p" })).rejects.toThrow("headRef");
     await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "" })).rejects.toThrow("baseRef");
@@ -216,6 +218,21 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(result.symbols[0].impactedSymbolCount).toBe(1);
     expect(result.symbols[0].evidence.some((e) => e.kind === "impact")).toBe(true);
   });
+
+  it("lists more than 1 MiB of changed paths and analyses above the former 1,000-file cap (#670)", async () => {
+    const workspace = await createGitWorkspace();
+    // 12,000 paths of about 95 bytes: over the former 1 MiB git output buffer. Plain text keeps the review cheap.
+    const directory = path.join(workspace, "notes", "a".repeat(60));
+    await fs.mkdir(directory, { recursive: true });
+    await Promise.all(Array.from({ length: 12_000 }, (_unused, index) => fs.writeFile(path.join(directory, `note-${String(index).padStart(6, "0")}.txt`), "x\n")));
+    execFileSync("git", ["add", "."], { cwd: workspace, stdio: "ignore" });
+    execFileSync("git", ["commit", "-q", "-m", "many files"], { cwd: workspace, stdio: "ignore" });
+
+    const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "HEAD~1", headRef: "HEAD", maxFiles: 1_500 });
+
+    expect(result.changedFiles).toHaveLength(1_500);
+    expect(result.limitations).toContain("Analysis limited to 1500 changed files.");
+  }, 180_000);
 
   it("lists consumers of a non-breaking optional interface member to re-check, without charging them (#546)", async () => {
     const workspace = await createGitWorkspaceWithDiff(
@@ -2353,9 +2370,10 @@ describe("ReviewGateAnalyzer repeated reviews (#605)", { timeout: GIT_TEST_TIMEO
 
   it("drops the least recently used comparison past the cache size", async () => {
     const workspace = await createGitWorkspace();
-    const cache = new Map(Array.from({ length: 2000 }, (_unused, index) => [`stale-${index}`, []]));
+    // Two Branch Watch reviews at its 2,000-file setting maximum.
+    const cache = new Map(Array.from({ length: 4000 }, (_unused, index) => [`stale-${index}`, []]));
     await new ReviewGateAnalyzer(workspace, undefined, cache).analyze({ baseRef: "main" });
-    expect(cache.size).toBe(2000);
+    expect(cache.size).toBe(4000);
     expect(cache.has("stale-0")).toBe(false);
     expect(cache.has("stale-1")).toBe(true);
   });

@@ -16,7 +16,7 @@
 import { before } from 'mocha';
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { getProjectFile } from './_helpers';
+import { getIndexStatus, getProjectFile, sleep } from './_helpers';
 
 // Minimum set of expected tool names (all 24).
 const EXPECTED_TOOLS = [
@@ -151,6 +151,40 @@ suite('LM Tools Registration Test Suite', () => {
     };
     assert.ok(json.targetPath.endsWith('src/utils.ts') && !json.targetPath.includes(utils.fsPath), json.targetPath);
     assert.ok(json.referencingFiles.some((ref) => ref.relativePath.endsWith('src/main.ts')), JSON.stringify(json));
+  });
+
+  // #670: without maxFiles the scan covers the whole scope, like MCP and the CLI; invalid caps are refused.
+  test('scan_dead_code scans the whole workspace by default and rejects maxFiles 0', async function () {
+    this.timeout(240000);
+    if (typeof vscode.lm.invokeTool !== 'function') {
+      this.skip();
+    }
+    const scan = async (input: object): Promise<Record<string, unknown>> => {
+      const result = await vscode.lm.invokeTool('graph-it-live_scan_dead_code', {
+        input: { response_format: 'json', ...input },
+        toolInvocationToken: undefined,
+      });
+      return JSON.parse(result.content.map((part) => (part instanceof vscode.LanguageModelTextPart ? part.value : '')).join('')) as Record<string, unknown>;
+    };
+
+    // The scan needs the reverse index: wait until background indexing reports it.
+    for (const deadline = Date.now() + 120000; Date.now() < deadline;) {
+      const status = await getIndexStatus<{ isReady?: boolean; hasReverseIndex?: boolean }>();
+      if (status.isReady && status.hasReverseIndex) break;
+      await sleep(500);
+    }
+    const full = await scan({});
+    assert.strictEqual(full.error, undefined, JSON.stringify(full));
+    assert.strictEqual(full.truncated, false, JSON.stringify(full));
+    assert.strictEqual(full.filesBeyondLimit, 0, JSON.stringify(full));
+    assert.ok(Number(full.scannedFiles) > 1, JSON.stringify(full));
+
+    const capped = await scan({ maxFiles: 1 });
+    assert.strictEqual(capped.truncated, true, JSON.stringify(capped));
+    assert.strictEqual(capped.filesBeyondLimit, Number(full.scannedFiles) - 1, JSON.stringify(capped));
+
+    const invalid = await scan({ maxFiles: 0 });
+    assert.match(String(invalid.error), /^maxFiles: /, JSON.stringify(invalid));
   });
 
   test('Total Graph-It-Live tool count is exactly 25', function () {

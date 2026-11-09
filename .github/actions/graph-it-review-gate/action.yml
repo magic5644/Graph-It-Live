@@ -36,7 +36,7 @@ inputs:
     description: Maximum transitive symbol-impact depth (1-10).
     default: "3"
   max-files:
-    description: Maximum changed files to analyze (1-1000).
+    description: Maximum changed files to analyze (at least 1; a CLI older than 1.24.2 accepts at most 1000).
     default: "200"
 runs:
   using: composite

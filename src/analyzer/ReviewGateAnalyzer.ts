@@ -20,11 +20,15 @@ import { checkText, isMissingFile, MAX_TEXT_FILE_BYTES, readWorkspaceText } from
 const execFileAsync = promisify(execFile);
 const DEFAULT_MAX_FILES = 200;
 const DEFAULT_MAX_DEPTH = 3;
-const MAX_MAX_FILES = 1_000;
-/** Entries a signature cache keeps: the changed files of two reviews at the largest file limit. */
-const SIGNATURE_CACHE_SIZE = 2 * MAX_MAX_FILES;
-/** Most changed files one review reads; callers with a higher budget (Branch Watch) clamp to it. */
-export const REVIEW_GATE_MAX_FILES_LIMIT = MAX_MAX_FILES;
+/**
+ * Entries a signature cache keeps: the changed files of two Branch Watch reviews (the only cache
+ * user) at its 2,000-file setting maximum. Changed files are not capped: at most 8 git processes
+ * run at a time, but the base and head text of every analysed file stays in memory for the
+ * review, so time and memory grow with maxFiles.
+ */
+const SIGNATURE_CACHE_SIZE = 4_000;
+/** Output of the changed-path list: 64 MiB holds several hundred thousand paths. */
+const CHANGED_FILE_LIST_MAX_BYTES = 64 * 1024 * 1024;
 const MAX_MAX_DEPTH = 10;
 /** Lowest score of a review with a new error violation of the architecture rules: high risk. */
 const ARCHITECTURE_ERROR_SCORE = 50;
@@ -248,7 +252,7 @@ export class ReviewGateAnalyzer {
   }
 
   async analyze(options: ReviewGateOptions): Promise<ReviewGateResult> {
-    const maxFiles = this.validateLimit(options.maxFiles, DEFAULT_MAX_FILES, MAX_MAX_FILES, "maxFiles");
+    const maxFiles = this.validateLimit(options.maxFiles, DEFAULT_MAX_FILES, Number.POSITIVE_INFINITY, "maxFiles");
     const maxDepth = this.validateLimit(options.maxDepth, DEFAULT_MAX_DEPTH, MAX_MAX_DEPTH, "maxDepth");
     const headRef = options.headRef ?? "HEAD";
     this.validateRef(options.baseRef, "baseRef");
@@ -343,7 +347,7 @@ export class ReviewGateAnalyzer {
   private validateLimit(value: number | undefined, fallback: number, maximum: number, name: string): number {
     const resolved = value ?? fallback;
     if (!Number.isInteger(resolved) || resolved < 1 || resolved > maximum) {
-      throw new Error(`${name} must be an integer between 1 and ${maximum}`);
+      throw new Error(Number.isFinite(maximum) ? `${name} must be an integer between 1 and ${maximum}` : `${name} must be an integer of at least 1`);
     }
     return resolved;
   }
@@ -351,7 +355,7 @@ export class ReviewGateAnalyzer {
   /** Base and head content of every changed file the signature analysis supports, read once per review. */
   private async loadChangedSources(changedFiles: string[], baseRef: string, headRef: string): Promise<Map<string, ChangedSource>> {
     const supported = changedFiles.filter(hasSignatureAnalysis);
-    // Up to two git processes per file: 4 files at a time keeps at most 8 running, for up to 1 000 changed files.
+    // Up to two git processes per file: 4 files at a time keeps at most 8 running, whatever the number of changed files.
     const loaded = await mapWithConcurrency(supported, 4, async (relativePath): Promise<ChangedSource> => {
       const absolutePath = this.resolveWorkspacePath(relativePath);
       try {
@@ -951,7 +955,8 @@ export class ReviewGateAnalyzer {
     const comparison = headRef === "HEAD" ? baseRef : `${baseRef}...${headRef}`;
     const { stdout } = await execFileAsync("git", ["diff", "--no-ext-diff", "--no-textconv", "--name-only", "-z", "--no-renames", "--diff-filter=ACMDT", comparison, "--"], {
       cwd: this.workspaceRoot,
-      maxBuffer: 1024 * 1024,
+      // Every changed path, before the maxFiles cut: 1 MiB failed near 10,000 files with long paths.
+      maxBuffer: CHANGED_FILE_LIST_MAX_BYTES,
     });
     return stdout.split("\0")
       .filter(Boolean)
