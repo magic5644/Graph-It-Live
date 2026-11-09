@@ -87,7 +87,8 @@ it and reports `truncated=true` with `filesBeyondLimit` when reached. A scan sur
 
 `scan_dead_code` uses static analysis. A symbol may be used dynamically, from outside the indexed
 workspace, or through a reference type the scan does not cover. For each symbol candidate, seek
-independent incoming-reference evidence, type-only references included:
+independent incoming-reference evidence, type-only references included. Verify tool names and
+parameters with `graph-it tool --list` and `graph-it tool <name> --help` first:
 
 ```bash
 graph-it tool get_impact_analysis --filePath=/abs/src/a.ts --symbolName=fn --format toon    # runtime and type-only dependents

@@ -39,7 +39,7 @@ prove callers or impact.
   Read `graph-it <command> --help` or `graph-it tool <name> --help` only for a flag you need.
 - Requires CLI **1.21.0 or later** (`graph-it diagram`: 1.23.0). Older or unreadable version: say so
   once, name the missing commands, offer `graph-it update`, and use only what that CLI's `--help` and
-  `tool --list` show.
+  `tool --list` show. Never present output from a command the CLI lacks as a result.
 - Never install the CLI automatically; on an explicit request, see `references/setup.md`.
 - Update consent: when the CLI reports a newer version, run `graph-it update` only after explicit
   positive confirmation. Silence, timeout, refusal, non-TTY and generic Agent mode are not consent; an
