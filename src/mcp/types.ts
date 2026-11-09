@@ -210,7 +210,8 @@ export const GenericStringSchema = z
 
 /**
  * Pagination limits for MCP tools
- * Prevents excessive memory usage and response sizes
+ * Prevents excessive memory usage and response sizes. MAX_LIMIT bounds one page only:
+ * offset reads the rest, so no result is lost.
  */
 export const PAGINATION_LIMITS = {
   /** Maximum number of items per page */
@@ -392,12 +393,18 @@ export type ResolveModulePathParams = z.infer<
 export const GetIndexStatusParamsSchema = z.object({});
 export type GetIndexStatusParams = z.infer<typeof GetIndexStatusParamsSchema>;
 
+/**
+ * Paths one invalidate_files call accepts (MCP and LM tool). Bounds the request payload only:
+ * more files can be sent in several calls, and rebuild_index refreshes the whole workspace.
+ */
+export const INVALIDATE_FILES_MAX = 10_000;
+
 export const InvalidateFilesParamsSchema = z.object({
   filePaths: z
     .array(FilePathSchema)
-    .max(10000)
+    .max(INVALIDATE_FILES_MAX)
     .describe(
-      "Array of absolute file paths to invalidate from the cache (max: 10000). Use this after modifying files to ensure fresh analysis.",
+      `Array of absolute file paths to invalidate from the cache (max: ${INVALIDATE_FILES_MAX} per call; use rebuild_index for the whole workspace). Use this after modifying files to ensure fresh analysis.`,
     ),
 });
 export type InvalidateFilesParams = z.infer<typeof InvalidateFilesParamsSchema>;
@@ -459,7 +466,7 @@ export type AnalyzeBreakingChangesParams = z.infer<
 export const ReviewPrParamsSchema = z.object({
   baseRef: GenericStringSchema.describe("Git base ref to compare against, for example origin/main"),
   headRef: GenericStringSchema.optional().describe("Optional Git head ref; defaults to the checked-out worktree"),
-  maxFiles: z.number().int().min(1).max(1000).optional(),
+  maxFiles: z.number().int().min(1).optional().describe("Optional cap on changed files analysed (default: 200, no upper bound)"),
   maxDepth: z.number().int().min(1).max(10).optional(),
 });
 export type ReviewPrParams = z.infer<typeof ReviewPrParamsSchema>;
@@ -835,16 +842,15 @@ export const ScanDeadCodeParamsSchema = z.object({
   scopePath: FilePathSchema.optional().describe(
     "Absolute path to a directory to scope the scan (default: workspace root). Must be inside the workspace.",
   ),
+  // No upper bound: heap stays flat on a full scan (12,000 files measured), only duration grows.
   maxFiles: z
     .number()
     .int()
     .min(1)
-    .max(10_000)
-    .default(500)
     .optional()
     .describe(
-      "Maximum number of files to analyse (default: 500). Prevents OOM on very large monorepos. " +
-        "When reached, the result has truncated=true and filesBeyondLimit > 0.",
+      "Optional cap on analysed files (default: every analysable file in scope, no upper bound). " +
+        "When the cap stops the scan, truncated=true and filesBeyondLimit > 0: the result is partial.",
     ),
 });
 export type ScanDeadCodeParams = z.infer<typeof ScanDeadCodeParamsSchema>;

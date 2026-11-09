@@ -112,6 +112,20 @@ describe("tool command dispatch", () => {
     );
   });
 
+  it.each([
+    ["no cap: the whole scope, like MCP and the LM tool", [], undefined],
+    ["a cap above the former 10,000 limit", ["--maxFiles", "15000"], 15_000],
+  ])("passes scan_dead_code %s (#670)", async (_label, flags, maxFiles) => {
+    await run(["scan_dead_code", ...flags], runtimeStub, "json");
+    expect(executeMock).toHaveBeenCalledWith("executeScanDeadCode", { maxFiles });
+  });
+
+  it("rejects scan_dead_code --maxFiles 0 without indexing the workspace (#670)", async () => {
+    vi.mocked(runtimeStub.ensureIndexed).mockClear();
+    await expect(run(["scan_dead_code", "--maxFiles", "0"], runtimeStub, "json")).rejects.toThrow("Invalid parameters: maxFiles");
+    expect(executeMock).not.toHaveBeenCalled();
+  });
+
   it("coerces --startLine to a number and forwards --symbolId (issue #500)", async () => {
     await run(
       ["query_call_graph", "--filePath", file, "--symbolName", "compute", "--startLine=5", "--symbolId=x:compute:5"],

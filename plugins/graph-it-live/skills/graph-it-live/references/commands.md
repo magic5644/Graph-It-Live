@@ -157,7 +157,7 @@ graph-it stats                                # token stats (cl100k_base estimat
 
 `graph-it review-pr --base <ref>` indexes automatically (no `scan` first). Without `--head` it compares
 the base with the working tree, staged and unstaged included; `--head <ref>` compares two committed
-refs. `--depth 1-10`, `--max-files 1-1000`, `--format toon|json|markdown|sarif`.
+refs. `--depth 1-10`, `--max-files` (default 200, no upper bound), `--format toon|json|markdown|sarif`.
 
 Read `risk`, `score`, `limitations` and `isPartial` before any merge recommendation. `isPartial: true`
 means file, parser or depth limits cut the result. No breaking signature does **not** prove a

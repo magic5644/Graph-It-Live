@@ -77,8 +77,9 @@ graph-it tool scan_dead_code --format toon
 graph-it tool scan_dead_code --scopePath=/abs/src --maxFiles=500 --format toon
 ```
 
-`--scopePath` restricts the scan to a directory inside the workspace; `--maxFiles` (default 500) caps
-it and reports `truncated=true` with `filesBeyondLimit` when reached. A scan surfaces candidates;
+`--scopePath` restricts the scan to a directory inside the workspace. Without `--maxFiles` every
+analysable file in scope is scanned (no upper bound; about 90 s for 12,000 files). `--maxFiles` caps it
+and reports `truncated=true` with `filesBeyondLimit` when reached: report that result as partial. A scan surfaces candidates;
 **confirm each high-priority candidate in Step 3 before recommending deletion.**
 
 ---

@@ -57,6 +57,13 @@ describe("review-pr command", () => {
     expect(analyze).toHaveBeenCalledWith({ baseRef: "main", headRef: "feature", maxDepth: 2, maxFiles: 5 });
   });
 
+  it("passes --max-files above the former 1000 cap and rejects values below 1", async () => {
+    analyze.mockResolvedValue(base);
+    await run(["--base", "main", "--max-files", "5000"], runtime, "json");
+    expect(analyze).toHaveBeenCalledWith(expect.objectContaining({ maxFiles: 5000 }));
+    await expect(run(["--base", "main", "--max-files", "0"], runtime, "json")).rejects.toThrow("--max-files");
+  });
+
   it("renders markdown and the structured formats with the architecture section", async () => {
     analyze.mockResolvedValue({ ...base, architecture });
     expect(await run(["--base", "main"], runtime, "markdown")).toContain("### Architecture rules: DEGRADED");

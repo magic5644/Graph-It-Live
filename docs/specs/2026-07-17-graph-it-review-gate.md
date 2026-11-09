@@ -2,7 +2,7 @@
 
 ## Contract
 
-`ReviewGateAnalyzer` compares `baseRef` to the current worktree by default, or to an explicit `headRef`. Inputs are bounded: `maxFiles` 1–1000 and `maxDepth` 1–10. Output contains sorted changed files, per-symbol evidence, explicit score factors, cycle and unused-export evidence when the warmed Spider capabilities are available, conventional test-file candidates, score, risk (`low`, `medium`, `high`, `critical`), and `isPartial`/limitations.
+`ReviewGateAnalyzer` compares `baseRef` to the current worktree by default, or to an explicit `headRef`. Inputs are bounded: `maxFiles` at least 1 (default 200, no upper bound since #670) and `maxDepth` 1–10. Output contains sorted changed files, per-symbol evidence, explicit score factors, cycle and unused-export evidence when the warmed Spider capabilities are available, conventional test-file candidates, score, risk (`low`, `medium`, `high`, `critical`), and `isPartial`/limitations.
 
 ## Risk model
 

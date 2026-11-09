@@ -1362,7 +1362,7 @@ A compatible change (an optional parameter or member added, a union or enum that
 
 A changed file that cannot be read safely at the base or the head (a symbolic link, a path resolving outside the workspace, a binary file, more than 2 MiB) is skipped with the limitation `Could not compare <file>; <reason>` and the result is partial; the other files are still reviewed. A file replaced by a symbolic link (a Git type change) is listed the same way. Missing optional evidence, unsupported file types, and file limits are reported as limitations rather than invented findings. The command does not fail solely because the risk is high; use the Action's `fail-on-risk` input to gate CI.
 
-`--max-files` defaults to `200` and accepts values from `1` to `1000`. The default output is text. Markdown output includes a consumer table, a list of consumers to check and the moved symbols; JSON and TOON expose the complete structured result. Invalid refs and invalid limits exit non-zero.
+`--max-files` defaults to `200` and accepts any integer of at least `1` (no upper bound). Time and memory grow with it: the base and head text of every analysed file stays in memory during the review. Through MCP, `review_pr` and `scan_dead_code` stop after 10 minutes (other tools after 1 minute), and other tool calls wait until they end. Branch Watch keeps its own `graph-it-live.branchWatch.maxFiles` setting at most `2000`, because it reruns by itself after edits. The default output is text. Markdown output includes a consumer table, a list of consumers to check and the moved symbols; JSON and TOON expose the complete structured result. Invalid refs and invalid limits exit non-zero.
 
 `cycles` lists the import cycles the diff creates (`introduced`) or enlarges (`aggravated`), with every file in the cycle; a cycle that already existed and that the diff leaves intact is not listed, and a cycle the diff removes is not reported. Type-only and dynamic `import()` edges count like any import, since the dependency graph records them. A file in such a cycle gives its changed symbols a `cycles` score factor; a cycle alone, with no changed signature, is reported without raising the risk. Cycles are read from the whole import graphs of both sides, with no file budget: the head graph from the warmed index of the checked-out tree (or from the Git objects of `--head` when it names another ref), the base graph from the Git objects of `--base` (or of its merge base with `--head`, as the changed-file list). With `graphit.architecture.json`, the architecture rules check the same two graphs, so each side is parsed once. `limitations` says when files of either graph could not be analyzed, and when the cycle data cannot be read at all. A Rust `mod x;` declaration never closes a cycle. Side-effect-only imports (`import "./x"`) are recorded as edges of type `side-effect`, so they can close a cycle; `import "./x.css"` is an edge only when the file resolves.
 
@@ -1990,7 +1990,7 @@ graph-it tool get_index_status
 
 #### `invalidate_files`
 
-**What it does:** Removes specific files from the in-memory cache, forcing them to be re-analyzed on next access. Use after programmatic file edits.
+**What it does:** Removes specific files from the in-memory cache, forcing them to be re-analyzed on next access. Use after programmatic file edits. One call accepts at most 10,000 paths (a payload bound, also on the VS Code tool): split larger lists, or use `rebuild_index` for the whole workspace.
 
 ```bash
 graph-it tool invalidate_files --filePaths='["/abs/path/to/file.ts"]'
@@ -2156,7 +2156,9 @@ graph-it tool scan_dead_code
 graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
 ```
 
-**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `entries[]`, `skippedFiles`, `truncated`, `filesBeyondLimit`, `analysisTimeMs`. When `truncated` is `true`, `maxFiles` stopped the scan and `filesBeyondLimit` files were not analysed: raise `--maxFiles` or narrow `--scopePath` before concluding there is no dead code.
+**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `entries[]`, `skippedFiles`, `truncated`, `filesBeyondLimit`, `analysisTimeMs`. When `truncated` is `true`, `maxFiles` stopped the scan and `filesBeyondLimit` files were not analysed: the result is partial, so raise `--maxFiles` or narrow `--scopePath` before concluding there is no dead code.
+
+`--maxFiles` is optional: without it, every analysable file in scope is scanned, like `graph-it architecture --maxFiles`. The MCP tool and the VS Code language-model tool use the same default. Any integer of at least `1` is accepted, with no upper bound. Memory stays flat on a full scan; duration grows linearly with the file count (about 90 s for 12,000 files on a recent laptop). The MCP server stops a `scan_dead_code` call after 10 minutes (other tools after 1 minute), and other MCP tool calls wait until it ends; `graph-it tool` and the VS Code tool have no time limit, and VS Code chat can cancel the scan.
 
 ---
 

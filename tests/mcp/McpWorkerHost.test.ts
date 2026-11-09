@@ -358,6 +358,19 @@ describe('McpWorkerHost', () => {
       });
     });
 
+    it.each([
+      ['scan_dead_code uses its own timeout', 'scan_dead_code', 50],
+      ['other tools keep invokeTimeout', 'crawl_dependency_graph', 30],
+    ] as const)('%s', async (_label, tool, expectedMs) => {
+      host = new McpWorkerHost({ ...defaultOptions, invokeTimeout: 30, toolTimeouts: { scan_dead_code: 50 } });
+      const startPromise = host.start({ rootDir: '/workspace', tsConfigPath: '/workspace/tsconfig.json', excludeNodeModules: true, maxDepth: 50 });
+      await Promise.resolve();
+      getMockWorker().emit('message', { type: 'ready', warmupDuration: 50, indexedFiles: 10 });
+      await startPromise;
+
+      await expect(host.invoke(tool, {})).rejects.toThrow(`Tool invocation timeout after ${expectedMs}ms`);
+    });
+
     it('should reject if worker not ready', async () => {
       const notReadyHost = new McpWorkerHost(defaultOptions);
 

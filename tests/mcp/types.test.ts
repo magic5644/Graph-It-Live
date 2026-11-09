@@ -27,14 +27,17 @@ import {
   GetIndexStatusParamsSchema,
   getRelativePath,
   GetSymbolGraphParamsSchema,
+  INVALIDATE_FILES_MAX,
   InvalidateFilesParamsSchema,
   isPathWithinRoot,
   MCP_TOOL_VERSION,
   normalizePathForComparison,
   QueryCallGraphParamsSchema,
   RebuildIndexParamsSchema,
+  ReviewPrParamsSchema,
   ResolveModulePathParamsSchema,
   sanitizeString,
+  ScanDeadCodeParamsSchema,
   SetWorkspaceParamsSchema,
   TraceFunctionExecutionParamsSchema,
   resolveToolFilePaths,
@@ -515,6 +518,30 @@ describe('InvalidateFilesParamsSchema', () => {
     const result = InvalidateFilesParamsSchema.safeParse({});
 
     expect(result.success).toBe(false);
+  });
+
+  it('keeps the per-call payload bound', () => {
+    const paths = (n: number) => Array.from({ length: n }, () => '/project/src/a.ts');
+
+    expect(InvalidateFilesParamsSchema.safeParse({ filePaths: paths(INVALIDATE_FILES_MAX) }).success).toBe(true);
+    expect(InvalidateFilesParamsSchema.safeParse({ filePaths: paths(INVALIDATE_FILES_MAX + 1) }).success).toBe(false);
+  });
+});
+
+describe.each([
+  ['ScanDeadCodeParamsSchema', ScanDeadCodeParamsSchema, {}],
+  ['ReviewPrParamsSchema', ReviewPrParamsSchema, { baseRef: 'origin/main' }],
+] as const)('%s maxFiles', (_name, schema, base) => {
+  it.each([1, 10_000, 10_001, 15_000, 1_000_000])('accepts %d (no upper bound)', (maxFiles) => {
+    expect(schema.parse({ ...base, maxFiles }).maxFiles).toBe(maxFiles);
+  });
+
+  it('leaves maxFiles undefined when omitted, so the analyzer default applies', () => {
+    expect(schema.parse(base).maxFiles).toBeUndefined();
+  });
+
+  it.each([0, -1, 1.5, '10', null, Number.NaN, Number.POSITIVE_INFINITY])('rejects %s', (maxFiles) => {
+    expect(schema.safeParse({ ...base, maxFiles }).success).toBe(false);
   });
 });
 

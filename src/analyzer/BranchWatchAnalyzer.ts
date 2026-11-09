@@ -9,7 +9,7 @@ import { normalizePath, normalizePathForComparison } from '@/shared/path';
 import { resolveReviewCallGraphPath } from '@/shared/reviewTarget';
 import { LanguageService } from './LanguageService';
 import type { SignatureComparisonResult } from './SignatureAnalyzer';
-import { hasSignatureAnalysis, REVIEW_GATE_MAX_FILES_LIMIT, ReviewGateAnalyzer, type FileCycleAnalysis, type ReviewGateResult, type SymbolDependentsProvider } from './ReviewGateAnalyzer';
+import { hasSignatureAnalysis, ReviewGateAnalyzer, type FileCycleAnalysis, type ReviewGateResult, type SymbolDependentsProvider } from './ReviewGateAnalyzer';
 import { detectCycleEdges } from '../shared/cycleUtils';
 import type { GraphEdge } from '../shared/graph-types';
 import { readTreeImports, treeAnalyzer } from './architecture/architectureReview';
@@ -18,6 +18,11 @@ import { checkText, MAX_TEXT_FILE_BYTES, readWorkspaceText, resolveRegularFile }
 
 const execFileAsync = promisify(execFile);
 export const BRANCH_WATCH_MAX_FILES = 200;
+/**
+ * Kept on purpose: Branch Watch reruns by itself in the extension host after edits and branch
+ * switches, so its file budget bounds background work the user did not ask for. The on-demand
+ * review_pr tool has no upper bound.
+ */
 export const BRANCH_WATCH_MAX_FILES_LIMIT = 2000;
 const CONFIG_FILES = /(?:^|\/)(?:tsconfig[^/]*\.json|package\.json|go\.mod|Cargo\.toml)$/;
 /** Root ignore files and architecture rules: with the source and config files, what a tree copy must hold. */
@@ -270,7 +275,7 @@ export class BranchWatchAnalyzer {
     // files are not in `git diff`, so a diff of untracked files only has nothing to review.
     if (snapshot.changes.every(c => c.kind === 'untracked')) return emptyReview;
     const review = await new ReviewGateAnalyzer(this.root, this.dependents, this.signatureCache).analyze({
-      baseRef: snapshot.mergeBaseSha, maxFiles: Math.min(this.maxFiles, REVIEW_GATE_MAX_FILES_LIMIT), maxDepth: 3,
+      baseRef: snapshot.mergeBaseSha, maxFiles: this.maxFiles, maxDepth: 3,
       headRef: snapshot.headReference, fileCycles: false,
     });
     limitations.push(...review.limitations);

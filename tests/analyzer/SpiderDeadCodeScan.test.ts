@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import * as path from 'node:path';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { Spider } from '../../src/analyzer/Spider';
+import { SourceFileCollector } from '../../src/analyzer/SourceFileCollector';
 import { SpiderBuilder } from '../../src/analyzer/SpiderBuilder';
 import { SpiderSymbolService } from '../../src/analyzer/spider/SpiderSymbolService';
 import { SpiderErrorCode, normalizePath } from '../../src/analyzer/types';
@@ -85,6 +86,26 @@ describe('Spider - scanDeadCode', () => {
 
     expect(exact.scannedFiles).toBe(full.scannedFiles);
     expect(exact.filesBeyondLimit).toBe(0);
+  });
+
+  it.each([
+    ['scans every analysable file when maxFiles is omitted (#670)', undefined, 12_001, 0],
+    ['accepts a cap above the former 10,000 limit (#670)', 11_000, 11_000, 1_001],
+  ])('%s', async (_label, maxFiles, scanned, beyond) => {
+    // 12,001 files without building them: the collector lists them, the per-file analysis is stubbed.
+    const files = Array.from({ length: 12_001 }, (_, i) => path.join(fixturesDir, `generated-${i}.ts`));
+    const collect = vi.spyOn(SourceFileCollector.prototype, 'collectAllSourceFiles').mockResolvedValue(files);
+    const analyse = vi.spyOn(SpiderSymbolService.prototype, 'findUnusedSymbols').mockResolvedValue([]);
+    try {
+      const result = await spider.scanDeadCode(undefined, { maxFiles });
+
+      expect(result.scannedFiles).toBe(scanned);
+      expect(result.filesBeyondLimit).toBe(beyond);
+      expect(analyse).toHaveBeenCalledTimes(scanned);
+    } finally {
+      collect.mockRestore();
+      analyse.mockRestore();
+    }
   });
 
   it('should throw INDEX_NOT_READY when reverse index is absent', async () => {
