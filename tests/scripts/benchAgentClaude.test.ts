@@ -337,7 +337,7 @@ describe('stream-json parsing', () => {
   });
 
   it('classifies a timeout, but keeps a success result that arrived first', () => {
-    expect(replay(stream(init()), { timedOut: true }).run).toMatchObject({ status: 'timeout', error: 'no result within 300000 ms', stopBench: null });
+    expect(replay(stream(init()), { timedOut: true }).run).toMatchObject({ status: 'timeout', error: 'no result within 120000 ms', stopBench: null });
     expect(replay(stream(init(), result(answer('a'))), { timedOut: true }).run).toMatchObject({ status: 'completed', response: answer('a') });
   });
 

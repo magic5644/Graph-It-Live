@@ -81,6 +81,7 @@ function emulateGit(files: Map<string, string>, { commits = [COMMIT], head = 'f'
       if (head === null) throw new Error('not a git repository');
       return `${head}\n`;
     }
+    if (sub === 'describe') return 'v1.24.2-3-gffffffff\n';
     if (sub === 'rev-parse') return `${TREE}\n`;
     if (sub === 'cat-file' && spec.endsWith('^{commit}')) {
       if (!commits.includes(spec.replace('^{commit}', ''))) throw new Error('missing commit');
@@ -432,6 +433,17 @@ describe('report', () => {
   });
 
   it.each([
+    ['no graph run traced', [{ arm: 'native', toolTrace: ['Read'] }, { arm: 'graph' }], null],
+    ['no MCP call', [{ arm: 'graph', toolTrace: ['Read', 'mcp__other__x'] }], '0 of 1.'],
+    ['Claude Code and Codex names', [{ arm: 'graph', toolTrace: ['mcp__graph-it-live__graphit_find'] }, { arm: 'graph', repetition: 2, toolTrace: ['shell: rg x', 'mcp:graph-it-live/graphit_find'] }, { arm: 'graph', repetition: 3, toolTrace: [] }], '2 of 3.'],
+  ])('counts graph-arm runs that called the Graph-It-Live server: %s', (_name, runs, expected) => {
+    const answer = answerOf('known-file-toon');
+    const markdown = renderMarkdown(report(runs.map((run) => ({ taskId: 'known-file-toon', response: answer, ...run }))));
+    if (expected === null) expect(markdown).not.toContain('called the Graph-It-Live MCP server');
+    else expect(markdown).toContain(`Graph-arm runs that called the Graph-It-Live MCP server: ${expected}`);
+  });
+
+  it.each([
     ['plain text', 'nothing secret', 'nothing secret'],
     ['GitHub token', 'ghp_abcdefghijklmnopqrstuvwxyz', '[REDACTED_TOKEN]'],
     ['bearer header', 'Authorization: Bearer abc.def-ghi_jkl', 'Authorization: Bearer [REDACTED_TOKEN]'],
@@ -584,7 +596,8 @@ describe('manual modes', () => {
     const markdown = await main(['--score', path.join(DATA_DIR, 'answers.example.json'), '--out', out], { stdout: { write } });
     expect(markdown).toContain('| known-file | **confirmed** |');
     const written = JSON.parse(readFileSync(path.join(out, 'report.json'), 'utf8'));
-    expect(written.meta).toMatchObject({ client: 'example', model: 'example-model', corpusCommit: COMMIT, corpusTag: 'v1.24.2', corpusHash: TREE, harnessCommit: 'f'.repeat(40), hypothesesVersion: 1, repetitions: 2 });
+    expect(written.meta).toMatchObject({ client: 'example', model: 'example-model', corpusCommit: COMMIT, corpusTag: 'v1.24.2', corpusHash: TREE, harnessCommit: 'f'.repeat(40), graphItLiveVersion: 'v1.24.2-3-gffffffff', hypothesesVersion: 1, repetitions: 2 });
+    expect(childProcess.execFileSync).toHaveBeenCalledWith('git', ['describe', '--tags', '--always', '--dirty'], expect.anything());
     expect(written.runs[0].prompt).toBe(buildPrompt(task('known-file-toon'), hypotheses));
     expect(readFileSync(path.join(out, 'report.md'), 'utf8')).toBe(`${markdown}\n`);
     expect(write.mock.calls[0][0]).toContain(`Report written to ${out}`);
@@ -596,7 +609,8 @@ describe('manual modes', () => {
     await main(['--score', path.join(DATA_DIR, 'answers.example.json'), '--tasks', 'known-file-toon', '--arms', 'native', '--out', out], { stdout: { write: vi.fn() } });
     const written = JSON.parse(readFileSync(path.join(out, 'report.json'), 'utf8'));
     expect(written.runs.map((run: RecordedRun) => `${run.taskId}/${run.arm}`)).toEqual(['known-file-toon/native']);
-    expect(written.meta.harnessCommit).toBeNull();
+    expect(written.meta).toMatchObject({ harnessCommit: null, graphItLiveVersion: null });
+    expect(readFileSync(path.join(out, 'report.md'), 'utf8')).toContain('- Harness: `unknown`, Graph-It-Live unknown');
     expect(written.verdicts.find((v: { class: string }) => v.class === 'known-file')).toMatchObject({ verdict: 'not confirmed', reason: 'known-file-toon has no completed run in the graph arm' });
     const bad = path.join(tempDir(), 'answers.json');
     writeFileSync(bad, JSON.stringify({ runs: [{ taskId: 'nope', arm: 'native' }] }));

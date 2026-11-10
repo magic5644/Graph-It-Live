@@ -59,6 +59,7 @@ The diagrams are being refreshed in #300; some content predates Branch Watch and
 | [development/CODING_STANDARDS.md](development/CODING_STANDARDS.md) | TypeScript, layering and MCP conventions |
 | [development/CROSS_PLATFORM_TESTING.md](development/CROSS_PLATFORM_TESTING.md) | Windows, macOS and Linux path handling and testing |
 | [benchmarks/graph-context-benchmark.md](benchmarks/graph-context-benchmark.md) | Graph context benchmark |
+| [benchmarks/agent-benchmark.md](benchmarks/agent-benchmark.md) | Agent benchmark: native vs Graph-It-Live, verdicts and first baseline |
 
 ## Specifications
 

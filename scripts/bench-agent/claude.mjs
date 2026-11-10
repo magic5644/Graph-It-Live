@@ -12,7 +12,7 @@ import { armMcpConfig, childEnv, isLimitMessage, renderDryRunPage, runAllCells, 
 
 export const CLAUDE_MODEL = 'claude-haiku-5-5';
 export const CLAUDE_EFFORT = 'low';
-export const RUN_TIMEOUT_MS = 5 * 60 * 1000;
+export const RUN_TIMEOUT_MS = 2 * 60 * 1000;
 
 const NATIVE_TOOLS = ['Bash', 'Read', 'Grep', 'Glob'];
 /** Same built-in tools in both arms; the graph arm also gets every tool of its MCP server. */
