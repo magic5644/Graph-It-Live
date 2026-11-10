@@ -501,6 +501,18 @@ export function checkArchitecture(
 
 export type ArchitectureCheck = ReturnType<typeof checkArchitecture>;
 
+/**
+ * A baseline accepting every current violation of a check run without baseline (resolved
+ * entries drop out), plus the `previous` entries of rules switched off: not checked, they stay accepted.
+ */
+export function acceptAllViolations(check: Pick<ArchitectureCheck, "rules" | "violations">, previous: readonly BaselineEntry[] = []): BaselineEntry[] {
+  const off = new Set(check.rules.filter((rule) => rule.severity === "off").map((rule) => rule.name));
+  return [
+    ...check.violations.map(({ rule, source, target }) => ({ rule, source, target })),
+    ...previous.filter((entry) => off.has(entry.rule)),
+  ];
+}
+
 /** Loads the rule files and checks the graph against them: what the CLI, MCP and view report. */
 export async function checkWorkspaceArchitecture(
   graph: ArchitectureGraph,

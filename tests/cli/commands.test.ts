@@ -181,7 +181,7 @@ describe("tool command", () => {
 describe("commandHelp", () => {
   it("returns help for each known command", async () => {
     const { getCommandHelp } = await import("../../src/cli/commandHelp.js");
-    const commands = ["scan", "summary", "trace", "explain", "path", "path-in", "check-dependencies", "cycles", "architecture", "check", "serve", "tool", "install", "review-pr", "query", "wiki", "stats", "export"];
+    const commands = ["scan", "summary", "trace", "explain", "path", "path-in", "check-dependencies", "cycles", "architecture", "check", "serve", "tool", "install", "review-pr", "query", "wiki", "stats", "export", "init"];
     for (const cmd of commands) {
       const help = getCommandHelp(cmd);
       expect(help).toContain(`graph-it ${cmd}`);
