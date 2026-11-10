@@ -446,13 +446,19 @@ describe('manual modes', () => {
   it.each([
     [['--print-pack'], { mode: 'print-pack', tasks: null, arms: ['native', 'graph'] }],
     [['--score', 'a.json', '--tasks', 'a, b', '--arms', 'graph'], { mode: 'score', answers: 'a.json', tasks: ['a', 'b'], arms: ['graph'] }],
+    [['--client', 'claude', '--dry-run', '--arms', 'native'], { mode: 'client', client: 'claude', dryRun: true, arms: ['native'] }],
+    [['--client', 'claude'], { mode: 'client', client: 'claude', dryRun: false }],
   ])('parseOptions(%j)', (argv, expected) => {
     expect(parseOptions(argv)).toMatchObject(expected);
   });
 
   it.each([
     [[], 'usage: npm run bench:agent'],
-    [['--client', 'claude'], 'unknown option --client'],
+    [['--client', 'codex'], 'unknown client codex; known: claude'],
+    [['--client'], '--client needs a value'],
+    [['--print-pack', '--dry-run'], '--dry-run needs --client'],
+    [['--dry-run'], 'usage: npm run bench:agent'],
+    [['--score', 'a.json', '--client', 'claude'], '--print-pack, --score and --client exclude each other'],
     [['--score'], '--score needs a value'],
     [['--score', '--tasks'], '--score needs a value'],
     [['--print-pack', '--arms', 'routing'], 'unknown arm(s) routing'],
@@ -505,6 +511,36 @@ describe('manual modes', () => {
     emulateGit(new Map());
     const write = vi.fn();
     expect(() => main(['--print-pack'], { stdout: { write } })).toThrow(`answer keys do not match corpus commit ${COMMIT}`);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('--client claude --dry-run checks the keys, then prints prompts and commands without starting anything', async () => {
+    const out: string[] = [];
+    const printed = await main(['--client', 'claude', '--dry-run', '--tasks', 'known-file-toon'], { stdout: { write: (text: string) => out.push(text) }, env: { PATH: '/bin', ANTHROPIC_API_KEY: 'sk-x' } });
+    expect(out.join('')).toBe(`${printed}\n`);
+    expect(printed).toContain('Child environment drops: ANTHROPIC_API_KEY;');
+    expect(printed).not.toContain('sk-x');
+    expect(printed).toContain(buildPrompt(task('known-file-toon'), hypotheses));
+    expect(printed).toContain('## Arm native');
+    expect(printed).toContain('## Arm graph');
+    // Only the git object reads of the key check ran.
+    expect(childProcess.execFileSync.mock.calls.every(([command]) => command === 'git')).toBe(true);
+  });
+
+  it('--client claude stops on a wrong answer key before any client command', () => {
+    emulateGit(new Map());
+    const write = vi.fn();
+    expect(() => main(['--client', 'claude'], { stdout: { write } })).toThrow(`answer keys do not match corpus commit ${COMMIT}`);
+    expect(childProcess.execFileSync.mock.calls.every(([command]) => command === 'git')).toBe(true);
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('--client claude refuses to start when the subscription route cannot be verified', async () => {
+    const write = vi.fn();
+    await expect(main(['--client', 'claude', '--arms', 'native'], { stdout: { write }, env: { PATH: '/bin', ANTHROPIC_API_KEY: 'sk-x' } }))
+      .rejects.toThrow('refusing to start: Claude Code auth route cannot be verified (unexpected command claude)');
+    expect(childProcess.execFileSync).toHaveBeenCalledWith('claude', ['auth', 'status', '--json'], expect.objectContaining({ env: expect.not.objectContaining({ ANTHROPIC_API_KEY: expect.anything() }) }));
+    expect(childProcess.spawn).not.toHaveBeenCalled();
     expect(write).not.toHaveBeenCalled();
   });
 

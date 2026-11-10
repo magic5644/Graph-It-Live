@@ -1,16 +1,20 @@
-// Agent benchmark command (#399). This sub-issue (#675) ships the manual modes,
-// which start no agent client and call no model (git object reads only):
+// Agent benchmark command (#399). Manual modes (#675) start no agent client and
+// call no model (git object reads only); the live mode (#676) runs Claude Code on
+// the claude.ai subscription:
 //   npm run bench:agent -- --print-pack [--tasks <ids>] [--arms <ids>]
 //   npm run bench:agent -- --score <answers.json> [--out <dir>]
-// Both check the answer keys against the pinned corpus commit first.
-// Unlike tests/evals/toolSelection.eval.test.ts, nothing here goes through
-// LlmClientFactory or an API key: live runs use client subscriptions only (#676, #677).
+//   npm run bench:agent -- --client claude [--dry-run] [--tasks <ids>] [--arms <ids>] [--out <dir>]
+// Every mode checks the answer keys against the pinned corpus commit first, so a
+// bad key costs no tokens. Unlike tests/evals/toolSelection.eval.test.ts, nothing
+// here goes through LlmClientFactory or an API key: subscriptions only.
 
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { renderDryRun, runClaudeBench } from './claude.mjs';
 import { buildReport, checkAnswerKeys, renderMarkdown, sanitize, validateRuns, validateTasks } from './harness.mjs';
+import { removedEnvNames } from './live.mjs';
 
 const REPO_ROOT = path.resolve(import.meta.dirname, '..', '..');
 export const DATA_DIR = path.join(REPO_ROOT, 'tests', 'evals', 'agent-bench');
@@ -31,14 +35,15 @@ export const ARMS = {
   },
 };
 
-const USAGE = 'usage: npm run bench:agent -- (--print-pack | --score <answers.json>) [--tasks <ids>] [--arms <ids>] [--out <dir>]\n'
-  + '(--client claude and --client codex come with #676 and #677)';
+const USAGE = 'usage: npm run bench:agent -- (--print-pack | --score <answers.json> | --client claude [--dry-run]) [--tasks <ids>] [--arms <ids>] [--out <dir>]\n'
+  + '(--client codex comes with #677)';
+const CLIENTS = ['claude'];
 
 const list = (value) => value.split(',').map((item) => item.trim()).filter(Boolean);
 
 export function parseOptions(argv) {
-  /** @type {{ mode: 'print-pack' | 'score' | null, answers: string | null, tasks: string[] | null, arms: string[], out: string }} */
-  const options = { mode: null, answers: null, tasks: null, arms: Object.keys(ARMS), out: path.join(REPO_ROOT, '.reports', 'agent-bench') };
+  /** @type {{ mode: 'print-pack' | 'score' | 'client' | null, answers: string | null, client: string | null, dryRun: boolean, tasks: string[] | null, arms: string[], out: string }} */
+  const options = { mode: null, answers: null, client: null, dryRun: false, tasks: null, arms: Object.keys(ARMS), out: path.join(REPO_ROOT, '.reports', 'agent-bench') };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
     const next = () => {
@@ -46,17 +51,29 @@ export function parseOptions(argv) {
       if (value === undefined || value.startsWith('--')) throw new Error(`${arg} needs a value\n${USAGE}`);
       return value;
     };
-    if (arg === '--print-pack') options.mode = 'print-pack';
-    else if (arg === '--score') { options.mode = 'score'; options.answers = next(); }
+    const setMode = (mode) => {
+      if (options.mode && options.mode !== mode) throw new Error(`--print-pack, --score and --client exclude each other\n${USAGE}`);
+      options.mode = mode;
+    };
+    if (arg === '--print-pack') setMode('print-pack');
+    else if (arg === '--score') { setMode('score'); options.answers = next(); }
+    else if (arg === '--client') { setMode('client'); options.client = next(); }
+    else if (arg === '--dry-run') options.dryRun = true;
     else if (arg === '--tasks') options.tasks = list(next());
     else if (arg === '--arms') options.arms = list(next());
     else if (arg === '--out') options.out = path.resolve(next());
     else throw new Error(`unknown option ${arg}\n${USAGE}`);
   }
+  validateSelection(options);
+  return options;
+}
+
+function validateSelection(options) {
   if (!options.mode) throw new Error(USAGE);
+  if (options.mode === 'client' && !CLIENTS.includes(options.client)) throw new Error(`unknown client ${options.client}; known: ${CLIENTS.join(', ')}`);
+  if (options.dryRun && options.mode !== 'client') throw new Error(`--dry-run needs --client\n${USAGE}`);
   const unknownArms = options.arms.filter((arm) => !(arm in ARMS));
   if (unknownArms.length > 0 || options.arms.length === 0) throw new Error(`unknown arm(s) ${unknownArms.join(', ')}; known: ${Object.keys(ARMS).join(', ')}`);
-  return options;
 }
 
 const readJson = (file) => JSON.parse(readFileSync(file, 'utf8'));
@@ -130,15 +147,10 @@ function harnessMeta(repoRoot) {
   return { harnessCommit, graphItLiveVersion: readJson(path.join(repoRoot, 'package.json')).version };
 }
 
-/** Scores a recorded answers file with the shared scorer and writes report.json and report.md. */
-export function scoreAnswers({ answersFile, allTasks, tasks, hypotheses, arms, corpusHash, repoRoot, out, now = new Date() }) {
-  const answers = readJson(answersFile);
-  // Validated against every known task and arm; --tasks / --arms then narrow the report.
-  const errors = validateRuns(answers?.runs, allTasks, Object.keys(ARMS));
-  if (errors.length > 0) throw new Error(`invalid answers file:\n- ${errors.join('\n- ')}`);
-  const runs = answers.runs.filter((run) => tasks.some((task) => task.id === run.taskId) && arms.includes(run.arm));
+/** Builds the report from recorded runs with the shared builder and writes report.json and report.md. */
+function writeReport({ clientMeta, runs, tasks, hypotheses, arms, corpusHash, repoRoot, out, now }) {
   const meta = {
-    ...Object.fromEntries(Object.entries(answers.meta ?? {}).map(([key, value]) => [key, sanitize(value)])),
+    ...Object.fromEntries(Object.entries(clientMeta).map(([key, value]) => [key, sanitize(value)])),
     ...harnessMeta(repoRoot),
     corpusCommit: hypotheses.corpus.commit,
     corpusTag: hypotheses.corpus.tag,
@@ -160,10 +172,36 @@ export function scoreAnswers({ answersFile, allTasks, tasks, hypotheses, arms, c
   return { report, markdown };
 }
 
-export function main(argv, { repoRoot = REPO_ROOT, dataDir = DATA_DIR, stdout = process.stdout } = {}) {
+/** Scores a recorded answers file with the shared scorer and writes report.json and report.md. */
+export function scoreAnswers({ answersFile, allTasks, tasks, hypotheses, arms, corpusHash, repoRoot, out, now = new Date() }) {
+  const answers = readJson(answersFile);
+  // Validated against every known task and arm; --tasks / --arms then narrow the report.
+  const errors = validateRuns(answers?.runs, allTasks, Object.keys(ARMS));
+  if (errors.length > 0) throw new Error(`invalid answers file:\n- ${errors.join('\n- ')}`);
+  const runs = answers.runs.filter((run) => tasks.some((task) => task.id === run.taskId) && arms.includes(run.arm));
+  return writeReport({ clientMeta: answers.meta ?? {}, runs, tasks, hypotheses, arms, corpusHash, repoRoot, out, now });
+}
+
+/** Live Claude Code run (or its dry run), then the same report as --score. */
+async function runClient({ options, tasks, hypotheses, corpusHash, repoRoot, env, stdout }) {
+  const prompt = (task) => buildPrompt(task, hypotheses);
+  if (options.dryRun) {
+    const text = renderDryRun({ tasks, arms: options.arms, armSpecs: ARMS, buildPrompt: prompt, removedEnv: removedEnvNames(env) });
+    stdout.write(`${text}\n`);
+    return text;
+  }
+  const { runs, meta } = await runClaudeBench({ tasks, arms: options.arms, armSpecs: ARMS, agentFiles: AGENT_FILES, buildPrompt: prompt, commit: hypotheses.corpus.commit, repoRoot, env });
+  const { markdown } = writeReport({ clientMeta: meta, runs, tasks, hypotheses, arms: options.arms, corpusHash, repoRoot, out: options.out, now: new Date() });
+  stdout.write(`${markdown}\n\nReport written to ${options.out}\n`);
+  return markdown;
+}
+
+/** Returns the printed text; a promise of it with --client. */
+export function main(argv, { repoRoot = REPO_ROOT, dataDir = DATA_DIR, stdout = process.stdout, env = process.env } = {}) {
   const options = parseOptions(argv);
   const { hypotheses, allTasks, tasks } = loadDataset(dataDir, options.tasks);
   const corpusHash = verifyKeys(tasks, hypotheses, repoRoot);
+  if (options.mode === 'client') return runClient({ options, tasks, hypotheses, corpusHash, repoRoot, env, stdout });
   if (options.mode === 'print-pack') {
     const pack = renderPack({ tasks, hypotheses, arms: options.arms, corpusHash });
     stdout.write(`${pack}\n`);
@@ -174,7 +212,7 @@ export function main(argv, { repoRoot = REPO_ROOT, dataDir = DATA_DIR, stdout = 
   return markdown;
 }
 
-// An error propagates: Node prints it and exits with code 1.
+// An error (or a rejected live run) propagates: Node prints it and exits with code 1.
 if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
-  main(process.argv.slice(2));
+  await main(process.argv.slice(2));
 }

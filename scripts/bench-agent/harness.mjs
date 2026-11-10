@@ -411,6 +411,7 @@ const percent = (value) => (typeof value === 'number' ? `${Math.round(value * 10
 export function renderMarkdown(report) {
   const { meta } = report;
   const tag = meta.corpusTag ? ` (${meta.corpusTag})` : '';
+  const coldIndex = typeof meta.coldIndexMs === 'number' ? ` (cold build ${meta.coldIndexMs} ms, excluded from per-task cost)` : '';
   const failures = report.runs.filter((run) => run.status !== 'completed' || run.scoring?.malformed);
   const failureLine = (run) => {
     const malformed = run.scoring?.malformed ? ` (${run.scoring.error})` : '';
@@ -423,7 +424,8 @@ export function renderMarkdown(report) {
     `- Corpus: \`${meta.corpusCommit}\`${tag}, tree \`${meta.corpusHash ?? 'unknown'}\``,
     `- Harness: \`${meta.harnessCommit ?? 'unknown'}\`, Graph-It-Live ${meta.graphItLiveVersion ?? 'unknown'}`,
     `- Client: ${meta.client ?? 'unknown'} ${meta.clientVersion ?? ''}, model ${meta.model ?? 'unknown'}, effort ${meta.effort ?? 'unknown'}`,
-    `- Index: ${meta.indexState ?? 'unknown'}; repetitions per cell: up to ${meta.repetitions}; generated ${meta.generatedAt ?? ''}`,
+    `- Index: ${meta.indexState ?? 'unknown'}${coldIndex}; repetitions per cell: up to ${meta.repetitions}; generated ${meta.generatedAt ?? ''}`,
+    ...(meta.stopReason ? [`- Stopped early: ${meta.stopReason}`] : []),
     '',
     '## Verdicts',
     '',
