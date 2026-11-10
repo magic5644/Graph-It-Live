@@ -119,12 +119,13 @@ describe('v2 task pack schema', () => {
     }
   });
 
-  it('keeps the v1 controls word for word, so the routing of #401 compares with the v1 baseline', () => {
+  it('keeps the v1 controls word for word; only the v2 answer-format line is added to their prompt', () => {
     for (const control of tasks.filter((t) => t.corpus === 'self')) {
       const { class: _v2Class, corpus: _corpus, ...rest } = control;
       const { class: _v1Class, ...original } = v1.allTasks.find((t) => t.id === control.id) as BenchTask;
       expect(rest).toEqual(original);
-      expect(buildPrompt(control, hypotheses)).toBe(buildPrompt(original as BenchTask, v1.hypotheses));
+      const v2Lines = buildPrompt(control, hypotheses).split('\n');
+      expect(v2Lines.filter((line) => !line.startsWith('A type ending in []'))).toEqual(buildPrompt(original as BenchTask, v1.hypotheses).split('\n'));
     }
   });
 
@@ -161,6 +162,15 @@ describe('v2 task pack schema', () => {
 });
 
 describe('v2 prompts', () => {
+  it('shows a filled example of every v2 answer shape, so a list is never returned as a string', () => {
+    const lines = (id: string) => buildPrompt(task(id), hypotheses).split('\n');
+    expect(lines('callpath-nest-scan-imports')[4]).toBe('A type ending in [] is a JSON array, never a string. Format only, replace every placeholder: {"methods":["<string>","<string>"]}');
+    expect(lines('impact-nest-module-keys')[4]).toContain('{"function":"<string>","files":["<path>","<path>"]}');
+    const scalar = { ...task('known-file-toon'), answerShape: { count: 'number', ok: 'boolean' } } as BenchTask;
+    expect(buildPrompt(scalar, hypotheses)).toContain('{"count":0,"ok":false}');
+    expect(buildPrompt(v1.allTasks[0], v1.hypotheses)).not.toContain('A type ending in []');
+  });
+
   it('names the corpus repository and its commit in the shared prefix', () => {
     expect(buildPrompt(task('impact-nest-module-keys'), hypotheses).split('\n')[0]).toBe('You are answering a question about the repository in the current directory (nest at commit d0fb875e23e3).');
     expect(buildPrompt(task('impact-flask-make-response'), hypotheses)).toContain('(flask at commit ab8149664182)');
@@ -253,8 +263,8 @@ describe('v2 answer shapes', () => {
 
   it('scores the call path as an unordered list of bare method names', () => {
     const t = task('callpath-nest-scan-imports');
-    expect(scoreAnswer(t, JSON.stringify({ methods: ['reflectImports', 'scanModulesForDependencies', 'scan', 'initialize'] })).score).toBe(1);
-    expect(scoreAnswer(t, JSON.stringify({ methods: ['scan', 'reflectImports'] })).recall).toBe(0.5);
+    expect(scoreAnswer(t, JSON.stringify({ methods: ['reflectImports', 'scanModulesForDependencies', 'scan', 'asyncRun', 'initialize'] })).score).toBe(1);
+    expect(scoreAnswer(t, JSON.stringify({ methods: ['scan', 'reflectImports'] })).recall).toBe(0.4);
   });
 
   it('scores the cycle and the transitive files as path lists', () => {

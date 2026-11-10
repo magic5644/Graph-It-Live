@@ -102,14 +102,33 @@ export function loadDataset(dataDir = DATA_DIR, selected = null) {
 /** Last segment of `owner/name`: the corpus copy directory and the name used in prompts. */
 export const repositoryName = (corpus) => corpus.repository.split('/').pop();
 
+const PLACEHOLDERS = { string: '<string>', path: '<path>', number: 0, boolean: false };
+
+/**
+ * Answer format lines. v1 keeps its frozen wording. v2 (#685) adds a filled example, because
+ * with one list field Codex returned the type itself (`"string[]"`) or a list encoded as a string.
+ */
+function answerFormat(task, hypotheses) {
+  const shape = JSON.stringify(task.answerShape);
+  if (hypotheses.version < 2) return ['Reply with one JSON object only, no prose and no code fence, with exactly these fields and types:', shape];
+  const example = Object.fromEntries(Object.entries(task.answerShape).map(([field, type]) => {
+    const item = PLACEHOLDERS[type.replace('[]', '')];
+    return [field, type.endsWith('[]') ? [item, item] : item];
+  }));
+  return [
+    'Reply with one JSON object only, no prose and no code fence, with exactly these fields and types:',
+    shape,
+    `A type ending in [] is a JSON array, never a string. Format only, replace every placeholder: ${JSON.stringify(example)}`,
+  ];
+}
+
 /** Same prefix for every task and arm of a corpus (cache-friendly), then the question and its fixed answer shape. */
 export function buildPrompt(task, hypotheses) {
   const corpus = corpusOf(task, hypotheses);
   return [
     `You are answering a question about the repository in the current directory (${repositoryName(corpus)} at commit ${corpus.commit.slice(0, 12)}).`,
     'Do not modify any file. Paths are relative to the repository root and use "/".',
-    'Reply with one JSON object only, no prose and no code fence, with exactly these fields and types:',
-    JSON.stringify(task.answerShape),
+    ...answerFormat(task, hypotheses),
     '',
     task.prompt,
   ].join('\n');
