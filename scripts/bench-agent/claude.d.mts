@@ -1,9 +1,10 @@
 import type { BenchTask, RecordedRun, RunMetrics, RunStatus } from './harness.mjs';
 
 export interface ArmSpec { setup: string; mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }
-export interface ParserState { toolCalls: number; init: boolean; result: Record<string, unknown> | null; stop: { status: RunStatus; error: string } | null; stopAfter: string | null }
+export interface ParserState { toolCalls: number; init: boolean; plugins: string[]; result: Record<string, unknown> | null; stop: { status: RunStatus; error: string } | null; stopAfter: string | null }
 
 export const CLAUDE_MODEL: string;
+export const BUILTIN_PLUGINS: string[];
 export const CLAUDE_EFFORT: string;
 export const RUN_TIMEOUT_MS: number;
 export const ALLOWED_TOOLS: Record<string, string[]>;
