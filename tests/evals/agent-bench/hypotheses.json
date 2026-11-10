@@ -1,0 +1,53 @@
+{
+  "$comment": "Frozen before any task, answer key or live run (#399 'Evidence of value', #675). Do not tune after seeing results: a change needs its own commit and a new baseline.",
+  "version": 1,
+  "corpus": {
+    "repository": "magic5644/Graph-It-Live",
+    "commit": "069917ca71374408d910716f947db57e832ff543",
+    "tag": "v1.24.2"
+  },
+  "comparison": "graph arm versus native arm, same client, model, effort and prompt prefix",
+  "definitions": {
+    "taskScore": "Mean of the field scores of one answer, in [0, 1]. A scalar field scores 1 on exact match, else 0. A list field scores the F1 of its precision and recall against the key. Malformed or missing JSON scores 0.",
+    "correctness": "Sum over the class tasks of the task score, each task averaged over its completed runs.",
+    "recall": "Sum over the class tasks of the recall of the list fields, each task averaged over its completed runs.",
+    "toolCalls": "Sum over the class tasks of the tool calls, each task averaged over its completed runs.",
+    "providerTokens": "Sum over the class tasks of non-cached input tokens plus output tokens reported by the client, each task averaged over its completed runs. Cache reads are input, never savings. cl100k_base counts and JSON/TOON sizes are not provider tokens.",
+    "reduction": "(native - graph) / native for a metric; undefined when native is 0 or the metric is unavailable in either arm."
+  },
+  "classes": {
+    "localization": {
+      "tasks": 2,
+      "hypothesis": "Correctness >= native, and >= 20 % fewer tool calls or provider tokens.",
+      "minCorrectnessDelta": 0,
+      "minReduction": 0.2,
+      "reductionMetrics": ["toolCalls", "providerTokens"]
+    },
+    "callers-impact": {
+      "tasks": 1,
+      "hypothesis": "Correctness >= native, recall of the caller list >= native, and >= 20 % fewer tool calls or provider tokens.",
+      "minCorrectnessDelta": 0,
+      "minRecallDelta": 0,
+      "minReduction": 0.2,
+      "reductionMetrics": ["toolCalls", "providerTokens"]
+    },
+    "multi-file-contract": {
+      "tasks": 1,
+      "hypothesis": "Correctness >= native; tokens may be higher, and the extra cost is reported.",
+      "minCorrectnessDelta": 0
+    },
+    "known-file": {
+      "tasks": 2,
+      "negativeControl": true,
+      "hypothesis": "Same correctness, at most +1 tool call and at most +25 % provider tokens. More than that confirms that forced retrieval is overhead.",
+      "maxExtraToolCallsPerTask": 1,
+      "maxTokenIncrease": 0.25
+    }
+  },
+  "verdicts": {
+    "refuted": "Graph correctness (or, for callers-impact, recall) lower than native, even with an efficiency gain; or a known-file control above one of its limits.",
+    "confirmed": "Every condition of the hypothesis holds.",
+    "notConfirmed": "Neither refuted nor confirmed: an efficiency difference within the threshold, a metric unavailable in either arm, a known-file control with higher graph correctness, or a task without a completed run in either arm.",
+    "sampleSize": "Each verdict states its task and run counts and is never presented as statistically significant."
+  }
+}
