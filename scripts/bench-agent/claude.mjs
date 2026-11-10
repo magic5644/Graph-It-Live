@@ -213,7 +213,7 @@ async function runOne({ task, arm, repetition, setup, buildPrompt, env, log }) {
  * for MCP arms), runs every task and arm once, then the planned reruns, and returns the
  * recorded runs and metadata for the shared report builder. Answer keys were checked first.
  */
-export async function runClaudeBench({ tasks, arms, armSpecs, agentFiles, buildPrompt, commit, repoRoot, env = process.env, log = (text) => process.stderr.write(text) }) {
+export async function runClaudeBench({ tasks, arms, armSpecs, agentFiles, buildPrompt, commit, repoRoot, corpusGit, dirName, rerunBudget, env = process.env, log = (text) => process.stderr.write(text) }) {
   const childEnvironment = claudeEnv(env);
   const authRoute = checkClaudeRoute(childEnvironment);
   const clientVersion = execFileSync('claude', ['--version'], { env: childEnvironment, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30_000 }).trim(); // NOSONAR S4036: developer tool, trusted PATH
@@ -224,13 +224,13 @@ export async function runClaudeBench({ tasks, arms, armSpecs, agentFiles, buildP
     return { mcpConfig };
   };
   try {
-    return await withArmCopies({ arms, armSpecs, agentFiles, commit, repoRoot, env: childEnvironment, configure }, async ({ setup, indexState, coldIndexMs }) => {
+    return await withArmCopies({ arms, armSpecs, agentFiles, commit, repoRoot, corpusGit, dirName, env: childEnvironment, configure }, async ({ setup, indexState, coldIndexMs }) => {
       const plugins = new Set();
       const { runs, reruns, stopReason } = await runAllCells(tasks, arms, async (cell) => {
         const outcome = await runOne({ ...cell, setup, buildPrompt, env: childEnvironment, log });
         outcome.plugins.forEach((name) => plugins.add(name));
         return outcome;
-      });
+      }, rerunBudget);
       return {
         runs,
         meta: { client: 'claude', clientVersion, model: CLAUDE_MODEL, effort: CLAUDE_EFFORT, authRoute, indexState, coldIndexMs, reruns, stopReason, builtinPlugins: [...plugins].sort((a, b) => a.localeCompare(b)) },

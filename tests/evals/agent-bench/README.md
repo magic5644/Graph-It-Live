@@ -8,6 +8,7 @@ Data of the agent benchmark: does an agent answer code questions better or cheap
 | --- | --- |
 | `hypotheses.json` | Pinned corpus commit and the *Evidence of value* hypotheses and thresholds, frozen before the tasks. Not tuned after results. |
 | `tasks.json` | The 6 tasks (2 known-file controls, 2 localization, 1 callers/impact, 1 multi-file contract), their fixed JSON answer shapes and hand-reviewed answer keys. |
+| `v2/hypotheses.json`, `v2/tasks.json` | Hypotheses v2 (#685), frozen before the v2 tasks: 5 tasks one search cannot answer on the pinned open-source corpora of `scripts/bench-corpora.json` (nest, flask, vitepress), plus the 2 v1 controls on this repository. Select with `--pack v2`; v1 stays the default. |
 | `answers.example.json` | Answers-file format for `--score`, and the recorded fixture of the unit tests. Invented figures. |
 
 The harness lives in `scripts/bench-agent/`. Manual modes, which start no agent client and call no model (git object reads only):

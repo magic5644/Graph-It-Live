@@ -38,7 +38,14 @@ export function runCodexBench(input: {
   agentFiles: string[];
   buildPrompt: (task: BenchTask) => string;
   commit: string;
+  /** Harness checkout (built dist/). */
   repoRoot: string;
+  /** Git repository holding the corpus commit; default repoRoot. */
+  corpusGit?: string;
+  /** Name of the corpus copy directory; default Graph-It-Live. */
+  dirName?: string;
+  /** Reruns left for this call; default MAX_RERUNS. */
+  rerunBudget?: number;
   env?: NodeJS.ProcessEnv;
   log?: (text: string) => void;
 }): Promise<{ runs: RecordedRun[]; meta: Record<string, unknown> }>;

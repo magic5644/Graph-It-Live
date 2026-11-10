@@ -1,4 +1,5 @@
-export type TaskClass = 'known-file' | 'localization' | 'callers-impact' | 'multi-file-contract';
+/** A class name of the hypotheses (v1: known-file, localization, callers-impact, multi-file-contract). */
+export type TaskClass = string;
 export type FieldType = 'string' | 'string[]' | 'path' | 'path[]' | 'number' | 'boolean';
 export type RunStatus = 'completed' | 'failed' | 'timeout' | 'rate-limited' | 'incomplete';
 export type Verdict = 'confirmed' | 'not confirmed' | 'refuted';
@@ -6,6 +7,8 @@ export type Verdict = 'confirmed' | 'not confirmed' | 'refuted';
 export interface BenchTask {
   id: string;
   class: TaskClass;
+  /** v2: name of the task's corpus in Hypotheses.corpora. */
+  corpus?: string;
   prompt: string;
   answerShape: Record<string, FieldType>;
   key: Record<string, unknown>;
@@ -18,16 +21,23 @@ export interface ClassSpec {
   negativeControl?: boolean;
   minCorrectnessDelta?: number;
   minRecallDelta?: number;
+  minCorrectnessGain?: number;
   minReduction?: number;
   reductionMetrics?: ('toolCalls' | 'providerTokens')[];
   maxExtraToolCallsPerTask?: number;
   maxTokenIncrease?: number;
 }
 
+export interface CorpusPin { repository: string; commit: string; tag: string }
+
 export interface Hypotheses {
   version: number;
-  corpus: { repository: string; commit: string; tag: string };
+  /** v1: the single corpus (this repository). */
+  corpus?: CorpusPin;
+  /** v2: corpora by name (`self` is this repository, others are keys of scripts/bench-corpora.json). */
+  corpora?: Record<string, CorpusPin>;
   classes: Record<string, ClassSpec>;
+  limits?: string[];
 }
 
 export type RunMetrics = Partial<Record<'toolCalls' | 'turns' | 'latencyMs' | 'inputTokens' | 'cacheWriteTokens' | 'cacheReadTokens' | 'outputTokens' | 'notionalCostUsd', number | null>>;
@@ -84,12 +94,12 @@ export interface Report {
   limits: string[];
 }
 
-export const CLASSES: TaskClass[];
 export const FIELD_TYPES: FieldType[];
 export const RUN_STATUSES: RunStatus[];
 export const METRICS: string[];
 export const RETRIEVAL_METRICS: string[];
 export function isSafeRelativePath(value: unknown): boolean;
+export function corpusOf(task: BenchTask, hypotheses: Hypotheses): CorpusPin & { name: string };
 export function validateTasks(pack: unknown, hypotheses: unknown): string[];
 export function checkAnswerKeys(tasks: BenchTask[], commit: string, repoRoot: string): { ok: boolean; errors: string[]; corpusHash: string | null };
 export function parseAnswer(text: unknown): { ok: true; value: Record<string, unknown> } | { ok: false; error: string };

@@ -40,16 +40,16 @@ function git(repoRoot, args) {
 
 /**
  * Copy of the corpus commit (`git archive`, so no `.git`: no later commit to read) in a
- * new temporary directory, named like the repository so the working directory does not
- * reveal the arm, then without the agent instruction files. Answer keys and reports stay
- * in repoRoot, outside the copy.
+ * new temporary directory, named like the repository (dirName) so the working directory
+ * does not reveal the arm, then without the agent instruction files. Answer keys and
+ * reports stay in the harness checkout, outside the copy. gitDir may be a bare repository.
  */
-export function exportCorpus(repoRoot, commit, agentFiles) {
+export function exportCorpus(gitDir, commit, agentFiles, dirName = 'Graph-It-Live') {
   const parent = mkdtempSync(path.join(tmpdir(), 'agent-bench-'));
-  const dir = path.join(parent, 'Graph-It-Live');
+  const dir = path.join(parent, dirName);
   const archive = path.join(parent, 'corpus.tar');
   try {
-    git(repoRoot, ['archive', '--format=tar', '-o', archive, commit]);
+    git(gitDir, ['archive', '--format=tar', '-o', archive, commit]);
     mkdirSync(dir);
     execFileSync('tar', ['-xf', archive, '-C', dir], { stdio: 'ignore' }); // NOSONAR S4036: developer tool, trusted PATH
     rmSync(archive, { force: true });
@@ -176,7 +176,7 @@ export function renderDryRunPage({ client, intro, tasks, arms, armSpecs, buildPr
     ...arms.flatMap((arm) => [
       `## Arm ${arm}`,
       '',
-      `Corpus: <tmp>/Graph-It-Live, \`git archive\` of the corpus commit (no .git), without agent instruction files${Object.keys(armSpecs[arm].mcpServers).length > 0 ? '; warm index built once (`graph-it scan`)' : ''}.`,
+      `Corpus: <tmp>/<repository name>, \`git archive\` of the corpus commit (no .git), without agent instruction files${Object.keys(armSpecs[arm].mcpServers).length > 0 ? '; warm index built once (`graph-it scan`)' : ''}.`,
       '',
       `\`\`\`${config(arm).lang}`,
       config(arm).text,
@@ -203,9 +203,10 @@ function buildIndex(repoRoot, worktree, env) {
 /**
  * Prepares one corpus copy per arm (configure(arm, worktree) adds the client's arm
  * config to its setup), builds the index of MCP arms once, calls run with the setups,
- * and removes every copy afterwards, even when preparing or running fails.
+ * and removes every copy afterwards, even when preparing or running fails. repoRoot is
+ * the harness checkout (built `dist/`); corpusGit holds the corpus commit (default repoRoot).
  */
-export async function withArmCopies({ arms, armSpecs, agentFiles, commit, repoRoot, env, configure }, run) {
+export async function withArmCopies({ arms, armSpecs, agentFiles, commit, repoRoot, corpusGit = repoRoot, dirName, env, configure }, run) {
   const needsIndex = arms.some((arm) => Object.keys(armSpecs[arm].mcpServers).length > 0);
   if (needsIndex && !existsSync(path.join(repoRoot, 'dist', 'mcpServer.mjs'))) throw new Error('dist/mcpServer.mjs is missing: run `npm run build` first');
   const setup = {};
@@ -213,7 +214,7 @@ export async function withArmCopies({ arms, armSpecs, agentFiles, commit, repoRo
     let coldIndexMs = null;
     for (const arm of arms) {
       // Assigned before configure and the index build so finally removes it when they fail.
-      setup[arm] = { worktree: exportCorpus(repoRoot, commit, agentFiles), serverNames: Object.keys(armSpecs[arm].mcpServers) };
+      setup[arm] = { worktree: exportCorpus(corpusGit, commit, agentFiles, dirName), serverNames: Object.keys(armSpecs[arm].mcpServers) };
       Object.assign(setup[arm], configure(arm, setup[arm].worktree));
       if (setup[arm].serverNames.length > 0) coldIndexMs = buildIndex(repoRoot, setup[arm].worktree, env);
     }
@@ -224,11 +225,11 @@ export async function withArmCopies({ arms, armSpecs, agentFiles, commit, repoRo
 }
 
 /**
- * Runs every task and arm once, then the planned reruns, one cell at a time.
- * runCell({ task, arm, repetition }) resolves to { record, stopBench }; the first
+ * Runs every task and arm once, then at most rerunBudget planned reruns, one cell at a
+ * time. runCell({ task, arm, repetition }) resolves to { record, stopBench }; the first
  * stopBench (rate limit, refused route) ends the benchmark: no later cell, no rerun.
  */
-export async function runAllCells(tasks, arms, runCell) {
+export async function runAllCells(tasks, arms, runCell, rerunBudget = MAX_RERUNS) {
   const runs = [];
   const runList = async (cells) => {
     for (const cell of cells) {
@@ -241,7 +242,7 @@ export async function runAllCells(tasks, arms, runCell) {
     return null;
   };
   let stopReason = await runList(tasks.flatMap((task) => arms.map((arm) => ({ task, arm }))));
-  const reruns = stopReason ? [] : planReruns(runs, tasks, arms);
+  const reruns = stopReason ? [] : planReruns(runs, tasks, arms, rerunBudget);
   if (reruns.length > 0) stopReason = await runList(reruns.map(({ taskId, arm }) => ({ task: tasks.find((task) => task.id === taskId), arm })));
   return { runs, reruns: reruns.length, stopReason };
 }

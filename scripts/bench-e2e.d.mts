@@ -55,6 +55,9 @@ export interface OssCorpus {
 
 export const SELF_REF: string;
 export const OSS_CORPORA: Record<string, OssCorpus>;
+export const CORPORA_DIR: string;
+/** Fetches the pinned commit once into `<corporaDir>/<name>.git` (bare, shallow) and returns that directory. */
+export function fetchCorpusGit(name: string, corpus: OssCorpus, corporaDir: string): string;
 export function fetchCorpus(name: string, corpus: OssCorpus, corporaDir: string, root: string): void;
 export function percentile(values: number[], p: number): number;
 export function summarize(samples: Array<{ wallMs: number; rssMB?: number }>): MetricSummary;

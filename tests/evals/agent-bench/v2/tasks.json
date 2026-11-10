@@ -1,0 +1,155 @@
+{
+  "$comment": "Agent benchmark task pack v2 (#685): tasks one search cannot answer, on the pinned corpora of hypotheses.json, plus two v1 controls on this repository, copied unchanged. Keys were established without Graph-It-Live (TypeScript compiler API module resolution and findReferences, Python ast, import lists of the .vue files), then reviewed by hand once; every path and evidence symbol is checked in the git objects of each task's corpus commit before a run. Field types: string, string[], path, path[], number, boolean.",
+  "version": 2,
+  "tasks": [
+    {
+      "id": "known-file-toon",
+      "class": "known-file",
+      "corpus": "self",
+      "prompt": "Read src/shared/toon.ts. Which exported function compares a JSON string with a TOON string and returns their token counts and the savings, and which tokenizer encoding does this file import to count tokens?",
+      "answerShape": { "function": "string", "encoding": "string" },
+      "key": { "function": "estimateTokenSavings", "encoding": "cl100k_base" },
+      "evidence": [{ "path": "src/shared/toon.ts", "symbols": ["estimateTokenSavings", "cl100k_base"] }]
+    },
+    {
+      "id": "callers-ignored-directory",
+      "class": "greppable-name",
+      "corpus": "self",
+      "prompt": "Which file defines the function isInIgnoredDirectory, and which other source files under src/ call it (tests excluded)? These are the files to re-check if its behaviour changes.",
+      "answerShape": { "definedIn": "path", "callers": "path[]" },
+      "key": {
+        "definedIn": "src/analyzer/utils/PathPredicates.ts",
+        "callers": [
+          "src/analyzer/callgraph/returnedTypes.ts",
+          "src/analyzer/spider/SpiderGraphCrawler.ts",
+          "src/analyzer/spider/SpiderSymbolService.ts",
+          "src/analyzer/utils/declarations.ts"
+        ]
+      },
+      "evidence": [
+        { "path": "src/analyzer/utils/PathPredicates.ts", "symbols": ["isInIgnoredDirectory"] },
+        { "path": "src/analyzer/callgraph/returnedTypes.ts", "symbols": ["isInIgnoredDirectory"] },
+        { "path": "src/analyzer/spider/SpiderGraphCrawler.ts", "symbols": ["isInIgnoredDirectory"] },
+        { "path": "src/analyzer/spider/SpiderSymbolService.ts", "symbols": ["isInIgnoredDirectory"] },
+        { "path": "src/analyzer/utils/declarations.ts", "symbols": ["isInIgnoredDirectory"] }
+      ]
+    },
+    {
+      "id": "impact-nest-module-keys",
+      "class": "transitive-impact",
+      "corpus": "typescript-large",
+      "prompt": "In packages/ (spec files and test directories excluded), one function rejects any unknown property in the metadata object that declares a module. Which function is it, and which source files run it, either by calling it directly or by calling the function that calls it? Applying a decorator counts as calling it. List the files that contain those calls.",
+      "answerShape": { "function": "string", "files": "path[]" },
+      "key": {
+        "function": "validateModuleKeys",
+        "files": [
+          "packages/common/decorators/modules/module.decorator.ts",
+          "packages/core/discovery/discovery-module.ts",
+          "packages/core/injector/internal-core-module/internal-core-module.ts",
+          "packages/core/router/router-module.ts",
+          "packages/microservices/module/clients.module.ts",
+          "packages/platform-express/multer/multer.module.ts",
+          "packages/testing/testing-module.builder.ts"
+        ]
+      },
+      "evidence": [
+        { "path": "packages/common/utils/validate-module-keys.util.ts", "symbols": ["validateModuleKeys"] },
+        { "path": "packages/common/decorators/modules/module.decorator.ts", "symbols": ["Module", "validateModuleKeys"] },
+        { "path": "packages/core/discovery/discovery-module.ts", "symbols": ["Module"] },
+        { "path": "packages/core/injector/internal-core-module/internal-core-module.ts", "symbols": ["Module"] },
+        { "path": "packages/core/router/router-module.ts", "symbols": ["Module", "ModuleClass"] },
+        { "path": "packages/microservices/module/clients.module.ts", "symbols": ["Module"] },
+        { "path": "packages/platform-express/multer/multer.module.ts", "symbols": ["Module"] },
+        { "path": "packages/testing/testing-module.builder.ts", "symbols": ["Module", "createModule"] }
+      ]
+    },
+    {
+      "id": "impact-flask-make-response",
+      "class": "transitive-impact",
+      "corpus": "python",
+      "prompt": "In src/flask, the Flask application class has a method that converts the return value of a view function into a response object. Which method is it (bare name), and which functions and methods of src/flask reach it, either by calling it directly or through a chain of calls inside src/flask, at any depth? Write each caller as `<file>:<function>` or `<file>:<Class>.<method>`, for example `src/flask/example.py:Example.run`.",
+      "answerShape": { "method": "string", "callers": "string[]" },
+      "key": {
+        "method": "make_response",
+        "callers": [
+          "src/flask/app.py:Flask.finalize_request",
+          "src/flask/app.py:Flask.full_dispatch_request",
+          "src/flask/app.py:Flask.handle_exception",
+          "src/flask/app.py:Flask.wsgi_app",
+          "src/flask/app.py:Flask.__call__",
+          "src/flask/helpers.py:make_response"
+        ]
+      },
+      "evidence": [
+        { "path": "src/flask/app.py", "symbols": ["make_response", "finalize_request", "full_dispatch_request", "handle_exception", "wsgi_app", "__call__"] },
+        { "path": "src/flask/helpers.py", "symbols": ["make_response", "current_app"] }
+      ]
+    },
+    {
+      "id": "impact-vitepress-switch",
+      "class": "transitive-impact",
+      "corpus": "vue",
+      "prompt": "In the default theme (src/client/theme-default), which .vue components render src/client/theme-default/components/VPSwitch.vue, either directly in their template or through other components, at any depth? Count only components that are imported and used in a template, not the components a site configures dynamically with `<component :is>`.",
+      "answerShape": { "components": "path[]" },
+      "key": {
+        "components": [
+          "src/client/theme-default/components/VPSwitchAppearance.vue",
+          "src/client/theme-default/components/VPNavBarAppearance.vue",
+          "src/client/theme-default/components/VPNavBarExtra.vue",
+          "src/client/theme-default/components/VPNavScreenAppearance.vue",
+          "src/client/theme-default/components/VPNavBar.vue",
+          "src/client/theme-default/components/VPNavScreen.vue",
+          "src/client/theme-default/components/VPNav.vue",
+          "src/client/theme-default/Layout.vue"
+        ]
+      },
+      "evidence": [
+        { "path": "src/client/theme-default/components/VPSwitch.vue" },
+        { "path": "src/client/theme-default/components/VPSwitchAppearance.vue", "symbols": ["VPSwitch"] },
+        { "path": "src/client/theme-default/components/VPNavBarAppearance.vue", "symbols": ["VPSwitchAppearance"] },
+        { "path": "src/client/theme-default/components/VPNavBarExtra.vue", "symbols": ["VPSwitchAppearance"] },
+        { "path": "src/client/theme-default/components/VPNavScreenAppearance.vue", "symbols": ["VPSwitchAppearance"] },
+        { "path": "src/client/theme-default/components/VPNavBar.vue", "symbols": ["VPNavBarAppearance", "VPNavBarExtra"] },
+        { "path": "src/client/theme-default/components/VPNavScreen.vue", "symbols": ["VPNavScreenAppearance"] },
+        { "path": "src/client/theme-default/components/VPNav.vue", "symbols": ["VPNavBar", "VPNavScreen"] },
+        { "path": "src/client/theme-default/Layout.vue", "symbols": ["VPNav"] }
+      ]
+    },
+    {
+      "id": "callpath-nest-scan-imports",
+      "class": "call-path",
+      "corpus": "typescript-large",
+      "prompt": "When an application is created with the create method of packages/core/nest-factory.ts, the dependency scanner eventually calls its insertImport method (packages/core/scanner.ts). Through which methods does that call chain pass? List the intermediate methods only (neither create nor insertImport), as bare method names.",
+      "answerShape": { "methods": "string[]" },
+      "key": { "methods": ["initialize", "scan", "scanModulesForDependencies", "reflectImports"] },
+      "evidence": [
+        { "path": "packages/core/nest-factory.ts", "symbols": ["create", "initialize", "scan"] },
+        { "path": "packages/core/scanner.ts", "symbols": ["scan", "scanModulesForDependencies", "reflectImports", "insertImport"] }
+      ]
+    },
+    {
+      "id": "cycle-nest-testing-builder",
+      "class": "global-structure",
+      "corpus": "typescript-large",
+      "prompt": "Count every import, re-export and require between the source files of packages/ (type-only imports included; an index.ts barrel is a file; spec files and test directories excluded). Which other files are on an import cycle together with packages/testing/testing-module.builder.ts?",
+      "answerShape": { "files": "path[]" },
+      "key": {
+        "files": [
+          "packages/testing/interfaces/index.ts",
+          "packages/testing/interfaces/override-by.interface.ts",
+          "packages/testing/interfaces/override-module.interface.ts",
+          "packages/testing/testing-injector.ts",
+          "packages/testing/testing-instance-loader.ts"
+        ]
+      },
+      "evidence": [
+        { "path": "packages/testing/testing-module.builder.ts", "symbols": ["OverrideModule", "TestingInjector", "TestingInstanceLoader"] },
+        { "path": "packages/testing/interfaces/index.ts" },
+        { "path": "packages/testing/interfaces/override-by.interface.ts", "symbols": ["TestingModuleBuilder"] },
+        { "path": "packages/testing/interfaces/override-module.interface.ts", "symbols": ["TestingModuleBuilder"] },
+        { "path": "packages/testing/testing-injector.ts", "symbols": ["MockFactory"] },
+        { "path": "packages/testing/testing-instance-loader.ts", "symbols": ["MockFactory", "TestingInjector"] }
+      ]
+    }
+  ]
+}

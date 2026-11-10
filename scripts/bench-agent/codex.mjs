@@ -244,7 +244,7 @@ async function runOne({ task, arm, repetition, setup, buildPrompt, env, log }) {
  * corpus copy and CODEX_HOME per arm, runs every task and arm once, then the planned
  * reruns, and returns the recorded runs and metadata for the shared report builder.
  */
-export async function runCodexBench({ tasks, arms, armSpecs, agentFiles, buildPrompt, commit, repoRoot, env = process.env, log = (text) => process.stderr.write(text) }) {
+export async function runCodexBench({ tasks, arms, armSpecs, agentFiles, buildPrompt, commit, repoRoot, corpusGit, dirName, rerunBudget, env = process.env, log = (text) => process.stderr.write(text) }) {
   const sourceHome = env.CODEX_HOME || path.join(homedir(), '.codex');
   const tempDir = mkdtempSync(path.join(tmpdir(), 'agent-bench-codex-'));
   const home = path.join(tempDir, 'home');
@@ -260,8 +260,8 @@ export async function runCodexBench({ tasks, arms, armSpecs, agentFiles, buildPr
     }
     const clientVersion = execFileSync('codex', ['--version'], { env: loginEnv, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30_000 }).trim(); // NOSONAR S4036: developer tool, trusted PATH
     const configure = (arm, worktree) => ({ codexHome: makeCodexHome(path.join(tempDir, `codex-${arm}`), sourceHome, codexConfig(armSpecs[arm], worktree)) });
-    return await withArmCopies({ arms, armSpecs, agentFiles: [...agentFiles, ...CODEX_AGENT_FILES], commit, repoRoot, env: loginEnv, configure }, async ({ setup, indexState, coldIndexMs }) => {
-      const { runs, reruns, stopReason } = await runAllCells(tasks, arms, (cell) => runOne({ ...cell, setup, buildPrompt, env: loginEnv, log }));
+    return await withArmCopies({ arms, armSpecs, agentFiles: [...agentFiles, ...CODEX_AGENT_FILES], commit, repoRoot, corpusGit, dirName, env: loginEnv, configure }, async ({ setup, indexState, coldIndexMs }) => {
+      const { runs, reruns, stopReason } = await runAllCells(tasks, arms, (cell) => runOne({ ...cell, setup, buildPrompt, env: loginEnv, log }), rerunBudget);
       return { runs, meta: { ...baseMeta, clientVersion, authRoute: check.route, indexState, coldIndexMs, reruns, skipped: null, stopReason } };
     });
   } finally {
