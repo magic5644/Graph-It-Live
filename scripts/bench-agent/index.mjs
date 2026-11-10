@@ -37,6 +37,7 @@ const USAGE = 'usage: npm run bench:agent -- (--print-pack | --score <answers.js
 const list = (value) => value.split(',').map((item) => item.trim()).filter(Boolean);
 
 export function parseOptions(argv) {
+  /** @type {{ mode: 'print-pack' | 'score' | null, answers: string | null, tasks: string[] | null, arms: string[], out: string }} */
   const options = { mode: null, answers: null, tasks: null, arms: Object.keys(ARMS), out: path.join(REPO_ROOT, '.reports', 'agent-bench') };
   for (let index = 0; index < argv.length; index++) {
     const arg = argv[index];
