@@ -1,6 +1,6 @@
 # End-to-end benchmarks
 
-`scripts/bench-e2e.mjs` runs `dist/graph-it.js` and the VS Code extension on frozen corpora: `self` (this repository extracted with `git archive v1.18.0`), `generated` (a seeded 10,000-module TypeScript workspace, same files on every run), and one medium open-source project per supported language (below). Each sample is one process. A preload loaded through `NODE_OPTIONS` records each process's peak RSS (`process.resourceUsage().maxRSS`, worker threads included) on exit.
+`scripts/bench-e2e.mjs` runs `dist/graph-it.js` and the VS Code extension on frozen corpora: `self` (this repository extracted with `git archive v1.18.0`), `generated` (a seeded 10,000-module TypeScript workspace, same files on every run), one medium open-source project per supported language, and `typescript-large`, a monorepo larger than this repository (#343) (below). Each sample is one process. A preload loaded through `NODE_OPTIONS` records each process's peak RSS (`process.resourceUsage().maxRSS`, worker threads included) on exit.
 
 | Metric | Measures |
 | --- | --- |
@@ -14,6 +14,9 @@
 | `vscode.activation` | `activate()` of the extension, loaded from source in a fresh VS Code instance (empty profile, empty index cache); RSS is the extension host's after activation |
 | `vscode.indexReady` | From activation until the background index reports `complete` (polled through `get_index_status`); background indexing starts when the sidebar view resolves, opened right after activation; extension host RSS at that point |
 | `vscode.firstCallGraph` | Then `graph-it-live.showCallGraph` on the hub file until the webview reports the graph rendered (`callGraphReady`); peak RSS of the extension host over the session (worker threads included) |
+| `vscode.architectureDuringIndex` / `vscode.architectureIndexed` | Architecture view opened while the background index is built (first start, #383), until its first render; then rebuilt with `graph-it-live.refreshGraph` once the index is ready (the cost of reopening the view) |
+| `vscode.architectureDuringIndexLoopP99` / `…LoopMax`, `vscode.architectureIndexedLoopP99` / `…LoopMax` | Extension-host responsiveness (#343): p99 and maximum event-loop delay (`monitorEventLoopDelay`, 10 ms resolution) during each of the two architecture builds above |
+| `vscode.matrixFirstPaint` / `vscode.matrixScroll` | `generated` only: Matrix view of the unit holding the generated folders (one row per 100 modules), from the toggle to its first paint, then a scroll to its last cell |
 
 A second MCP session measures memory stability: `--cycles` index/query cycles (default 20), each a `rebuild_index` followed by `find_referencing_files` and `query_call_graph`. After each cycle, every thread of the server collects garbage (`--expose-gc`) and reports its V8 heap. The report lists the heap of the server main thread and the sum of its worker threads (the MCP worker and its parser workers) after the first and the last cycle, the growth, each group's sampled peak heap (every 50 ms), and the server process peak RSS. Worker threads share the process memory, so RSS has no per-thread split: the per-thread figure is the V8 heap. Cycles are paced 2.1 s apart, under the server limit of 5 `rebuild_index` calls per 10 s.
 
@@ -31,6 +34,7 @@ Each project is pinned to a commit in `scripts/bench-corpora.json`, with its tag
 | `go` | [gin-gonic/gin](https://github.com/gin-gonic/gin) | `v1.10.0` | MIT | `New` (`gin.go`) |
 | `java` | [google/gson](https://github.com/google/gson) | `gson-parent-2.11.0` | Apache-2.0 | `fromJson` (`gson/src/main/java/com/google/gson/Gson.java`) |
 | `csharp` | [serilog/serilog](https://github.com/serilog/serilog) | `v4.2.0` | Apache-2.0 | `Write` (`src/Serilog/Core/Logger.cs`) |
+| `typescript-large` | [nestjs/nest](https://github.com/nestjs/nest) | `v10.4.15` | MIT | `loadInstance` (`packages/core/injector/injector.ts`); `scan.afterEdit` edits `packages/common/utils/shared.utils.ts` |
 | `vue` | [vuejs/vitepress](https://github.com/vuejs/vitepress) | `v1.5.0` | MIT | `normalizeLink` (`src/client/theme-default/support/utils.ts`), called from `.vue` script blocks; `scan.afterEdit` edits `VPLink.vue` |
 
 To change a corpus, update its `tag`, full `commit` and targets together; the new manifest hash invalidates the CI cache.
@@ -63,7 +67,7 @@ Reference run (macOS arm64, 16 CPUs, Node 22, 5 runs, p50):
 | Memory session peak RSS | 933 MB | 1,216 MB |
 | Cache on disk | reverse index 0.4 MB, call graph 9.9 MB | reverse index 7.0 MB, call graph 24.8 MB |
 
-Open-source corpora, same machine and settings (5 runs, p50; `mcp.concurrent5` p50 / p95):
+Open-source corpora, same machine and settings (5 runs, p50; `mcp.concurrent5` p50 / p95). `typescript-large` and `vue` were added after this reference run and have no figures here; run them with `--corpus typescript-large,vue`:
 
 | Metric | typescript (439 files) | python (249 files) | rust (213 files) | go (120 files) | java (303 files) | csharp (281 files) |
 | --- | --- | --- | --- | --- | --- | --- |
