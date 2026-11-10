@@ -1,4 +1,5 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["src/**/*.ts"]
+  "compilerOptions": { "allowJs": true },
+  "include": ["src/**/*.ts", "scripts/bench-agent/**/*.mjs"]
 }
