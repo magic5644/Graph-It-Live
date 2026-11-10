@@ -28,5 +28,4 @@ export function scoreAnswers(input: {
   out: string;
   now?: Date;
 }): { report: Report; markdown: string };
-/** A string for --print-pack and --score; a promise of it for --client. */
-export function main(argv: string[], options?: { repoRoot?: string; dataDir?: string; stdout?: { write(text: string): unknown }; env?: NodeJS.ProcessEnv }): string | Promise<string>;
+export function main(argv: string[], options?: { repoRoot?: string; dataDir?: string; stdout?: { write(text: string): unknown }; env?: NodeJS.ProcessEnv }): Promise<string>;

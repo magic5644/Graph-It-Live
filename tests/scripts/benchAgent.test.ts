@@ -489,9 +489,9 @@ describe('manual modes', () => {
     expect(prompt.endsWith(task('known-file-toon').prompt)).toBe(true);
   });
 
-  it('--print-pack checks the keys, then prints corpus setup, arms, prompts and an answers template', () => {
+  it('--print-pack checks the keys, then prints corpus setup, arms, prompts and an answers template', async () => {
     const out: string[] = [];
-    const printed = main(['--print-pack', '--tasks', 'known-file-toon', '--arms', 'graph'], { stdout: { write: (text: string) => out.push(text) } });
+    const printed = await main(['--print-pack', '--tasks', 'known-file-toon', '--arms', 'graph'], { stdout: { write: (text: string) => out.push(text) } });
     expect(out.join('')).toBe(`${printed}\n`);
     expect(printed).toContain(`git worktree add --detach <worktree> ${COMMIT}`);
     expect(printed).toContain('`AGENTS.md`, `CLAUDE.md`, `.claude`, `.github/copilot-instructions.md`, `plugins`');
@@ -507,10 +507,10 @@ describe('manual modes', () => {
     expect(renderPack({ tasks: [task('known-file-toon')], hypotheses, arms: ['native'], corpusHash: TREE })).toContain('"mcpServers": {}');
   });
 
-  it('stops before printing anything when a key does not match the corpus', () => {
+  it('stops before printing anything when a key does not match the corpus', async () => {
     emulateGit(new Map());
     const write = vi.fn();
-    expect(() => main(['--print-pack'], { stdout: { write } })).toThrow(`answer keys do not match corpus commit ${COMMIT}`);
+    await expect(main(['--print-pack'], { stdout: { write } })).rejects.toThrow(`answer keys do not match corpus commit ${COMMIT}`);
     expect(write).not.toHaveBeenCalled();
   });
 
@@ -527,10 +527,10 @@ describe('manual modes', () => {
     expect(childProcess.execFileSync.mock.calls.every(([command]) => command === 'git')).toBe(true);
   });
 
-  it('--client claude stops on a wrong answer key before any client command', () => {
+  it('--client claude stops on a wrong answer key before any client command', async () => {
     emulateGit(new Map());
     const write = vi.fn();
-    expect(() => main(['--client', 'claude'], { stdout: { write } })).toThrow(`answer keys do not match corpus commit ${COMMIT}`);
+    await expect(main(['--client', 'claude'], { stdout: { write } })).rejects.toThrow(`answer keys do not match corpus commit ${COMMIT}`);
     expect(childProcess.execFileSync.mock.calls.every(([command]) => command === 'git')).toBe(true);
     expect(write).not.toHaveBeenCalled();
   });
@@ -544,10 +544,10 @@ describe('manual modes', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
-  it('--score scores the answers file and writes report.json and report.md', () => {
+  it('--score scores the answers file and writes report.json and report.md', async () => {
     const out = tempDir();
     const write = vi.fn();
-    const markdown = main(['--score', path.join(DATA_DIR, 'answers.example.json'), '--out', out], { stdout: { write } });
+    const markdown = await main(['--score', path.join(DATA_DIR, 'answers.example.json'), '--out', out], { stdout: { write } });
     expect(markdown).toContain('| known-file | **confirmed** |');
     const written = JSON.parse(readFileSync(path.join(out, 'report.json'), 'utf8'));
     expect(written.meta).toMatchObject({ client: 'example', model: 'example-model', corpusCommit: COMMIT, corpusTag: 'v1.24.2', corpusHash: TREE, harnessCommit: 'f'.repeat(40), hypothesesVersion: 1, repetitions: 2 });
@@ -556,16 +556,16 @@ describe('manual modes', () => {
     expect(write.mock.calls[0][0]).toContain(`Report written to ${out}`);
   });
 
-  it('--score narrows the report with --tasks and --arms, records an unknown harness commit, and rejects an invalid answers file', () => {
+  it('--score narrows the report with --tasks and --arms, records an unknown harness commit, and rejects an invalid answers file', async () => {
     emulateGit(corpusFiles(), { head: null });
     const out = tempDir();
-    main(['--score', path.join(DATA_DIR, 'answers.example.json'), '--tasks', 'known-file-toon', '--arms', 'native', '--out', out], { stdout: { write: vi.fn() } });
+    await main(['--score', path.join(DATA_DIR, 'answers.example.json'), '--tasks', 'known-file-toon', '--arms', 'native', '--out', out], { stdout: { write: vi.fn() } });
     const written = JSON.parse(readFileSync(path.join(out, 'report.json'), 'utf8'));
     expect(written.runs.map((run: RecordedRun) => `${run.taskId}/${run.arm}`)).toEqual(['known-file-toon/native']);
     expect(written.meta.harnessCommit).toBeNull();
     expect(written.verdicts.find((v: { class: string }) => v.class === 'known-file')).toMatchObject({ verdict: 'not confirmed', reason: 'known-file-toon has no completed run in the graph arm' });
     const bad = path.join(tempDir(), 'answers.json');
     writeFileSync(bad, JSON.stringify({ runs: [{ taskId: 'nope', arm: 'native' }] }));
-    expect(() => main(['--score', bad, '--out', out], { stdout: { write: vi.fn() } })).toThrow('invalid answers file:\n- runs[0].taskId nope is not a known task');
+    await expect(main(['--score', bad, '--out', out], { stdout: { write: vi.fn() } })).rejects.toThrow('invalid answers file:\n- runs[0].taskId nope is not a known task');
   });
 });

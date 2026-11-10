@@ -196,8 +196,8 @@ async function runClient({ options, tasks, hypotheses, corpusHash, repoRoot, env
   return markdown;
 }
 
-/** Returns the printed text; a promise of it with --client. */
-export function main(argv, { repoRoot = REPO_ROOT, dataDir = DATA_DIR, stdout = process.stdout, env = process.env } = {}) {
+/** Resolves to the printed text; rejects on a wrong key, a refused route or bad input. */
+export async function main(argv, { repoRoot = REPO_ROOT, dataDir = DATA_DIR, stdout = process.stdout, env = process.env } = {}) {
   const options = parseOptions(argv);
   const { hypotheses, allTasks, tasks } = loadDataset(dataDir, options.tasks);
   const corpusHash = verifyKeys(tasks, hypotheses, repoRoot);
