@@ -153,7 +153,7 @@ export function renderPack({ tasks, hypotheses, arms, corpora, repoRoot = REPO_R
   return [
     '# Agent benchmark task pack',
     '',
-    ...corpora.map((corpus) => `Corpus ${corpus.repository} (${corpus.tag}): commit \`${corpus.commit}\`, tree \`${corpus.tree}\`, tasks ${corpus.tasks.map((task) => task.id).join(', ')}. Extract it: \`mkdir <worktree> && git -C ${path.relative(repoRoot, corpus.gitDir) || '.'} archive ${corpus.commit} | tar -x -C <worktree>\`, then delete ${agentFiles} in it.`),
+    ...corpora.map((corpus) => `Corpus ${corpus.repository} (${corpus.tag}): commit \`${corpus.commit}\`, tree \`${corpus.tree}\`, tasks ${corpus.tasks.map((task) => task.id).join(', ')}. Extract it: \`mkdir <worktree> && git -C ${path.relative(repoRoot, corpus.gitDir).replaceAll('\\', '/') || '.'} archive ${corpus.commit} | tar -x -C <worktree>\`, then delete ${agentFiles} in it.`),
     'Graph arm: build the index of each corpus once before its first task; report its cold time separately.',
     '',
     '## Arms',

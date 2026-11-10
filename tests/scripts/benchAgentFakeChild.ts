@@ -1,6 +1,7 @@
 /**
- * Fake agent client process for the live benchmark tests (#676, #677): replays stdout
- * lines, then closes; kill() closes it at once. Nothing is spawned.
+ * Fakes of the agent benchmark tests (#675-#677, #685): the `node:child_process` mock, and
+ * an agent client process that replays stdout lines, then closes; kill() closes it at once.
+ * Nothing is spawned.
  */
 
 import { EventEmitter } from 'node:events';
@@ -47,4 +48,23 @@ export function fakeChild(lines: string[], { stderr = '', hang = false, error = 
   });
   child.stdout.on('end', () => setImmediate(() => close(0)));
   return child;
+}
+
+/**
+ * `node:child_process` mock: execFileSync and spawn are vi.fn() a test sets up; spawn and every
+ * other process call throw until then. Load it from vi.hoisted (dynamic import) before vi.mock.
+ */
+export function mockChildProcess(suite: string) {
+  const refuse = (name: string) => () => {
+    throw new Error(`${suite} tests must not spawn a real process (${name})`);
+  };
+  return {
+    execFileSync: vi.fn(),
+    spawn: vi.fn(refuse('spawn')),
+    spawnSync: vi.fn(refuse('spawnSync')),
+    exec: vi.fn(refuse('exec')),
+    execSync: vi.fn(refuse('execSync')),
+    execFile: vi.fn(refuse('execFile')),
+    fork: vi.fn(refuse('fork')),
+  };
 }
