@@ -23,7 +23,10 @@ export default [
       ".agents/**",
       ".github/**",
       "eslint.config.mjs",
-      "scripts/**",
+      // Scripts stay unlinted, except the agent benchmark harness (#399).
+      "scripts/**/*",
+      "!scripts/bench-agent/",
+      "!scripts/bench-agent/**/*.mjs",
       ".vscode-test/**",
       "**/*.OLD.tsx",
       "**/*.GRAPHD3.tsx",
