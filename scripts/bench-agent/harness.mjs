@@ -418,6 +418,17 @@ export function buildReport({ meta, tasks, hypotheses, arms, runs }) {
   };
 }
 
+// Claude Code names the tool mcp__graph-it-live__<tool>; Codex traces mcp:graph-it-live/<tool>.
+const GRAPH_CALL = /^mcp(?:__graph-it-live__|:graph-it-live\/)/;
+
+/** How many graph-arm runs with a recorded trace actually called the Graph-It-Live server. */
+function graphUseLines(runs) {
+  const graphRuns = runs.filter((run) => run.arm === 'graph' && Array.isArray(run.toolTrace));
+  if (graphRuns.length === 0) return [];
+  const used = graphRuns.filter((run) => run.toolTrace.some((entry) => GRAPH_CALL.test(entry))).length;
+  return ['', `Graph-arm runs that called the Graph-It-Live MCP server: ${used} of ${graphRuns.length}.`];
+}
+
 /** One line per run whose client recorded its tool calls, in call order. */
 function traceLines(runs) {
   const traced = runs.filter((run) => Array.isArray(run.toolTrace));
@@ -459,6 +470,7 @@ export function renderMarkdown(report) {
     ...report.verdicts.map((verdict) => `| ${verdict.class} | **${verdict.verdict}** | ${show(verdict.totals?.native.correctness, 2)} / ${show(verdict.totals?.graph.correctness, 2)} | ${percent(verdict.reductions?.toolCalls)} | ${percent(verdict.reductions?.providerTokens)} | ${verdict.sample.tasks} task(s), ${verdict.sample.runs.native}+${verdict.sample.runs.graph} run(s) | ${verdict.reason} |`),
     '',
     'Verdicts are computed automatically from the frozen hypotheses and are not statistically significant.',
+    ...graphUseLines(report.runs),
     '',
     '## Runs per task and arm',
     '',

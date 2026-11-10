@@ -141,13 +141,17 @@ export function renderPack({ tasks, hypotheses, arms, corpusHash }) {
 }
 
 function harnessMeta(repoRoot) {
+  const git = (args) => execFileSync('git', args, { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); // NOSONAR S4036: developer tool, trusted PATH
   let harnessCommit = null;
+  // Not package.json: it holds a placeholder (CI sets the version); the tag distance names the build.
+  let graphItLiveVersion = null;
   try {
-    harnessCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repoRoot, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); // NOSONAR S4036: developer tool, trusted PATH
+    harnessCommit = git(['rev-parse', 'HEAD']);
+    graphItLiveVersion = git(['describe', '--tags', '--always', '--dirty']);
   } catch {
     // Outside a git checkout: the report says "unknown".
   }
-  return { harnessCommit, graphItLiveVersion: readJson(path.join(repoRoot, 'package.json')).version };
+  return { harnessCommit, graphItLiveVersion };
 }
 
 /** Builds the report from recorded runs with the shared builder and writes report.json and report.md. */

@@ -14,7 +14,7 @@ import { armMcpConfig, childEnv, isLimitMessage, renderDryRunPage, runAllCells, 
 /** "Fast and affordable" model of the ChatGPT plan catalog, the Codex counterpart of the Claude Haiku pin. */
 export const CODEX_MODEL = 'gpt-6-luna';
 export const CODEX_EFFORT = 'low';
-export const RUN_TIMEOUT_MS = 5 * 60 * 1000;
+export const RUN_TIMEOUT_MS = 2 * 60 * 1000;
 
 /** Also removed from the Codex corpus copies: Codex reads repository skills and plugin marketplaces in `.agents/`. */
 export const CODEX_AGENT_FILES = ['.agents'];
