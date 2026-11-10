@@ -21,6 +21,7 @@ The `graph-it` CLI gives you full access to the dependency analysis engine of Gr
   - [cycles](#cycles)
   - [architecture](#architecture)
   - [check-architecture](#check-architecture)
+  - [init](#init)
   - [diagram](#diagram)
   - [check](#check)
   - [trace](#trace)
@@ -114,6 +115,9 @@ graph-it tool find_referencing_files --targetPath=$(pwd)/src/utils.ts
 
 # 6. Scan for dead code
 graph-it check
+
+# 7. Guard the architecture: rules from the current code, plus quick wins
+graph-it init
 ```
 
 ---
@@ -963,6 +967,69 @@ Unmatched files
 ```
 
 The VS Code Architecture view and the [`check_architecture`](#check_architecture) MCP tool report the same rules and counts.
+
+### init
+
+Sets up the architecture guard from the code as it is today, so that [`check-architecture`](#check-architecture) passes now and fails only on new drift. It does not judge whether the current architecture is good. Then it prints what can be improved quickly and reads the dependency matrix for you.
+
+```bash
+graph-it init [--yes] [--dry-run] [--output <dir>] [--format text|markdown|json|toon]
+```
+
+**The config.** `init` writes `graphit.architecture.json`:
+
+- one element per unit of [`architecture --level units`](#architecture) (`{ "unit": "<key>" }`), so no file is left unmatched;
+- one `allowOnly` rule per unit, listing the units it imports today;
+- one `noCycles` rule over the units that are in no cycle today (element `acyclic-units`, `each: true`). Units already in a cycle stay bound by their `allowOnly`: a new import between units fails either way.
+
+Every current violation goes to `graphit.architecture.baseline.json`; the file is only written when it accepts at least one. A new import between two units that were not connected, or a new cycle, then fails `check-architecture`. Refactors tighten the config over time: remove an `allowOnly` entry or a baseline entry once its imports are gone (`check-architecture` lists `resolved` entries).
+
+**An existing config is never overwritten without a confirmation.** Its elements and rules are kept as they are; `init` only adds an element per unit (reusing an identical one; it selects the unit by its key, or by its package name when the key also matches another unit), an `allowOnly` rule for a unit no `allowOnly` rule constrains yet, and the `noCycles` rule when the config has none. When the config or the baseline already exists and this changes something:
+
+- in a terminal, `init` prints the changes (`+` added, `~` changed, `-` removed, accepted violations included) and asks before overwriting (default: no); after a yes, the previous files are kept as `*.bak` (`*.bak.2`, `*.bak.3`... when a copy already exists, so an earlier one is never replaced);
+- outside a terminal (CI, agent, pipe) or after a no, it writes nothing to these files and still prints the changes and the report;
+- `--yes` is the only non-interactive way to confirm. `--dry-run` writes neither the rules files, the diagrams nor the report; the index cache under `.graph-it/` is refreshed as by every command.
+
+An invalid config is reported, never replaced.
+
+**The guard.** The report prints the commands that keep it on: `graph-it check-architecture` for a pre-commit hook, a CI step, and the SARIF upload for code scanning (see [check-architecture](#check-architecture)).
+
+**Quick wins**, ranked by effort (imports or symbols to change), each with its evidence and the next command:
+
+| Kind | What | Effort |
+| --- | --- | --- |
+| `cycle-break` | A unit cycle whose cut is at most 2 file pairs | file pairs to remove or move |
+| `mutual-import` | Two files importing each other | 1 |
+| `weak-dependency` | A unit edge (not in a cycle) of at most 2 file pairs: remove it before freezing it in `allowOnly` | file pairs |
+| `dead-code` | A file with unused exports, as [`check`](#check) reports them; "no file imports it" when nothing imports the file | unused exports |
+
+The totals (units, unit edges, unit cycles, mutual imports, accepted violations, dead-code files and unused exports) are the debt baseline to compare release after release.
+
+**Matrix reading.** The [unit matrix](#architecture) (`--level units --matrix`) translated into findings, each with its rows, cells (`from>to=pairs`), import lines, formula and a suggested action. A finding is a lead for the architect, never a verdict.
+
+| Kind | Rule (fixed thresholds) | Suggested action |
+| --- | --- | --- |
+| `upward-cell` | The cheapest cell above the diagonal of each cycle | The edge to cut first |
+| `cycle-block` | Each cycle; its cut = the cells against the matrix order or its reverse, the cheaper | Removing the cut layers the units again |
+| `hub-at-risk` | Ca ≥ 10 incoming pairs and I ≥ 0.5 | Stabilize it (fewer outgoing dependencies) or split it |
+| `wide-row` | Imports ≥ 5 other units, most outgoing pairs (Ce) first | Split it or put it behind an interface |
+| `entry-row` | Ca = 0, with the unit's dead-code file count | An entry point, or a unit nothing uses |
+| `cohesion` | C = diagonal / (diagonal + Ce) < 0.25, units of ≥ 3 files | Merge it or re-cut it |
+
+`json` and `toon` list every item and the `thresholds`; `text` and `markdown` list the first 20 of each section.
+
+**Diagrams.** With `--output <dir>` (a workspace directory, created if needed), `init` also writes, through [`diagram`](#diagram), `units.svg` (current violations drawn as accepted), `matrix.svg`, one `folder-<n>-<unit>.svg` for each of the first 3 units of the cycle blocks and hubs at risk, and `report.md`, whose findings link to their diagram. Writes stay in the workspace and never go through a symbolic link, a hard link or over a non-regular file.
+
+The dead-code scan takes as long as [`graph-it check`](#check) on the same workspace.
+
+```bash
+graph-it init                                    # write the config, print the report
+graph-it init --dry-run --format markdown > architecture-assessment.md
+graph-it init --output architecture-report       # plus report.md and SVG diagrams
+graph-it init --yes                              # merge into an existing config without a prompt
+```
+
+**Exit code**: 0, also when an existing config is kept; 1 on an invalid config or baseline; 5 for `--output` outside the workspace or a refused write; 4 for another format.
 
 ### diagram
 
