@@ -121,9 +121,9 @@
       "corpus": "typescript-large",
       "prompt": "When an application is created with the create method of packages/core/nest-factory.ts, the dependency scanner eventually calls its insertImport method (packages/core/scanner.ts). Through which methods does that call chain pass? List the intermediate methods only (neither create nor insertImport), as bare method names.",
       "answerShape": { "methods": "string[]" },
-      "key": { "methods": ["initialize", "scan", "scanModulesForDependencies", "reflectImports"] },
+      "key": { "methods": ["initialize", "asyncRun", "scan", "scanModulesForDependencies", "reflectImports"] },
       "evidence": [
-        { "path": "packages/core/nest-factory.ts", "symbols": ["create", "initialize", "scan"] },
+        { "path": "packages/core/nest-factory.ts", "symbols": ["create", "initialize", "asyncRun", "scan"] },
         { "path": "packages/core/scanner.ts", "symbols": ["scan", "scanModulesForDependencies", "reflectImports", "insertImport"] }
       ]
     },
