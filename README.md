@@ -204,7 +204,7 @@ To share the drawn level as a picture, click *Export Architecture Diagram* (icon
 
 ### Architecture rules
 
-Declare your intended architecture in `graphit.architecture.json` at the workspace root: `elements` name sets of files, `rules` say what each may import, and `roles` declare what each unit is. The view lists each rule with its violations; `graph-it check-architecture` exits with 1 on a new `error` violation, so it can gate CI, with SARIF output for code scanning and a baseline for existing code. See [the config file](docs/architecture.md#the-config-file) for a complete example.
+Declare your intended architecture in `graphit.architecture.json` at the workspace root: `elements` name sets of files, `rules` say what each may import, and `roles` declare what each unit is. The view lists each rule with its violations; `graph-it check-architecture` exits with 1 on a new `error` violation, so it can gate CI, with SARIF output for code scanning and a baseline for existing code. On existing code, `graph-it init` writes the config from today's imports, so only new drift fails, and reports quick wins and the reading of the dependency matrix. See [the config file](docs/architecture.md#the-config-file) for a complete example.
 
 <div align="center">
 <img src="media/architecture-rules-violations.gif" alt="Architecture view Rules panel: clicking a rule lists its violating file pairs, clicking a file opens it at the import" width="800"/>
@@ -253,6 +253,8 @@ Or run it with `npx`:
 npx @magic5644/graph-it-live scan
 ```
 
+On an existing codebase, start with `graph-it init`: it guards the architecture you have today (only new drift fails `graph-it check-architecture`) and lists the quick wins.
+
 Common commands:
 
 ```text
@@ -264,6 +266,7 @@ graph-it explain <file>               Explain intra-file call flow
 graph-it path <file>                  Show a dependency path
 graph-it check [path]                 Find unused exported symbols
 graph-it architecture --groups        Show the workspace architecture by folder or community
+graph-it init                         Generate graphit.architecture.json from the current code, plus quick wins
 graph-it check-architecture           Check imports against graphit.architecture.json
 graph-it diagram                      Write a static architecture diagram (SVG, HTML or diagram spec)
 graph-it query "<question>"           Ask a natural-language graph question
