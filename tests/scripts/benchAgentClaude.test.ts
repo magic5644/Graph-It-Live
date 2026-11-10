@@ -7,11 +7,9 @@
  * process, client binary, network, git checkout or index build is used.
  */
 
-import { EventEmitter } from 'node:events';
 import { existsSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { PassThrough } from 'node:stream';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const childProcess = vi.hoisted(() => {
@@ -42,7 +40,6 @@ import {
   BUILTIN_PLUGINS,
   CLAUDE_EFFORT,
   CLAUDE_MODEL,
-  armMcpConfig,
   checkClaudeRoute,
   claudeArgs,
   claudeEnv,
@@ -55,7 +52,8 @@ import {
 } from '../../scripts/bench-agent/claude.mjs';
 import type { BenchTask, RecordedRun } from '../../scripts/bench-agent/harness.mjs';
 import { AGENT_FILES, ARMS } from '../../scripts/bench-agent/index.mjs';
-import { KILL_GRACE_MS, childEnv, exportCorpus, isLimitMessage, planReruns, removeCorpus, removedEnvNames, runProcess } from '../../scripts/bench-agent/live.mjs';
+import { fakeChild } from './benchAgentFakeChild';
+import { KILL_GRACE_MS, armMcpConfig, childEnv, exportCorpus, isLimitMessage, planReruns, removeCorpus, removedEnvNames, runProcess } from '../../scripts/bench-agent/live.mjs';
 
 const COMMIT = 'c'.repeat(40);
 const REPO = path.join(tmpdir(), 'bench-agent-claude-repo');
@@ -100,49 +98,6 @@ const result = (text: string, overrides: Record<string, unknown> = {}) => ({
 });
 const answer = (value: string) => JSON.stringify({ value });
 const stream = (...events: unknown[]) => events.map((event) => (typeof event === 'string' ? event : JSON.stringify(event)));
-
-interface FakeChild extends EventEmitter {
-  stdout: PassThrough;
-  stderr: PassThrough;
-  stdin: PassThrough & { received?: string };
-  kill: ReturnType<typeof vi.fn>;
-}
-
-/** Fake client process: replays stdout lines, then closes; kill() closes it at once. */
-function fakeChild(lines: string[], { stderr = '', hang = false, error = null as string | null, chunks = null as string[] | null } = {}): FakeChild {
-  const child = new EventEmitter() as FakeChild;
-  child.stdout = new PassThrough();
-  child.stderr = new PassThrough();
-  child.stdin = new PassThrough();
-  let input = '';
-  child.stdin.on('data', (chunk) => {
-    input += String(chunk);
-    child.stdin.received = input;
-  });
-  let closed = false;
-  const close = (code: number | null) => {
-    if (closed) return;
-    closed = true;
-    child.emit('close', code);
-  };
-  child.kill = vi.fn(() => {
-    setImmediate(() => close(null));
-    return true;
-  });
-  setImmediate(() => {
-    if (error) {
-      child.emit('error', new Error(error));
-      close(-2);
-      return;
-    }
-    child.stderr.end(stderr);
-    // Last line without a trailing newline: runProcess must flush it on close.
-    chunks?.forEach((chunk) => child.stdout.write(chunk));
-    if (!hang) child.stdout.end(lines.join('\n'));
-  });
-  child.stdout.on('end', () => setImmediate(() => close(0)));
-  return child;
-}
 
 /** Emulates `claude auth status`, `claude --version`, git worktree commands and `graph-it scan`. */
 function emulateCommands({ status = SUBSCRIPTION as unknown, authError = null as string | null } = {}) {

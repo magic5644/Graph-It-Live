@@ -448,13 +448,15 @@ describe('manual modes', () => {
     [['--score', 'a.json', '--tasks', 'a, b', '--arms', 'graph'], { mode: 'score', answers: 'a.json', tasks: ['a', 'b'], arms: ['graph'] }],
     [['--client', 'claude', '--dry-run', '--arms', 'native'], { mode: 'client', client: 'claude', dryRun: true, arms: ['native'] }],
     [['--client', 'claude'], { mode: 'client', client: 'claude', dryRun: false }],
+    [['--client', 'codex', '--dry-run'], { mode: 'client', client: 'codex', dryRun: true }],
   ])('parseOptions(%j)', (argv, expected) => {
     expect(parseOptions(argv)).toMatchObject(expected);
   });
 
   it.each([
     [[], 'usage: npm run bench:agent'],
-    [['--client', 'codex'], 'unknown client codex; known: claude'],
+    [['--client', 'copilot'], 'unknown client copilot; known: claude, codex'],
+    [['--client', 'toString'], 'unknown client toString'],
     [['--client'], '--client needs a value'],
     [['--print-pack', '--dry-run'], '--dry-run needs --client'],
     [['--dry-run'], 'usage: npm run bench:agent'],
@@ -524,6 +526,17 @@ describe('manual modes', () => {
     expect(printed).toContain('## Arm native');
     expect(printed).toContain('## Arm graph');
     // Only the git object reads of the key check ran.
+    expect(childProcess.execFileSync.mock.calls.every(([command]) => command === 'git')).toBe(true);
+  });
+
+  it('--client codex --dry-run prints the arm config.toml and command without starting anything', async () => {
+    const printed = await main(['--client', 'codex', '--dry-run', '--tasks', 'known-file-toon', '--arms', 'graph'], { stdout: { write: vi.fn() }, env: { PATH: '/bin', OPENAI_API_KEY: 'sk-x', CODEX_API_KEY: 'sk-y' } });
+    expect(printed).toContain('# Agent benchmark dry run: codex');
+    expect(printed).toContain('Child environment drops: CODEX_API_KEY, OPENAI_API_KEY;');
+    expect(printed).not.toMatch(/sk-[xy]/);
+    expect(printed).toContain('[mcp_servers.graph-it-live]');
+    expect(printed).toContain('codex exec --json');
+    expect(printed).toContain(buildPrompt(task('known-file-toon'), hypotheses));
     expect(childProcess.execFileSync.mock.calls.every(([command]) => command === 'git')).toBe(true);
   });
 

@@ -1,10 +1,11 @@
 // Shared guards and plumbing of the live agent benchmark runs (#399, #676; reused by
 // the Codex run of #677): child environment without API keys or billing routes,
-// rate-limit / allowance detection, the isolated corpus copy, one client process
-// with a timeout, and the rerun plan. Subscription routes only: nothing here retries.
+// rate-limit / allowance detection, the isolated corpus copies per arm with their warm
+// index, one client process with a timeout, and the cell loop with its rerun plan.
+// Subscription routes only: nothing here retries a limit.
 
 import { execFileSync, spawn } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { scoreAnswer } from './harness.mjs';
@@ -147,4 +148,100 @@ export function planReruns(runs, tasks, arms, budget = MAX_RERUNS) {
     if (scores.every((score) => score !== null) && new Set(scores).size > 1) arms.forEach((arm) => add(task.id, arm));
   }
   return plan.slice(0, budget);
+}
+
+/** Arm MCP servers with concrete paths: the graph server indexes this arm's worktree. */
+export function armMcpConfig(armSpec, worktree) {
+  const mcpServers = Object.fromEntries(Object.entries(armSpec.mcpServers).map(([name, server]) => [
+    name,
+    { ...server, env: Object.fromEntries(Object.entries(server.env ?? {}).map(([key, value]) => [key, value === '<worktree>' ? worktree : value])) },
+  ]));
+  return { mcpServers };
+}
+
+const QUOTE_ESCAPE = String.raw`'\''`;
+/** POSIX shell quoting for the dry-run listings. */
+const shellQuote = (arg) => (/^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", QUOTE_ESCAPE)}'`);
+
+/**
+ * Dry-run page shared by the clients: intro lines, then per arm the corpus copy, the
+ * client's arm config (`config` = { lang, text }) and command, then the prompts.
+ */
+export function renderDryRunPage({ client, intro, tasks, arms, armSpecs, buildPrompt, config, command }) {
+  return [
+    `# Agent benchmark dry run: ${client} (nothing is started)`,
+    '',
+    ...intro,
+    '',
+    ...arms.flatMap((arm) => [
+      `## Arm ${arm}`,
+      '',
+      `Corpus: <tmp>/Graph-It-Live, \`git archive\` of the corpus commit (no .git), without agent instruction files${Object.keys(armSpecs[arm].mcpServers).length > 0 ? '; warm index built once (`graph-it scan`)' : ''}.`,
+      '',
+      `\`\`\`${config(arm).lang}`,
+      config(arm).text,
+      '```',
+      '',
+      '```sh',
+      `${client} ${command(arm).map((arg) => shellQuote(arg)).join(' ')} < <prompt>`,
+      '```',
+      '',
+    ]),
+    '## Prompts (same for every arm)',
+    '',
+    ...tasks.flatMap((task) => [`### ${task.id}`, '', '```text', buildPrompt(task), '```', '']),
+  ].join('\n');
+}
+
+/** Builds the graph arm index once and returns its cold time; per-task runs then start warm. */
+function buildIndex(repoRoot, worktree, env) {
+  const started = Date.now();
+  execFileSync(process.execPath, [path.join(repoRoot, 'dist', 'graph-it.js'), 'scan', '--workspace', worktree], { env, stdio: 'ignore', timeout: 10 * 60 * 1000 }); // NOSONAR S4036: absolute node path
+  return Date.now() - started;
+}
+
+/**
+ * Prepares one corpus copy per arm (configure(arm, worktree) adds the client's arm
+ * config to its setup), builds the index of MCP arms once, calls run with the setups,
+ * and removes every copy afterwards, even when preparing or running fails.
+ */
+export async function withArmCopies({ arms, armSpecs, agentFiles, commit, repoRoot, env, configure }, run) {
+  const needsIndex = arms.some((arm) => Object.keys(armSpecs[arm].mcpServers).length > 0);
+  if (needsIndex && !existsSync(path.join(repoRoot, 'dist', 'mcpServer.mjs'))) throw new Error('dist/mcpServer.mjs is missing: run `npm run build` first');
+  const setup = {};
+  try {
+    let coldIndexMs = null;
+    for (const arm of arms) {
+      // Assigned before configure and the index build so finally removes it when they fail.
+      setup[arm] = { worktree: exportCorpus(repoRoot, commit, agentFiles), serverNames: Object.keys(armSpecs[arm].mcpServers) };
+      Object.assign(setup[arm], configure(arm, setup[arm].worktree));
+      if (setup[arm].serverNames.length > 0) coldIndexMs = buildIndex(repoRoot, setup[arm].worktree, env);
+    }
+    return await run({ setup, indexState: needsIndex ? 'warm' : 'none', coldIndexMs });
+  } finally {
+    for (const { worktree } of Object.values(setup)) removeCorpus(worktree);
+  }
+}
+
+/**
+ * Runs every task and arm once, then the planned reruns, one cell at a time.
+ * runCell({ task, arm, repetition }) resolves to { record, stopBench }; the first
+ * stopBench (rate limit, refused route) ends the benchmark: no later cell, no rerun.
+ */
+export async function runAllCells(tasks, arms, runCell) {
+  const runs = [];
+  const runList = async (cells) => {
+    for (const cell of cells) {
+      const repetition = runs.filter((run) => run.taskId === cell.task.id && run.arm === cell.arm).length + 1;
+      // One subscription session at a time, and nothing starts after the first limit.
+      const { record, stopBench } = await runCell({ ...cell, repetition }); // eslint-disable-line no-await-in-loop -- NOSONAR S9382: sequential on purpose
+      runs.push(record);
+      if (stopBench) return stopBench;
+    }
+    return null;
+  };
+  let stopReason = await runList(tasks.flatMap((task) => arms.map((arm) => ({ task, arm }))));
+  const reruns = stopReason ? [] : planReruns(runs, tasks, arms);
+  if (reruns.length > 0) stopReason = await runList(reruns.map(({ taskId, arm }) => ({ task: tasks.find((task) => task.id === taskId), arm })));
+  return { runs, reruns: reruns.length, stopReason };
 }

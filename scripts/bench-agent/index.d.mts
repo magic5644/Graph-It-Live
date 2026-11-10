@@ -1,4 +1,5 @@
 import type { BenchTask, Hypotheses, Report } from './harness.mjs';
+import type { ArmSpec } from './live.mjs';
 
 export interface Options {
   mode: 'print-pack' | 'score' | 'client';
@@ -12,7 +13,7 @@ export interface Options {
 
 export const DATA_DIR: string;
 export const AGENT_FILES: string[];
-export const ARMS: Record<string, { setup: string; mcpServers: Record<string, unknown> }>;
+export const ARMS: Record<string, ArmSpec>;
 export function parseOptions(argv: string[]): Options;
 export function loadDataset(dataDir?: string, selected?: string[] | null): { hypotheses: Hypotheses; allTasks: BenchTask[]; tasks: BenchTask[] };
 export function buildPrompt(task: BenchTask, hypotheses: Hypotheses): string;

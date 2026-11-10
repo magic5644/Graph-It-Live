@@ -5,10 +5,10 @@
 // first rate-limit or allowance message without retrying.
 
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { childEnv, exportCorpus, isLimitMessage, planReruns, removeCorpus, runProcess } from './live.mjs';
+import { armMcpConfig, childEnv, isLimitMessage, renderDryRunPage, runAllCells, runProcess, withArmCopies } from './live.mjs';
 
 export const CLAUDE_MODEL = 'claude-haiku-5-5';
 export const CLAUDE_EFFORT = 'low';
@@ -175,51 +175,21 @@ export function finishRun(state, outcome) {
   return { ...run, metrics: claudeMetrics(state.result, state.toolCalls), stopBench: run.stopBench ?? state.stopAfter };
 }
 
-/** Arm MCP config with concrete paths: the graph server indexes this arm's worktree. */
-export function armMcpConfig(armSpec, worktree) {
-  const mcpServers = Object.fromEntries(Object.entries(armSpec.mcpServers).map(([name, server]) => [
-    name,
-    { ...server, env: Object.fromEntries(Object.entries(server.env ?? {}).map(([key, value]) => [key, value === '<worktree>' ? worktree : value])) },
-  ]));
-  return { mcpServers };
-}
-
-const QUOTE_ESCAPE = String.raw`'\''`;
-const shellQuote = (arg) => (/^[\w@%+=:,./-]+$/.test(arg) ? arg : `'${arg.replaceAll("'", QUOTE_ESCAPE)}'`);
-
 /** What a live run would do, without spawning anything. */
 export function renderDryRun({ tasks, arms, armSpecs, buildPrompt, removedEnv }) {
-  return [
-    '# Agent benchmark dry run: claude (nothing is started)',
-    '',
-    `Child environment drops: ${removedEnv.length > 0 ? removedEnv.join(', ') : '(none set)'}; sets CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, CLAUDE_CODE_MAX_RETRIES=0.`,
-    'Before the first task: `claude auth status --json` must report a claude.ai subscription.',
-    '',
-    ...arms.flatMap((arm) => [
-      `## Arm ${arm}`,
-      '',
-      `Corpus: <tmp>/Graph-It-Live, \`git archive\` of the corpus commit (no .git), without agent instruction files${Object.keys(armSpecs[arm].mcpServers).length > 0 ? '; warm index built once (`graph-it scan`)' : ''}.`,
-      '',
-      '```json',
-      JSON.stringify(armMcpConfig(armSpecs[arm], '<worktree>'), null, 2),
-      '```',
-      '',
-      '```sh',
-      `claude ${claudeArgs(arm, '<tmp>/mcp-' + arm + '.json').map(shellQuote).join(' ')} < <prompt>`,
-      '```',
-      '',
-    ]),
-    '## Prompts (same for every arm)',
-    '',
-    ...tasks.flatMap((task) => [`### ${task.id}`, '', '```text', buildPrompt(task), '```', '']),
-  ].join('\n');
-}
-
-/** Builds the graph arm index once and returns its cold time; per-task runs then start warm. */
-function buildIndex(repoRoot, worktree, env) {
-  const started = Date.now();
-  execFileSync(process.execPath, [path.join(repoRoot, 'dist', 'graph-it.js'), 'scan', '--workspace', worktree], { env, stdio: 'ignore', timeout: 10 * 60 * 1000 }); // NOSONAR S4036: absolute node path
-  return Date.now() - started;
+  return renderDryRunPage({
+    client: 'claude',
+    intro: [
+      `Child environment drops: ${removedEnv.length > 0 ? removedEnv.join(', ') : '(none set)'}; sets CLAUDE_CODE_DISABLE_AUTO_MEMORY=1, CLAUDE_CODE_MAX_RETRIES=0.`,
+      'Before the first task: `claude auth status --json` must report a claude.ai subscription.',
+    ],
+    tasks,
+    arms,
+    armSpecs,
+    buildPrompt,
+    config: (arm) => ({ lang: 'json', text: JSON.stringify(armMcpConfig(armSpecs[arm], '<worktree>'), null, 2) }),
+    command: (arm) => claudeArgs(arm, '<tmp>/mcp-' + arm + '.json'),
+  });
 }
 
 async function runOne({ task, arm, repetition, setup, buildPrompt, env, log }) {
@@ -233,18 +203,6 @@ async function runOne({ task, arm, repetition, setup, buildPrompt, env, log }) {
   return { record: { taskId: task.id, arm, repetition, prompt, response: run.response ?? null, ...run }, stopBench, plugins: parser.state.plugins };
 }
 
-async function runCells(cells, context, runs) {
-  for (const cell of cells) {
-    const repetition = runs.filter((run) => run.taskId === cell.task.id && run.arm === cell.arm).length + 1;
-    // One subscription session at a time, and nothing starts after the first limit.
-    const { record, stopBench, plugins } = await runOne({ ...context, ...cell, repetition }); // eslint-disable-line no-await-in-loop -- NOSONAR S9382: sequential on purpose
-    runs.push(record);
-    plugins.forEach((name) => context.plugins.add(name));
-    if (stopBench) return stopBench;
-  }
-  return null;
-}
-
 /**
  * Live run: verifies the subscription route, prepares one corpus copy per arm (warm index
  * for MCP arms), runs every task and arm once, then the planned reruns, and returns the
@@ -254,32 +212,26 @@ export async function runClaudeBench({ tasks, arms, armSpecs, agentFiles, buildP
   const childEnvironment = claudeEnv(env);
   const authRoute = checkClaudeRoute(childEnvironment);
   const clientVersion = execFileSync('claude', ['--version'], { env: childEnvironment, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 30_000 }).trim(); // NOSONAR S4036: developer tool, trusted PATH
-  const needsIndex = arms.some((arm) => Object.keys(armSpecs[arm].mcpServers).length > 0);
-  if (needsIndex && !existsSync(path.join(repoRoot, 'dist', 'mcpServer.mjs'))) throw new Error('dist/mcpServer.mjs is missing: run `npm run build` first');
   const configDir = mkdtempSync(path.join(tmpdir(), 'agent-bench-mcp-'));
-  const setup = {};
+  const configure = (arm, worktree) => {
+    const mcpConfig = path.join(configDir, `mcp-${arm}.json`);
+    writeFileSync(mcpConfig, JSON.stringify(armMcpConfig(armSpecs[arm], worktree)));
+    return { mcpConfig };
+  };
   try {
-    let coldIndexMs = null;
-    for (const arm of arms) {
-      // Assigned before the index build so finally removes it even when the build fails.
-      const worktree = exportCorpus(repoRoot, commit, agentFiles);
-      const config = armMcpConfig(armSpecs[arm], worktree);
-      const mcpConfig = path.join(configDir, `mcp-${arm}.json`);
-      writeFileSync(mcpConfig, JSON.stringify(config));
-      setup[arm] = { worktree, mcpConfig, serverNames: Object.keys(config.mcpServers) };
-      if (setup[arm].serverNames.length > 0) coldIndexMs = buildIndex(repoRoot, worktree, childEnvironment);
-    }
-    const runs = [];
-    const context = { setup, buildPrompt, env: childEnvironment, log, plugins: new Set() };
-    let stopReason = await runCells(tasks.flatMap((task) => arms.map((arm) => ({ task, arm }))), context, runs);
-    const reruns = stopReason ? [] : planReruns(runs, tasks, arms);
-    if (reruns.length > 0) stopReason = await runCells(reruns.map(({ taskId, arm }) => ({ task: tasks.find((task) => task.id === taskId), arm })), context, runs);
-    return {
-      runs,
-      meta: { client: 'claude', clientVersion, model: CLAUDE_MODEL, effort: CLAUDE_EFFORT, authRoute, indexState: needsIndex ? 'warm' : 'none', coldIndexMs, reruns: reruns.length, stopReason, builtinPlugins: [...context.plugins].sort((a, b) => a.localeCompare(b)) },
-    };
+    return await withArmCopies({ arms, armSpecs, agentFiles, commit, repoRoot, env: childEnvironment, configure }, async ({ setup, indexState, coldIndexMs }) => {
+      const plugins = new Set();
+      const { runs, reruns, stopReason } = await runAllCells(tasks, arms, async (cell) => {
+        const outcome = await runOne({ ...cell, setup, buildPrompt, env: childEnvironment, log });
+        outcome.plugins.forEach((name) => plugins.add(name));
+        return outcome;
+      });
+      return {
+        runs,
+        meta: { client: 'claude', clientVersion, model: CLAUDE_MODEL, effort: CLAUDE_EFFORT, authRoute, indexState, coldIndexMs, reruns, stopReason, builtinPlugins: [...plugins].sort((a, b) => a.localeCompare(b)) },
+      };
+    });
   } finally {
-    for (const { worktree } of Object.values(setup)) removeCorpus(worktree);
     rmSync(configDir, { recursive: true, force: true });
   }
 }
