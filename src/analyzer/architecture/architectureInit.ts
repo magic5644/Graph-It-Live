@@ -29,7 +29,8 @@ const asList = <T>(value: T | T[] | undefined): T[] => (value === undefined ? []
 /** An element name of the config schema (1-64 of `[\w.-]`) for a unit key. */
 export function elementName(unitKey: string): string {
   if (unitKey === ROOT_UNIT) return "root";
-  const name = unitKey.replaceAll(/[^\w.-]+/g, "-").replaceAll(/^-+|-+$/g, "").slice(0, MAX_NAME);
+  // Runs of other characters become one "-", none at either end.
+  const name = unitKey.split(/[^\w.-]+/).filter(Boolean).join("-").slice(0, MAX_NAME);
   return name === "" || name === RESERVED ? `unit-${name}`.slice(0, MAX_NAME).replace(/-$/, "") : name;
 }
 
