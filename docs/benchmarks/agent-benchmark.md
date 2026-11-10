@@ -46,7 +46,7 @@ The build step is required for the graph arm, which runs `dist/mcpServer.mjs` fr
 | Class | Tasks | Hypothesis (`graph` vs `native`, same client, model and effort) |
 | --- | --- | --- |
 | Localization | 2 | Correctness ≥ native, and ≥ 20 % fewer tool calls or provider tokens |
-| Callers / impact | 1 | Correctness ≥ native, caller recall ≥ native, same efficiency threshold |
+| Callers / impact | 1 | Correctness ≥ native, recall of the caller list ≥ native, same efficiency threshold |
 | Multi-file contract | 1 | Correctness ≥ native; extra tokens allowed and reported |
 | Known file (negative control) | 2 | Same correctness, at most +1 tool call and +25 % provider tokens |
 
@@ -74,7 +74,7 @@ Every v1 question names a greppable identifier or phrase, so one `rg` answers it
 | Greppable name (control) | `callers-ignored-directory`, v1 task | this repository, v1.24.2 | one search lists the callers; native should win or tie |
 
 - **Keys without Graph-It-Live.** Established with the TypeScript compiler API (module resolution, `findReferences`), Python `ast` and the import lists of the `.vue` files, then reviewed by hand once. Before the first prompt, the harness checks every key path and evidence symbol in the git objects of each task's corpus commit. The open-source corpora come from `scripts/bench-corpora.json` through `fetchCorpusGit()` of `scripts/bench-e2e.mjs` (shallow fetch, cached in `.reports/bench-e2e/corpora/`); the hypotheses and `bench-corpora.json` must pin the same commit.
-- **Answer shapes.** Every v2 task has a list field (precision/recall); scalar fields are bare identifiers.
+- **Answer shapes.** Every new v2 task has a list field (precision/recall); scalar fields are bare identifiers. List items are checked too: a `<path>:<symbol>` item in its file at the corpus commit, a bare identifier through the task evidence.
 - **Verdict rules.** Same as v1, plus one rule frozen in `v2/hypotheses.json` before any run: on the 3 non-control classes, a mean correctness gain ≥ 0.25 per task also confirms, whatever the cost. On these tasks, a better answer at a higher cost is the value under test.
 - **Runs.** The live run handles one corpus after another, with one shared budget of 6 reruns, and stops everything at the first limit message. A full v2 run is 7 tasks × 2 arms = 14 runs per client.
 - **Limit.** The models may know these public projects from training. The questions target details of the pinned commits.

@@ -45,6 +45,7 @@ function git(repoRoot, args) {
  * reports stay in the harness checkout, outside the copy. gitDir may be a bare repository.
  */
 export function exportCorpus(gitDir, commit, agentFiles, dirName = 'Graph-It-Live') {
+  if (!/^[\w.-]+$/.test(dirName) || dirName === '.' || dirName === '..') throw new Error(`invalid corpus directory name ${dirName}`);
   const parent = mkdtempSync(path.join(tmpdir(), 'agent-bench-'));
   const dir = path.join(parent, dirName);
   const archive = path.join(parent, 'corpus.tar');

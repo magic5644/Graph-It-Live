@@ -449,6 +449,15 @@ describe('corpus copy', () => {
     expect(() => createCorpus()).toThrow(`${failing} failed`);
     expect(() => removeCorpus(path.join(tmpdir(), 'agent-bench-gone', 'Graph-It-Live'))).not.toThrow();
   });
+  it('names the copy after another corpus repository, and refuses a name that leaves its directory', () => {
+    emulateCommands();
+    const dir = exportCorpus('/corpora/vue.git', COMMIT, AGENT_FILES, 'vitepress');
+    expect(path.basename(dir)).toBe('vitepress');
+    removeCorpus(dir);
+    for (const name of ['..', '.', 'a/b', String.raw`a\b`, '']) {
+      expect(() => exportCorpus(REPO, COMMIT, AGENT_FILES, name)).toThrow(`invalid corpus directory name ${name}`);
+    }
+  });
 });
 
 const createCorpus = () => exportCorpus(REPO, COMMIT, AGENT_FILES);

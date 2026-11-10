@@ -30,11 +30,12 @@ const REBUILD_INTERVAL_MS = 2_100;
 // count per-thread acknowledgements if a probe ever misses a thread.
 const HEAP_PROBE_WAIT_MS = 1_000;
 
+/** Default cache of the fetched open-source corpora (bare repositories), shared with the agent benchmark. */
+export const CORPORA_DIR = path.join(REPO_ROOT, '.reports', 'bench-e2e', 'corpora');
 /**
  * One medium open-source project per supported language, plus `typescript-large`, a monorepo larger
  * than this repository (#343): repository, tag, pinned commit, license.
  */
-export const CORPORA_DIR = path.join(REPO_ROOT, '.reports', 'bench-e2e', 'corpora');
 export const OSS_CORPORA = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts', 'bench-corpora.json'), 'utf8'));
 
 /** Each corpus names one file to edit and one hub symbol to query. */
