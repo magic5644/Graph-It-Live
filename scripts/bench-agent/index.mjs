@@ -1,9 +1,9 @@
 // Agent benchmark command (#399). Manual modes (#675) start no agent client and
-// call no model (git object reads only); the live mode (#676) runs Claude Code on
-// the claude.ai subscription:
+// call no model (git object reads only); the live modes run Claude Code on the
+// claude.ai subscription (#676) or Codex on the ChatGPT subscription (#677):
 //   npm run bench:agent -- --print-pack [--tasks <ids>] [--arms <ids>]
 //   npm run bench:agent -- --score <answers.json> [--out <dir>]
-//   npm run bench:agent -- --client claude [--dry-run] [--tasks <ids>] [--arms <ids>] [--out <dir>]
+//   npm run bench:agent -- --client claude|codex [--dry-run] [--tasks <ids>] [--arms <ids>] [--out <dir>]
 // Every mode checks the answer keys against the pinned corpus commit first, so a
 // bad key costs no tokens. Unlike tests/evals/toolSelection.eval.test.ts, nothing
 // here goes through LlmClientFactory or an API key: subscriptions only.
@@ -13,6 +13,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { renderDryRun, runClaudeBench } from './claude.mjs';
+import { renderCodexDryRun, runCodexBench } from './codex.mjs';
 import { buildReport, checkAnswerKeys, renderMarkdown, sanitize, validateRuns, validateTasks } from './harness.mjs';
 import { removedEnvNames } from './live.mjs';
 
@@ -35,9 +36,11 @@ export const ARMS = {
   },
 };
 
-const USAGE = 'usage: npm run bench:agent -- (--print-pack | --score <answers.json> | --client claude [--dry-run]) [--tasks <ids>] [--arms <ids>] [--out <dir>]\n'
-  + '(--client codex comes with #677)';
-const CLIENTS = ['claude'];
+const USAGE = 'usage: npm run bench:agent -- (--print-pack | --score <answers.json> | --client claude|codex [--dry-run]) [--tasks <ids>] [--arms <ids>] [--out <dir>]';
+const CLIENTS = {
+  claude: { renderDryRun, run: runClaudeBench },
+  codex: { renderDryRun: renderCodexDryRun, run: runCodexBench },
+};
 
 const list = (value) => value.split(',').map((item) => item.trim()).filter(Boolean);
 
@@ -70,7 +73,7 @@ export function parseOptions(argv) {
 
 function validateSelection(options) {
   if (!options.mode) throw new Error(USAGE);
-  if (options.mode === 'client' && !CLIENTS.includes(options.client)) throw new Error(`unknown client ${options.client}; known: ${CLIENTS.join(', ')}`);
+  if (options.mode === 'client' && !Object.hasOwn(CLIENTS, options.client)) throw new Error(`unknown client ${options.client}; known: ${Object.keys(CLIENTS).join(', ')}`);
   if (options.dryRun && options.mode !== 'client') throw new Error(`--dry-run needs --client\n${USAGE}`);
   const unknownArms = options.arms.filter((arm) => !(arm in ARMS));
   if (unknownArms.length > 0 || options.arms.length === 0) throw new Error(`unknown arm(s) ${unknownArms.join(', ')}; known: ${Object.keys(ARMS).join(', ')}`);
@@ -182,15 +185,16 @@ export function scoreAnswers({ answersFile, allTasks, tasks, hypotheses, arms, c
   return writeReport({ clientMeta: answers.meta ?? {}, runs, tasks, hypotheses, arms, corpusHash, repoRoot, out, now });
 }
 
-/** Live Claude Code run (or its dry run), then the same report as --score. */
+/** Live client run (or its dry run), then the same report as --score; a skipped client gets a report without runs. */
 async function runClient({ options, tasks, hypotheses, corpusHash, repoRoot, env, stdout }) {
   const prompt = (task) => buildPrompt(task, hypotheses);
+  const client = CLIENTS[options.client];
   if (options.dryRun) {
-    const text = renderDryRun({ tasks, arms: options.arms, armSpecs: ARMS, buildPrompt: prompt, removedEnv: removedEnvNames(env) });
+    const text = client.renderDryRun({ tasks, arms: options.arms, armSpecs: ARMS, buildPrompt: prompt, removedEnv: removedEnvNames(env) });
     stdout.write(`${text}\n`);
     return text;
   }
-  const { runs, meta } = await runClaudeBench({ tasks, arms: options.arms, armSpecs: ARMS, agentFiles: AGENT_FILES, buildPrompt: prompt, commit: hypotheses.corpus.commit, repoRoot, env });
+  const { runs, meta } = await client.run({ tasks, arms: options.arms, armSpecs: ARMS, agentFiles: AGENT_FILES, buildPrompt: prompt, commit: hypotheses.corpus.commit, repoRoot, env });
   const { markdown } = writeReport({ clientMeta: meta, runs, tasks, hypotheses, arms: options.arms, corpusHash, repoRoot, out: options.out, now: new Date() });
   stdout.write(`${markdown}\n\nReport written to ${options.out}\n`);
   return markdown;

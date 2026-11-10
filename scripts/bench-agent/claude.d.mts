@@ -1,6 +1,7 @@
 import type { BenchTask, RecordedRun, RunMetrics, RunStatus } from './harness.mjs';
+import type { ArmSpec } from './live.mjs';
 
-export interface ArmSpec { setup: string; mcpServers: Record<string, { command: string; args: string[]; env?: Record<string, string> }> }
+export type { ArmSpec } from './live.mjs';
 export interface ParserState { toolCalls: number; init: boolean; plugins: string[]; result: Record<string, unknown> | null; stop: { status: RunStatus; error: string } | null; stopAfter: string | null }
 
 export const CLAUDE_MODEL: string;
@@ -18,7 +19,6 @@ export function finishRun(
   state: ParserState,
   outcome: { timedOut: boolean; stderr: string },
 ): { status: RunStatus; error?: string; response?: string; metrics: Required<RunMetrics>; stopBench: string | null | undefined };
-export function armMcpConfig(armSpec: ArmSpec, worktree: string): { mcpServers: ArmSpec['mcpServers'] };
 export function renderDryRun(input: { tasks: BenchTask[]; arms: string[]; armSpecs: Record<string, ArmSpec>; buildPrompt: (task: BenchTask) => string; removedEnv: string[] }): string;
 export function runClaudeBench(input: {
   tasks: BenchTask[];
