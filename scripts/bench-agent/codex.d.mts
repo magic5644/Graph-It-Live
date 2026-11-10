@@ -5,6 +5,7 @@ export interface CodexParserState {
   serverNames: string[];
   started: boolean;
   toolCalls: number;
+  toolTrace: string[];
   turns: number;
   usage: { input: number; cached: number; cacheWrite: number; output: number } | null;
   lastMessage: string | null;
@@ -28,7 +29,7 @@ export function finishCodexRun(
   state: CodexParserState,
   outcome: { code: number | null; timedOut: boolean; stderr: string },
   latencyMs: number,
-): { status: RunStatus; error?: string; response?: string; metrics: Required<RunMetrics>; stopBench: string | null };
+): { status: RunStatus; error?: string; response?: string; metrics: Required<RunMetrics>; toolTrace: string[]; stopBench: string | null };
 export function renderCodexDryRun(input: { tasks: BenchTask[]; arms: string[]; armSpecs: Record<string, ArmSpec>; buildPrompt: (task: BenchTask) => string; removedEnv: string[] }): string;
 export function runCodexBench(input: {
   tasks: BenchTask[];

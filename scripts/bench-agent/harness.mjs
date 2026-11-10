@@ -345,6 +345,18 @@ export function sanitize(text, home = homedir()) {
   return result;
 }
 
+const TRACE_ENTRY_MAX = 160;
+const isOptionalStringList = (value) => value === undefined || value === null || (Array.isArray(value) && value.every((item) => typeof item === 'string'));
+
+/** Tool-call trace of a run (a record, not a compared metric): sanitized, each entry clipped; null when not recorded. */
+function normalizeTrace(trace) {
+  if (!Array.isArray(trace)) return null;
+  return trace.filter((entry) => typeof entry === 'string').map((entry) => {
+    const text = sanitize(entry).replaceAll(/\s+/g, ' ').trim();
+    return text.length > TRACE_ENTRY_MAX ? `${text.slice(0, TRACE_ENTRY_MAX - 1)}…` : text;
+  });
+}
+
 /** Validates recorded runs at the trust boundary: known task and arm, known status, response string. */
 export function validateRuns(runs, tasks, arms) {
   if (!Array.isArray(runs)) return ['runs must be an array'];
@@ -357,6 +369,7 @@ export function validateRuns(runs, tasks, arms) {
     if (!arms.includes(run.arm)) errors.push(`${at}.arm must be one of ${arms.join(', ')}`);
     if (run.status !== undefined && !RUN_STATUSES.includes(run.status)) errors.push(`${at}.status must be one of ${RUN_STATUSES.join(', ')}`);
     if (run.response !== undefined && run.response !== null && typeof run.response !== 'string') errors.push(`${at}.response must be a string`);
+    if (!isOptionalStringList(run.toolTrace)) errors.push(`${at}.toolTrace must be an array of strings`);
     for (const group of ['metrics', 'retrieval']) {
       if (run[group] !== undefined && !isObject(run[group])) errors.push(`${at}.${group} must be an object`);
     }
@@ -385,6 +398,7 @@ export function buildReport({ meta, tasks, hypotheses, arms, runs }) {
       response: sanitize(run.response ?? null),
       metrics: Object.fromEntries(METRICS.map((name) => [name, typeof run.metrics?.[name] === 'number' ? run.metrics[name] : null])),
       retrieval: Object.fromEntries(RETRIEVAL_METRICS.map((name) => [name, typeof run.retrieval?.[name] === 'number' ? run.retrieval[name] : null])),
+      toolTrace: normalizeTrace(run.toolTrace),
       scoring: status === 'completed' ? scoreAnswer(task, run.response) : null,
     };
   });
@@ -402,6 +416,17 @@ export function buildReport({ meta, tasks, hypotheses, arms, runs }) {
       'Notional cost is computed by the client, never actual spend. cl100k_base and JSON/TOON sizes are retrieval estimates, not provider usage.',
     ],
   };
+}
+
+/** One line per run whose client recorded its tool calls, in call order. */
+function traceLines(runs) {
+  const traced = runs.filter((run) => Array.isArray(run.toolTrace));
+  if (traced.length === 0) return ['Not recorded.'];
+  const codeSpan = (entry) => '`' + entry.replaceAll('`', "'") + '`';
+  return traced.map((run) => {
+    const calls = run.toolTrace.length === 0 ? '(none)' : run.toolTrace.map(codeSpan).join(', ');
+    return `- ${run.taskId} / ${run.arm} #${run.repetition}: ${calls}`;
+  });
 }
 
 const show = (value, digits = 0) => (typeof value === 'number' ? value.toFixed(digits) : 'unavailable');
@@ -440,6 +465,10 @@ export function renderMarkdown(report) {
     '| Task | Class | Arm | Completed | Correctness | Recall | Tool calls | Turns | Latency ms | Input (uncached) | Cache write | Cache read (input) | Output | Notional cost USD | cl100k_base | JSON / TOON chars |',
     '| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |',
     ...report.cells.map((cell) => `| ${cell.taskId} | ${cell.class} | ${cell.arm} | ${cell.completed}/${cell.runs} | ${show(cell.correctness, 2)} | ${show(cell.recall, 2)} | ${show(cell.metrics.toolCalls, 1)} | ${show(cell.metrics.turns, 1)} | ${show(cell.metrics.latencyMs)} | ${show(cell.metrics.inputTokens)} | ${show(cell.metrics.cacheWriteTokens)} | ${show(cell.metrics.cacheReadTokens)} | ${show(cell.metrics.outputTokens)} | ${show(cell.metrics.notionalCostUsd, 4)} | ${show(cell.retrieval.cl100kTokens)} | ${show(cell.retrieval.jsonChars)} / ${show(cell.retrieval.toonChars)} |`),
+    '',
+    '## Tool calls per run',
+    '',
+    ...traceLines(report.runs),
     '',
     '## Failures and incomplete runs',
     '',

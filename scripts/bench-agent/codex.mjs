@@ -113,8 +113,18 @@ function addUsage(total, usage) {
   };
 }
 
+/** Trace entry: MCP server and tool, or the shell command, or the item type. */
+function describeItem(item) {
+  if (item.type === 'mcp_tool_call') return `mcp:${item.server}/${item.tool}`;
+  if (item.type === 'command_execution') return `shell: ${item.command}`;
+  return item.type;
+}
+
 function onItem(state, item) {
-  if (TOOL_ITEMS.has(item?.type)) state.toolCalls++;
+  if (TOOL_ITEMS.has(item?.type)) {
+    state.toolCalls++;
+    state.toolTrace.push(describeItem(item));
+  }
   if (item?.type === 'agent_message' && typeof item.text === 'string') state.lastMessage = item.text;
   if (item?.type === 'mcp_tool_call' && !state.serverNames.includes(item.server)) {
     return { status: 'failed', error: `refused: call to MCP server ${item.server}, not configured for this arm` };
@@ -133,8 +143,8 @@ function onError(state, message) {
  * it records also stops the whole benchmark.
  */
 export function createCodexParser(serverNames) {
-  /** @type {{ serverNames: string[], started: boolean, toolCalls: number, turns: number, usage: { input: number, cached: number, cacheWrite: number, output: number } | null, lastMessage: string | null, errors: string[], failed: boolean, stop: { status: string, error: string } | null }} */
-  const state = { serverNames, started: false, toolCalls: 0, turns: 0, usage: null, lastMessage: null, errors: [], failed: false, stop: null };
+  /** @type {{ serverNames: string[], started: boolean, toolCalls: number, toolTrace: string[], turns: number, usage: { input: number, cached: number, cacheWrite: number, output: number } | null, lastMessage: string | null, errors: string[], failed: boolean, stop: { status: string, error: string } | null }} */
+  const state = { serverNames, started: false, toolCalls: 0, toolTrace: [], turns: 0, usage: null, lastMessage: null, errors: [], failed: false, stop: null };
   const onLine = (line) => {
     let event;
     try {
@@ -197,7 +207,7 @@ function runStatus(state, { code, timedOut, stderr }) {
 /** Run record from the process outcome and the parser state, plus stopBench when nothing else may start. */
 export function finishCodexRun(state, outcome, latencyMs) {
   const { stopBench = null, ...run } = runStatus(state, outcome);
-  return { ...run, metrics: codexMetrics(state, latencyMs), stopBench };
+  return { ...run, metrics: codexMetrics(state, latencyMs), toolTrace: state.toolTrace, stopBench };
 }
 
 /** What a live run would do, without spawning anything. */
