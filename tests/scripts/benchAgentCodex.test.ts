@@ -198,16 +198,16 @@ describe('codex arguments and arm config', () => {
 });
 
 describe('codex exec --json parsing', () => {
-  it('counts tool calls and turns, keeps the last agent message and splits cached input', () => {
+  it('counts tool calls, reports turns as unavailable, keeps the last agent message and splits cached input', () => {
     const result = run(stream(started, command, mcpCall(), message('thinking'), message(answer('a')), completed(), 'not json'), {}, ['graph-it-live']);
     expect(result.stops.every((stop) => !stop)).toBe(true);
     expect(result).toMatchObject({ status: 'completed', response: answer('a'), stopBench: null });
-    expect(result.metrics).toEqual({ toolCalls: 2, turns: 1, latencyMs: 1500, inputTokens: 400, cacheWriteTokens: 0, cacheReadTokens: 600, outputTokens: 50, notionalCostUsd: null });
+    expect(result.metrics).toEqual({ toolCalls: 2, turns: null, latencyMs: 1500, inputTokens: 400, cacheWriteTokens: 0, cacheReadTokens: 600, outputTokens: 50, notionalCostUsd: null });
   });
 
   it('sums the usage of several turns and subtracts reported cache writes from input', () => {
     const result = run(stream(started, message(answer('a')), completed({ input_tokens: 100, cached_input_tokens: 20, cache_write_input_tokens: 30, output_tokens: 5 }), completed({ input_tokens: 50, output_tokens: 1 })));
-    expect(result.metrics).toMatchObject({ turns: 2, inputTokens: 100, cacheWriteTokens: 30, cacheReadTokens: 20, outputTokens: 6 });
+    expect(result.metrics).toMatchObject({ turns: null, inputTokens: 100, cacheWriteTokens: 30, cacheReadTokens: 20, outputTokens: 6 });
   });
 
   it('reports metrics as unavailable without a completed turn', () => {
@@ -286,7 +286,7 @@ describe('runCodexBench', () => {
     ]);
     expect(calls.filter((call) => call.includes('scan --workspace'))).toHaveLength(1);
     expect(runs.map((r) => `${r.taskId}/${r.arm}/${r.status}/${r.repetition}`)).toEqual(['t1/native/completed/1', 't1/graph/completed/1', 't2/native/completed/1', 't2/graph/completed/1']);
-    expect(runs[0]).toMatchObject({ prompt: 'PROMPT t1', response: answer('a'), metrics: { toolCalls: 2, turns: 1, inputTokens: 400 } });
+    expect(runs[0]).toMatchObject({ prompt: 'PROMPT t1', response: answer('a'), metrics: { toolCalls: 2, turns: null, inputTokens: 400 } });
     expect(meta).toMatchObject({ client: 'codex', clientVersion: 'codex-cli 0.167.0', model: CODEX_MODEL, effort: 'low', authRoute: 'ChatGPT subscription login', indexState: 'warm', reruns: 0, stopReason: null, skipped: null });
     expect(configs.map((config) => config.includes('[mcp_servers.graph-it-live]'))).toEqual([false, true, false, true]);
     for (const [cmd, args, options] of childProcess.spawn.mock.calls) {
