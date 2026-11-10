@@ -162,13 +162,15 @@ export function createCodexParser(serverNames) {
 /**
  * Metrics from the events: input excludes cached reads and cache writes (both are part of
  * input_tokens), latency is the harness wall clock (no duration event), and no cost field.
+ * Turns are unavailable: `codex exec` emits one turn.completed per prompt, not one per model
+ * request, so it would always read 1 and not compare with Claude Code's num_turns.
  */
 export function codexMetrics(state, latencyMs) {
   const { usage } = state;
   const done = state.turns > 0;
   return {
     toolCalls: done ? state.toolCalls : null,
-    turns: done ? state.turns : null,
+    turns: null,
     latencyMs,
     inputTokens: usage ? usage.input - usage.cached - usage.cacheWrite : null,
     cacheWriteTokens: usage ? usage.cacheWrite : null,
