@@ -218,6 +218,39 @@ Examples:
   graph-it check-architecture --update-baseline
   graph-it check-architecture --config config/architecture.json --format json
 `,
+  init: `graph-it init — Generate an architecture guard from the current code
+
+Usage: graph-it init [options]
+
+Writes graphit.architecture.json from the code as it is today: one element per unit
+(graph-it architecture --level units), one allowOnly rule per unit listing the units it
+imports today, and one noCycles rule over the units in no cycle. Every current violation
+goes to graphit.architecture.baseline.json, so graph-it check-architecture passes and only
+new drift fails. An existing config keeps all its elements and rules: generated ones are
+only added. Then prints the guard snippets (pre-commit, CI, SARIF), the quick wins ranked
+by effort (cheap cycle breaks, mutual imports, weak unit dependencies, dead code) and the
+reading of the unit dependency matrix.
+
+An existing config or baseline is never overwritten without a confirmation: in a terminal,
+init shows the changes and asks (default: no), keeping *.bak copies; outside a terminal
+(CI, agent, pipe) it writes nothing to them and still prints the report.
+
+Options:
+  --yes              Confirm overwriting an existing config or baseline without a prompt
+  --dry-run          Write no rules file, diagram or report; print the changes and
+                     the report
+  --output DIR       Also write report.md and SVG diagrams (units, matrix, hot-spot
+                     folders) to this workspace directory
+  --workspace, -w    Workspace root directory (default: auto-detected)
+  --format, -f       Output format: text|markdown|json|toon (default: text)
+  --help, -h         Show this help
+
+Examples:
+  graph-it init
+  graph-it init --dry-run --format markdown > architecture-assessment.md
+  graph-it init --output architecture-report
+  graph-it init --yes --format json
+`,
   diagram: `graph-it diagram — Write a static architecture diagram
 
 Usage: graph-it diagram [dir] [options]

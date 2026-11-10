@@ -16,6 +16,7 @@
  *   architecture      Build full workspace architecture graph
  *   check-architecture  Check the imports against graphit.architecture.json
  *   diagram           Write a static architecture diagram (SVG or HTML)
+ *   init              Generate graphit.architecture.json and a quick-win report
  *   check <file>      Check for unused symbols
  *   serve             Launch MCP stdio server
  *   tool <name>       Invoke any MCP tool directly
@@ -120,6 +121,7 @@ Commands:
   check-architecture
                     Check the imports against graphit.architecture.json (exit 1 on a new error)
   diagram           Write a static architecture diagram: --format svg|html|diagram-spec --output <file>
+  init              Generate graphit.architecture.json from the current code, plus a quick-win report
   check <file>      Find unused exported symbols
   review-pr         Review a Git diff: --base <ref> [--head <ref>]
   serve             Launch MCP stdio server (passthrough)
@@ -535,6 +537,10 @@ async function dispatch(
     }
     case "check-architecture": {
       const { run } = await import("./commands/checkArchitecture.js");
+      return run(args, runtime, format);
+    }
+    case "init": {
+      const { run } = await import("./commands/init.js");
       return run(args, runtime, format);
     }
     case "diagram": {

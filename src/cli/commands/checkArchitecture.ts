@@ -9,10 +9,9 @@
  */
 
 import { createHash } from "node:crypto";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
 import {
+  acceptAllViolations,
   ARCHITECTURE_BASELINE_FILE,
   checkWorkspaceArchitecture,
   formatBaseline,
@@ -24,12 +23,12 @@ import {
 } from "../../analyzer/architecture/architectureRules.js";
 import { workerState } from "../../mcp/shared/state";
 import type { ArchitectureRuleSummary } from "../../shared/architecture-model";
-import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import { readStringOption } from "../options";
 import type { CliRuntime } from "../runtime";
+import { writeWorkspaceFile } from "../workspaceFiles";
 import { renderCheckArchitectureMarkdown, renderCheckArchitectureText } from "./checkArchitectureReport";
 
 /** `<flag> <workspace file>`, or undefined when the flag is absent. */
@@ -117,14 +116,11 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   });
 
   if (updateBaseline) {
-    // Every current violation, the old baseline ignored (resolved ones drop out), except the
-    // entries of rules switched off: they were not checked, so they stay accepted.
     const check = await checkWorkspaceArchitecture(graph, workspaceRoot, { config, baseline: false });
     const file = baseline ?? ARCHITECTURE_BASELINE_FILE;
     const previousText = await readWorkspaceFile(workspaceRoot, file, MAX_BASELINE_BYTES);
-    const off = new Set(check.rules.filter((rule) => rule.severity === "off").map((rule) => rule.name));
-    const kept = previousText === undefined ? [] : parseBaseline(previousText, file).filter((entry) => off.has(entry.rule));
-    await fs.promises.writeFile(validateWorkspacePath(path.resolve(workspaceRoot, file), workspaceRoot), formatBaseline([...check.violations, ...kept]));
+    const previous = previousText === undefined ? [] : parseBaseline(previousText, file);
+    await writeWorkspaceFile(workspaceRoot, file, formatBaseline(acceptAllViolations(check, previous)));
     if (format === "text" || format === "markdown") {
       return `Baseline ${file} written: ${check.violations.length} violation(s) accepted.`;
     }
