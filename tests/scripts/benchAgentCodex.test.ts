@@ -202,6 +202,8 @@ describe('codex exec --json parsing', () => {
     const result = run(stream(started, command, mcpCall(), message('thinking'), message(answer('a')), completed(), 'not json'), {}, ['graph-it-live']);
     expect(result.stops.every((stop) => !stop)).toBe(true);
     expect(result).toMatchObject({ status: 'completed', response: answer('a'), stopBench: null });
+    expect(result.toolTrace).toEqual(['shell: rg x', 'mcp:graph-it-live/graphit_find']);
+    expect(run(stream(started, { type: 'item.completed', item: { type: 'web_search', query: 'q' } }), {}, []).toolTrace).toEqual(['web_search']);
     expect(result.metrics).toEqual({ toolCalls: 2, turns: null, latencyMs: 1500, inputTokens: 400, cacheWriteTokens: 0, cacheReadTokens: 600, outputTokens: 50, notionalCostUsd: null });
   });
 

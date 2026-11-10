@@ -2,7 +2,7 @@ import type { BenchTask, RecordedRun, RunMetrics, RunStatus } from './harness.mj
 import type { ArmSpec } from './live.mjs';
 
 export type { ArmSpec } from './live.mjs';
-export interface ParserState { toolCalls: number; init: boolean; plugins: string[]; result: Record<string, unknown> | null; stop: { status: RunStatus; error: string } | null; stopAfter: string | null }
+export interface ParserState { toolCalls: number; toolTrace: string[]; init: boolean; plugins: string[]; result: Record<string, unknown> | null; stop: { status: RunStatus; error: string } | null; stopAfter: string | null }
 
 export const CLAUDE_MODEL: string;
 export const BUILTIN_PLUGINS: string[];
@@ -18,7 +18,7 @@ export function claudeMetrics(result: Record<string, unknown> | null, toolCalls:
 export function finishRun(
   state: ParserState,
   outcome: { timedOut: boolean; stderr: string },
-): { status: RunStatus; error?: string; response?: string; metrics: Required<RunMetrics>; stopBench: string | null | undefined };
+): { status: RunStatus; error?: string; response?: string; metrics: Required<RunMetrics>; toolTrace: string[]; stopBench: string | null | undefined };
 export function renderDryRun(input: { tasks: BenchTask[]; arms: string[]; armSpecs: Record<string, ArmSpec>; buildPrompt: (task: BenchTask) => string; removedEnv: string[] }): string;
 export function runClaudeBench(input: {
   tasks: BenchTask[];

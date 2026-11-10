@@ -252,13 +252,15 @@ function replay(lines: string[], { serverNames = [] as string[], timedOut = fals
 
 describe('stream-json parsing', () => {
   it('completes with the answer, tool calls, turns, latency, tokens and notional cost', () => {
-    const { run, killed } = replay(stream(init(), 'not json', toolUse(2), toolUse(1), result(answer('a'))));
+    const bash = { type: 'assistant', message: { content: [{ type: 'tool_use', name: 'Bash', input: { command: 'rg toon src' } }, { type: 'tool_use', name: 'Bash', input: {} }] } };
+    const { run, killed } = replay(stream(init(), 'not json', toolUse(2), bash, result(answer('a'))));
     expect(killed).toBe(false);
     expect(run).toEqual({
       status: 'completed',
       response: answer('a'),
       stopBench: null,
-      metrics: { toolCalls: 3, turns: 3, latencyMs: 1200, inputTokens: 100, cacheWriteTokens: 50, cacheReadTokens: 400, outputTokens: 20, notionalCostUsd: 0.01 },
+      toolTrace: ['Read', 'Read', 'Bash: rg toon src', 'Bash'],
+      metrics: { toolCalls: 4, turns: 3, latencyMs: 1200, inputTokens: 100, cacheWriteTokens: 50, cacheReadTokens: 400, outputTokens: 20, notionalCostUsd: 0.01 },
     });
   });
 

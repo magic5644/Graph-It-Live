@@ -102,8 +102,13 @@ function onRateLimit(state, info) {
   return null;
 }
 
+/** Trace entry: the tool name, with the command for Bash. */
+const describeToolUse = (block) => (block.name === 'Bash' && typeof block.input?.command === 'string' ? `Bash: ${block.input.command}` : String(block.name));
+
 function onAssistant(state, event) {
-  state.toolCalls += (event.message?.content ?? []).filter((block) => block?.type === 'tool_use').length;
+  const toolUses = (event.message?.content ?? []).filter((block) => block?.type === 'tool_use');
+  state.toolCalls += toolUses.length;
+  state.toolTrace.push(...toolUses.map(describeToolUse));
   if (LIMIT_ERRORS.has(event.error)) return { status: 'rate-limited', error: `client error: ${event.error}` };
   if (ACCOUNT_ERRORS.has(event.error)) return { status: 'failed', error: `client error: ${event.error}` };
   return null;
@@ -114,8 +119,8 @@ function onAssistant(state, event) {
  * every stop it records also stops the whole benchmark.
  */
 export function createClaudeParser(serverNames) {
-  /** @type {{ toolCalls: number, init: boolean, plugins: string[], result: Record<string, any> | null, stop: { status: string, error: string } | null, stopAfter: string | null }} */
-  const state = { toolCalls: 0, init: false, plugins: [], result: null, stop: null, stopAfter: null };
+  /** @type {{ toolCalls: number, toolTrace: string[], init: boolean, plugins: string[], result: Record<string, any> | null, stop: { status: string, error: string } | null, stopAfter: string | null }} */
+  const state = { toolCalls: 0, toolTrace: [], init: false, plugins: [], result: null, stop: null, stopAfter: null };
   const onLine = (line) => {
     let event;
     try {
@@ -172,7 +177,7 @@ function runStatus(state, { timedOut, stderr }) {
 /** Run record from the process outcome and the parser state, plus stopBench when nothing else may start. */
 export function finishRun(state, outcome) {
   const run = runStatus(state, outcome);
-  return { ...run, metrics: claudeMetrics(state.result, state.toolCalls), stopBench: run.stopBench ?? state.stopAfter };
+  return { ...run, metrics: claudeMetrics(state.result, state.toolCalls), toolTrace: state.toolTrace, stopBench: run.stopBench ?? state.stopAfter };
 }
 
 /** What a live run would do, without spawning anything. */

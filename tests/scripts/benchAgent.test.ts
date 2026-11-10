@@ -8,7 +8,7 @@
  */
 
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -409,7 +409,26 @@ describe('report', () => {
     const markdown = renderMarkdown(report([{ taskId: 'known-file-toon', arm: 'native', response: answerOf('known-file-toon') }]));
     expect(markdown).toContain('| known-file-toon | known-file | native | 1/1 | 1.00 | unavailable | unavailable |');
     expect(markdown).toContain('None.');
+    expect(markdown).toContain('## Tool calls per run\n\nNot recorded.');
     expect(markdown).toContain('# Agent benchmark: example');
+  });
+
+  it('keeps the tool-call trace sanitized and clipped, and renders it per run', () => {
+    const answer = answerOf('known-file-toon');
+    const long = `shell: cat ${'x'.repeat(200)}`;
+    const built = report([
+      { taskId: 'known-file-toon', arm: 'native', response: answer, toolTrace: ['shell: rg `toon`\n src', `Bash: cat ${homedir()}/a`, long, 3 as unknown as string] },
+      { taskId: 'known-file-toon', arm: 'graph', response: answer, toolTrace: [] },
+    ]);
+    const [native, graph] = built.runs;
+    expect(native?.toolTrace?.slice(0, 2)).toEqual(['shell: rg `toon` src', 'Bash: cat ~/a']);
+    expect(native?.toolTrace?.[2]).toHaveLength(160);
+    expect(native?.toolTrace?.[2]?.endsWith('…')).toBe(true);
+    expect(native?.toolTrace).toHaveLength(3);
+    expect(graph?.toolTrace).toEqual([]);
+    const markdown = renderMarkdown(built);
+    expect(markdown).toContain("- known-file-toon / native #1: `shell: rg 'toon' src`, `Bash: cat ~/a`");
+    expect(markdown).toContain('- known-file-toon / graph #1: (none)');
   });
 
   it.each([
@@ -430,12 +449,14 @@ describe('report', () => {
   it('validates recorded runs at the trust boundary', () => {
     expect(validateRuns(example.runs, tasks, ARMS)).toEqual([]);
     expect(validateRuns('x', tasks, ARMS)).toEqual(['runs must be an array']);
-    expect(validateRuns([1, { taskId: 'nope', arm: 'x', status: 'done', response: 3, metrics: [], retrieval: 'r' }], tasks, ARMS)).toEqual([
+    expect(validateRuns([{ ...example.runs[0], toolTrace: null }, { ...example.runs[0], toolTrace: ['a'] }], tasks, ARMS)).toEqual([]);
+    expect(validateRuns([1, { taskId: 'nope', arm: 'x', status: 'done', response: 3, metrics: [], retrieval: 'r', toolTrace: ['a', 1] }], tasks, ARMS)).toEqual([
       'runs[0] must be an object',
       'runs[1].taskId nope is not a known task',
       'runs[1].arm must be one of native, graph',
       'runs[1].status must be one of completed, failed, timeout, rate-limited, incomplete',
       'runs[1].response must be a string',
+      'runs[1].toolTrace must be an array of strings',
       'runs[1].metrics must be an object',
       'runs[1].retrieval must be an object',
     ]);

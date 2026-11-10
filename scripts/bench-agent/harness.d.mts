@@ -43,6 +43,7 @@ export interface RecordedRun {
   error?: string | null;
   metrics?: RunMetrics;
   retrieval?: RetrievalMetrics;
+  toolTrace?: string[] | null;
 }
 
 export interface FieldScore { score: number; precision?: number; recall?: number }
@@ -79,7 +80,7 @@ export interface Report {
   meta: Record<string, unknown> & { repetitions: number };
   verdicts: ClassVerdict[];
   cells: Cell[];
-  runs: (Omit<RecordedRun, 'metrics' | 'retrieval'> & { class: TaskClass; repetition: number; status: RunStatus; metrics: Record<string, number | null>; retrieval: Record<string, number | null>; scoring: Scoring | null })[];
+  runs: (Omit<RecordedRun, 'metrics' | 'retrieval'> & { class: TaskClass; repetition: number; status: RunStatus; metrics: Record<string, number | null>; retrieval: Record<string, number | null>; toolTrace: string[] | null; scoring: Scoring | null })[];
   limits: string[];
 }
 
