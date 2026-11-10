@@ -51,7 +51,8 @@ const hypotheses = JSON.parse(readFileSync(path.join(DATA_DIR, 'hypotheses.json'
 const pack = JSON.parse(readFileSync(path.join(DATA_DIR, 'tasks.json'), 'utf8')) as { tasks: BenchTask[] };
 const example = JSON.parse(readFileSync(path.join(DATA_DIR, 'answers.example.json'), 'utf8')) as { meta: Record<string, string>; runs: RecordedRun[] };
 const tasks = pack.tasks;
-const COMMIT = hypotheses.corpus.commit;
+const CORPUS = hypotheses.corpus as NonNullable<Hypotheses['corpus']>;
+const COMMIT = CORPUS.commit;
 const TREE = 'a'.repeat(40);
 const ARMS = ['native', 'graph'];
 const task = (id: string) => tasks.find((candidate) => candidate.id === id) as BenchTask;
@@ -314,12 +315,12 @@ describe('automatic verdicts', () => {
     const runs = withRuns('callers-ignored-directory', 'native', [{ response: native, metrics: { toolCalls: 6, inputTokens: 5000, cacheWriteTokens: 0, outputTokens: 300 } }])
       .filter((run) => !(run.taskId === 'callers-ignored-directory' && run.arm === 'graph'))
       .concat([{ taskId: 'callers-ignored-directory', arm: 'graph', response: graph, metrics: { toolCalls: 2, inputTokens: 1000, cacheWriteTokens: 0, outputTokens: 100 } }]);
-    expect(verdictOf(runs, 'callers-impact')).toMatchObject({ verdict: 'refuted', reason: 'lower caller recall than native' });
+    expect(verdictOf(runs, 'callers-impact')).toMatchObject({ verdict: 'refuted', reason: 'lower list recall than native' });
   });
 
   it('does not confirm callers-impact when caller recall is unavailable', () => {
     const cells = report(example.runs).cells.map((cell) => (cell.class === 'callers-impact' && cell.arm === 'graph' ? { ...cell, recall: null } : cell));
-    expect(computeVerdicts(hypotheses, cells, 'x').find((v) => v.class === 'callers-impact')).toMatchObject({ verdict: 'not confirmed', reason: 'caller recall unavailable' });
+    expect(computeVerdicts(hypotheses, cells, 'x').find((v) => v.class === 'callers-impact')).toMatchObject({ verdict: 'not confirmed', reason: 'list recall unavailable' });
   });
 
   it('confirms callers-impact on equal correctness and a tool-call reduction', () => {
@@ -528,7 +529,7 @@ describe('manual modes', () => {
     const out: string[] = [];
     const printed = await main(['--print-pack', '--tasks', 'known-file-toon', '--arms', 'graph'], { stdout: { write: (text: string) => out.push(text) } });
     expect(out.join('')).toBe(`${printed}\n`);
-    expect(printed).toContain(`git worktree add --detach <worktree> ${COMMIT}`);
+    expect(printed).toContain(`git -C . archive ${COMMIT} | tar -x -C <worktree>`);
     expect(printed).toContain('`AGENTS.md`, `CLAUDE.md`, `.claude`, `.github/copilot-instructions.md`, `plugins`');
     expect(printed).toContain('"WORKSPACE_ROOT": "<worktree>"');
     expect(printed).not.toContain('### native');
@@ -539,7 +540,7 @@ describe('manual modes', () => {
   });
 
   it('renderPack prints the native arm without MCP server', () => {
-    expect(renderPack({ tasks: [task('known-file-toon')], hypotheses, arms: ['native'], corpusHash: TREE })).toContain('"mcpServers": {}');
+    expect(renderPack({ tasks: [task('known-file-toon')], hypotheses, arms: ['native'], corpora: [{ name: 'self', ...CORPUS, tree: TREE, gitDir: '/repo', tasks: [task('known-file-toon')] }], repoRoot: '/repo' })).toContain('"mcpServers": {}');
   });
 
   it('stops before printing anything when a key does not match the corpus', async () => {
@@ -596,7 +597,7 @@ describe('manual modes', () => {
     const markdown = await main(['--score', path.join(DATA_DIR, 'answers.example.json'), '--out', out], { stdout: { write } });
     expect(markdown).toContain('| known-file | **confirmed** |');
     const written = JSON.parse(readFileSync(path.join(out, 'report.json'), 'utf8'));
-    expect(written.meta).toMatchObject({ client: 'example', model: 'example-model', corpusCommit: COMMIT, corpusTag: 'v1.24.2', corpusHash: TREE, harnessCommit: 'f'.repeat(40), graphItLiveVersion: 'v1.24.2-3-gffffffff', hypothesesVersion: 1, repetitions: 2 });
+    expect(written.meta).toMatchObject({ client: 'example', model: 'example-model', corpora: [{ name: 'self', repository: 'magic5644/Graph-It-Live', commit: COMMIT, tag: 'v1.24.2', tree: TREE }], harnessCommit: 'f'.repeat(40), graphItLiveVersion: 'v1.24.2-3-gffffffff', hypothesesVersion: 1, repetitions: 2 });
     expect(childProcess.execFileSync).toHaveBeenCalledWith('git', ['describe', '--tags', '--always', '--dirty'], expect.anything());
     expect(written.runs[0].prompt).toBe(buildPrompt(task('known-file-toon'), hypotheses));
     expect(readFileSync(path.join(out, 'report.md'), 'utf8')).toBe(`${markdown}\n`);

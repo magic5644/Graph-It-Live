@@ -34,6 +34,7 @@ const HEAP_PROBE_WAIT_MS = 1_000;
  * One medium open-source project per supported language, plus `typescript-large`, a monorepo larger
  * than this repository (#343): repository, tag, pinned commit, license.
  */
+export const CORPORA_DIR = path.join(REPO_ROOT, '.reports', 'bench-e2e', 'corpora');
 export const OSS_CORPORA = JSON.parse(readFileSync(path.join(REPO_ROOT, 'scripts', 'bench-corpora.json'), 'utf8'));
 
 /** Each corpus names one file to edit and one hub symbol to query. */
@@ -125,10 +126,10 @@ function extract(root, gitDir, ref) {
 }
 
 /**
- * Extracts an open-source corpus at its pinned commit. The commit is fetched once
- * (shallow) into a bare repository under `corporaDir`, which CI caches.
+ * Fetches the pinned commit of an open-source corpus once (shallow) into a bare
+ * repository under `corporaDir`, which CI caches, and returns that repository.
  */
-export function fetchCorpus(name, corpus, corporaDir, root) {
+export function fetchCorpusGit(name, corpus, corporaDir) {
   const gitDir = path.join(corporaDir, `${name}.git`);
   try {
     git('--git-dir', gitDir, 'cat-file', '-e', `${corpus.commit}^{commit}`);
@@ -137,7 +138,12 @@ export function fetchCorpus(name, corpus, corporaDir, root) {
     git('init', '--bare', '-q', gitDir);
     git('--git-dir', gitDir, 'fetch', '-q', '--depth', '1', corpus.url, `${corpus.commit}:refs/bench/${name}`);
   }
-  extract(root, gitDir, corpus.commit);
+  return gitDir;
+}
+
+/** Extracts an open-source corpus at its pinned commit. */
+export function fetchCorpus(name, corpus, corporaDir, root) {
+  extract(root, fetchCorpusGit(name, corpus, corporaDir), corpus.commit);
 }
 
 /** Label of a corpus in the report: the tag of this repository or of the open-source project. */
@@ -444,7 +450,7 @@ export function parseOptions(args) {
       files: { type: 'string', default: '10000' },
       cycles: { type: 'string', default: '20' },
       'no-vscode': { type: 'boolean', default: false },
-      'corpora-dir': { type: 'string', default: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'corpora') },
+      'corpora-dir': { type: 'string', default: CORPORA_DIR },
       out: { type: 'string', default: path.join(REPO_ROOT, '.reports', 'bench-e2e', 'latest') },
     },
   });

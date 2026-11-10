@@ -6,7 +6,6 @@
 import { execFileSync } from 'node:child_process';
 import { homedir } from 'node:os';
 
-export const CLASSES = ['known-file', 'localization', 'callers-impact', 'multi-file-contract'];
 export const FIELD_TYPES = ['string', 'string[]', 'path', 'path[]', 'number', 'boolean'];
 export const RUN_STATUSES = ['completed', 'failed', 'timeout', 'rate-limited', 'incomplete'];
 export const METRICS = ['toolCalls', 'turns', 'latencyMs', 'inputTokens', 'cacheWriteTokens', 'cacheReadTokens', 'outputTokens', 'notionalCostUsd'];
@@ -49,12 +48,14 @@ function validateEvidence(task, where) {
   });
 }
 
-function validateTask(task, index) {
+function validateTask(task, index, hypotheses) {
   const where = `tasks[${index}]`;
+  const classes = Object.keys(hypotheses?.classes ?? {});
   if (!isObject(task)) return [`${where} must be an object`];
   const errors = [];
   if (typeof task.id !== 'string' || !ID.test(task.id)) errors.push(`${where}.id must match ${ID}`);
-  if (!CLASSES.includes(task.class)) errors.push(`${where}.class must be one of ${CLASSES.join(', ')}`);
+  if (!classes.includes(task.class)) errors.push(`${where}.class must be one of ${classes.join(', ')}`);
+  if (hypotheses?.corpora && !Object.hasOwn(hypotheses.corpora, task.corpus)) errors.push(`${where}.corpus must be one of ${Object.keys(hypotheses.corpora).join(', ')}`);
   if (typeof task.prompt !== 'string' || task.prompt.trim() === '') errors.push(`${where}.prompt must be a non-empty string`);
   if (!isObject(task.answerShape) || Object.keys(task.answerShape).length === 0) {
     return [...errors, `${where}.answerShape must be a non-empty object`];
@@ -70,17 +71,28 @@ function validateTask(task, index) {
   return [...errors, ...validateEvidence(task, where)];
 }
 
+/**
+ * Corpus of a task: v1 hypotheses pin one `corpus` (this repository, named `self`);
+ * v2 hypotheses pin `corpora` by name and each task names its own.
+ */
+export function corpusOf(task, hypotheses) {
+  return hypotheses.corpora ? { name: task.corpus, ...hypotheses.corpora[task.corpus] } : { name: 'self', ...hypotheses.corpus };
+}
+
 /** Validates the task pack against the frozen hypotheses: one entry per class count. Returns error strings. */
 export function validateTasks(pack, hypotheses) {
   if (!isObject(pack) || !Array.isArray(pack.tasks)) return ['tasks file must have a tasks array'];
-  const errors = pack.tasks.flatMap(validateTask);
+  const errors = pack.tasks.flatMap((task, index) => validateTask(task, index, hypotheses));
   const ids = pack.tasks.map((task) => task?.id);
   for (const id of new Set(ids.filter((value, index) => ids.indexOf(value) !== index))) errors.push(`duplicate task id ${id}`);
   for (const [name, spec] of Object.entries(hypotheses?.classes ?? {})) {
     const count = pack.tasks.filter((task) => task?.class === name).length;
     if (count !== spec.tasks) errors.push(`class ${name} needs ${spec.tasks} task(s), found ${count}`);
   }
-  if (!SHA.test(hypotheses?.corpus?.commit ?? '')) errors.push('hypotheses corpus.commit must be a full 40-character SHA');
+  const corpora = hypotheses?.corpora ? Object.entries(hypotheses.corpora).map(([name, corpus]) => ['corpora.' + name, corpus]) : [['corpus', hypotheses?.corpus]];
+  for (const [where, corpus] of corpora) {
+    if (!SHA.test(corpus?.commit ?? '')) errors.push(`hypotheses ${where}.commit must be a full 40-character SHA`);
+  }
   return errors;
 }
 
@@ -275,7 +287,7 @@ function knownFileVerdict(spec, totals, nativeCells, graphCells) {
   if (limits.exceeded) return { verdict: 'refuted', reason: `control limit exceeded: ${limits.exceeded}` };
   if (totals.graph.correctness > totals.native.correctness + EPSILON) return { verdict: 'not confirmed', reason: 'correctness differs (higher in graph arm)' };
   if (limits.unavailable) return { verdict: 'not confirmed', reason: 'tool calls or provider tokens unavailable' };
-  return { verdict: 'confirmed', reason: 'same correctness, within +1 tool call and +25 % provider tokens' };
+  return { verdict: 'confirmed', reason: `same correctness, within +${spec.maxExtraToolCallsPerTask} tool call(s) and +${spec.maxTokenIncrease * 100} % provider tokens` };
 }
 
 function contractVerdict(totals) {
@@ -285,14 +297,24 @@ function contractVerdict(totals) {
   return { verdict: 'confirmed', reason: `correctness >= native; provider tokens ${sign}${Math.round(Math.abs(extra) * 100)} %` };
 }
 
-function decide(name, spec, totals, nativeCells, graphCells) {
+/** v2: a mean score gain per task of at least minCorrectnessGain confirms, whatever the cost. */
+function correctnessGainVerdict(spec, totals, taskCount) {
+  if (spec.minCorrectnessGain === undefined) return null;
+  const gain = (totals.graph.correctness - totals.native.correctness) / taskCount;
+  return gain >= spec.minCorrectnessGain - EPSILON ? { verdict: 'confirmed', reason: `correctness gain ${gain.toFixed(2)} per task (>= ${spec.minCorrectnessGain})` } : null;
+}
+
+function decide(spec, totals, nativeCells, graphCells) {
   if (totals.graph.correctness < totals.native.correctness - EPSILON) return { verdict: 'refuted', reason: 'lower correctness than native' };
   if (spec.minRecallDelta !== undefined) {
-    if (totals.native.recall === null || totals.graph.recall === null) return { verdict: 'not confirmed', reason: 'caller recall unavailable' };
-    if (totals.graph.recall < totals.native.recall - EPSILON) return { verdict: 'refuted', reason: 'lower caller recall than native' };
+    if (totals.native.recall === null || totals.graph.recall === null) return { verdict: 'not confirmed', reason: 'list recall unavailable' };
+    if (totals.graph.recall < totals.native.recall - EPSILON) return { verdict: 'refuted', reason: 'lower list recall than native' };
   }
-  if (name === 'known-file') return knownFileVerdict(spec, totals, nativeCells, graphCells);
-  return spec.reductionMetrics ? efficiencyVerdict(spec, totals) : contractVerdict(totals);
+  if (spec.negativeControl) return knownFileVerdict(spec, totals, nativeCells, graphCells);
+  if (!spec.reductionMetrics) return contractVerdict(totals);
+  const efficiency = efficiencyVerdict(spec, totals);
+  const gained = correctnessGainVerdict(spec, totals, nativeCells.length);
+  return gained && efficiency.verdict !== 'confirmed' ? { ...gained, reductions: efficiency.reductions } : efficiency;
 }
 
 /** First task of a class without a completed run in an arm (a deselected arm counts as missing). */
@@ -318,7 +340,7 @@ export function computeVerdicts(hypotheses, cells, client) {
     const gap = nativeCells.length === 0 ? 'no task run' : missingRun(nativeCells, graphCells);
     if (gap) return { ...base, verdict: 'not confirmed', reason: gap, totals: null, reductions: null };
     const totals = { native: classTotals(nativeCells), graph: classTotals(graphCells) };
-    const { verdict, reason, reductions = null } = decide(name, spec, totals, nativeCells, graphCells);
+    const { verdict, reason, reductions = null } = decide(spec, totals, nativeCells, graphCells);
     return { ...base, verdict, reason, totals, reductions };
   });
 }
@@ -409,7 +431,7 @@ export function buildReport({ meta, tasks, hypotheses, arms, runs }) {
     verdicts: computeVerdicts(hypotheses, cells, meta.client),
     cells,
     runs: scored,
-    limits: [
+    limits: hypotheses.limits ?? [
       'Corpus: this repository at one pinned commit; results do not generalize to other languages or large private repositories.',
       'One repetition by default and 1-2 tasks per class: verdicts detect large differences only and are never statistically significant.',
       'Clients differ in automation and observable metrics; the report does not imply feature parity.',
@@ -440,13 +462,16 @@ function traceLines(runs) {
   });
 }
 
+const corpusLine = (corpus) => {
+  const tag = corpus.tag ? ` (${corpus.tag})` : '';
+  return `- Corpus ${corpus.repository ?? corpus.name}: \`${corpus.commit}\`${tag}, tree \`${corpus.tree ?? 'unknown'}\``;
+};
 const show = (value, digits = 0) => (typeof value === 'number' ? value.toFixed(digits) : 'unavailable');
 const percent = (value) => (typeof value === 'number' ? `${Math.round(value * 100)} %` : 'n/a');
 
 /** Markdown summary: verdicts first, then per task and arm (correctness before cost), then failures and limits. */
 export function renderMarkdown(report) {
   const { meta } = report;
-  const tag = meta.corpusTag ? ` (${meta.corpusTag})` : '';
   const coldIndex = typeof meta.coldIndexMs === 'number' ? ` (cold build ${meta.coldIndexMs} ms, excluded from per-task cost)` : '';
   const failures = report.runs.filter((run) => run.status !== 'completed' || run.scoring?.malformed);
   const failureLine = (run) => {
@@ -457,7 +482,7 @@ export function renderMarkdown(report) {
   return [
     `# Agent benchmark: ${meta.client ?? 'unknown client'}`,
     '',
-    `- Corpus: \`${meta.corpusCommit}\`${tag}, tree \`${meta.corpusHash ?? 'unknown'}\``,
+    ...(meta.corpora ?? []).map(corpusLine),
     `- Harness: \`${meta.harnessCommit ?? 'unknown'}\`, Graph-It-Live ${meta.graphItLiveVersion ?? 'unknown'}`,
     `- Client: ${meta.client ?? 'unknown'} ${meta.clientVersion ?? ''}, model ${meta.model ?? 'unknown'}, effort ${meta.effort ?? 'unknown'}`,
     `- Index: ${meta.indexState ?? 'unknown'}${coldIndex}; repetitions per cell: up to ${meta.repetitions}; generated ${meta.generatedAt ?? ''}`,

@@ -15,6 +15,7 @@ import {
   OSS_CORPORA,
   SELF_REF,
   fetchCorpus,
+  fetchCorpusGit,
   generateCorpus,
   main,
   parseOptions,
@@ -151,6 +152,8 @@ describe('fetchCorpus', { timeout: 30_000 }, () => {
       expect(readFileSync(path.join(root, 'src', 'hub.ts'), 'utf8')).toBe('export const v = 1;\n');
       expect(existsSync(path.join(root, '.git'))).toBe(false);
     }
+    // The agent benchmark (#685) reads the cached bare repository directly.
+    expect(fetchCorpusGit('demo', corpus, cache)).toBe(path.join(cache, 'demo.git'));
   });
 
   it('fetches again when the cached repository lacks the pinned commit', () => {

@@ -59,6 +59,28 @@ Each verdict has one of three values:
 
 With one repetition and 1–2 tasks per class, no verdict is statistically significant.
 
+## Hypotheses v2: tasks one search cannot answer (#685)
+
+Every v1 question names a greppable identifier or phrase, so one `rg` answers it: v1 measures the cost of exposing Graph-It-Live, not its value. Pack v2 (`--pack v2`, in [`tests/evals/agent-bench/v2/`](../../tests/evals/agent-bench/v2/)) adds 5 questions that need several hops, on the pinned open-source corpora of the end-to-end benchmark. v1 stays the default, frozen and unchanged.
+
+| Class | Task | Corpus | Why one search is not enough |
+| --- | --- | --- | --- |
+| Transitive impact | `impact-nest-module-keys`: the module-metadata validator and the files that run it at depth ≤ 2 | nestjs/nest v10.4.15 | no name in the prompt; one caller is a decorator applied through a barrel, another calls it as a plain function |
+| Transitive impact | `impact-flask-make-response`: every function that reaches `Flask.make_response`, any depth | pallets/flask 3.1.0 | a module-level function of the same name also calls it; the chain runs through `self` calls |
+| Transitive impact | `impact-vitepress-switch`: components that render `VPSwitch.vue`, any depth | vuejs/vitepress v1.5.0 | one search per level of the component tree |
+| Call path | `callpath-nest-scan-imports`: methods between `create` and `insertImport` | nestjs/nest | 5 hops, one search each |
+| Global structure | `cycle-nest-testing-builder`: files on an import cycle with `testing-module.builder.ts` | nestjs/nest | needs the import graph, then a cycle search |
+| Known file (control) | `known-file-toon`, v1 task | this repository, v1.24.2 | the prompt gives the file |
+| Greppable name (control) | `callers-ignored-directory`, v1 task | this repository, v1.24.2 | one search lists the callers; native should win or tie |
+
+- **Keys without Graph-It-Live.** Established with the TypeScript compiler API (module resolution, `findReferences`), Python `ast` and the import lists of the `.vue` files, then reviewed by hand once. Before the first prompt, the harness checks every key path and evidence symbol in the git objects of each task's corpus commit. The open-source corpora come from `scripts/bench-corpora.json` through `fetchCorpusGit()` of `scripts/bench-e2e.mjs` (shallow fetch, cached in `.reports/bench-e2e/corpora/`); the hypotheses and `bench-corpora.json` must pin the same commit.
+- **Answer shapes.** Every v2 task has a list field (precision/recall); scalar fields are bare identifiers.
+- **Verdict rules.** Same as v1, plus one rule frozen in `v2/hypotheses.json` before any run: on the 3 non-control classes, a mean correctness gain ≥ 0.25 per task also confirms, whatever the cost. On these tasks, a better answer at a higher cost is the value under test.
+- **Runs.** The live run handles one corpus after another, with one shared budget of 6 reruns, and stops everything at the first limit message. A full v2 run is 7 tasks × 2 arms = 14 runs per client.
+- **Limit.** The models may know these public projects from training. The questions target details of the pinned commits.
+
+v2 baseline: pending maintainer approval.
+
 ## First baseline (2026-11-10)
 
 | | Claude Code | Codex |
