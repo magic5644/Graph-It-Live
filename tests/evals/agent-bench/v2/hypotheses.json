@@ -1,0 +1,76 @@
+{
+  "$comment": "Hypotheses v2 (#685), frozen before the v2 tasks, answer keys and any live run. v1 (../hypotheses.json) stays frozen and unchanged. Do not tune after seeing results: a change needs its own commit and a new baseline.",
+  "version": 2,
+  "corpora": {
+    "self": { "repository": "magic5644/Graph-It-Live", "commit": "069917ca71374408d910716f947db57e832ff543", "tag": "v1.24.2" },
+    "typescript-large": { "repository": "nestjs/nest", "commit": "d0fb875e23e3e6baae8537efd41d54709acade0c", "tag": "v10.4.15" },
+    "python": { "repository": "pallets/flask", "commit": "ab8149664182b662453a563161aa89013c806dc9", "tag": "3.1.0" },
+    "vue": { "repository": "vuejs/vitepress", "commit": "867b256e14858df7a8cf9935e45e5bf233782be5", "tag": "v1.5.0" }
+  },
+  "comparison": "graph arm versus native arm, same client, model, effort and prompt prefix",
+  "definitions": {
+    "taskScore": "Mean of the field scores of one answer, in [0, 1]. A scalar field scores 1 on exact match, else 0. A list field scores the F1 of its precision and recall against the key. Malformed or missing JSON scores 0.",
+    "correctness": "Sum over the class tasks of the task score, each task averaged over its completed runs.",
+    "recall": "Sum over the class tasks of the recall of the list fields, each task averaged over its completed runs.",
+    "correctnessGain": "(graph correctness - native correctness) / number of class tasks: the mean score gain per task.",
+    "toolCalls": "Sum over the class tasks of the tool calls, each task averaged over its completed runs.",
+    "providerTokens": "Sum over the class tasks of non-cached input tokens, cache-write tokens and output tokens reported by the client, each task averaged over its completed runs. Cache reads are input, never savings. cl100k_base counts and JSON/TOON sizes are not provider tokens.",
+    "reduction": "(native - graph) / native for a metric; undefined when native is 0 or the metric is unavailable in either arm."
+  },
+  "classes": {
+    "transitive-impact": {
+      "tasks": 3,
+      "hypothesis": "Callers or dependents at depth >= 2, one task per corpus language (TypeScript, Python, Vue). Correctness >= native and recall >= native; and either a correctness gain >= 0.25 per task, or >= 20 % fewer tool calls or provider tokens.",
+      "minCorrectnessDelta": 0,
+      "minRecallDelta": 0,
+      "minCorrectnessGain": 0.25,
+      "minReduction": 0.2,
+      "reductionMetrics": ["toolCalls", "providerTokens"]
+    },
+    "call-path": {
+      "tasks": 1,
+      "hypothesis": "The methods on a call chain of 4 or more hops. Correctness >= native and recall >= native; and either a correctness gain >= 0.25 per task, or >= 20 % fewer tool calls or provider tokens.",
+      "minCorrectnessDelta": 0,
+      "minRecallDelta": 0,
+      "minCorrectnessGain": 0.25,
+      "minReduction": 0.2,
+      "reductionMetrics": ["toolCalls", "providerTokens"]
+    },
+    "global-structure": {
+      "tasks": 1,
+      "hypothesis": "The files on an import cycle through one file. Correctness >= native and recall >= native; and either a correctness gain >= 0.25 per task, or >= 20 % fewer tool calls or provider tokens.",
+      "minCorrectnessDelta": 0,
+      "minRecallDelta": 0,
+      "minCorrectnessGain": 0.25,
+      "minReduction": 0.2,
+      "reductionMetrics": ["toolCalls", "providerTokens"]
+    },
+    "known-file": {
+      "tasks": 1,
+      "negativeControl": true,
+      "hypothesis": "Control, v1 task on this repository: the prompt gives the file. Same correctness, at most +1 tool call and at most +25 % provider tokens. More than that confirms that forced retrieval is overhead.",
+      "maxExtraToolCallsPerTask": 1,
+      "maxTokenIncrease": 0.25
+    },
+    "greppable-name": {
+      "tasks": 1,
+      "negativeControl": true,
+      "hypothesis": "Control, v1 task on this repository: the prompt names the symbol and one search lists its callers. Native should win or tie: same correctness, at most +1 tool call and at most +25 % provider tokens.",
+      "maxExtraToolCallsPerTask": 1,
+      "maxTokenIncrease": 0.25
+    }
+  },
+  "verdicts": {
+    "refuted": "Graph correctness (or, for classes with minRecallDelta, recall) lower than native, even with an efficiency gain; or a control above one of its limits.",
+    "confirmed": "Every condition of the hypothesis holds.",
+    "notConfirmed": "Neither refuted nor confirmed: no correctness gain and an efficiency difference within the threshold, a metric unavailable in either arm, a control with higher graph correctness, or a task without a completed run in either arm.",
+    "sampleSize": "Each verdict states its task and run counts and is never presented as statistically significant.",
+    "changeFromV1": "minCorrectnessGain is new: on tasks one search cannot answer, a better answer at a higher cost is the value under test, so a correctness gain also confirms. Every other rule is the v1 rule."
+  },
+  "limits": [
+    "Corpora: three public open-source projects at pinned commits, plus this repository for the two controls. The models may know these projects from training, so the questions target details of the pinned commits; results do not generalize to large private repositories.",
+    "One repetition by default and 1-3 tasks per class: verdicts detect large differences only and are never statistically significant.",
+    "Clients differ in automation and observable metrics; the report does not imply feature parity.",
+    "Notional cost is computed by the client, never actual spend. cl100k_base and JSON/TOON sizes are retrieval estimates, not provider usage."
+  ]
+}
