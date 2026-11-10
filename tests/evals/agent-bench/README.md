@@ -17,6 +17,15 @@ npm run bench:agent -- --score <answers.json> [--out <dir>]            # report.
 
 Both modes first check every answer-key path and evidence symbol against the pinned commit, from git objects only, and stop on a wrong key.
 
+Live mode, Claude Code on the claude.ai subscription only (`npm run build` first for the graph arm):
+
+```sh
+npm run bench:agent -- --client claude --dry-run [--tasks <ids>] [--arms <ids>]  # prompts, commands, MCP configs; starts nothing
+npm run bench:agent -- --client claude [--tasks <ids>] [--arms <ids>] [--out <dir>]
+```
+
+After the key check, it removes every API key, auth token, base URL and provider variable from the child environment, requires `claude auth status --json` to report a claude.ai login, and refuses to start otherwise. Each arm gets its own temporary copy of the corpus commit (`git archive`, so no `.git` history to read) without agent instruction files; the graph arm index is built once (cold time reported separately). Each run uses `claude -p --output-format stream-json` with a pinned model, `--effort low`, no settings sources (no user hooks, plugins or memories), `--strict-mcp-config` with the arm servers only, and a fixed tool list. A run is killed at init (and refused when no init event arrives) when the session uses an API key, loads a plugin or another MCP server, or another model or effort. The benchmark stops at the first rate-limit, allowance, credits or overage message, and never retries; otherwise it reruns at most 6 cells (failed runs, then tasks whose arms disagree).
+
 ## Not the tool-selection eval
 
 `tests/evals/toolSelection.eval.test.ts` (#165) asks one model, through `LlmClientFactory` and an API key, which MCP tool it would pick for a question. It measures tool descriptions, not task results.

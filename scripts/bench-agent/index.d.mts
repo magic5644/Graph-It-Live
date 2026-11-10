@@ -1,8 +1,10 @@
 import type { BenchTask, Hypotheses, Report } from './harness.mjs';
 
 export interface Options {
-  mode: 'print-pack' | 'score';
+  mode: 'print-pack' | 'score' | 'client';
   answers: string | null;
+  client: string | null;
+  dryRun: boolean;
   tasks: string[] | null;
   arms: string[];
   out: string;
@@ -26,4 +28,5 @@ export function scoreAnswers(input: {
   out: string;
   now?: Date;
 }): { report: Report; markdown: string };
-export function main(argv: string[], options?: { repoRoot?: string; dataDir?: string; stdout?: { write(text: string): unknown } }): string;
+/** A string for --print-pack and --score; a promise of it for --client. */
+export function main(argv: string[], options?: { repoRoot?: string; dataDir?: string; stdout?: { write(text: string): unknown }; env?: NodeJS.ProcessEnv }): string | Promise<string>;
