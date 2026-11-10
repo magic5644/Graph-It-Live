@@ -21,10 +21,16 @@ export const ALLOWED_TOOLS = {
   graph: [...NATIVE_TOOLS, 'mcp__graph-it-live'],
 };
 
-/** Child environment: no key or billing route, no auto memory, and no client-side retry on a 429. */
+/** Child environment: no key or billing route, no auto memory or bundled skills, and no client-side retry on a 429. */
 export function claudeEnv(env) {
-  return { ...childEnv(env), CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', CLAUDE_CODE_MAX_RETRIES: '0' };
+  return { ...childEnv(env), CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', CLAUDE_CODE_DISABLE_BUNDLED_SKILLS: '1', CLAUDE_CODE_MAX_RETRIES: '0' };
 }
+
+/**
+ * `@builtin` plugins shipped inside Claude Code 2.1.322: --setting-sources cannot turn
+ * them off, and both arms load the same set. Any other plugin is refused at init.
+ */
+export const BUILTIN_PLUGINS = ['cc-plugin-agents-md', 'cc-plugin-plugin-authoring', 'cc-plugin-privacy', 'cc-plugin-sec-default', 'cc-plugin-telemetry'];
 
 /** Accepts only a verified claude.ai subscription login (`claude auth status --json`). */
 export function verifySubscription(status) {
@@ -74,7 +80,8 @@ const ACCOUNT_ERRORS = new Set(['authentication_failed', 'oauth_org_not_allowed'
 /** Init checks: subscription route, no plugin, exactly the arm's MCP servers connected, pinned model and effort. */
 function initProblem(init, serverNames) {
   if (init.apiKeySource !== 'none') return `API key route (${init.apiKeySource}) instead of the subscription`;
-  if ((init.plugins ?? []).length > 0) return `plugins loaded: ${init.plugins.map((plugin) => plugin.name).join(', ')}`;
+  const extraPlugins = (init.plugins ?? []).map((plugin) => plugin.name).filter((name) => !BUILTIN_PLUGINS.includes(name));
+  if (extraPlugins.length > 0) return `plugins loaded: ${extraPlugins.join(', ')}`;
   const servers = init.mcp_servers ?? [];
   const names = servers.map((server) => server.name).sort((a, b) => a.localeCompare(b));
   if (names.join(',') !== [...serverNames].sort((a, b) => a.localeCompare(b)).join(',')) return `MCP servers [${names.join(', ')}] instead of [${serverNames.join(', ')}]`;
@@ -107,8 +114,8 @@ function onAssistant(state, event) {
  * every stop it records also stops the whole benchmark.
  */
 export function createClaudeParser(serverNames) {
-  /** @type {{ toolCalls: number, init: boolean, result: Record<string, any> | null, stop: { status: string, error: string } | null, stopAfter: string | null }} */
-  const state = { toolCalls: 0, init: false, result: null, stop: null, stopAfter: null };
+  /** @type {{ toolCalls: number, init: boolean, plugins: string[], result: Record<string, any> | null, stop: { status: string, error: string } | null, stopAfter: string | null }} */
+  const state = { toolCalls: 0, init: false, plugins: [], result: null, stop: null, stopAfter: null };
   const onLine = (line) => {
     let event;
     try {
@@ -119,6 +126,7 @@ export function createClaudeParser(serverNames) {
     let stop = null;
     if (event?.type === 'system' && event.subtype === 'init') {
       state.init = true;
+      state.plugins = (event.plugins ?? []).map((plugin) => plugin.name);
       const problem = initProblem(event, serverNames);
       stop = problem ? { status: 'failed', error: `refused at init: ${problem}` } : null;
     } else if (event?.type === 'rate_limit_event') stop = onRateLimit(state, event.rate_limit_info);
@@ -222,15 +230,16 @@ async function runOne({ task, arm, repetition, setup, buildPrompt, env, log }) {
   const outcome = await runProcess('claude', claudeArgs(arm, setup[arm].mcpConfig), { cwd: setup[arm].worktree, env, input: prompt, timeoutMs: RUN_TIMEOUT_MS, onLine: parser.onLine });
   const { stopBench, ...run } = finishRun(parser.state, outcome);
   log(` ${run.status}\n`);
-  return { record: { taskId: task.id, arm, repetition, prompt, response: run.response ?? null, ...run }, stopBench };
+  return { record: { taskId: task.id, arm, repetition, prompt, response: run.response ?? null, ...run }, stopBench, plugins: parser.state.plugins };
 }
 
 async function runCells(cells, context, runs) {
   for (const cell of cells) {
     const repetition = runs.filter((run) => run.taskId === cell.task.id && run.arm === cell.arm).length + 1;
     // One subscription session at a time, and nothing starts after the first limit.
-    const { record, stopBench } = await runOne({ ...context, ...cell, repetition }); // eslint-disable-line no-await-in-loop -- NOSONAR S9382: sequential on purpose
+    const { record, stopBench, plugins } = await runOne({ ...context, ...cell, repetition }); // eslint-disable-line no-await-in-loop -- NOSONAR S9382: sequential on purpose
     runs.push(record);
+    plugins.forEach((name) => context.plugins.add(name));
     if (stopBench) return stopBench;
   }
   return null;
@@ -261,13 +270,13 @@ export async function runClaudeBench({ tasks, arms, armSpecs, agentFiles, buildP
       if (setup[arm].serverNames.length > 0) coldIndexMs = buildIndex(repoRoot, worktree, childEnvironment);
     }
     const runs = [];
-    const context = { setup, buildPrompt, env: childEnvironment, log };
+    const context = { setup, buildPrompt, env: childEnvironment, log, plugins: new Set() };
     let stopReason = await runCells(tasks.flatMap((task) => arms.map((arm) => ({ task, arm }))), context, runs);
     const reruns = stopReason ? [] : planReruns(runs, tasks, arms);
     if (reruns.length > 0) stopReason = await runCells(reruns.map(({ taskId, arm }) => ({ task: tasks.find((task) => task.id === taskId), arm })), context, runs);
     return {
       runs,
-      meta: { client: 'claude', clientVersion, model: CLAUDE_MODEL, effort: CLAUDE_EFFORT, authRoute, indexState: needsIndex ? 'warm' : 'none', coldIndexMs, reruns: reruns.length, stopReason },
+      meta: { client: 'claude', clientVersion, model: CLAUDE_MODEL, effort: CLAUDE_EFFORT, authRoute, indexState: needsIndex ? 'warm' : 'none', coldIndexMs, reruns: reruns.length, stopReason, builtinPlugins: [...context.plugins].sort((a, b) => a.localeCompare(b)) },
     };
   } finally {
     for (const { worktree } of Object.values(setup)) removeCorpus(worktree);

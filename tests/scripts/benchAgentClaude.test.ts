@@ -39,6 +39,7 @@ vi.mock('node:fs', async (importOriginal) => {
 
 import {
   ALLOWED_TOOLS,
+  BUILTIN_PLUGINS,
   CLAUDE_EFFORT,
   CLAUDE_MODEL,
   armMcpConfig,
@@ -191,7 +192,7 @@ describe('child environment', () => {
   it('claudeEnv also disables auto memory and client-side retries', () => {
     const env = claudeEnv(PARENT_ENV);
     expect(env).not.toHaveProperty('ANTHROPIC_API_KEY');
-    expect(env).toMatchObject({ CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', CLAUDE_CODE_MAX_RETRIES: '0', CLAUDE_CONFIG_DIR: '/home/dev/.claude' });
+    expect(env).toMatchObject({ CLAUDE_CODE_DISABLE_AUTO_MEMORY: '1', CLAUDE_CODE_DISABLE_BUNDLED_SKILLS: '1', CLAUDE_CODE_MAX_RETRIES: '0', CLAUDE_CONFIG_DIR: '/home/dev/.claude' });
   });
 
   it.each([
@@ -315,7 +316,7 @@ describe('stream-json parsing', () => {
     ['an API-key route', init({ apiKeySource: 'ANTHROPIC_API_KEY' }), 'API key route (ANTHROPIC_API_KEY) instead of the subscription'],
     ['a missing apiKeySource', init({ apiKeySource: undefined }), 'API key route (undefined) instead of the subscription'],
     ['a longer model id', init({ model: `${CLAUDE_MODEL}0` }), `model ${CLAUDE_MODEL}0 instead of ${CLAUDE_MODEL}`],
-    ['a loaded plugin', init({ plugins: [{ name: 'ponytail', path: '/p' }] }), 'plugins loaded: ponytail'],
+    ['a loaded user plugin', init({ plugins: [{ name: 'cc-plugin-privacy', path: '/b' }, { name: 'ponytail', path: '/p' }] }), 'plugins loaded: ponytail'],
     ['an unexpected MCP server', init({ mcp_servers: [{ name: 'other', status: 'connected' }] }), 'MCP servers [other] instead of []'],
     ['another model', init({ model: 'claude-opus-5-5' }), `model claude-opus-5-5 instead of ${CLAUDE_MODEL}`],
     ['another effort', init({ effort: 'high' }), 'effort high instead of low'],
@@ -323,6 +324,13 @@ describe('stream-json parsing', () => {
     const { run, killed } = replay(stream(event, result(answer('a'))));
     expect(killed).toBe(true);
     expect(run).toMatchObject({ status: 'failed', error: `refused at init: ${reason}`, stopBench: `refused at init: ${reason}` });
+  });
+
+  it('accepts the Claude Code builtin plugins and records them', () => {
+    const builtins = BUILTIN_PLUGINS.map((name) => ({ name, path: `/builtin/${name}` }));
+    const parser = createClaudeParser([]);
+    expect(parser.onLine(JSON.stringify(init({ plugins: builtins })))).toBe(false);
+    expect(parser.state.plugins).toEqual(BUILTIN_PLUGINS);
   });
 
   it('accepts exactly the arm servers once connected, and refuses one that failed', () => {
@@ -518,7 +526,7 @@ describe('runClaudeBench', () => {
   it('verifies the route first, builds the index once, runs every task and arm, and cleans up', async () => {
     const calls = emulateCommands();
     fsMock.existsSync.mockReturnValueOnce(true);
-    const children = [stream(init(), toolUse(2), result(answer('a'))), stream(graphInit, toolUse(1), result(answer('a'))), stream(init(), result(answer('a'))), stream(graphInit, result(answer('a')))];
+    const children = [stream(init({ plugins: [{ name: 'cc-plugin-telemetry', path: '/b' }] }), toolUse(2), result(answer('a'))), stream(graphInit, toolUse(1), result(answer('a'))), stream(init(), result(answer('a'))), stream(graphInit, result(answer('a')))];
     childProcess.spawn.mockImplementation(() => fakeChild(children.shift() as string[]));
     const { runs, meta } = await runClaudeBench({ ...base, arms: ['native', 'graph'] });
     expect(calls[0]).toBe('claude auth status --json');
@@ -527,6 +535,7 @@ describe('runClaudeBench', () => {
     expect(runs[0]).toMatchObject({ prompt: 'PROMPT t1', response: answer('a'), metrics: { toolCalls: 2 } });
     expect(meta).toMatchObject({ client: 'claude', clientVersion: '2.1.322 (Claude Code)', model: CLAUDE_MODEL, effort: 'low', authRoute: 'claude.ai subscription (max)', indexState: 'warm', reruns: 0, stopReason: null });
     expect(typeof meta.coldIndexMs).toBe('number');
+    expect(meta.builtinPlugins).toEqual(['cc-plugin-telemetry']);
     expect(JSON.stringify(meta)).not.toContain('someone@example.org');
     // The child never sees a key, and runs in the arm worktree with its own MCP config.
     for (const [command, args, options] of childProcess.spawn.mock.calls) {
