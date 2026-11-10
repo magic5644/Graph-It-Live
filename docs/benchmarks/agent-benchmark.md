@@ -78,8 +78,45 @@ Every v1 question names a greppable identifier or phrase, so one `rg` answers it
 - **Verdict rules.** Same as v1, plus one rule frozen in `v2/hypotheses.json` before any run: on the 3 non-control classes, a mean correctness gain ≥ 0.25 per task also confirms, whatever the cost. On these tasks, a better answer at a higher cost is the value under test.
 - **Runs.** The live run handles one corpus after another, with one shared budget of 6 reruns, and stops everything at the first limit message. A full v2 run is 7 tasks × 2 arms = 14 runs per client.
 - **Limit.** The models may know these public projects from training. The questions target details of the pinned commits.
+- **Scope.** The benchmark measures only an agent answering a code question. Graph-It-Live's checks (`check-architecture`, the review gate, the pre-commit layer check) are not measured. In the session that built v2, those checks were the part of the tool the agent actually used.
 
-v2 baseline: pending maintainer approval.
+### v2 baseline (2026-11-10)
+
+- Harness `6f3cdee6`.
+- Claude Code 2.1.322, `claude-haiku-5-5`, effort low: 18 runs (4 reruns).
+- Codex 0.167.0, `gpt-6-luna`, effort low: 20 runs (6 reruns).
+- No failure, no limit message, no malformed answer.
+- A first run at `6210e0b6` was invalidated before any verdict (#685 comment). 6 of the 18 Codex list answers were strings, and the call-path key missed `ExceptionsZone.asyncRun`. The v2 prompt now shows a filled answer example, and the key includes `asyncRun`.
+
+| Class | Claude Code | Codex |
+| --- | --- | --- |
+| Transitive impact | not confirmed: 2.98 / 2.98, provider tokens −5 %, tool calls +26 % | **refuted**: 2.68 / 2.23 (graph listed 1 of 7 nest files twice) |
+| Call path | **refuted**: 0.94 / 0.89 (one native run named `asyncRun`, no graph run did) | not confirmed: 0.89 / 0.89, provider tokens +183 % |
+| Global structure | not confirmed: 1.00 / 1.00, provider tokens +67 %, tool calls 3 → 6 | confirmed by the rule: 0.57 / 0.57, tool calls −25 %, provider tokens +39 % |
+| Known file (control) | confirmed | **refuted**: +1.5 tool calls (0.25 / 0.50; native named a function that does not exist in both runs, graph in one) |
+| Greppable name (control) | confirmed | **refuted**: +229 % provider tokens |
+| Graph-arm runs that called Graph-It-Live | **5 of 9** | 0 of 10 |
+
+**Findings**
+
+- **v2 reaches its goal for Claude Code: the agent now uses Graph-It-Live.**
+  - In v1, 0 of 6 graph runs called Graph-It-Live. In v2, 5 of 9 did, all on the non-greppable tasks: `trace_function_execution`, `query_call_graph`, `crawl_dependency_graph` and `find_referencing_files`.
+  - The graph answers are right, but they are not better than native. Graph correctness equals native on 4 of 5 tasks.
+  - The graph arm costs more:
+    - about +40k cache-read tokens per session, from the MCP tool definitions (52k vs 14k on the controls);
+    - up to 8.9× the cache reads on the cycle task (198k vs 22k).
+- **Codex never called the server** (0 of 10 runs). Its differences between arms come from run variance, not from Graph-It-Live. This holds for both of its refuted verdicts.
+- **Native is strong at this size.** On the cycle task, Claude native wrote its own small import-graph script in Bash and answered right with 3 tool calls.
+- **No tool answers the cycle question directly.** Claude graph called `crawl_dependency_graph`. Its output was too large and went to a file, so the agent post-processed it with its own Python script. A compact "cycles through this file" answer would fit this question better: input for #400.
+- **No v2 claim of benefit.** Under the frozen hypotheses, no class is confirmed for a client that used the server.
+
+**Scope**
+
+- This benchmark scores the cost and correctness of one isolated question.
+- Graph-It-Live aims to optimize a work session:
+  - checks before the push (`check-architecture`, review gate, layer check);
+  - for agents, the most relevant and precise answers to the human, so correctness first.
+- Session-level value is not measured here. It needs session-level metrics in a future hypotheses v3.
 
 ## First baseline (2026-11-10)
 
