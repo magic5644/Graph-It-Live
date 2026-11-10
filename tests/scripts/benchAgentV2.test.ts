@@ -65,6 +65,12 @@ function corpusRepos(): Map<string, { commit: string; files: Map<string, string>
     for (const [field, type] of Object.entries(t.answerShape)) {
       if (type === 'path') add(t.key[field] as string);
       if (type === 'path[]') (t.key[field] as string[]).forEach((file) => add(file));
+      if (type === 'string[]') {
+        for (const item of t.key[field] as string[]) {
+          const [file, symbol] = item.split(':');
+          if (symbol) add(file, symbol.split('.'));
+        }
+      }
     }
     t.evidence.forEach((entry) => add(entry.path, entry.symbols));
   }
@@ -153,6 +159,14 @@ describe('v2 task pack schema', () => {
     expect(validateTasks({ tasks: tasks.map((t) => (t === base ? broken : t)) }, hypotheses).join('\n')).toContain(message);
   });
 
+  it.each([
+    ['a bare method name no evidence lists', 'callpath-nest-scan-imports', 'methods', ['initialize', 'bootstrap'], 'key.methods item bootstrap is neither <safe path>:<symbol> nor an evidence symbol'],
+    ['a qualified caller outside the corpus', 'impact-flask-make-response', 'callers', ['../outside.py:run'], 'key.callers item ../outside.py:run is neither'],
+  ])('rejects a string-list key with %s', (_label, id, field, items, message) => {
+    const broken = { ...task(id), key: { ...task(id).key, [field]: items } };
+    expect(validateTasks({ tasks: tasks.map((t) => (t.id === id ? broken : t)) }, hypotheses).join('\n')).toContain(message);
+  });
+
   it('rejects a corpus pinned by a short SHA', () => {
     const short = { ...hypotheses, corpora: { ...corpora, python: { ...corpora.python, commit: 'ab814966' } } };
     expect(validateTasks({ tasks }, short)).toEqual(['hypotheses corpora.python.commit must be a full 40-character SHA']);
@@ -199,6 +213,17 @@ describe('v2 key check', () => {
       .rejects.toThrow('current_app not found in src/flask/helpers.py');
   });
 
+  it('checks each <path>:<symbol> caller of a string-list key in its file at the corpus commit', async () => {
+    const repos = corpusRepos();
+    repos.get(gitDirOf('python'))!.files.set('src/flask/app.py', 'Flask make_response finalize_request full_dispatch_request handle_exception __call__');
+    emulateGit(repos);
+    await expect(main(['--print-pack', '--pack', 'v2', '--tasks', 'impact-flask-make-response'], { repoRoot: REPO, stdout: { write: vi.fn() } }))
+      .rejects.toThrow('wsgi_app not found in src/flask/app.py');
+    repos.get(gitDirOf('python'))!.files.delete('src/flask/helpers.py');
+    await expect(main(['--print-pack', '--pack', 'v2', '--tasks', 'impact-flask-make-response'], { repoRoot: REPO, stdout: { write: vi.fn() } }))
+      .rejects.toThrow('src/flask/helpers.py does not exist at ab8149664182');
+  });
+
   it('refuses a corpus whose bench-corpora.json pin moved away from the frozen hypotheses', async () => {
     benchE2e.OSS_CORPORA.python = { ...pinned.python, commit: 'b'.repeat(40) };
     await expect(main(['--print-pack', '--pack', 'v2', '--tasks', 'impact-flask-make-response'], { repoRoot: REPO, stdout: { write: vi.fn() } }))
@@ -233,6 +258,10 @@ describe('v2 answer shapes', () => {
     const key = t.key.components as string[];
     const given = [...key.map((file) => `./${file.replaceAll('/', '\\')}`), 'src/client/theme-default/components/VPSwitch.vue'];
     expect(scoreAnswer(t, JSON.stringify({ components: given })).fields.components).toMatchObject({ precision: 8 / 9, recall: 1 });
+  });
+
+  it('scores a list answer that is not a list as 0', () => {
+    expect(scoreAnswer(task('impact-vitepress-switch'), JSON.stringify({ components: 'src/client/theme-default/Layout.vue' }))).toMatchObject({ score: 0, recall: 0 });
   });
 
   it('scores the call path as an unordered list of bare method names', () => {

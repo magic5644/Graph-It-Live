@@ -48,6 +48,20 @@ function validateEvidence(task, where) {
   });
 }
 
+/**
+ * A string-list key item is checked against the corpus commit: `<path>:<symbol>` through its
+ * file, a bare identifier through the task evidence, which must list it.
+ */
+function unprovenListItems(task, where) {
+  if (!Array.isArray(task.evidence)) return [];
+  const proven = new Set(task.evidence.flatMap((entry) => entry?.symbols ?? []));
+  return Object.entries(task.answerShape)
+    .filter(([field, type]) => type === 'string[]' && Array.isArray(task.key[field]))
+    .flatMap(([field]) => task.key[field]
+      .filter((item) => typeof item === 'string' && (QUALIFIED.test(item) ? !isSafeRelativePath(QUALIFIED.exec(item)[1]) : !proven.has(item)))
+      .map((item) => `${where}.key.${field} item ${item} is neither <safe path>:<symbol> nor an evidence symbol`));
+}
+
 function validateTask(task, index, hypotheses) {
   const where = `tasks[${index}]`;
   const classes = Object.keys(hypotheses?.classes ?? {});
@@ -68,6 +82,7 @@ function validateTask(task, index, hypotheses) {
   for (const field of Object.keys(task.key)) {
     if (!(field in task.answerShape)) errors.push(`${where}.key.${field} is not in answerShape`);
   }
+  errors.push(...unprovenListItems(task, where));
   return [...errors, ...validateEvidence(task, where)];
 }
 
@@ -89,7 +104,7 @@ export function validateTasks(pack, hypotheses) {
     const count = pack.tasks.filter((task) => task?.class === name).length;
     if (count !== spec.tasks) errors.push(`class ${name} needs ${spec.tasks} task(s), found ${count}`);
   }
-  const corpora = hypotheses?.corpora ? Object.entries(hypotheses.corpora).map(([name, corpus]) => ['corpora.' + name, corpus]) : [['corpus', hypotheses?.corpus]];
+  const corpora = hypotheses?.corpora ? Object.entries(hypotheses.corpora).map(([name, corpus]) => [`corpora.${name}`, corpus]) : [['corpus', hypotheses?.corpus]];
   for (const [where, corpus] of corpora) {
     if (!SHA.test(corpus?.commit ?? '')) errors.push(`hypotheses ${where}.commit must be a full 40-character SHA`);
   }
@@ -109,14 +124,24 @@ function gitObjectExists(repoRoot, spec) {
   }
 }
 
+/** `<path>:<name>` or `<path>:<Class>.<method>` item of a string-list key: the file and the identifiers it must hold. */
+const QUALIFIED = /^([^:]+):([\w$]+(?:\.[\w$]+)*)$/;
+
+/** [path, symbols] pairs a key field names: its paths, or the files of its `<path>:<symbol>` items. */
+function keyReferences(value, type) {
+  if (type === 'path') return [[value, []]];
+  if (type === 'path[]') return value.map((path) => [path, []]);
+  if (type !== 'string[]') return [];
+  return value.map((item) => QUALIFIED.exec(item)).filter(Boolean).map((match) => [match[1], match[2].split('.')]);
+}
+
 /** Every path a key or its evidence names, each with the symbols that must appear in it. */
 function referencedFiles(tasks) {
   const files = new Map();
   const add = (path, symbols = []) => files.set(path, [...(files.get(path) ?? []), ...symbols]);
   for (const task of tasks) {
     for (const [field, type] of Object.entries(task.answerShape)) {
-      if (type === 'path') add(task.key[field]);
-      if (type === 'path[]') task.key[field].forEach((path) => add(path));
+      for (const [path, symbols] of keyReferences(task.key[field], type)) add(path, symbols);
     }
     for (const entry of task.evidence) add(entry.path, entry.symbols);
   }

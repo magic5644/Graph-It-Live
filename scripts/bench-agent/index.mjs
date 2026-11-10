@@ -82,7 +82,7 @@ function validateSelection(options) {
   if (options.mode === 'client' && !Object.hasOwn(CLIENTS, options.client)) throw new Error(`unknown client ${options.client}; known: ${Object.keys(CLIENTS).join(', ')}`);
   if (options.dryRun && options.mode !== 'client') throw new Error(`--dry-run needs --client\n${USAGE}`);
   if (!Object.hasOwn(PACKS, options.pack)) throw new Error(`unknown pack ${options.pack}; known: ${Object.keys(PACKS).join(', ')}`);
-  const unknownArms = options.arms.filter((arm) => !(arm in ARMS));
+  const unknownArms = options.arms.filter((arm) => !Object.hasOwn(ARMS, arm));
   if (unknownArms.length > 0 || options.arms.length === 0) throw new Error(`unknown arm(s) ${unknownArms.join(', ')}; known: ${Object.keys(ARMS).join(', ')}`);
 }
 
@@ -227,13 +227,13 @@ async function runCorpora({ client, options, corpora, prompt, repoRoot, env }) {
   const runs = [];
   let meta = {};
   let reruns = 0;
-  let coldIndexMs = null;
+  const coldBuilds = [];
   for (const corpus of corpora) {
     const result = await client.run({ tasks: corpus.tasks, arms: options.arms, armSpecs: ARMS, agentFiles: AGENT_FILES, buildPrompt: prompt, commit: corpus.commit, repoRoot, corpusGit: corpus.gitDir, dirName: repositoryName(corpus), rerunBudget: MAX_RERUNS - reruns, env }); // eslint-disable-line no-await-in-loop -- NOSONAR S9382: sequential on purpose, one subscription session at a time
     runs.push(...result.runs);
     reruns += result.meta.reruns ?? 0;
-    if (typeof result.meta.coldIndexMs === 'number') coldIndexMs = (coldIndexMs ?? 0) + result.meta.coldIndexMs;
-    meta = { ...result.meta, reruns, coldIndexMs };
+    if (typeof result.meta.coldIndexMs === 'number') coldBuilds.push(result.meta.coldIndexMs);
+    meta = { ...result.meta, reruns, coldIndexMs: coldBuilds.length > 0 ? coldBuilds.reduce((sum, ms) => sum + ms, 0) : null };
     if (result.meta.stopReason) break;
   }
   return { runs, meta };
