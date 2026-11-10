@@ -12,20 +12,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const childProcess = vi.hoisted(() => {
-  const refuse = (name: string) => () => {
-    throw new Error(`benchAgentClaude tests must not spawn a real process (${name})`);
-  };
-  return {
-    execFileSync: vi.fn(),
-    spawn: vi.fn(refuse('spawn')),
-    spawnSync: vi.fn(refuse('spawnSync')),
-    exec: vi.fn(refuse('exec')),
-    execSync: vi.fn(refuse('execSync')),
-    execFile: vi.fn(refuse('execFile')),
-    fork: vi.fn(refuse('fork')),
-  };
-});
+const childProcess = await vi.hoisted(async () => (await import('./benchAgentFakeChild')).mockChildProcess('benchAgentClaude'));
 vi.mock('node:child_process', () => ({ ...childProcess, default: childProcess }));
 
 const fsMock = vi.hoisted(() => ({ existsSync: vi.fn() }));

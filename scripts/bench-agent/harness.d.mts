@@ -1,12 +1,11 @@
-/** A class name of the hypotheses (v1: known-file, localization, callers-impact, multi-file-contract). */
-export type TaskClass = string;
 export type FieldType = 'string' | 'string[]' | 'path' | 'path[]' | 'number' | 'boolean';
 export type RunStatus = 'completed' | 'failed' | 'timeout' | 'rate-limited' | 'incomplete';
 export type Verdict = 'confirmed' | 'not confirmed' | 'refuted';
 
 export interface BenchTask {
   id: string;
-  class: TaskClass;
+  /** A class name of the hypotheses. */
+  class: string;
   /** v2: name of the task's corpus in Hypotheses.corpora. */
   corpus?: string;
   prompt: string;
@@ -61,7 +60,7 @@ export interface Scoring { score: number; recall: number | null; malformed: bool
 
 export interface Cell {
   taskId: string;
-  class: TaskClass;
+  class: string;
   arm: string;
   runs: number;
   completed: number;
@@ -90,7 +89,7 @@ export interface Report {
   meta: Record<string, unknown> & { repetitions: number };
   verdicts: ClassVerdict[];
   cells: Cell[];
-  runs: (Omit<RecordedRun, 'metrics' | 'retrieval'> & { class: TaskClass; repetition: number; status: RunStatus; metrics: Record<string, number | null>; retrieval: Record<string, number | null>; toolTrace: string[] | null; scoring: Scoring | null })[];
+  runs: (Omit<RecordedRun, 'metrics' | 'retrieval'> & { class: string; repetition: number; status: RunStatus; metrics: Record<string, number | null>; retrieval: Record<string, number | null>; toolTrace: string[] | null; scoring: Scoring | null })[];
   limits: string[];
 }
 
