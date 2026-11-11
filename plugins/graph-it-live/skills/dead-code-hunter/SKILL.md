@@ -91,7 +91,7 @@ default lists `high` items only; `byConfidence` counts the others and `hint` say
 |---|---|---|
 | `high` | `importers-use-other-exports`: the file is imported, no importer uses the export | Deletion candidate; still run Step 3 for public API and monorepo use |
 | `medium` | `test-only-use`, `dynamic-import-in-workspace`, `convention:decorated`, `named-in-own-file` (drop `export` rather than delete), `name-written-elsewhere` (Rust), `convention:test-file` | Review; never delete without the evidence of Step 3 |
-| `low` | `no-importer`: nothing imports the file | Entry point by convention as often as dead: review only |
+| `low` | `no-importer`: nothing imports the file | Entry point by convention as often as dead (Lambda handler, Dockerfile `CMD`, `serverless.yml` / SAM handler: these manifests are not read): review only |
 
 Methods, nested functions and Rust `impl` members are never reported. Go, Java and C# are not scanned.
 
