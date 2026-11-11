@@ -21,23 +21,22 @@ Run from the repository root with `graph-it -w <repoRoot> ...` so every package'
 
 Do not edit source, run formatters or codemods, or use a package manager. Locate targets with read-only search or IDE navigation; search locates, it never proves impact.
 
-1. `graph-it scan`. If it fails or the index is stale (`fresh=false`), stop and report.
-2. One bounded call per target symbol:
+1. One bounded call per target symbol (the CLI indexes on demand, no `graph-it scan` first). If indexing fails or a result reports `fresh=false`, stop and report:
 
 ```bash
 graph-it context --mode refactor --seeds 'src/a/b.ts#symbol' --depth 4 --detail compact --token-budget 4000 --format toon
 ```
 
    It returns the seed, importers (tests included), `indexRevision`, `truncated` and `nextQueries`. Keep `--depth 4`: at the default depth, consumers behind a barrel or re-export are missed. Add `--scope '<glob>'` to narrow. If `truncated=true`, the importer list is incomplete: rerun once with `--token-budget 16000` (the maximum) to get it in one call, and continue with `--cursor <nextCursor>` only if that is still truncated. Never plan on a truncated list.
-3. Deepen only symbols that are exported, public, or widely used (high fan-in):
+2. Deepen only symbols that are exported, public, or widely used (high fan-in):
 
 ```bash
 graph-it tool get_impact_analysis --filePath=/abs/src/a/b.ts --symbolName=symbol --includeTransitive=true --format toon
 graph-it tool query_call_graph --filePath=/abs/src/a/b.ts --symbolName=symbol --direction=callers --depth=2 --format toon
 ```
 
-4. For a move, delete or layer change, also run `graph-it cycles <file> --format toon` and, when `graphit.architecture.json` exists, `graph-it check-architecture --format toon` to record the baseline (violation count) before editing.
-5. Pick the tests that cover the target and its importers from step 2 (files under `tests/` or named `*.test.*`/`*.spec.*`). None found = a test must be written in Phase 2.
+3. For a move, delete or layer change, also run `graph-it cycles <file> --format toon` and, when `graphit.architecture.json` exists, `graph-it check-architecture --format toon` to record the baseline (violation count) before editing.
+4. Pick the tests that cover the target and its importers from step 1 (files under `tests/` or named `*.test.*`/`*.spec.*`). None found = a test must be written in Phase 2.
 
 Evidence rules:
 - Re-exports: `get_impact_analysis`, `query_call_graph` and `review-pr` consumers do not follow a barrel (`index.ts` re-exporting the symbol). If an importer only re-exports the symbol (`graph-it path-in <file>` lists it as `export`), run `graph-it path-in <barrel>` and read each consumer for symbol-level use.
@@ -59,7 +58,6 @@ Present the plan before any edit: files and intended changes; impacted importers
 Run in this order; fix and rerun on any failure.
 
 ```bash
-graph-it scan
 graph-it review-pr --base HEAD --format toon
 graph-it check-architecture --format toon   # only when graphit.architecture.json exists
 ```

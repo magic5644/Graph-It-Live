@@ -45,18 +45,16 @@ Produces a ranked, safety-annotated deletion plan powered by Graph-It-Live.
 
 ## Workflow — Step by Step
 
-### Step 1 — Build/refresh the index
+### Step 1 — Pick the workspace root
 
-```bash
-graph-it scan
-```
-
-The reverse lookup index (who imports what, who calls what) is always built automatically — no extra flags needed.
+No `graph-it scan` first: every command restores `.graph-it/cache/`, re-analyzes changed files and
+builds the reverse lookup index (who imports what, who calls what) on demand. `--reindex` rebuilds
+from scratch when results look wrong.
 
 **Monorepos.** Scanning one package finds candidates faster, but "unused" then means unused *inside
 that package*: a sibling package may still import the export. Without `--workspace` the CLI uses the
 nearest project marker (`package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, ...) and exits with
-code `3` outside any project; `graph-it -w <dir>` forces the root. If `scan` prints `Warning: N imports
+code `3` outside any project; `graph-it -w <dir>` forces the root. If a command prints `Warning: N imports
 resolve outside the workspace root`, sibling-package imports are not indexed. Before recommending a
 deletion, confirm there is no consumer from the monorepo root
 (`graph-it -w <monorepoRoot> tool find_referencing_files --targetPath=<path> --format toon`), or state
@@ -157,7 +155,7 @@ then the recommended deletion order. Every row states its reference evidence.
 
 ## Safety Checklist Before Deleting
 
-- [ ] Re-run `graph-it scan` and the currently advertised workspace scan after any refactor that modified imports
+- [ ] Re-run the currently advertised workspace scan after any refactor that modified imports (changed files are re-indexed automatically)
 - [ ] In a monorepo, confirm each candidate has no consumer from the monorepo root (or state the package-only scope)
 - [ ] Check if the project is a **published library** — unused exports may be part of the public API
 - [ ] Check `package.json` `exports` field — symbols exported via package entry points are always live
@@ -171,7 +169,6 @@ then the recommended deletion order. Every row states its reference evidence.
 ## Quick Scan (Single File)
 
 ```bash
-graph-it scan
 graph-it check src/utils/format.ts --format toon
 ```
 

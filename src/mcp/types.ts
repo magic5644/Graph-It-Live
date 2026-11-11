@@ -405,7 +405,7 @@ export const InvalidateFilesParamsSchema = z.object({
     .array(FilePathSchema)
     .max(INVALIDATE_FILES_MAX)
     .describe(
-      `Array of absolute file paths to invalidate from the cache (max: ${INVALIDATE_FILES_MAX} per call; use rebuild_index for the whole workspace). Use this after modifying files to ensure fresh analysis.`,
+      `Array of absolute file paths to invalidate from the cache (max: ${INVALIDATE_FILES_MAX} per call; use rebuild_index for the whole workspace). Needed only for edits the file watcher missed: it invalidates changed files on its own.`,
     ),
 });
 export type InvalidateFilesParams = z.infer<typeof InvalidateFilesParamsSchema>;

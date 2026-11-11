@@ -44,8 +44,8 @@ Graph-It-Live analyzes one workspace root and skips imports that resolve outside
 
 - **Monorepo tour, entry points, dependents, cross-package questions**: use
   `graph-it -w <monorepoRoot> <command>` rather than `cd` into a package.
-- **One package only**: scan that package and say in the report that siblings are not covered.
-- If `scan` prints `Warning: N imports resolve outside the workspace root`, rerun with the
+- **One package only**: analyze that package and say in the report that siblings are not covered.
+- If a command prints `Warning: N imports resolve outside the workspace root`, rerun with the
   `--workspace` it names or report the limitation (`graph-it tool get_index_status` reports
   `outOfRootImports` and `monorepoRoot`); never present narrow results as workspace-wide.
 
@@ -60,14 +60,11 @@ Graph-It-Live analyzes one workspace root and skips imports that resolve outside
 
 ## Workflow — Step by Step
 
-### Step 1 — Build the index
+### Step 1 — Index (automatic)
 
-```bash
-graph-it scan
-```
-
-Run it once first; all subsequent commands depend on it. It is incremental and cached, so no
-timeout wrapper is needed. Check its stderr for the out-of-root warning (see Choose the Workspace Root).
+No `graph-it scan` first: the first command of Step 2 builds or restores the index on demand. It is
+incremental and cached, so no timeout wrapper is needed. Check its stderr for the out-of-root warning
+(see Choose the Workspace Root).
 
 ---
 
@@ -194,7 +191,7 @@ module with its blast-radius recommendation, and the critical-path Mermaid diagr
 
 - On a **monorepo**, tour from the monorepo root with `graph-it -w <monorepoRoot> ...` (see Choose the Workspace Root). Narrow to one package with `graph-it architecture --folder <key> --format toon` or per-package file paths, not by changing the root.
 - If the architecture graph returns too much data, tour one unit or folder at a time with `--level units` then `--folder <key>`. `--maxFiles` caps analysed files, not scope: a capped pass is partial, say so.
-- If indexing is incomplete or `scan` warns about out-of-root imports, report the unanalysed area rather than guessing.
+- If indexing is incomplete or a command warns about out-of-root imports, report the unanalysed area rather than guessing.
 - The "most complex module" heuristic is architectural, not cyclomatic. For line-level complexity, combine with a linter.
 - After the tour, run the **dead-code-hunter** skill to find safe cleanup targets before the new developer starts writing code — a clean codebase is much easier to onboard into.
 - For deeper call-graph questions ("what calls this function?", "what breaks if I change X?"), use the **graph-it-live** skill directly.

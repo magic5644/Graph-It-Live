@@ -63,8 +63,7 @@ the schema advertises it.
 ## Core commands
 
 ```bash
-graph-it scan                                    # build/refresh the index; review-pr indexes itself
-graph-it -w <monorepoRoot> scan                  # cross-package questions: index from the monorepo root
+graph-it -w <monorepoRoot> path-in src/a.ts --format toon  # cross-package questions: run from the monorepo root
 graph-it context "<question>" --mode search --detail compact --token-budget 2000 --format toon
 graph-it context --mode impact --seeds 'src/a.ts#fn' --depth 3 --detail compact --token-budget 4000 --format toon
 graph-it summary src/a.ts --format toon          # codemap: exports, dependencies, dependents, call flow
@@ -78,7 +77,9 @@ graph-it check src/a.ts --format toon            # unused exports of one file
 graph-it review-pr --base origin/main --format toon
 ```
 
-If `scan` warns that imports resolve outside the workspace root, results cover that root only: rerun
+Every command indexes on demand and re-analyzes only changed files: no `graph-it scan` first, none
+after edits. `--reindex` rebuilds from scratch when results look wrong. If a command warns that
+imports resolve outside the workspace root, results cover that root only: rerun
 with the `--workspace` it names or state the limitation. Outside any project the CLI exits with code 3.
 
 ## Read on demand
@@ -90,7 +91,7 @@ with the `--workspace` it names or state the limitation. Outside any project the
 
 ## Never
 
-- Run analysis before `graph-it scan`, except `review-pr`.
+- Run `graph-it scan` before analysis or after edits: commands index themselves.
 - Assume a tool or parameter exists because an example shows it; check `tool --list` and help.
 - Pass CLI flags to MCP unless its input schema advertises them.
 - Present caller results as all references, or static evidence as proof of runtime behaviour.
