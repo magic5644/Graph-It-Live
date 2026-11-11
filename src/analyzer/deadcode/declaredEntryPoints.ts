@@ -479,7 +479,9 @@ function tomlStringPair(line: string): { key: string; value: string } | undefine
 
 /** Opening minus closing brackets and braces, quoted strings and comments aside. */
 function bracketBalance(line: string): number {
-  const code = line.replaceAll(/"[^"]*"|'[^']*'/g, "").replace(/#.*$/, "");
+  const unquoted = line.replaceAll(/"[^"]*"|'[^']*'/g, "");
+  const hash = unquoted.indexOf("#");
+  const code = hash < 0 ? unquoted : unquoted.slice(0, hash);
   return (code.match(/[[{]/g)?.length ?? 0) - (code.match(/[\]}]/g)?.length ?? 0);
 }
 
