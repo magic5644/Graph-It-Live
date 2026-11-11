@@ -10,6 +10,7 @@ import * as path from "node:path";
 import { computeNodeMetadata } from "../NodeMetadataBuilder";
 import { SourceFileCollector } from "../SourceFileCollector";
 import { DEFAULT_IGNORE_PATTERNS } from "../SourceFileFilters";
+import { isInIgnoredDirectory } from "../utils/PathPredicates";
 import type { Dependency } from "../types";
 import type { ArchitectureGraphContext } from "../../shared/architecture-model";
 import { IGNORED_DIRECTORIES } from "../../shared/constants";
@@ -65,9 +66,15 @@ export interface ArchitectureGraphOptions {
   onProgress?: (analyzed: number, total: number) => void;
 }
 
-function isWithinWorkspace(filePath: string, workspaceRoot: string): boolean {
+/**
+ * A dependency the graph keeps: inside the workspace and outside the directories the source
+ * collector skips. An installed package (node_modules) or a build output is not workspace code:
+ * as a node it would become a unit of its own and land in generated rules.
+ */
+function isWorkspaceSource(filePath: string, workspaceRoot: string): boolean {
   const rel = path.relative(workspaceRoot, normalizePath(filePath));
-  return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  if (rel === "" || rel.startsWith("..") || path.isAbsolute(rel)) return false;
+  return !isInIgnoredDirectory(rel);
 }
 
 function initializeAccumulator(): ArchitectureAccumulator {
@@ -150,7 +157,7 @@ function registerArchitectureFile(
   registerNode(acc, workspaceRoot, normalizedPath);
   for (const dep of dependencies) {
     // A Rust `mod x;` places x in the module tree, which the folder groups already show: not a dependency (#595).
-    if (dep.type === "mod" || !isWithinWorkspace(dep.path, workspaceRoot)) {
+    if (dep.type === "mod" || !isWorkspaceSource(dep.path, workspaceRoot)) {
       continue;
     }
     const normalizedDependencyPath = normalizePath(dep.path);
