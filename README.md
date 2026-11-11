@@ -66,7 +66,7 @@ Use the same graph data to navigate code, review refactors, generate codemaps, a
 
 ### VS Code extension
 
-**Requirements:** VS Code 1.96 or later. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live) or [Open VSX](https://open-vsx.org/extension/magic5644/graph-it-live).
+**Requirements:** VS Code 1.101 or later. Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=magic5644.graph-it-live) or [Open VSX](https://open-vsx.org/extension/magic5644/graph-it-live).
 
 1. Open a project.
 2. Open the Graph-It-Live view from the Activity Bar.

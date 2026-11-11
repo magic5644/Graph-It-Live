@@ -76,14 +76,14 @@ export class McpServerProvider implements vscode.Disposable {
     // Check if MCP is enabled in settings
     this.isEnabled = this.isMcpEnabled();
 
-    // Check if vscode.lm API is available (requires VS Code 1.96+)
+    // VS Code 1.101+ has this API; an editor fork may report that version without it
     if (!vscode.lm || !('registerMcpServerDefinitionProvider' in vscode.lm)) {
-      log.warn('vscode.lm.registerMcpServerDefinitionProvider not available. MCP server requires VS Code 1.96+');
+      log.warn('vscode.lm.registerMcpServerDefinitionProvider not available. MCP server requires VS Code 1.101+');
       return { dispose: () => {} };
     }
 
     if (!vscode.McpStdioServerDefinition) {
-      log.warn('vscode.McpStdioServerDefinition not available. MCP server requires a newer VS Code version.');
+      log.warn('vscode.McpStdioServerDefinition not available. MCP server requires VS Code 1.101+');
       return { dispose: () => { } };
     }
 
