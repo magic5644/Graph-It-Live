@@ -85,4 +85,41 @@ describe("DeadCodeTextIndex", () => {
 
     expect([...computedAttributeReaders]).toEqual([normalizePath(path.join(root, "py/reader.py"))]);
   });
+
+  it("reads package.json and tsconfig.json again when they change, and warns on a broken manifest (#696)", async () => {
+    const declared = async () => [...(await index.collect(root, true)).entryPoints.keys()].map((file) => path.relative(root, file).replaceAll("\\", "/")).sort();
+    await write("src/a.ts", "export const a = 1;\n");
+    await write("src/b.ts", "export const b = 1;\n");
+    await write("package.json", JSON.stringify({ name: "p", main: "src/a.js" }));
+    expect(await declared()).toEqual(["src/a.ts"]);
+
+    // Same size, new mtime: read again.
+    await write("package.json", JSON.stringify({ name: "p", main: "src/b.js" }));
+    await fs.utimes(path.join(root, "package.json"), new Date(), new Date(Date.now() + 5_000));
+    expect(await declared()).toEqual(["src/b.ts"]);
+
+    // The tsconfig layout is read on every scan.
+    await write("package.json", JSON.stringify({ name: "p", main: "out/a.js" }));
+    expect(await declared()).toEqual([]);
+    await write("tsconfig.json", "{ // build\n \"compilerOptions\": { \"outDir\": \"out\", \"rootDir\": \"src\" } }\n");
+    expect(await declared()).toEqual(["src/a.ts"]);
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    await write("package.json", "{ broken");
+    expect(await declared()).toEqual([]);
+    warn.mockRestore();
+  });
+
+  it("collects __all__, pub mod and Rust entry attributes into entry points (#696)", async () => {
+    await write("Cargo.toml", "[package]\nname = \"c\"\n");
+    await write("src/lib.rs", "pub mod api;\n");
+    await write("src/api.rs", "pub fn f() {}\n");
+    await write("src/ffi.rs", "#[no_mangle]\npub fn ffi() {}\n");
+    await write("py/pkg/__init__.py", "__all__ = ['x']\n");
+    const { entryPoints } = await index.collect(root, true);
+    const of = (relative: string) => entryPoints.get(normalizePath(path.join(root, relative)));
+    expect(of("src/api.rs")?.get("*")).toBe("declared:Cargo.toml#lib");
+    expect(of("src/ffi.rs")?.get("ffi")).toBe("attribute:#[no_mangle]");
+    expect(of("py/pkg/__init__.py")?.get("x")).toBe("declared:py/pkg/__init__.py#__all__");
+  });
 });

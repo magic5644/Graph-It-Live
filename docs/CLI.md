@@ -505,6 +505,7 @@ graph-it explain <file> [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--minConfidence` | `high` | Lowest confidence listed: `high`, `medium` or `low` (see below); the other items are counted in `byConfidence` |
+| `--verbose` | off | Workspace or folder scan: also list as `excluded` the unused exports left out, each with its `reason` (see below) |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format |
 
@@ -524,6 +525,19 @@ Combines the reverse index with per-file symbol analysis to find exports no work
 | `low` | `no-importer` | Nothing imports the file (directly or through a barrel): most often an entry point by convention (script, handler, config file, migration). Review only, never a deletion. The other reasons that apply follow it. |
 
 The default lists `high` items only; `byConfidence` counts every item found and `hint` tells how to list the others. `test-only-use` items are new compared with releases before 1.25.0, which did not report an export used by tests at all.
+
+**Declared entry points** count as used, with everything they re-export (`export *`, named re-exports, `export * as ns`, Python `from x import *`, Rust `pub use`), and what they call in their own file. Each package of a monorepo is read through its own manifest, once per scan:
+
+| Manifest | Declared as used | `reason` in `--verbose` |
+|----------|------------------|-------------------------|
+| `package.json` | `main`, `module`, `browser` (path or map), `types` / `typings`, `exports` (every subpath and condition, `*` patterns; `null` excludes), `bin` (path or map). A publishable package (`name`, not `"private": true`) with no `main`, `module` or `exports` loads `index.js`, as npm does. | `declared:<manifest>#main`, `#exports["./x"]`, `#bin["tool"]`, `#main(default: index.js)` |
+| `pyproject.toml` | `[project.scripts]`, `[project.gui-scripts]`, `[project.entry-points.*]`, `[tool.poetry.scripts]`: the attribute named after `:` (the whole module without one), in the manifest folder or its `src/` | `declared:<manifest>#project.scripts.<name>` |
+| `setup.cfg` / `setup.py` | `[options.entry_points]` / the `entry_points` strings `name = module:attr` | `declared:setup.cfg#options.entry_points.<group>`, `declared:setup.py#entry_points` |
+| Python package | `__main__.py`, the names of `__all__` in an `__init__.py` | `declared:__main__.py`, `declared:<file>#__all__` |
+| `Cargo.toml` | the lib crate (`[lib] path`, else `src/lib.rs` of a `[package]`): its `pub` items and those of the modules it reaches through `pub mod` (never `pub(crate)`); `fn main` of `[[bin]] path`, `src/main.rs`, `src/bin/*.rs` | `declared:<manifest>#lib`, `#bin` |
+| Rust source | functions marked `#[test]`, `#[bench]`, `#[no_mangle]`, `#[export_name]`, `#[proc_macro*]` | `attribute:#[no_mangle]` |
+
+A manifest path naming a build output is mapped back to its source: tsconfig `outDir` to `rootDir`, a bundle folder such as `dist/` to `rootDir`, `.js` to `.ts` / `.tsx` (`.mjs` to `.mts`, `.cjs` to `.cts`, `.d.ts` to `.ts`); when nothing matches, a bundle named after its entry (`dist/extension.js`) is matched to the only file with that stem under `rootDir`. A path that names no workspace file, or leaves the workspace, declares nothing. An invalid manifest (bad JSON or TOML, a field of the wrong type) is ignored with a warning naming the file. A JSX function or class default export, or a `.vue` default export, may be loaded by a framework: it is left out too, with `reason: convention:framework-default-export`.
 
 Go, Java and C# files have no symbol analysis yet and are not scanned (#699).
 
@@ -2246,9 +2260,9 @@ graph-it tool scan_dead_code
 graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
 ```
 
-Pass `--minConfidence=medium` or `--minConfidence=low` to list more than the default `high` items; confidence levels and reason codes are described under [`check`](#check). `find_unused_symbols` takes the same `minConfidence`.
+Pass `--minConfidence=medium` or `--minConfidence=low` to list more than the default `high` items; confidence levels and reason codes are described under [`check`](#check). `find_unused_symbols` takes the same `minConfidence`. Pass `--verbose=true` to also list `excluded`: the unused exports a manifest declares or a framework loads, each with its `reason` (see [Declared entry points](#check)).
 
-**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `minConfidence`, `byConfidence`, `hint`, `entries[]` (each unused symbol with `confidence`, `reasons` and `evidence`), `skippedFiles`, `truncated`, `filesBeyondLimit`, `analysisTimeMs`. When `truncated` is `true`, `maxFiles` stopped the scan and `filesBeyondLimit` files were not analysed: the result is partial, so raise `--maxFiles` or narrow `--scopePath` before concluding there is no dead code.
+**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `minConfidence`, `byConfidence`, `hint`, `entries[]` (each unused symbol with `confidence`, `reasons` and `evidence`), `excluded[]` (verbose only: `relativePath`, `name`, `kind`, `line`, `reason`), `skippedFiles`, `truncated`, `filesBeyondLimit`, `analysisTimeMs`. When `truncated` is `true`, `maxFiles` stopped the scan and `filesBeyondLimit` files were not analysed: the result is partial, so raise `--maxFiles` or narrow `--scopePath` before concluding there is no dead code.
 
 `--maxFiles` is optional: without it, every analysable file in scope is scanned, like `graph-it architecture --maxFiles`. The MCP tool and the VS Code language-model tool use the same default. Any integer of at least `1` is accepted, with no upper bound. Memory stays flat on a full scan; duration grows linearly with the file count (about 90 s for 12,000 files on a recent laptop). The MCP server stops a `scan_dead_code` call after 10 minutes (other tools after 1 minute), and other MCP tool calls wait until it ends; `graph-it tool` and the VS Code tool have no time limit, and VS Code chat can cancel the scan.
 

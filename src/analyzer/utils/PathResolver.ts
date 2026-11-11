@@ -1261,11 +1261,15 @@ export class PathResolver {
         return null;
       }
 
-      // Handle subpath imports
+      // Handle subpath imports; a subpath never leaves its package.
+      if (subpath?.split("/").includes("..")) {
+        return null;
+      }
       if (subpath) {
         const srcDir = pkgJson.source ? path.dirname(pkgJson.source) : "src";
-        const subpathResolved = path.join(packageDir, srcDir, subpath);
-        return this.resolveWithExtensions(subpathResolved);
+        // The source folder first, then the package root: Node's resolution of a subpath when there is no `exports`.
+        return (await this.resolveWithExtensions(path.join(packageDir, srcDir, subpath)))
+          ?? this.resolveWithExtensions(path.join(packageDir, subpath));
       }
 
       // Try common entry points

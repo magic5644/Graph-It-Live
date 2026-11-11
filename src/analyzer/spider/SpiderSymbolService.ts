@@ -19,7 +19,8 @@ import { isPythonOrRust, namesModule, pythonStarExports, readImportBindings } fr
 import { mayReExport, readModuleReExports, type ModuleReExports, type ReExportTarget } from '../utils/reExports';
 import { DEFAULT_ONLY, findDeclaration, type DeclarationReads } from '../utils/declarations';
 import { getRelativePath } from '../../shared/path';
-import { classifyUnused, codeForNames, isTestFile, loadsReaching, namedAgain, rustQualifiedUse, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
+import { classifyUnused, codeForNames, isTestFile, loadsReaching, namedAgain, rustQualifiedUse, type ExcludedExport, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
+import { declaredReason, type DeclaredEntryPoints } from '../deadcode/declaredEntryPoints';
 import { DeadCodeTextIndex, type WorkspaceTextFacts } from '../deadcode/DeadCodeTextIndex';
 
 const log = getLogger('SpiderSymbolService');
@@ -70,7 +71,12 @@ interface ExportsOfFile {
   graph: SymbolGraph;
   referencingFiles: Dependency[];
   internalGraph: Map<string, Set<string>>;
+  /** Why an export counts as used though no file imports it (a manifest declares it, a framework loads it), memoized */
+  entryReason: (symbol: SymbolInfo) => Promise<string | undefined>;
 }
+
+/** A JSX or Vue default export may be a framework entry point with no in-workspace importer. */
+const FRAMEWORK_DEFAULT_EXPORT = 'convention:framework-default-export';
 
 /** Shared by every target of a dead-code scan: each file's re-exports and the workspace's computed loads read once. */
 export interface DeadCodeContext {
@@ -78,6 +84,8 @@ export interface DeadCodeContext {
   /** How a barrel's consumers use its exports, per consumer filter: the same for every target of a scan. */
   barrelUsage?: { production: Map<string, Promise<Set<string>>>; all: Map<string, Promise<Set<string>>> };
   textFacts?: Promise<WorkspaceTextFacts>;
+  /** Unused exports left out of the result, and why; filled when set */
+  excluded?: ExcludedExport[];
 }
 
 /** One traced dependency: `line` is 1-based; `relation` is set for a runtime reference that is not a call. */
@@ -218,7 +226,18 @@ export class SpiderSymbolService {
       const referencingFiles = await this.findReferencingFiles(target);
       const content = await this.fileReader.readFile(target);
       const internalGraph = withSameFileCalls(await this.astWorkerHost.getInternalExportDependencyGraph(target, content), symbols, dependencies, target);
-      const exports: ExportsOfFile = { target, graph: { symbols: exportedSymbols, dependencies }, referencingFiles, internalGraph };
+      const textFacts = this.workspaceTextFacts(context);
+      const { entryPoints } = await textFacts;
+      const reasons = new Map<string, Promise<string | undefined>>();
+      const entryReason = (symbol: SymbolInfo): Promise<string | undefined> => {
+        let reason = reasons.get(symbol.id);
+        if (!reason) {
+          reason = this.entryReason(target, content, symbol, referencingFiles, entryPoints, context.reExportMemo);
+          reasons.set(symbol.id, reason);
+        }
+        return reason;
+      };
+      const exports: ExportsOfFile = { target, graph: { symbols: exportedSymbols, dependencies }, referencingFiles, internalGraph, entryReason };
       // A test file's own helpers are used by tests by design: every importer counts for it.
       const targetIsTest = isTestFile(this.relativeToRoot(target));
       context.barrelUsage ??= { production: new Map(), all: new Map() };
@@ -226,12 +245,13 @@ export class SpiderSymbolService {
       const inProduction: ConsumerFilter = targetIsTest
         ? everyFile
         : { accept: (p) => !isTestFile(this.relativeToRoot(p)), barrelUsage: context.barrelUsage.production };
-      const textFacts = this.workspaceTextFacts(context);
-      const unusedInProduction = await this.withoutRustQualifiedUse(target, content, await this.unusedExports(exports, context.reExportMemo, inProduction), textFacts);
+      const production = await this.unusedExports(exports, context.reExportMemo, inProduction);
+      context.excluded?.push(...production.excluded.map(({ symbol, reason }) => ({ filePath: target, name: symbol.name, kind: symbol.kind, line: symbol.line, reason })));
+      const unusedInProduction = await this.withoutRustQualifiedUse(target, content, production.unused, textFacts);
       if (unusedInProduction.length === 0) return [];
       const unusedAnywhere = targetIsTest
         ? new Set(unusedInProduction.map((s) => s.id))
-        : new Set((await this.unusedExports(exports, context.reExportMemo, everyFile)).map((s) => s.id));
+        : new Set((await this.unusedExports(exports, context.reExportMemo, everyFile)).unused.map((s) => s.id));
 
       const dynamicLoads = await this.dynamicLoadsReaching(target, referencingFiles, textFacts);
       const code = codeForNames(target, content);
@@ -258,13 +278,20 @@ export class SpiderSymbolService {
     }
   }
 
-  /** Exports no file `accept`s uses: directly, as a JSX/Vue default, through a barrel or through the file's own code. */
-  private async unusedExports(exports: ExportsOfFile, reExportMemo: ReExportMemo, filter: ConsumerFilter): Promise<SymbolInfo[]> {
+  /**
+   * Exports no file `accept`s uses: directly, through a barrel or through the file's own code. An export a manifest
+   * declares or a framework loads (`entryReason`), and what it calls, is `excluded` instead, with the reason.
+   */
+  private async unusedExports(
+    exports: ExportsOfFile,
+    reExportMemo: ReExportMemo,
+    filter: ConsumerFilter
+  ): Promise<{ unused: SymbolInfo[]; excluded: Array<{ symbol: SymbolInfo; reason: string }> }> {
     const { target, graph, internalGraph } = exports;
     const referencingFiles = exports.referencingFiles.filter((ref) => filter.accept(ref.path));
     const usedSymbolIds = await this.collectUsedSymbolIds(referencingFiles, target);
     // A namespace import used as a whole (`import * as ns` passed on, a dynamic import's module object) may read every export.
-    if (usedSymbolIds.has(this.symbolDependencyHelper.buildUsedSymbolId(target, '*'))) return [];
+    if (usedSymbolIds.has(this.symbolDependencyHelper.buildUsedSymbolId(target, '*'))) return { unused: [], excluded: [] };
     // Code at file scope runs when the module loads: what it calls is used.
     for (const id of internalGraph.get(fileScopeId(target)) ?? []) usedSymbolIds.add(id);
     this.addJsxConsumers(target, graph, usedSymbolIds);
@@ -275,7 +302,47 @@ export class SpiderSymbolService {
     }
     await this.addSymbolsUsedThroughBarrels(target, graph.symbols, referencingFiles, usedSymbolIds, reExportMemo, filter);
     const usedWithClosure = this.expandUsedSymbolsViaInternalGraph(usedSymbolIds, internalGraph);
-    return graph.symbols.filter((s) => !usedWithClosure.has(s.id));
+    const unused = graph.symbols.filter((s) => !usedWithClosure.has(s.id));
+    const reasons = await Promise.all(unused.map((symbol) => exports.entryReason(symbol)));
+    const seeds = new Map(unused.flatMap((symbol, i) => (reasons[i] ? [[symbol.id, reasons[i]] as const] : [])));
+    if (seeds.size === 0) return { unused, excluded: [] };
+    // What an entry point calls is used too: it inherits the reason of the first entry point that reaches it.
+    const reasonById = new Map<string, string>();
+    for (const [id, reason] of seeds) {
+      for (const reached of this.expandUsedSymbolsViaInternalGraph(new Set([id]), internalGraph)) {
+        if (!reasonById.has(reached)) reasonById.set(reached, reason);
+      }
+    }
+    const excluded = unused.flatMap((symbol) => {
+      const reason = reasonById.get(symbol.id);
+      return reason ? [{ symbol, reason }] : [];
+    });
+    return { unused: unused.filter((s) => !reasonById.has(s.id)), excluded };
+  }
+
+  /**
+   * Why `symbol` counts as used though no file imports it: a JSX/Vue default export (a framework may load it), or a
+   * manifest declares it, its file, or a barrel that re-exports it (`export *`, `from x import *`, `pub use`).
+   */
+  private async entryReason(
+    target: string,
+    content: string,
+    symbol: SymbolInfo,
+    referencingFiles: Dependency[],
+    entryPoints: DeclaredEntryPoints,
+    reExportMemo: ReExportMemo
+  ): Promise<string | undefined> {
+    if (isFrameworkDefault(target, symbol)) return FRAMEWORK_DEFAULT_EXPORT;
+    if (entryPoints.size === 0 || (RUST_FILE.test(target) && restrictedRustItem(content, symbol))) return undefined;
+    const names = symbol.isDefaultExport && symbol.name !== 'default' ? [symbol.name, 'default'] : [symbol.name];
+    const direct = names.map((name) => declaredReason(entryPoints, target, name)).find(Boolean);
+    if (direct) return direct;
+    // No referencer re-exports anything (the common case): there is no barrel chain to follow.
+    const modules = await Promise.all(referencingFiles.map((ref) => this.moduleReExports(ref.path, reExportMemo)));
+    if (modules.every((m) => m.reExports.length === 0 && m.namespaces.length === 0)) return undefined;
+    const chain = (await Promise.all(names.map((name) => this.collectReexportAliases(target, name, reExportMemo, true)))).flat();
+    const namespaces = await this.collectNamespaceAliases(modules, target, reExportMemo);
+    return [...chain, ...namespaces].map((alias) => declaredReason(entryPoints, alias.filePath, alias.name)).find(Boolean);
   }
 
   private relativeToRoot(filePath: string): string {
@@ -343,13 +410,6 @@ export class SpiderSymbolService {
       if (dep.relation === "REFERENCES" && normalizePath(dep.targetFilePath) === filePath && normalizePath(dep.sourceSymbolId) !== normalizePath(dep.targetSymbolId)) {
         used.add(normalizePath(dep.targetSymbolId));
       }
-    }
-    // A `.vue` default export is the SFC component itself (`export default {}`, `defineComponent()`).
-    const vue = VUE_FILE.test(filePath);
-    if (!vue && !/\.[jt]sx$/i.test(filePath)) return;
-    // JSX and Vue defaults may be framework entry points with no in-workspace importer.
-    for (const symbol of graph.symbols) {
-      if (symbol.isDefaultExport && (vue || symbol.category === "function" || symbol.category === "class")) used.add(normalizePath(symbol.id));
     }
   }
 
@@ -1095,7 +1155,7 @@ export class SpiderSymbolService {
   async scanDeadCode(
     scopePath: string,
     options: { maxFiles?: number; hasReverseIndex: boolean; signal?: AbortSignal }
-  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: UnusedSymbol[] }>; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
+  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: UnusedSymbol[] }>; excluded: ExcludedExport[]; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
     const { maxFiles = Number.POSITIVE_INFINITY, hasReverseIndex, signal } = options;
 
     if (!hasReverseIndex) {
@@ -1119,7 +1179,7 @@ export class SpiderSymbolService {
     // Apply hard cap
     const filesToScan = analysableFiles.slice(0, maxFiles);
 
-    const context: DeadCodeContext = { reExportMemo: new Map() };
+    const context: DeadCodeContext = { reExportMemo: new Map(), excluded: [] };
     let skippedFiles = 0;
     this.scanResolutions = new Map();
 
@@ -1147,9 +1207,22 @@ export class SpiderSymbolService {
 
     return {
       entries: results.filter((entry) => entry.unusedSymbols.length > 0),
+      excluded: context.excluded ?? [],
       scannedFiles: filesToScan.length,
       skippedFiles,
       filesBeyondLimit: analysableFiles.length - filesToScan.length,
     };
   }
+}
+
+/** A JSX function or class default export, or a `.vue` default (the SFC component itself: `export default {}`, `defineComponent()`). */
+function isFrameworkDefault(filePath: string, symbol: SymbolInfo): boolean {
+  if (!symbol.isDefaultExport) return false;
+  return VUE_FILE.test(filePath) || (/\.[jt]sx$/i.test(filePath) && (symbol.category === 'function' || symbol.category === 'class'));
+}
+
+/** `pub(crate)`, `pub(super)`, `pub(in path)`: never part of a crate's public API. */
+function restrictedRustItem(content: string, symbol: SymbolInfo): boolean {
+  const line = content.split('\n')[symbol.line - 1] ?? '';
+  return /\bpub\s*\(/.test(line);
 }

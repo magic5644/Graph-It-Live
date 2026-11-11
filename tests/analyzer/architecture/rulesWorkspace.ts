@@ -46,7 +46,8 @@ const FILES: Record<string, string> = {
   "mfe/cart/package.json": pkg("@acme/mfe-cart"),
   // same instance: allowed; another micro-frontend: breaks mfe-isolated
   "mfe/cart/src/index.ts": 'import { view } from "./view";\nimport { pay } from "../../checkout/src/index";\nexport const cart = () => view(pay());\n',
-  "mfe/cart/src/view.ts": "export const view = (value: string) => value;\n",
+  // `unusedView`: dead code no manifest declares (shared/utils' `debug` is its package's main)
+  "mfe/cart/src/view.ts": "export const view = (value: string) => value;\nexport const unusedView = () => 0;\n",
   "mfe/checkout/package.json": pkg("@acme/mfe-checkout"),
   "mfe/checkout/src/index.ts": 'import { button } from "@acme/shared-ui";\nexport const pay = () => button("pay");\n',
   "backend/package.json": pkg("@acme/backend"),

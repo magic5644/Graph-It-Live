@@ -193,4 +193,35 @@ export async function idle() {
 
         expect(result.dependencies.map(d => d.targetSymbolId).sort()).toEqual(['./b:run', './b:stop', './c:default', './d:default']);
     });
+
+    describe('require() with a literal path (#696)', () => {
+        const targets = (content: string): string[] =>
+            analyzer.analyzeFileContent('/test/user.ts', content).dependencies
+                .filter((d) => d.targetFilePath === './m')
+                .map((d) => d.targetSymbolId.slice('./m:'.length))
+                .sort((a, b) => a.localeCompare(b));
+
+        it('reads destructured names, renamed and rest', () => {
+            expect(targets("export function f() { const { a, b: c } = require('./m'); return a + c; }")).toEqual(['a', 'b']);
+            expect(targets("export function f() { const { a, ...rest } = require('./m'); return rest; }")).toEqual(['*', 'a']);
+        });
+
+        it('reads a member read on the call or on its binding', () => {
+            expect(targets("export const v = require('./m').run();")).toEqual(['run']);
+            expect(targets("export function f() { const m = require('./m'); return m.go(); }")).toEqual(['go']);
+            expect(targets('export function f() { return require(`./m`).tpl; }')).toEqual(['tpl']);
+        });
+
+        it('counts every export when the module object escapes', () => {
+            expect(targets("export const load = () => require('./m');")).toEqual(['*']);
+            expect(targets("export function f() { register(require('./m')); }")).toEqual(['*']);
+            expect(targets("export function f() { const m = require('./m'); return use(m); }")).toEqual(['*']);
+        });
+
+        it('ignores a side-effect require, a computed path and another function named like require', () => {
+            expect(targets("export function f() { require('./m'); }")).toEqual(['default']);
+            expect(targets("export function f(name: string) { return require(name); }")).toEqual([]);
+            expect(targets("export function f() { return my.require('./m'); }")).toEqual([]);
+        });
+    });
 });

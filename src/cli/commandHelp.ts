@@ -303,6 +303,10 @@ Options:
                     in its file (Rust: in another file), or a test file.
                     low: nothing imports the file (entry point, script, config), review only.
                     Unlisted items are counted in byConfidence.
+  --verbose         Workspace or folder scan: also list as excluded the unused exports left
+                    out, with why: the manifest field that declares them
+                    (declared:package.json#main, #exports["./x"], pyproject.toml#project.scripts.x,
+                    Cargo.toml#lib, ...), a Rust attribute, or convention:framework-default-export.
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
@@ -311,6 +315,7 @@ Examples:
   graph-it check
   graph-it check src/api.ts
   graph-it check src --minConfidence low --format json
+  graph-it check --verbose --format json
 `,
   "review-pr": `graph-it review-pr — Review a Git diff against a base ref
 
