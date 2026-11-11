@@ -7,7 +7,7 @@ import { treeAnalyzer } from "../../src/analyzer/architecture/architectureReview
 import { addedFileCycles } from "../../src/analyzer/BranchWatchAnalyzer";
 import { createSpiderDependentsProvider } from "../../src/mcp/tools/impact";
 import { mapWithConcurrency } from "../../src/shared/concurrency";
-import { ReviewGateAnalyzer, renderReviewMarkdown, riskForScore, type SymbolDependentsProvider } from "../../src/analyzer/ReviewGateAnalyzer";
+import { mayBuildType, ReviewGateAnalyzer, renderReviewMarkdown, riskForScore, type SymbolDependentsProvider } from "../../src/analyzer/ReviewGateAnalyzer";
 
 const temporaryDirectories: string[] = [];
 
@@ -605,6 +605,172 @@ describe("ReviewGateAnalyzer - member-level impact", () => {
   });
 });
 
+describe("mayBuildType", () => {
+  /** `invoke` and `pair` only type their result: their type parameters type no parameter. */
+  const resultOnly = (callee: string, index: number) => (callee === "invoke" && index === 0) || (callee === "pair" && index === 1);
+
+  it.each([
+    ["an annotated variable", "const r: Result = { a: 1 };\n"],
+    ["a return type", "export function f(): Promise<Result> { return g(); }\n"],
+    ["an array annotation", "const rs: Result[] = [];\n"],
+    ["`as`", "const r = {} as Result;\n"],
+    ["`satisfies`", "const r = { a: 1 } satisfies Result;\n"],
+    ["`implements`", "class R implements Result { a = 1; }\n"],
+    ["an aliased import, whose alias is not followed", "import { Result as Out } from './api';\nconst r: Out = { a: 1 };\n"],
+    ["a constructor's type argument", "const m = new Map<string, Result>();\nm.set('k', { a: 1 });\n"],
+    ["a method's type argument", "store.put<Result>({ a: 1 });\n"],
+    ["a hook's type argument", "const [r] = useState<Result>({ a: 1 });\n"],
+    ["a call type argument the callee also takes as a parameter", "const s = pair<Result, string>({ a: 1 }, 'x');\n"],
+    ["a non-call type argument", "let x: Array<Result>;\n"],
+    ["a call type argument next to a function type", "const r = invoke<Result, (x: number) => void>(cb);\n"],
+    ["a tuple element", "import { Key } from './key';\nconst row: [Key, Result, Extra] = [k, { a: 1 }, e];\n"],
+    ["a type literal member list", "type Row = { first: Key, Result };\n"],
+  ])("counts %s as building the type", (_label, content) => {
+    expect(mayBuildType(content, "Result", resultOnly)).toBe(true);
+  });
+
+  it.each([
+    ["an import specifier", "import { type Other, Result } from './api';\n"],
+    ["a specifier after a default import", "import Api, { Result } from './api';\n"],
+    ["a type-only specifier", "import type { Result } from './api';\nexport { type Result } from './api';\n"],
+    ["a multiline specifier list", "import {\n  Other,\n  Result,\n} from './api';\n"],
+    ["the type argument of a call that only types its result", "const r = await invoke<Result>('tool', { a: 1 });\nconst s = pair<string, Result>(\n  'x');\n"],
+    ["the result-only type argument of a call with nested ones", "const r = pair<Map<string, number>, Result>(m, { a: 1 });\nconst s = invoke<Result, Array<number>>([1]);\n"],
+    ["a longer name sharing its prefix", "const r: ResultList = [];\nconst s: MyResult = {};\n"],
+    ["a file that never writes the name", "const r = await scan(); r.a;\n"],
+  ])("does not count %s", (_label, content) => {
+    expect(mayBuildType(content, "Result", resultOnly)).toBe(false);
+  });
+
+  it("counts a call's type argument when nothing says the callee only types its result", () => {
+    expect(mayBuildType("const r = await invoke<Result>('tool');\n", "Result")).toBe(true);
+  });
+
+  it("counts the file when one mention builds, whatever the others", () => {
+    expect(mayBuildType("import { Result } from './api';\nconst r = invoke<Result>();\nconst s: Result = { a: 1 };\n", "Result", resultOnly)).toBe(true);
+  });
+});
+
+describe("ReviewGateAnalyzer - member changes of a type only reach the files that use the member", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const OLD_RESULT = "export interface Result {\n  total: number;\n}\nexport function scan(): Promise<Result> { return Promise.resolve({ total: 0 }); }\n";
+  const REQUIRED_ADDED = OLD_RESULT.replace("  total: number;\n", "  total: number;\n  byLevel: Record<string, number>;\n");
+  const write = async (workspace: string, files: Record<string, string>) => {
+    for (const [file, content] of Object.entries(files)) {
+      await fs.mkdir(path.dirname(path.join(workspace, file)), { recursive: true });
+      await fs.writeFile(path.join(workspace, file), content);
+    }
+  };
+  /** `graph` maps a symbol to the files depending on it; each such file has a dependent of its own, so the depth-1 walk is partial. */
+  const dependentsOf = (workspace: string, graph: Record<string, string[]>) => ({
+    getSymbolDependents: (_filePath: string, symbolName: string) => Promise.resolve(
+      symbolName === "consumer"
+        ? [{ sourceSymbolId: `${path.join(workspace, "src/far.ts")}:far` }]
+        : (graph[symbolName] ?? []).map((file) => ({ sourceSymbolId: `${path.join(workspace, file)}:consumer` })),
+    ),
+  });
+  const review = async (workspace: string, graph: Record<string, string[]>) =>
+    (await new ReviewGateAnalyzer(workspace, dependentsOf(workspace, graph) as never).analyze({ baseRef: "main" }))
+      .symbols.find((s) => s.name === "Result");
+
+  /** Regression (PR #700): retyping one member charged a file that only passes the type to a call. */
+  it("charges only the files that name a retyped member", async () => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_RESULT, OLD_RESULT.replace("total: number", "total: string"));
+    await write(workspace, {
+      "src/passes.ts": "import type { Result } from './api';\nexport const run = () => send<Result>({ count: 1 });\n",
+      "src/reads.ts": "import type { Result } from './api';\nexport const first = (r: Result) => r.total;\n",
+    });
+
+    const symbol = await review(workspace, { Result: ["src/passes.ts", "src/reads.ts"] });
+
+    expect(symbol?.breakingChanges.map((change) => change.type)).toEqual(["member-type-changed"]);
+    expect(symbol?.consumers.unverified).toEqual(["src/reads.ts"]);
+  });
+
+  /** Regression (PR #700): a new required member of a result type scored "high" for files that only read it. */
+  it("charges no reader for a new required member, and trusts the depth-1 cut", async () => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_RESULT, REQUIRED_ADDED);
+    await write(workspace, {
+      "src/passes.ts": [
+        "import { type Result } from './api';",
+        "async function invoke<T>(name: string, params: unknown): Promise<T> { return send(name, params); }",
+        "export const run = () => invoke<Result>('tool', { total: 1 });",
+        "",
+      ].join("\n"),
+      "src/reads.ts": "export const total = (async () => (await scan()).total)();\n",
+    });
+
+    const symbol = await review(workspace, { Result: ["src/passes.ts"], scan: ["src/reads.ts"] });
+
+    expect(symbol?.consumers.unverified).toEqual([]);
+    expect(symbol?.scoreFactors).toMatchObject({ breakingChanges: 5, partialImpact: 0 });
+    expect(symbol?.risk).toBe("low");
+  });
+
+  it.each([
+    ["annotates a value", "import type { Result } from './api';\nexport const empty = (): Result => ({ total: 0 });\n"],
+    ["fills a typed map", "import type { Result } from './api';\nconst m = new Map<string, Result>();\nm.set('a', { total: 0 });\n"],
+    ["passes it to an imported generic", "import type { Result } from './api';\nimport { invoke } from './io';\nexport const r = invoke<Result>({ total: 0 });\n"],
+    ["imports it under an alias", "import type { Out } from './barrel';\nexport const empty: Out = { total: 0 };\n"],
+  ])("charges a file that %s for a new required member", async (_label, content) => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_RESULT, REQUIRED_ADDED);
+    await write(workspace, { "src/builds.ts": content });
+
+    const symbol = await review(workspace, { Result: ["src/builds.ts"] });
+
+    expect(symbol?.consumers.unverified).toEqual(["src/builds.ts"]);
+    expect(symbol?.scoreFactors.partialImpact).toBe(10);
+  });
+
+  it.each([
+    ["an interface", "export interface Page { result: Result }\n"],
+    ["a type alias", "export type Page = { result: Result };\n"],
+  ])("keeps the depth-1 cut partial when %s of the file embeds the type: its builders sit further", async (_label, page) => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_RESULT + page, REQUIRED_ADDED + page);
+    await write(workspace, { "src/reads.ts": "export const n = 1;\n" });
+
+    const symbol = await review(workspace, { scan: ["src/reads.ts"] });
+
+    expect(symbol?.consumers.unverified).toEqual([]);
+    expect(symbol?.scoreFactors.breakingChanges).toBe(50);
+  });
+
+  it("keeps an unreadable consumer of a retyped member", async () => {
+    const workspace = await createGitWorkspaceWithDiff(OLD_RESULT, OLD_RESULT.replace("total: number", "total: string"));
+
+    const symbol = await review(workspace, { Result: ["src/missing.ts"] });
+
+    expect(symbol?.consumers.unverified).toEqual(["src/missing.ts"]);
+  });
+});
+
+describe("ReviewGateAnalyzer - references that reach a changed signature", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const OLD = "export function greet(name: string, formal = false): string { return name; }\n";
+  const NEW = "export function greet(name: string): string { return name; }\n";
+
+  /** Regression (PR #700): a file referencing a caller of the function was kept as if it could pass the removed argument. */
+  it("keeps a direct reference, not a reference to a dependent of the symbol", async () => {
+    const workspace = await createGitWorkspaceWithDiff(OLD, NEW);
+    await fs.writeFile(path.join(workspace, "src", "direct.ts"), "export const handler = greet;\n");
+    await fs.writeFile(path.join(workspace, "src", "wrapper.ts"), "export const hello = (n: string) => greet(n);\n");
+    await fs.writeFile(path.join(workspace, "src", "far.ts"), "export const pick = hello;\n");
+    const graph: Record<string, Array<{ sourceSymbolId: string; relation?: string; line?: number }>> = {
+      greet: [
+        { sourceSymbolId: `${path.join(workspace, "src/direct.ts")}:handler`, relation: "REFERENCES", line: 1 },
+        { sourceSymbolId: `${path.join(workspace, "src/wrapper.ts")}:hello` },
+      ],
+      hello: [{ sourceSymbolId: `${path.join(workspace, "src/far.ts")}:pick`, relation: "REFERENCES", line: 1 }],
+    };
+    const dependents = {
+      getSymbolDependents: (_filePath: string, symbolName: string) => Promise.resolve(graph[symbolName] ?? []),
+    };
+
+    const result = await new ReviewGateAnalyzer(workspace, dependents as never).analyze({ baseRef: "main", depth: 3 });
+
+    const symbol = result.symbols.find((s) => s.name === "greet");
+    expect(symbol?.consumers.unverified).toEqual(["src/direct.ts"]);
+  });
+});
+
 describe("ReviewGateAnalyzer - removed optional parameter", { timeout: GIT_TEST_TIMEOUT }, () => {
   const OLD_CLASS = "export class Service {\n  constructor(path: string, config?: { size: number }) {}\n}\n";
   const NEW_CLASS = "export class Service {\n  constructor(path: string) {}\n}\n";
@@ -1097,11 +1263,12 @@ describe("ReviewGateAnalyzer - interface consumed through its factory", () => {
    */
   const analyzerFor = async (options: { updateConsumer: boolean }) => {
     const workspace = await createGitWorkspaceWithDiff(OLD_STATE, NEW_STATE, "src/sessionState.ts");
-    await fs.writeFile(path.join(workspace, "src", "repl.ts"), "export const repl = 1;\n");
+    // The REPL reads a member the diff removes from the state.
+    await fs.writeFile(path.join(workspace, "src", "repl.ts"), "export const repl = (s: ReturnType<typeof createSessionState>) => s.recentFiles;\n");
     execFileSync("git", ["add", "src/repl.ts"], { cwd: workspace });
     execFileSync("git", ["commit", "-m", "consumer"], { cwd: workspace });
     if (options.updateConsumer) {
-      await fs.writeFile(path.join(workspace, "src", "repl.ts"), "export const repl = 2;\n");
+      await fs.writeFile(path.join(workspace, "src", "repl.ts"), "export const repl = (s: ReturnType<typeof createSessionState>) => s.root;\n");
     }
     const at = (file: string, symbol: string) => ({ sourceSymbolId: `${path.join(workspace, file)}:${symbol}` });
     const dependents = {

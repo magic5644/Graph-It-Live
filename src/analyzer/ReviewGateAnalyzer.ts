@@ -163,6 +163,8 @@ type ReviewDependent = Pick<SymbolDependency, "sourceSymbolId"> & Partial<Pick<S
 interface ReferenceConsumer {
   filePath: string;
   line?: number;
+  /** References the changed symbol itself, not a dependent of it: it may call it with any arguments. */
+  direct: boolean;
 }
 
 interface FileEvidence {
@@ -230,6 +232,10 @@ interface DependentWalkState {
   edges: Map<string, Set<string>>;
   next: Array<{ filePath: string; symbolName: string }>;
   references: ReferenceConsumer[];
+  /** Levels walked so far: 0 while collecting the changed symbol's own dependents. */
+  level: number;
+  /** Files that depend on the walked symbol itself (level 0). */
+  direct: Set<string>;
 }
 
 /** Deterministic, local Git-diff review analysis. */
@@ -671,7 +677,7 @@ export class ReviewGateAnalyzer {
       (change) => change.severity === "error",
     );
     const staleImporters = comparison.staleImporters ?? [];
-    const impact = await this.getContractImpact(comparison, errorBreakingChanges, absolutePath, maxDepth, fileEvidence, headRef);
+    const impact = await this.getContractImpact(comparison, errorBreakingChanges, absolutePath, maxDepth, fileEvidence, { headRef, changedFiles });
     const cycles = await fileEvidence.inFileCycle || fileEvidence.cycleSymbols.has(this.toSymbolId(absolutePath, comparison.symbolName));
     const unusedExport = fileEvidence.unusedSymbols.has(comparison.symbolName);
     // A dependents provider that actually ran and found zero live consumers (not just
@@ -720,19 +726,23 @@ export class ReviewGateAnalyzer {
     absolutePath: string,
     maxDepth: number,
     fileEvidence: FileEvidence,
-    headRef: string,
+    { headRef, changedFiles }: { headRef: string; changedFiles: ReadonlySet<string> },
   ): Promise<SymbolImpact> {
     // Member-level changes (a single interface/class member removed or retyped) only
     // implicate direct consumers of that member. Hop 2+ chases callers of the *type's*
     // consumers (e.g. everyone who calls a class that merely returns the type) — noise
     // unrelated to the specific member being changed.
-    const isMemberLevelChange = errorBreakingChanges.length > 0 && errorBreakingChanges.every((change) => change.type === "member-removed" || change.type === "member-renamed" || change.type === "member-type-changed" || change.type === "member-optional-to-required");
-    const effectiveMaxDepth = isMemberLevelChange ? 1 : maxDepth;
+    const memberLevel = errorBreakingChanges.length > 0 && errorBreakingChanges.every((change) => isMemberLevelChange(change.type));
+    const effectiveMaxDepth = memberLevel ? 1 : maxDepth;
     const declaringPath = comparison.movedTo ? this.toAbsolute(comparison.movedTo) : absolutePath;
     const contractImpact = this.isVuePropsSymbol(comparison.symbolName)
       ? await this.getVuePropsImpact(absolutePath)
       : await this.getTypeImpact(declaringPath, comparison.symbolName, effectiveMaxDepth, fileEvidence.functions, headRef);
-    const impact = await this.keepCallsThatBreak(contractImpact, comparison.symbolName, errorBreakingChanges, headRef);
+    const calls = await this.keepCallsThatBreak(contractImpact, comparison.symbolName, errorBreakingChanges, headRef);
+    // A parent passes Vue props as template attributes (kebab-case, no type name): not matched by text.
+    const impact = this.isVuePropsSymbol(comparison.symbolName)
+      ? calls
+      : await this.keepMemberUsersThatBreak(calls, { typeName: comparison.symbolName, declaringPath, changedFiles }, errorBreakingChanges, headRef);
     const stale = comparison.staleImporters ?? [];
     // A file still importing a moved symbol from its old path is a verified consumer, indexed or not.
     return stale.length > 0 ? mergeImpacts(impact, { ...EMPTY_IMPACT, count: stale.length, consumerFiles: stale }) : impact;
@@ -1058,7 +1068,11 @@ export class ReviewGateAnalyzer {
       this.getImpact(filePath, symbolName, maxDepth, headRef),
       ...factories.map((factory) => this.walkDependents(filePath, factory.name, maxDepth)),
     ]);
-    return factoryImpacts.reduce((merged, next) => mergeImpacts(merged, next), impact);
+    // A factory's consumers depend on the factory, not on the symbol: none of their references is direct.
+    const throughFactories = factoryImpacts.map((factoryImpact) => ({
+      ...factoryImpact, references: factoryImpact.references?.map((reference) => ({ ...reference, direct: false })),
+    }));
+    return throughFactories.reduce((merged, next) => mergeImpacts(merged, next), impact);
   }
 
   private async getImpact(filePath: string, symbolName: string, maxDepth: number, headRef: string): Promise<SymbolImpact> {
@@ -1122,17 +1136,97 @@ export class ReviewGateAnalyzer {
     return narrowed.consumerFiles.length === 0 && narrowed.testDependents.length === 0 ? EMPTY_IMPACT : narrowed;
   }
 
-  /** Keep the consumers whose content passes `matches`. A file that cannot be read is kept: unknown is not unaffected. */
+  /**
+   * Narrow an interface's consumers to the files a member-level change can break.
+   *
+   * Reading or writing a removed, renamed or retyped member names it, so a file that
+   * never names it cannot break on it. A newly required member breaks only the files
+   * that build the type, and a file builds it only where it writes the type's name
+   * (see `mayBuildType`). Without this, retyping one member of a result type charged
+   * the author for every file that merely passes the type along.
+   */
+  private async keepMemberUsersThatBreak(
+    impact: SymbolImpact,
+    { typeName, declaringPath, changedFiles }: { typeName: string; declaringPath: string; changedFiles: ReadonlySet<string> },
+    changes: BreakingChange[],
+    headRef: string,
+  ): Promise<SymbolImpact> {
+    // Only `Type.member` changes: a dropped export is reported as a `member-removed` of the module.
+    const ofType = (change: BreakingChange) => isMemberLevelChange(change.type) && change.symbolName.startsWith(`${typeName}.`);
+    if (impact.count === 0 || changes.length === 0 || !changes.every(ofType)) return impact;
+    const members = changes
+      .filter((change) => change.type !== "member-optional-to-required")
+      .map((change) => (change.type === "member-renamed" ? change.oldValue ?? memberName(change.symbolName) : memberName(change.symbolName)));
+    const naming = members.length > 0 ? new RegExp(String.raw`(^|[^\w$])(?:${members.map(escapeRegExp).join("|")})($|[^\w$])`) : undefined;
+    const requiresBuilders = members.length < changes.length;
+    const direct = new Set(impact.directFiles ?? []);
+    const mentions = new RegExp(String.raw`(?<![\w$])${escapeRegExp(typeName)}(?![\w$])`);
+    // A consumer the diff edits is kept as updated: at the head it may no longer name what it used.
+    // A direct dependent that never writes the name imports it under an alias (barrels and aliases
+    // resolve to the declaration): the alias is not followed, so it may build the type.
+    const builds = (content: string, file: string) => mentions.test(content)
+      ? mayBuildType(content, typeName, this.typesResultOnly(file, content))
+      : direct.has(file);
+    const narrowed = await this.keepConsumerFiles(impact, headRef, (content, file) =>
+      changedFiles.has(file) || naming?.test(content) === true || (requiresBuilders && builds(content, file)), { keepReferences: false });
+    const none = narrowed.consumerFiles.length === 0 && narrowed.testDependents.length === 0;
+    // Only new required members: a builder writes the type's name (or an alias), and the index resolves
+    // barrels and aliases, so every builder is a direct dependent. A kept builder may write the type into
+    // one of its own, and so may another exported type of the declaring file: their builders sit further.
+    // Otherwise, past the depth-1 cut, files only receive values, which gain members: none can break.
+    const partial = impact.partial
+      && (members.length > 0 || !none || await this.embedsInExportedType(declaringPath, typeName, headRef));
+    // No consumer names a changed member or builds the type: nothing breaks.
+    return none ? { ...EMPTY_IMPACT, partial } : { ...narrowed, partial };
+  }
+
+  /**
+   * Whether a call's type argument only types its result: the callee is a generic function of the same
+   * file and no parameter uses that type parameter (`invoke<T>(name: string): Promise<T>`). Any other
+   * callee — imported, a method, a constructor such as `new Map<K, T>()` — may take a T, so it builds one.
+   */
+  private typesResultOnly(file: string, content: string): (callee: string, index: number) => boolean {
+    let functions: SignatureInfo[] | undefined;
+    return (callee, index) => {
+      functions ??= this.extractTopLevelFunctions(this.toAbsolute(file), content);
+      const declaration = functions.find((signature) => signature.kind === "function" && signature.name === callee);
+      const parameter = /^[\w$]+/.exec(declaration?.typeParameters?.[index] ?? "")?.[0];
+      return declaration !== undefined && parameter !== undefined
+        && !declaration.parameters.some((candidate) => candidate.type.split(/[^\w$]+/).includes(parameter));
+    };
+  }
+
+  /** Whether another exported interface or type alias of `declaringPath` writes `typeName` (unreadable: assume yes). */
+  private async embedsInExportedType(declaringPath: string, typeName: string, headRef: string): Promise<boolean> {
+    const content = await this.readConsumerContent(this.toWorkspaceRelative(declaringPath), headRef);
+    if (content === null) return true;
+    try {
+      const names = (type: string) => type.split(/[^\w$]+/).includes(typeName);
+      const interfaces = [...this.signatures.extractInterfaceMembers(declaringPath, content)]
+        .filter(([name]) => name !== typeName).flatMap(([, members]) => members);
+      const aliases = this.signatures.extractTypeAliases(declaringPath, content).filter((alias) => alias.name !== typeName);
+      return interfaces.some((member) => names(member.type)) || aliases.some((alias) => names(alias.type));
+    } catch {
+      return true;
+    }
+  }
+
+  /**
+   * Keep the consumers whose content passes `matches`. A file that cannot be read is kept: unknown is not unaffected.
+   * A direct reference that is not a call is kept too unless `keepReferences` is false (a type reference is matched by text);
+   * a reference to a dependent of the symbol does not reach the symbol's own signature.
+   */
   private async keepConsumerFiles(
     impact: SymbolImpact,
     headRef: string,
-    matches: (content: string) => boolean,
+    matches: (content: string, file: string) => boolean,
+    { keepReferences = true }: { keepReferences?: boolean } = {},
   ): Promise<SymbolImpact> {
     const files = [...new Set([...impact.consumerFiles, ...impact.testDependents])];
     const contents = await Promise.all(files.map((file) => this.readConsumerContent(file, headRef)));
     const kept = new Set(files.filter((_file, index) => {
       const content = contents[index];
-      return content === null || impact.references?.some((reference) => reference.filePath === files[index]) || matches(content);
+      return content === null || (keepReferences && impact.references?.some((reference) => reference.direct && reference.filePath === files[index])) || matches(content, files[index]);
     }));
     const keep = (list: string[]): string[] => list.filter((file) => kept.has(file));
     return {
@@ -1178,7 +1272,7 @@ export class ReviewGateAnalyzer {
     const state: DependentWalkState = {
       seen: new Set<string>(), testDependents: new Set<string>(), consumerFiles: new Set<string>(),
       edges: new Map<string, Set<string>>(), next: [],
-      references: [],
+      references: [], level: 0, direct: new Set<string>(),
     };
     const frontier = await this.walkDependentLevel([{ filePath, symbolName }], maxDepth, state);
 
@@ -1189,6 +1283,7 @@ export class ReviewGateAnalyzer {
       consumerFiles: [...state.consumerFiles],
       coveredFiles: [...state.consumerFiles].filter((file) => this.reachesTestFile(file, state.edges)),
       references: state.references,
+      directFiles: [...state.direct],
     };
   }
 
@@ -1209,6 +1304,7 @@ export class ReviewGateAnalyzer {
       const parent = this.toWorkspaceRelative(current.filePath);
       for (const dependent of dependents[index]) this.collectDependent(parent, dependent, state);
     }
+    state.level++;
     return this.walkDependentLevel(state.next, remainingDepth - 1, state);
   }
 
@@ -1221,8 +1317,9 @@ export class ReviewGateAnalyzer {
     if (separator <= 0) return;
     const dependentPath = normalizePath(dependent.sourceSymbolId.slice(0, separator));
     const child = this.toWorkspaceRelative(dependentPath);
+    if (state.level === 0) state.direct.add(child);
     if (dependent.relation === "REFERENCES") {
-      state.references.push({ filePath: child, line: dependent.line });
+      state.references.push({ filePath: child, line: dependent.line, direct: state.level === 0 });
     }
     if (child !== parent) {
       const children = state.edges.get(parent) ?? new Set<string>();
@@ -1550,6 +1647,78 @@ function memberName(symbolName: string): string {
   return symbolName.slice(symbolName.lastIndexOf(".") + 1);
 }
 
+function isMemberLevelChange(type: BreakingChange["type"]): boolean {
+  return type === "member-removed" || type === "member-renamed" || type === "member-type-changed" || type === "member-optional-to-required";
+}
+
+/**
+ * Whether `content` may build a value of the type `typeName`, so a newly required member breaks it.
+ *
+ * A value is built where the type is written: an annotation (`: T`, `Promise<T>`), `as T`,
+ * `satisfies T`, `implements T`, `extends T`, a type argument (`new Map<K, T>()`, `useState<T>({…})`).
+ * Two places only name it: an import or export specifier (`import { type T, … }`) and the type
+ * argument of a call that `typesResultOnly` says only types the result (`invoke<T>(…)`). Every other
+ * mention counts, so an unrecognized form is never missed; an aliased specifier (`T as U`) counts
+ * too, since the alias is not followed.
+ */
+export function mayBuildType(
+  content: string,
+  typeName: string,
+  typesResultOnly: (callee: string, index: number) => boolean = () => false,
+): boolean {
+  const mentions = [...content.matchAll(new RegExp(String.raw`(?<![\w$])${escapeRegExp(typeName)}(?![\w$])`, "g"))];
+  return mentions.some((mention) => {
+    const after = content.slice(mention.index + typeName.length).trimStart();
+    if (isImportOrExportSpecifier(content, mention.index, after)) return false;
+    const call = typeArgumentCall(content, mention.index, after);
+    return !call || !typesResultOnly(call.callee, call.index);
+  });
+}
+
+/** `T` in `import { A, type T }` or `export { T } from`: not in a tuple `[A, T, B]` nor a type literal. */
+function isImportOrExportSpecifier(content: string, index: number, after: string): boolean {
+  if (!after.startsWith(",") && !after.startsWith("}")) return false;
+  const open = content.lastIndexOf("{", index);
+  if (open < 0 || /[;}()[\]<>=:]/.test(content.slice(open + 1, index))) return false;
+  // `import {`, `export type {`, or after a default import: `import Api, {`.
+  const head = content.slice(Math.max(0, open - 80), open).trimEnd();
+  return /(?:^|[^\w$])(?:import|export)(?:\s+type)?$/.test(head) || /(?:^|[^\w$])import\s+[\w$]+\s*,$/.test(head);
+}
+
+/** The plain function call whose type argument list holds the mention (`callee<A, T>(`), with its position. */
+function typeArgumentCall(content: string, index: number, after: string): { callee: string; index: number } | undefined {
+  if (!after.startsWith(">") && !after.startsWith(",")) return undefined;
+  let depth = 0;
+  let commas = 0;
+  let open = -1;
+  for (let position = index - 1; position >= 0 && open < 0; position--) {
+    const char = content[position];
+    if (char === ">") depth++;
+    else if (char === "<" && depth > 0) depth--;
+    else if (char === "<") open = position;
+    else if (char === "," && depth === 0) commas++;
+    else if (/[;{}()=]/.test(char)) return undefined;
+  }
+  const close = closingAngle(content, index);
+  if (open < 0 || close < 0 || !content.slice(close + 1).trimStart().startsWith("(")) return undefined;
+  // A method (`store.put<T>(`) has no plain callee; a constructor (`new Map<K, T>(`) names a class, not a function.
+  const callee = /(?:^|[^\w$.])([\w$]+)\s*$/.exec(content.slice(Math.max(0, open - 80), open));
+  return callee ? { callee: callee[1], index: commas } : undefined;
+}
+
+/** Index of the `>` closing the type argument list that holds `index`, or -1. */
+function closingAngle(content: string, index: number): number {
+  let depth = 0;
+  for (let position = index; position < content.length; position++) {
+    const char = content[position];
+    if (char === "<") depth++;
+    else if (char === ">" && depth > 0) depth--;
+    else if (char === ">") return position;
+    else if (/[;{}()=]/.test(char)) return -1;
+  }
+  return -1;
+}
+
 function isConstructor(symbolName: string): boolean {
   return symbolName.endsWith(".constructor");
 }
@@ -1651,6 +1820,8 @@ interface SymbolImpact {
   consumerFiles: string[];
   /** Consumer files from which a test file is reachable in the walk. */
   coveredFiles: string[];
+  /** Files that depend on the changed symbol itself, not on a dependent of it or on a factory returning it. */
+  directFiles?: string[];
 }
 
 export function riskForScore(score: number): ReviewRiskLevel {

@@ -61,9 +61,9 @@ const EXPECTED = {
   },
   // node dist/graph-it.js architecture --level units --matrix --format json -w tests/fixtures (and --folder "(root)", --communities louvain).
   matrix: {
-    units: { rows: 11, cells: 14, fileEdges: 210, upwardCells: 1, cycles: 1 },
-    root: { rows: 18, cells: 19, fileEdges: 194, upwardCells: 1, cycles: 1 },
-    louvain: { rows: 25, cells: 25, fileEdges: 210, upwardCells: 0, cycles: 0 },
+    units: { rows: 11, cells: 14, fileEdges: 211, upwardCells: 1, cycles: 1 },
+    root: { rows: 18, cells: 19, fileEdges: 195, upwardCells: 1, cycles: 1 },
+    louvain: { rows: 25, cells: 25, fileEdges: 211, upwardCells: 0, cycles: 0 },
   },
   // RULES_CONFIG written at the workspace root, then:
   //   node dist/graph-it.js check-architecture --format json -w tests/fixtures
