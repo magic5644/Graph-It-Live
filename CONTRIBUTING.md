@@ -57,7 +57,7 @@ For detailed development setup instructions, see [DEVELOPMENT.md](DEVELOPMENT.md
 ### Prerequisites
 
 - **Node.js**: v24 for development (`.nvmrc`); the CLI and MCP server run on v22 or higher (`engines`)
-- **VS Code**: v1.96.0 or higher
+- **VS Code**: v1.101.0 or higher
 - **Git**: For version control
 
 **Note**: No build tools required! The extension uses WebAssembly (WASM) parsers.

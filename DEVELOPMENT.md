@@ -16,7 +16,7 @@ This guide provides comprehensive instructions for developing, building, testing
 ## Prerequisites
 
 - **Node.js**: v22 or higher
-- **VS Code**: v1.96.0 or higher
+- **VS Code**: v1.101.0 or higher
 - **Git**: For version control
 
 **Note**: No build tools required! The extension uses WebAssembly (WASM) parsers, eliminating the need for native compilation tools (Python, C++ compiler, etc.) during installation.
