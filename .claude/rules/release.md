@@ -11,7 +11,16 @@ paths:
 
 # Release Preparation
 
-Apply this file by explicit routing for any release preparation (docs, media, site, changelog, version, tag), even when no matched file is open. Order: docs PR → media and site PR → changelog PR → tag. Procedure: `CONTRIBUTING.md` *Releasing*.
+Apply this file by explicit routing for any release preparation (docs, media, site, changelog, version, tag), even when no matched file is open. Order: dependencies PR → docs PR → media and site PR → changelog PR → tag. Procedure: `CONTRIBUTING.md` *Releasing*.
+
+## Dependencies first
+
+Every release starts with a `chore(deps)` PR in the release milestone, merged before the docs PR.
+
+1. `npm outdated` and `npm audit`. Take minor and patch updates within current ranges (`npm update <names>`). List skipped majors in the PR body; each one is a separate decision.
+2. Keep `engines.vscode` and `@types/vscode` equal, with `@types/vscode` pinned exactly (no `^`): a newer types package compiles code that calls APIs the declared minimum lacks. Raise the minimum only with user approval, and update `README.md`, `CONTRIBUTING.md`, `DEVELOPMENT.md` and `tests/vscode-e2e/test-host/package.json` with it.
+3. `npm audit` must report 0 vulnerabilities. Check npm's suggested fix before applying it (it can be a downgrade, or a major that still ships the vulnerable range); prefer the smallest `overrides` entry for a transitive dependency. Never run `npm audit fix --force`.
+4. Validate: `npm run build`, `npm run lint`, `npm run check:types`, `npm test`, `npm run package && npm run package:verify`. When the VS Code minimum or a test runner changes, dispatch `e2e-os.yml` with `os=all`, suite `**/*.test.js` and `vscode-version=<minimum>`.
 
 ## Documentation first
 
