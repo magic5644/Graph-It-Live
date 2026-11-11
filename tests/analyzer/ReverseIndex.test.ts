@@ -337,7 +337,7 @@ describe('ReverseIndex', () => {
             // Serialize
             const serialized = index.serialize();
             
-            expect(serialized.version).toBe(5);
+            expect(serialized.version).toBe(6);
             expect(serialized.rootDir).toBe(rootDir);
             expect(serialized.timestamp).toBeGreaterThan(0);
 

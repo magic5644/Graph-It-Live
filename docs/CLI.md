@@ -504,35 +504,55 @@ graph-it explain <file> [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `--minConfidence` | `high` | Lowest confidence listed: `high`, `medium` or `low` (see below); the other items are counted in `byConfidence` |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format |
 
 **What it does:**
 
-Uses AST analysis (Tree-sitter + ts-morph) to map every symbol in the file and construct a call graph:
-- Which symbols are exported vs. internal
-- Which functions/methods call each other
-- Entry points (symbols called by nobody internally)
-- Cycle detection (recursive calls)
+Combines the reverse index with per-file symbol analysis to find exports no workspace file uses. Only module-level declarations are exports: a method, a nested function or a Rust `impl` member is never reported. Each item carries a `confidence`, machine-readable `reasons` and `evidence` (`importers`: how many files import the file, `firstImporters`: the first three, workspace-relative; `dynamicLoads` when a computed load may reach it).
 
-Each symbol's `kind` is shown by its LSP SymbolKind name (`Function`, `Method`, `Class`, …) in every format.
+| Confidence | Reason codes | Meaning |
+|------------|--------------|---------|
+| `high` | `importers-use-other-exports` | The file is imported, none of its importers (direct or through a barrel) uses this export, and nothing below applies. A deletion candidate. |
+| `medium` | `test-only-use` | Only test files use the export (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, `conftest.py`, files under `test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`). |
+| `medium` | `dynamic-import-in-workspace` | A workspace file loads modules by computed path and may reach this file: `` import(`./plugins/${name}`) `` or `'./x/' + name` reaches the files under that prefix; a bare or aliased prefix (`` `@/plugins/${name}` ``, Python `'plugins' + name`) reaches the whole workspace; a fully computed `import(name)`, `require(name)`, `importlib.import_module(name)` or `__import__(name)` reaches the files under the caller's folder; a Python importer reading attributes by computed name (`getattr(mod, name)`) reaches the module it imports. |
+| `medium` | `convention:decorated` | Python: a decorator may register the definition by reference (`@app.route`, `@click.command`, `@pytest.fixture`), and so may what it calls. |
+| `medium` | `named-in-own-file` | Its file writes the name again (comments aside): code of the file may use it, so removing the `export` may be the fix rather than deleting the code. |
+| `medium` | `name-written-elsewhere` | Rust: another Rust file writes the name; the Rust analysis does not follow type uses, `Type::new()` or nested grouped `use`. |
+| `medium` | `convention:test-file` | The export sits in a test file, where fixtures hold unused code on purpose and test runners load files by name. |
+| `low` | `no-importer` | Nothing imports the file (directly or through a barrel): most often an entry point by convention (script, handler, config file, migration). Review only, never a deletion. The other reasons that apply follow it. |
 
-**Output (text):**
+The default lists `high` items only; `byConfidence` counts every item found and `hint` tells how to list the others. `test-only-use` items are new compared with releases before 1.25.0, which did not report an export used by tests at all.
+
+Go, Java and C# files have no symbol analysis yet and are not scanned (#699).
+
+**Output (text, workspace-wide):**
 
 ```
-File: src/mcp/mcpServer.ts
-
-Entry points: initializeServer(), main()
-
-initializeServer()
-  └── registerAllTools()         [call #1]
-  └── setupFileWatcher()         [call #2]
-  └── startListening()           [call #3]
-      └── handleToolCall()
-          ├── validateWorkspace()
-          └── invokeWorker()
-
-Cycles: none
+scannedFiles: 816
+filesWithDeadCode: 14
+totalUnusedSymbols: 20
+minConfidence: high
+byConfidence:
+  high: 20
+  medium: 120
+  low: 18
+hint: 120 medium, 18 low-confidence item(s) not listed: pass minConfidence low to list them.
+entries:
+  [0]:
+    relativePath: src/analyzer/QueryEngine.ts
+    unusedCount: 1
+    unusedSymbols:
+      [0]:
+        name: RawNodeRow
+        kind: InterfaceDeclaration
+        line: 62
+        confidence: high
+        reasons: [importers-use-other-exports]
+        evidence:
+          importers: 8
+          firstImporters: [src/analyzer/graph-context/GraphContextRetriever.ts, ...]
 ```
 
 **Examples:**
@@ -1001,7 +1021,7 @@ An invalid config is reported, never replaced.
 | `cycle-break` | A unit cycle whose cut is at most 2 file pairs | file pairs to remove or move |
 | `mutual-import` | Two files importing each other | 1 |
 | `weak-dependency` | A unit edge (not in a cycle) of at most 2 file pairs: remove it before freezing it in `allowOnly` | file pairs |
-| `dead-code` | A file with unused exports, as [`check`](#check) reports them; "no file imports it" when nothing imports the file | unused exports |
+| `dead-code` | A file with `high`-confidence unused exports, as [`check`](#check) reports them; the totals line counts the `medium` and `low` items it leaves out | unused exports |
 
 The totals (units, unit edges, unit cycles, mutual imports, accepted violations, dead-code files and unused exports) are the debt baseline to compare release after release.
 
@@ -1175,6 +1195,9 @@ graph-it check src/utils/
 
 # Single file check
 graph-it check src/api/handlers.ts
+
+# Every level, for review
+graph-it check --minConfidence low
 
 # Output as JSON for scripting
 graph-it check --format json | jq '.entries[] | {relativePath, unusedCount}'
@@ -2223,7 +2246,9 @@ graph-it tool scan_dead_code
 graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
 ```
 
-**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `entries[]`, `skippedFiles`, `truncated`, `filesBeyondLimit`, `analysisTimeMs`. When `truncated` is `true`, `maxFiles` stopped the scan and `filesBeyondLimit` files were not analysed: the result is partial, so raise `--maxFiles` or narrow `--scopePath` before concluding there is no dead code.
+Pass `--minConfidence=medium` or `--minConfidence=low` to list more than the default `high` items; confidence levels and reason codes are described under [`check`](#check). `find_unused_symbols` takes the same `minConfidence`.
+
+**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `minConfidence`, `byConfidence`, `hint`, `entries[]` (each unused symbol with `confidence`, `reasons` and `evidence`), `skippedFiles`, `truncated`, `filesBeyondLimit`, `analysisTimeMs`. When `truncated` is `true`, `maxFiles` stopped the scan and `filesBeyondLimit` files were not analysed: the result is partial, so raise `--maxFiles` or narrow `--scopePath` before concluding there is no dead code.
 
 `--maxFiles` is optional: without it, every analysable file in scope is scanned, like `graph-it architecture --maxFiles`. The MCP tool and the VS Code language-model tool use the same default. Any integer of at least `1` is accepted, with no upper bound. Memory stays flat on a full scan; duration grows linearly with the file count (about 90 s for 12,000 files on a recent laptop). The MCP server stops a `scan_dead_code` call after 10 minutes (other tools after 1 minute), and other MCP tool calls wait until it ends; `graph-it tool` and the VS Code tool have no time limit, and VS Code chat can cancel the scan.
 

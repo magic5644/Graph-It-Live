@@ -148,6 +148,6 @@ describe("assessArchitecture: matrix reading", () => {
     const result = assessArchitecture(input([], []));
     expect(result.quickWins).toEqual([]);
     expect(result.matrixFindings).toEqual([]);
-    expect(result.totals).toEqual({ units: 0, unitEdges: 0, unitCycles: 0, mutualImports: 0, acceptedViolations: 0, deadCodeFiles: 0, unusedExports: 0 });
+    expect(result.totals).toEqual({ units: 0, unitEdges: 0, unitCycles: 0, mutualImports: 0, acceptedViolations: 0, deadCodeFiles: 0, unusedExports: 0, unusedExportsMedium: 0, unusedExportsLow: 0 });
   });
 });

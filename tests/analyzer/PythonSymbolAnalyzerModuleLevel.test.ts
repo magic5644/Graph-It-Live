@@ -26,6 +26,15 @@ describe('PythonSymbolAnalyzer - module-level references (#514)', () => {
     expect(edges(code)).toContainEqual([fileScope, '.m:f']);
   });
 
+  it('exports only public module-level definitions: methods and nested functions are never importable', () => {
+    const { symbols } = analyzer.analyzeFileContent(
+      file,
+      'def top():\n    def inner(): pass\n\nclass K:\n    def get(self): pass\n    class Meta: pass\n\n@deco\ndef wrapped(): pass\n\ndef _private(): pass\n',
+    );
+    expect(symbols.filter((s) => s.isExported).map((s) => s.name).sort()).toEqual(['K', 'top', 'wrapped']);
+    expect(symbols.filter((s) => !s.isExported).map((s) => s.name).sort()).toEqual(['Meta', '_private', 'get', 'inner']);
+  });
+
   it('keeps the enclosing function as source inside a function', () => {
     expect(edges('from .m import f\ndef run():\n    return f()\n')).toEqual([[`${file}:run`, '.m:f']]);
   });

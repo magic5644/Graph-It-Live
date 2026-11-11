@@ -829,14 +829,14 @@ export class Spider {
     return this.dependencyAnalyzer.resolveModuleSpecifier(fromFilePath, moduleSpecifier);
   }
 
-  async findUnusedSymbols(filePath: string): Promise<import('./types').SymbolInfo[]> {
+  async findUnusedSymbols(filePath: string): Promise<import('./deadcode/deadCodeConfidence').UnusedSymbol[]> {
     return this.symbolService.findUnusedSymbols(filePath);
   }
 
   async scanDeadCode(
     scopePath?: string,
     options?: { maxFiles?: number; signal?: AbortSignal }
-  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: import('./types').SymbolInfo[] }>; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
+  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: import('./deadcode/deadCodeConfidence').UnusedSymbol[] }>; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
     const resolvedScope = scopePath ?? this.config.rootDir;
     return this.symbolService.scanDeadCode(resolvedScope, {
       maxFiles: options?.maxFiles,

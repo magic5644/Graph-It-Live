@@ -199,10 +199,14 @@ describe('Spider - scanDeadCode through re-exports (#513)', () => {
     ['namespace used as a whole', 'src/lib/escx.ts'],
     ['barrel of a barrel (depth 2)', 'src/lib/deep/nested.ts'],
     ['barrel of a barrel (depth 3)', 'src/lib/deep/deeper/leaf.ts'],
-    ['symbol imported only from a test file', 'src/lib/onlyTest.ts'],
     ['import then export { x }', 'src/lib/g.ts'],
   ])('keeps a symbol used through %s', (_form, file) => {
     expect(unused(file)).toEqual([]);
+  });
+
+  it('lists a symbol only a test file uses through a barrel as medium test-only-use, never high', async () => {
+    const [item] = await spider.findUnusedSymbols(path.join(root, 'src/lib/onlyTest.ts'));
+    expect(item).toMatchObject({ confidence: 'medium', reasons: ['test-only-use'] });
   });
 
   it('reports only the namespace members nobody accesses', () => {

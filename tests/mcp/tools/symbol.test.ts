@@ -118,6 +118,20 @@ describe("symbol tools", () => {
             isExported: true,
             id: `${filePath}:unused`,
             category: "type",
+            confidence: "high",
+            reasons: ["importers-use-other-exports"],
+            evidence: { importers: 1, firstImporters: ["src/app.ts"] },
+          },
+          {
+            name: "entry",
+            kind: "FunctionDeclaration",
+            line: 9,
+            isExported: true,
+            id: `${filePath}:entry`,
+            category: "function",
+            confidence: "low",
+            reasons: ["no-importer"],
+            evidence: { importers: 0, firstImporters: [] },
           },
         ]),
         getSymbolGraph: vi.fn(async () => ({
@@ -146,7 +160,11 @@ describe("symbol tools", () => {
 
       expect(result.unusedCount).toBe(1);
       expect(result.totalExportedSymbols).toBe(2);
-      expect(result.unusedPercentage).toBe(50);
+      // Every unused export found counts (one high, one low) out of two exports.
+      expect(result.unusedPercentage).toBe(100);
+      expect(result).toMatchObject({ minConfidence: "high", byConfidence: { high: 1, medium: 0, low: 1 } });
+      expect(result.hint).toContain("pass minConfidence low");
+      expect((await executeFindUnusedSymbols({ filePath, minConfidence: "low" })).unusedSymbols.map((s) => s.name)).toEqual(["unused", "entry"]);
       expect(result.unusedSymbols[0].category).toBe("type");
     });
   });

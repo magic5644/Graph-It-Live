@@ -47,15 +47,20 @@ export function readStringOption(args: string[], flag: string, what: string): st
   return value;
 }
 
-/** Community mode of `--communities path|louvain`, or undefined when the flag is absent. */
-export function readCommunityMode(args: string[]): CommunityMode | undefined {
-  const index = args.indexOf("--communities");
+/** Value of `flag` among `choices`, or undefined when the flag is absent; any other value is a usage error. */
+export function readChoiceOption<T extends string>(args: string[], flag: string, choices: readonly T[]): T | undefined {
+  const index = args.indexOf(flag);
   if (index < 0) return undefined;
 
   const raw = args[index + 1];
-  const mode = COMMUNITY_MODES.find((candidate) => candidate === raw);
-  if (mode) return mode;
+  const choice = choices.find((candidate) => candidate === raw);
+  if (choice) return choice;
 
   const got = raw === undefined || raw.startsWith("--") ? "no value" : `"${raw}"`;
-  throw new CliError(`--communities must be ${COMMUNITY_MODES.join(" or ")}, got ${got}`, ExitCode.GENERAL_ERROR);
+  throw new CliError(`${flag} must be ${choices.join(" or ")}, got ${got}`, ExitCode.GENERAL_ERROR);
+}
+
+/** Community mode of `--communities path|louvain`, or undefined when the flag is absent. */
+export function readCommunityMode(args: string[]): CommunityMode | undefined {
+  return readChoiceOption(args, "--communities", COMMUNITY_MODES);
 }

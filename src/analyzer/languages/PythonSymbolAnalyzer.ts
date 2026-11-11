@@ -260,7 +260,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
       kind: isAsync ? 'AsyncFunction' : 'FunctionDeclaration',
       line: nameNode.startPosition.row + 1,
       endLine: node.endPosition.row + 1,
-      isExported: this.isExported(node, content),
+      isExported: this.isExported(node, content, parentSymbolId),
       id: symbolId,
       parentSymbolId,
       category: 'function',
@@ -289,7 +289,7 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
       kind: 'ClassDeclaration',
       line: nameNode.startPosition.row + 1,
       endLine: node.endPosition.row + 1,
-      isExported: this.isExported(node, content),
+      isExported: this.isExported(node, content, parentSymbolId),
       id: symbolId,
       parentSymbolId,
       category: 'class',
@@ -308,6 +308,9 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
     for (const child of node.children) {
       if (child.type === 'function_definition' || child.type === 'class_definition') {
         this.extractSymbols(child, filePath, content, symbols, parentSymbolId);
+        const nameNode = child.childForFieldName('name');
+        const symbol = nameNode ? symbols.get(`${filePath}:${this.getNodeText(nameNode, content)}`) : undefined;
+        if (symbol) symbol.isDecorated = true;
       }
     }
   }
@@ -657,11 +660,12 @@ export class PythonSymbolAnalyzer implements ISymbolAnalyzer {
   }
 
   /**
-   * Check if a symbol is exported (Python doesn't have explicit exports, so we check if it's not private)
+   * Check if a symbol is exported (Python doesn't have explicit exports, so we check if it's not private).
+   * Only module-level definitions are importable: a method or a nested function never is.
    */
-  private isExported(node: Node, content: string): boolean {
+  private isExported(node: Node, content: string, parentSymbolId: string | undefined): boolean {
     const nameNode = node.childForFieldName('name');
-    if (!nameNode) {
+    if (parentSymbolId !== undefined || !nameNode) {
       return false;
     }
     const name = this.getNodeText(nameNode, content);

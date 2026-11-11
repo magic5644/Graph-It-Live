@@ -18,10 +18,67 @@ import { extractFilePath } from '../utils/PathExtractor';
 import { isPythonOrRust, namesModule, pythonStarExports, readImportBindings } from '../utils/pyRsImports';
 import { mayReExport, readModuleReExports, type ModuleReExports, type ReExportTarget } from '../utils/reExports';
 import { DEFAULT_ONLY, findDeclaration, type DeclarationReads } from '../utils/declarations';
+import { getRelativePath } from '../../shared/path';
+import { classifyUnused, codeForNames, isTestFile, loadsReaching, namedAgain, rustQualifiedUse, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
+import { DeadCodeTextIndex, type WorkspaceTextFacts } from '../deadcode/DeadCodeTextIndex';
 
 const log = getLogger('SpiderSymbolService');
 
 type SymbolGraph = { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
+
+/** Symbol id of the code at file scope (module-level statements), as the language analyzers write it. */
+const fileScopeId = (filePath: string) => `${filePath}:(file)`;
+
+/**
+ * The internal export graph (TS/JS only: ts-morph) plus the same-file calls of the symbol graph, which every
+ * analyzer reports, and an edge from each class, type or function to its members: a Python or Rust export
+ * called by another export, by a method of a used class, or at file scope, is reached through it.
+ */
+function withSameFileCalls(
+  internalGraph: Map<string, Set<string>>,
+  symbols: readonly SymbolInfo[],
+  dependencies: readonly SymbolDependency[],
+  target: string,
+): Map<string, Set<string>> {
+  const link = (from: string, to: string) => {
+    if (from === to) return;
+    let callees = internalGraph.get(from);
+    if (!callees) {
+      callees = new Set();
+      internalGraph.set(from, callees);
+    }
+    callees.add(to);
+  };
+  for (const symbol of symbols) {
+    if (symbol.parentSymbolId) link(normalizePath(symbol.parentSymbolId), normalizePath(symbol.id));
+  }
+  for (const dep of dependencies) {
+    if (normalizePath(dep.targetFilePath) === target) link(normalizePath(dep.sourceSymbolId), normalizePath(dep.targetSymbolId));
+  }
+  return internalGraph;
+}
+
+/** Which referencing files count as consumers, and the barrel usage computed with that filter. */
+interface ConsumerFilter {
+  accept: (filePath: string) => boolean;
+  barrelUsage: Map<string, Promise<Set<string>>>;
+}
+
+/** One file's exports and what the unused-export check reads about them. */
+interface ExportsOfFile {
+  target: string;
+  graph: SymbolGraph;
+  referencingFiles: Dependency[];
+  internalGraph: Map<string, Set<string>>;
+}
+
+/** Shared by every target of a dead-code scan: each file's re-exports and the workspace's computed loads read once. */
+export interface DeadCodeContext {
+  reExportMemo: ReExportMemo;
+  /** How a barrel's consumers use its exports, per consumer filter: the same for every target of a scan. */
+  barrelUsage?: { production: Map<string, Promise<Set<string>>>; all: Map<string, Promise<Set<string>>> };
+  textFacts?: Promise<WorkspaceTextFacts>;
+}
 
 /** One traced dependency: `line` is 1-based; `relation` is set for a runtime reference that is not a call. */
 export interface TraceCallEntry {
@@ -38,6 +95,8 @@ export interface TraceCallEntry {
 const JS_TS_MODULE = /\.[cm]?[jt]sx?$/i;
 const VUE_FILE = /\.vue$/i;
 const SVELTE_FILE = /\.svelte$/i;
+const PYTHON_FILE = /\.pyi?$/i;
+const RUST_FILE = /\.rs$/i;
 
 const SYMBOL_ANALYSIS_EXTENSIONS: ReadonlySet<string> = new Set(SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS);
 
@@ -63,7 +122,13 @@ export class SpiderSymbolService {
     private readonly getConfig: () => SpiderConfig,
     private readonly findReferencingFiles: ReferencingFilesProvider,
     private readonly languageService: LanguageService
-  ) {}
+  ) {
+    this.textIndex = new DeadCodeTextIndex(fileReader);
+  }
+
+  private readonly textIndex: DeadCodeTextIndex;
+  /** Module resolutions shared by the targets of a running dead-code scan, which reads one snapshot. */
+  private scanResolutions: Map<string, Promise<string | null>> | undefined;
 
   async getSymbolGraph(filePath: string): Promise<SymbolGraph> {
     if (!path.isAbsolute(filePath)) {
@@ -134,37 +199,142 @@ export class SpiderSymbolService {
     }
   }
 
-  /** `reExportMemo` lets a workspace scan read each file's re-exports once across all its targets. */
-  async findUnusedSymbols(filePath: string, reExportMemo: ReExportMemo = new Map()): Promise<SymbolInfo[]> {
+  /**
+   * Unused exports of a file, each with its confidence and reasons (`deadCodeConfidence.ts`). An export only
+   * test files use is listed too, at `medium`. `context` lets a workspace scan read each file's re-exports and
+   * the workspace's computed loads once across all its targets.
+   */
+  async findUnusedSymbols(filePath: string, scanContext?: DeadCodeContext): Promise<UnusedSymbol[]> {
+    const context: DeadCodeContext = scanContext ?? { reExportMemo: new Map() };
     try {
-      const normalizedTarget = normalizePath(filePath);
-      if (SVELTE_FILE.test(normalizedTarget)) return [];
-      const { symbols, dependencies } = await this.getSymbolGraph(normalizedTarget);
+      const target = normalizePath(filePath);
+      if (SVELTE_FILE.test(target)) return [];
+      const { symbols, dependencies } = await this.getSymbolGraph(target);
       const exportedSymbols = symbols.filter((s) => s.isExported);
       if (exportedSymbols.length === 0) {
         return [];
       }
 
-      const referencingFiles = await this.findReferencingFiles(normalizedTarget);
-      const usedSymbolIds = await this.collectUsedSymbolIds(referencingFiles, normalizedTarget);
-      this.addJsxConsumers(normalizedTarget, { symbols: exportedSymbols, dependencies }, usedSymbolIds);
-      // `import Panel from` uses the default export, listed under its declared name.
-      const defaultExport = exportedSymbols.find((s) => s.isDefaultExport);
-      if (defaultExport && usedSymbolIds.has(this.symbolDependencyHelper.buildUsedSymbolId(normalizedTarget, 'default'))) {
-        usedSymbolIds.add(defaultExport.id);
-      }
-      await this.addSymbolsUsedThroughBarrels(normalizedTarget, exportedSymbols, referencingFiles, usedSymbolIds, reExportMemo);
+      const referencingFiles = await this.findReferencingFiles(target);
+      const content = await this.fileReader.readFile(target);
+      const internalGraph = withSameFileCalls(await this.astWorkerHost.getInternalExportDependencyGraph(target, content), symbols, dependencies, target);
+      const exports: ExportsOfFile = { target, graph: { symbols: exportedSymbols, dependencies }, referencingFiles, internalGraph };
+      // A test file's own helpers are used by tests by design: every importer counts for it.
+      const targetIsTest = isTestFile(this.relativeToRoot(target));
+      context.barrelUsage ??= { production: new Map(), all: new Map() };
+      const everyFile: ConsumerFilter = { accept: () => true, barrelUsage: context.barrelUsage.all };
+      const inProduction: ConsumerFilter = targetIsTest
+        ? everyFile
+        : { accept: (p) => !isTestFile(this.relativeToRoot(p)), barrelUsage: context.barrelUsage.production };
+      const textFacts = this.workspaceTextFacts(context);
+      const unusedInProduction = await this.withoutRustQualifiedUse(target, content, await this.unusedExports(exports, context.reExportMemo, inProduction), textFacts);
+      if (unusedInProduction.length === 0) return [];
+      const unusedAnywhere = targetIsTest
+        ? new Set(unusedInProduction.map((s) => s.id))
+        : new Set((await this.unusedExports(exports, context.reExportMemo, everyFile)).map((s) => s.id));
 
-      const content = await this.fileReader.readFile(normalizedTarget);
-      const internalGraph = await this.astWorkerHost.getInternalExportDependencyGraph(normalizedTarget, content);
-      const usedWithClosure = this.expandUsedSymbolsViaInternalGraph(usedSymbolIds, internalGraph);
-
-      return exportedSymbols.filter((s) => !usedWithClosure.has(s.id));
+      const dynamicLoads = await this.dynamicLoadsReaching(target, referencingFiles, textFacts);
+      const code = codeForNames(target, content);
+      // What a decorated definition calls is as live as the definition a decorator registers.
+      const decorated = this.expandUsedSymbolsViaInternalGraph(new Set(exportedSymbols.filter((s) => s.isDecorated).map((s) => s.id)), internalGraph);
+      return await Promise.all(
+        unusedInProduction.map(async (symbol) => ({
+          ...symbol,
+          ...classifyUnused({
+            importers: await this.consumersOf(target, symbol, referencingFiles, context.reExportMemo),
+            testOnlyUse: !unusedAnywhere.has(symbol.id),
+            testFile: targetIsTest,
+            decorated: decorated.has(symbol.id),
+            nameWrittenElsewhere: await this.rustNameWrittenElsewhere(target, symbol, textFacts),
+            namedInOwnFile: namedAgain(code, symbol.name),
+            dynamicLoads,
+          }),
+        }))
+      );
     } catch (error) {
       const spiderError = SpiderError.fromError(error, filePath);
       log.error('Find unused symbols failed:', spiderError.toUserMessage());
       return [];
     }
+  }
+
+  /** Exports no file `accept`s uses: directly, as a JSX/Vue default, through a barrel or through the file's own code. */
+  private async unusedExports(exports: ExportsOfFile, reExportMemo: ReExportMemo, filter: ConsumerFilter): Promise<SymbolInfo[]> {
+    const { target, graph, internalGraph } = exports;
+    const referencingFiles = exports.referencingFiles.filter((ref) => filter.accept(ref.path));
+    const usedSymbolIds = await this.collectUsedSymbolIds(referencingFiles, target);
+    // A namespace import used as a whole (`import * as ns` passed on, a dynamic import's module object) may read every export.
+    if (usedSymbolIds.has(this.symbolDependencyHelper.buildUsedSymbolId(target, '*'))) return [];
+    // Code at file scope runs when the module loads: what it calls is used.
+    for (const id of internalGraph.get(fileScopeId(target)) ?? []) usedSymbolIds.add(id);
+    this.addJsxConsumers(target, graph, usedSymbolIds);
+    // `import Panel from` uses the default export, listed under its declared name.
+    const defaultExport = graph.symbols.find((s) => s.isDefaultExport);
+    if (defaultExport && usedSymbolIds.has(this.symbolDependencyHelper.buildUsedSymbolId(target, 'default'))) {
+      usedSymbolIds.add(defaultExport.id);
+    }
+    await this.addSymbolsUsedThroughBarrels(target, graph.symbols, referencingFiles, usedSymbolIds, reExportMemo, filter);
+    const usedWithClosure = this.expandUsedSymbolsViaInternalGraph(usedSymbolIds, internalGraph);
+    return graph.symbols.filter((s) => !usedWithClosure.has(s.id));
+  }
+
+  private relativeToRoot(filePath: string): string {
+    return getRelativePath(filePath, this.getConfig().rootDir);
+  }
+
+  /**
+   * Workspace-relative files that import `target` or a barrel re-exporting `symbol`, the barrels of that chain
+   * excluded: an export only re-exported by barrels nobody imports has no importer.
+   */
+  private async consumersOf(target: string, symbol: SymbolInfo, referencingFiles: Dependency[], reExportMemo: ReExportMemo): Promise<string[]> {
+    // No referencer re-exports anything (the common case): there is no barrel chain to follow.
+    const modules = await Promise.all(referencingFiles.map((ref) => this.moduleReExports(ref.path, reExportMemo)));
+    const reExported = modules.some((m) => m.reExports.length > 0 || m.namespaces.length > 0);
+    const names = symbol.isDefaultExport && symbol.name !== 'default' ? [symbol.name, 'default'] : [symbol.name];
+    const chain = reExported ? (await Promise.all(names.map((name) => this.collectReexportAliases(target, name, reExportMemo, true)))).flat() : [];
+    const barrels = new Set([target, ...chain.map((alias) => alias.filePath)]);
+    const viaBarrels = await Promise.all([...barrels].filter((barrel) => barrel !== target).map((barrel) => this.findReferencingFiles(barrel)));
+    const consumers = new Set<string>();
+    for (const ref of [...referencingFiles, ...viaBarrels.flat()]) {
+      const refPath = normalizePath(ref.path);
+      if (!barrels.has(refPath)) consumers.add(this.relativeToRoot(refPath));
+    }
+    return [...consumers].sort((a, b) => a.localeCompare(b));
+  }
+
+  /** The workspace text facts, read once per scan (and per single-file check). */
+  private workspaceTextFacts(context: DeadCodeContext): Promise<WorkspaceTextFacts> {
+    context.textFacts ??= this.textIndex.collect(this.getConfig().rootDir, this.getConfig().excludeNodeModules ?? true);
+    return context.textFacts;
+  }
+
+  /** A Rust export a qualified path reaches (`module::name`, an inline `mod`) is used, even from a file that never imports it. */
+  private async withoutRustQualifiedUse(target: string, content: string, unused: SymbolInfo[], textFacts: Promise<WorkspaceTextFacts>): Promise<SymbolInfo[]> {
+    if (!RUST_FILE.test(target) || unused.length === 0) return unused;
+    const { rustPaths } = await textFacts;
+    return unused.filter((symbol) => !rustQualifiedUse(target, content, symbol.name, rustPaths));
+  }
+
+  /**
+   * Whether another Rust file writes the export's name: the Rust symbol analysis does not see type uses,
+   * `Type::new()` or nested grouped `use`, so such an export may be used.
+   */
+  private async rustNameWrittenElsewhere(target: string, symbol: SymbolInfo, textFacts: Promise<WorkspaceTextFacts>): Promise<boolean> {
+    return RUST_FILE.test(target) && ((await textFacts).rustTokenFiles.get(symbol.name) ?? 0) >= 2;
+  }
+
+  /**
+   * Computed loads (`import(name)`, `importlib.import_module(name)`) of the workspace that may reach `target`, plus
+   * the Python importers of `target` that read attributes by computed name (`getattr(mod, name)`).
+   */
+  private async dynamicLoadsReaching(target: string, referencingFiles: Dependency[], textFacts: Promise<WorkspaceTextFacts>): Promise<string[]> {
+    const { loads, computedAttributeReaders } = await textFacts;
+    const reaching = loadsReaching(target, loads);
+    if (!PYTHON_FILE.test(target)) return reaching;
+    const getattrImporters = referencingFiles
+      .filter((ref) => computedAttributeReaders.has(normalizePath(ref.path)))
+      .map((ref) => `${this.relativeToRoot(ref.path)}:getattr`);
+    return [...reaching, ...getattrImporters];
   }
 
   private addJsxConsumers(filePath: string, graph: SymbolGraph, used: Set<string>): void {
@@ -195,20 +365,20 @@ export class SpiderSymbolService {
     exportedSymbols: SymbolInfo[],
     referencingFiles: Dependency[],
     usedSymbolIds: Set<string>,
-    reExportMemo: ReExportMemo
+    reExportMemo: ReExportMemo,
+    filter: ConsumerFilter
   ): Promise<void> {
     // Most files are only imported by plain consumers: nothing to follow unless a referencer re-exports.
     const modules = await Promise.all(referencingFiles.map((ref) => this.moduleReExports(ref.path, reExportMemo)));
     if (modules.every((m) => m.reExports.length === 0 && m.namespaces.length === 0)) return;
 
     const namespaceAliases = await this.collectNamespaceAliases(modules, target, reExportMemo);
-    const namespaceUses = await Promise.all(namespaceAliases.map((alias) => this.collectNamespaceUse(alias)));
-    const usageByFile = new Map<string, Promise<Set<string>>>();
+    const namespaceUses = await Promise.all(namespaceAliases.map((alias) => this.collectNamespaceUse(alias, filter.accept)));
     const isImported = async (alias: ReExportTarget): Promise<boolean> => {
-      let usage = usageByFile.get(alias.filePath);
+      let usage = filter.barrelUsage.get(alias.filePath);
       if (!usage) {
-        usage = this.findReferencingFiles(alias.filePath).then((refs) => this.collectUsedSymbolIds(refs, alias.filePath));
-        usageByFile.set(alias.filePath, usage);
+        usage = this.findReferencingFiles(alias.filePath).then((refs) => this.collectUsedSymbolIds(refs.filter((ref) => filter.accept(ref.path)), alias.filePath));
+        filter.barrelUsage.set(alias.filePath, usage);
       }
       return (await usage).has(this.symbolDependencyHelper.buildUsedSymbolId(alias.filePath, alias.name));
     };
@@ -228,8 +398,8 @@ export class SpiderSymbolService {
   }
 
   /** Merged use of the namespace object `alias` across every file that imports it. */
-  private async collectNamespaceUse(alias: ReExportTarget): Promise<NamespaceUse> {
-    const refs = await this.findReferencingFiles(alias.filePath);
+  private async collectNamespaceUse(alias: ReExportTarget, accept: (filePath: string) => boolean): Promise<NamespaceUse> {
+    const refs = (await this.findReferencingFiles(alias.filePath)).filter((ref) => accept(ref.path));
     const perFile = await Promise.all(refs.map((ref) => this.namespaceUseInFile(ref.path, alias)));
     const merged: NamespaceUse = { members: new Set(), escapes: false };
     for (const use of perFile.flat()) {
@@ -634,6 +804,18 @@ export class SpiderSymbolService {
   }
 
   async resolveModuleSpecifier(fromFilePath: string, moduleSpecifier: string): Promise<string | null> {
+    const memo = this.scanResolutions;
+    if (!memo) return this.resolveModuleSpecifierNow(fromFilePath, moduleSpecifier);
+    const key = `${fromFilePath}\0${moduleSpecifier}`;
+    let resolved = memo.get(key);
+    if (!resolved) {
+      resolved = this.resolveModuleSpecifierNow(fromFilePath, moduleSpecifier);
+      memo.set(key, resolved);
+    }
+    return resolved;
+  }
+
+  private async resolveModuleSpecifierNow(fromFilePath: string, moduleSpecifier: string): Promise<string | null> {
     try {
       // Python and Rust paths (`.impl`, `self::imp`, `crate::m`) resolve the way the index resolved them.
       if (isPythonOrRust(extractFilePath(fromFilePath))) {
@@ -913,7 +1095,7 @@ export class SpiderSymbolService {
   async scanDeadCode(
     scopePath: string,
     options: { maxFiles?: number; hasReverseIndex: boolean; signal?: AbortSignal }
-  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: SymbolInfo[] }>; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
+  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: UnusedSymbol[] }>; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
     const { maxFiles = Number.POSITIVE_INFINITY, hasReverseIndex, signal } = options;
 
     if (!hasReverseIndex) {
@@ -937,25 +1119,31 @@ export class SpiderSymbolService {
     // Apply hard cap
     const filesToScan = analysableFiles.slice(0, maxFiles);
 
-    const reExportMemo: ReExportMemo = new Map();
+    const context: DeadCodeContext = { reExportMemo: new Map() };
     let skippedFiles = 0;
+    this.scanResolutions = new Map();
 
-    const results = await mapWithConcurrency(filesToScan, DEAD_CODE_SCAN_CONCURRENCY, async (filePath) => {
-      if (signal) {
-        // Yield to the event loop so a pending cancel message can abort the signal.
-        await setImmediate();
-        signal.throwIfAborted();
-      }
-      try {
-        return { filePath, unusedSymbols: await this.findUnusedSymbols(filePath, reExportMemo) };
-      } catch (error) {
-        // Per-file errors are silently skipped so the batch continues.
-        const spiderError = SpiderError.fromError(error, filePath);
-        log.warn('scanDeadCode: skipping file due to error:', filePath, spiderError.message);
-        skippedFiles++;
-        return { filePath, unusedSymbols: [] };
-      }
-    });
+    let results: Array<{ filePath: string; unusedSymbols: UnusedSymbol[] }>;
+    try {
+      results = await mapWithConcurrency(filesToScan, DEAD_CODE_SCAN_CONCURRENCY, async (filePath) => {
+        if (signal) {
+          // Yield to the event loop so a pending cancel message can abort the signal.
+          await setImmediate();
+          signal.throwIfAborted();
+        }
+        try {
+          return { filePath, unusedSymbols: await this.findUnusedSymbols(filePath, context) };
+        } catch (error) {
+          // Per-file errors are silently skipped so the batch continues.
+          const spiderError = SpiderError.fromError(error, filePath);
+          log.warn('scanDeadCode: skipping file due to error:', filePath, spiderError.message);
+          skippedFiles++;
+          return { filePath, unusedSymbols: [] };
+        }
+      });
+    } finally {
+      this.scanResolutions = undefined;
+    }
 
     return {
       entries: results.filter((entry) => entry.unusedSymbols.length > 0),

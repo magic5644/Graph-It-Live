@@ -439,7 +439,7 @@ describe("impact tools", () => {
           { sourceSymbolId: `${apiPath}:helper`, targetSymbolId: `${apiPath}:greet`, targetFilePath: apiPath },
         ],
       })),
-      findUnusedSymbols: vi.fn(async () => [{ name: "greet" }]),
+      findUnusedSymbols: vi.fn(async () => [{ name: "greet", reasons: ["importers-use-other-exports"] }, { name: "helper", reasons: ["test-only-use"] }]),
       analyze: vi.fn(async () => []),
     };
     setupWorkerState(spiderMock);

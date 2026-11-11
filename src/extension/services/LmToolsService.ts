@@ -13,9 +13,11 @@ import { IndexCache } from '@/analyzer/cache/IndexCache';
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
 import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
 import { reportOutOfRootImports } from '@/analyzer/utils/workspaceBoundary';
-import { scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
+import { confidenceHint, filterByConfidence, scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
+import type { DeadCodeConfidence } from '@/analyzer/deadcode/deadCodeConfidence';
 import {
   ExportArchitectureDiagramParamsSchema,
+  FindUnusedSymbolsParamsSchema,
   createErrorResponse,
   createSuccessResponse,
   INVALIDATE_FILES_MAX,
@@ -67,6 +69,7 @@ interface GetSymbolGraphInput {
 
 interface FindUnusedSymbolsInput {
   filePath: string;
+  minConfidence?: DeadCodeConfidence;
 }
 
 type GraphContextInput = GraphContextParams;
@@ -147,6 +150,7 @@ interface QueryCallGraphInput {
 interface ScanDeadCodeInput {
   scopePath?: string;
   maxFiles?: number;
+  minConfidence?: DeadCodeConfidence;
 }
 
 // ─── Service options ──────────────────────────────────────────────────────────
@@ -577,11 +581,18 @@ export class LmToolsService {
           }
           const filePath = this.resolveWorkspacePath(options.input.filePath);
           const rootDir = this.getWorkspaceRoot();
+          const minConfidence = FindUnusedSymbolsParamsSchema.shape.minConfidence.safeParse(options.input.minConfidence);
+          if (!minConfidence.success) {
+            return this.errorResult(`minConfidence: ${minConfidence.error.issues[0]?.message ?? 'invalid value'}`);
+          }
+          const min = minConfidence.data ?? 'high';
           try {
-            const [unusedSymbols, { symbols }] = await Promise.all([
+            const [found, { symbols }] = await Promise.all([
               spider.findUnusedSymbols(filePath),
               spider.getSymbolGraph(filePath),
             ]);
+            const { listed: unusedSymbols, byConfidence } = filterByConfidence(found, min);
+            const hint = confidenceHint(byConfidence, min);
             const exportedCount = symbols.filter((s) => s.isExported).length;
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(
@@ -592,9 +603,12 @@ export class LmToolsService {
                   totalExportedSymbols: exportedCount,
                   unusedPercentage:
                     exportedCount > 0
-                      ? Math.round((unusedSymbols.length / exportedCount) * 100)
+                      ? Math.round((found.length / exportedCount) * 100)
                       : 0,
                   unusedSymbols,
+                  minConfidence: min,
+                  byConfidence,
+                  ...(hint ? { hint } : {}),
                 }),
               ),
             ]);
@@ -1650,11 +1664,15 @@ export class LmToolsService {
           if (!maxFiles.success) {
             return this.errorResult(`maxFiles: ${maxFiles.error.issues[0]?.message ?? 'invalid value'}`);
           }
+          const minConfidence = ScanDeadCodeParamsSchema.shape.minConfidence.safeParse(options.input.minConfidence);
+          if (!minConfidence.success) {
+            return this.errorResult(`minConfidence: ${minConfidence.error.issues[0]?.message ?? 'invalid value'}`);
+          }
           // A whole-workspace scan can take minutes: chat can cancel it between files.
           const abort = new AbortController();
           const cancellation = token.onCancellationRequested(() => abort.abort());
           try {
-            const result = await scanDeadCode(spider, rootDir, { scopePath, maxFiles: maxFiles.data }, abort.signal);
+            const result = await scanDeadCode(spider, rootDir, { scopePath, maxFiles: maxFiles.data, minConfidence: minConfidence.data }, abort.signal);
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);

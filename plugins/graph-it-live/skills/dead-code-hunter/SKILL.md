@@ -75,7 +75,19 @@ Use it to identify packages, public entry points, and generated areas that requi
 ```bash
 graph-it tool scan_dead_code --format toon
 graph-it tool scan_dead_code --scopePath=/abs/src --maxFiles=500 --format toon
+graph-it tool scan_dead_code --minConfidence=low --format toon   # every level, for review
 ```
+
+Every item carries `confidence`, `reasons` and `evidence` (importer count and first importers). The
+default lists `high` items only; `byConfidence` counts the others and `hint` says how to list them:
+
+| Confidence | Reasons | Use in the plan |
+|---|---|---|
+| `high` | `importers-use-other-exports`: the file is imported, no importer uses the export | Deletion candidate; still run Step 3 for public API and monorepo use |
+| `medium` | `test-only-use`, `dynamic-import-in-workspace`, `convention:decorated`, `named-in-own-file` (drop `export` rather than delete), `name-written-elsewhere` (Rust), `convention:test-file` | Review; never delete without the evidence of Step 3 |
+| `low` | `no-importer`: nothing imports the file | Entry point by convention as often as dead: review only |
+
+Methods, nested functions and Rust `impl` members are never reported. Go, Java and C# are not scanned.
 
 `--scopePath` restricts the scan to a directory inside the workspace. Without `--maxFiles` every
 analysable file in scope is scanned (no upper bound; about 90 s for 12,000 files). `--maxFiles` caps it
@@ -125,7 +137,7 @@ Apply this risk classification:
 | **Unconfirmed** | Only call sites checked, confirmation unavailable/partial, or relevant reference types unsupported | Do not recommend deletion |
 | **Review first** | Symbol is exported from a barrel (`index.ts`) | Check if barrel is consumed externally |
 | **Do not delete** | Dynamic call patterns detected (`eval`, string-based dispatch) | Flag only |
-| **Test-only** | Only called from test files | Evaluate — may be intentional |
+| **Test-only** | Only called from test files (`test-only-use`, `medium`) | Evaluate — may be intentional |
 
 ---
 
@@ -155,8 +167,8 @@ graph-it scan
 graph-it check src/utils/format.ts --format toon
 ```
 
-`graph-it check` and `find_unused_symbols` are file-scoped; `scan_dead_code` covers the workspace or
-`--scopePath`.
+`find_unused_symbols` is file-scoped; `graph-it check` takes a file, a folder or nothing (the whole
+workspace), like `scan_dead_code` with `--scopePath`. Both take `--minConfidence`.
 
 ---
 

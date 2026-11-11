@@ -100,8 +100,9 @@ graph-it tool analyze_breaking_changes --args '{"filePath":"/abs/src/a.ts","symb
   A bare name shared by several symbols returns `reason=ambiguous` with candidates; pick one with
   `--symbolId` or `--startLine`. Call sites are not all symbol references.
 - `get_impact_analysis`: `--includeTransitive` (default false), `--maxDepth 1-20` (default 3).
-- `scan_dead_code` is workspace-wide (or `--scopePath`); `find_unused_symbols` and `graph-it check`
-  are per-file.
+- `scan_dead_code` is workspace-wide (or `--scopePath`); `find_unused_symbols` is per-file;
+  `graph-it check` takes a file, a folder or nothing. All take `--minConfidence high|medium|low`
+  (default `high`: the file is imported and no importer uses the export); `byConfidence` counts the rest.
 
 ## Architecture
 

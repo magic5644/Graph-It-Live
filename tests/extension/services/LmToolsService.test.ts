@@ -1466,11 +1466,14 @@ describe('LmToolsService', () => {
     });
 
     it.each([
-      [symbols, 50, 2],
+      [symbols, 100, 2],
       [[], 0, 0],
     ])('find_unused_symbols reports the unused share of exports', async (fileSymbols, percentage, exported) => {
       const spider = {
-        findUnusedSymbols: vi.fn().mockResolvedValue([{ name: 'unused', kind: 'function', line: 5 }]),
+        findUnusedSymbols: vi.fn().mockResolvedValue([
+          { name: 'unused', kind: 'function', line: 5, confidence: 'high' },
+          { name: 'entry', kind: 'function', line: 9, confidence: 'low' },
+        ]),
         getSymbolGraph: vi.fn().mockResolvedValue({ symbols: fileSymbols, dependencies: [] }),
       };
       new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
@@ -1483,8 +1486,22 @@ describe('LmToolsService', () => {
         unusedCount: 1,
         totalExportedSymbols: exported,
         unusedPercentage: percentage,
-        unusedSymbols: [{ name: 'unused', kind: 'function', line: 5 }],
+        unusedSymbols: [{ name: 'unused', kind: 'function', line: 5, confidence: 'high' }],
+        minConfidence: 'high',
+        byConfidence: { high: 1, medium: 0, low: 1 },
+        hint: '1 low-confidence item(s) not listed: pass minConfidence low to list them.',
       });
+    });
+
+    it('find_unused_symbols lists lower levels on request and rejects an unknown level', async () => {
+      const spider = {
+        findUnusedSymbols: vi.fn().mockResolvedValue([{ name: 'entry', kind: 'function', line: 9, confidence: 'low' }]),
+        getSymbolGraph: vi.fn().mockResolvedValue({ symbols, dependencies: [] }),
+      };
+      new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
+
+      expect(await invokeTool('graph-it-live_find_unused_symbols', { filePath: A, minConfidence: 'low' })).toMatchObject({ unusedCount: 1 });
+      expect(JSON.stringify(await invokeTool('graph-it-live_find_unused_symbols', { filePath: A, minConfidence: 'sure' }))).toContain('minConfidence');
     });
   });
 
@@ -1648,23 +1665,33 @@ describe('LmToolsService', () => {
   describe('scan_dead_code', () => {
     it('scans the requested scope and reports unused symbols per file', async () => {
       const scanDeadCode = vi.fn().mockResolvedValue({
-        entries: [{ filePath: A, unusedSymbols: [{ name: 'old', kind: 'function', line: 3 }] }],
+        entries: [{ filePath: A, unusedSymbols: [{ name: 'old', kind: 'function', line: 3, confidence: 'high' }, { name: 'tool', kind: 'function', line: 8, confidence: 'medium' }] }],
         scannedFiles: 4,
         skippedFiles: [],
         filesBeyondLimit: 0,
       });
       new LmToolsService({ provider: createProvider({ spider: { scanDeadCode } }), logger }).registerAll();
 
-      const result = await invokeTool('graph-it-live_scan_dead_code', { scopePath: '/workspace/src', maxFiles: 50 });
+      const result = await invokeTool('graph-it-live_scan_dead_code', { scopePath: '/workspace/src', maxFiles: 50, minConfidence: 'medium' });
 
       expect(scanDeadCode).toHaveBeenCalledWith(path.resolve('/workspace/src'), expect.objectContaining({ maxFiles: 50 }));
       expect(result).toMatchObject({
         scannedFiles: 4,
         filesWithDeadCode: 1,
-        totalUnusedSymbols: 1,
+        totalUnusedSymbols: 2,
         truncated: false,
-        entries: [{ relativePath: 'src/a.ts', unusedCount: 1 }],
+        minConfidence: 'medium',
+        byConfidence: { high: 1, medium: 1, low: 0 },
+        entries: [{ relativePath: 'src/a.ts', unusedCount: 2 }],
       });
+    });
+
+    it('rejects an unknown minConfidence before scanning', async () => {
+      const scanDeadCode = vi.fn();
+      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode } }), logger }).registerAll();
+
+      expect(JSON.stringify(await invokeTool('graph-it-live_scan_dead_code', { minConfidence: 'sure' }))).toContain('minConfidence');
+      expect(scanDeadCode).not.toHaveBeenCalled();
     });
 
     const emptyScan = { entries: [], scannedFiles: 0, skippedFiles: 0, filesBeyondLimit: 0 };

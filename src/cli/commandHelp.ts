@@ -289,20 +289,28 @@ Examples:
   graph-it diagram --folder packages/core --view matrix
   graph-it diagram --view matrix --format svg --output - > matrix.svg
 `,
-  check: `graph-it check — Find unused exported symbols in a file
+  check: `graph-it check — Find unused exported symbols in the workspace, a folder or a file
 
-Usage: graph-it check <file> [options]
+Usage: graph-it check [<file>|<folder>] [options]
 
 Arguments:
-  <file>            File to check for unused exports
+  <file>|<folder>   File or folder to check (default: the whole workspace)
 
 Options:
+  --minConfidence L Lowest confidence listed: high|medium|low (default: high).
+                    high: imported file, no use of the export found: a deletion candidate.
+                    medium: test-only use, computed import, decorator, name written again
+                    in its file (Rust: in another file), or a test file.
+                    low: nothing imports the file (entry point, script, config), review only.
+                    Unlisted items are counted in byConfidence.
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
 
 Examples:
+  graph-it check
   graph-it check src/api.ts
+  graph-it check src --minConfidence low --format json
 `,
   "review-pr": `graph-it review-pr — Review a Git diff against a base ref
 

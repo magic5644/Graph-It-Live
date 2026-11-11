@@ -15,6 +15,7 @@ vi.mock("@/mcp/tools", async (importOriginal) => ({
   // The real scan needs the reverse index of a full CLI run (covered by the E2E test).
   executeScanDeadCode: vi.fn().mockResolvedValue({
     entries: [{ relativePath: "backend/src/api.ts", unusedSymbols: [{ name: "api", line: 2, id: "x", kind: "VariableDeclaration", isExported: true }] }],
+    byConfidence: { high: 1, medium: 2, low: 3 },
   }),
 }));
 
@@ -215,6 +216,14 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     expect(text).toMatch(/Quick wins \(\d+, by effort\):/);
     expect(text).toMatch(/Matrix reading \(\d+\):/);
     expect(await run(["--dry-run"], runtime, "toon", offline)).toContain("dry-run");
+    expect(text).toContain("1 file(s) with 1 high-confidence unused export(s) (2 medium, 3 low not listed: graph-it check --minConfidence low)");
+  });
+
+  it("lists only high-confidence dead code as quick wins and counts the other levels", async () => {
+    const { executeScanDeadCode } = await import("@/mcp/tools");
+    const result = await init(["--dry-run"]);
+    expect(executeScanDeadCode).toHaveBeenCalledWith({ minConfidence: "high" });
+    expect(result.assessment.totals).toMatchObject({ deadCodeFiles: 1, unusedExports: 1, unusedExportsMedium: 2, unusedExportsLow: 3 });
   });
 });
 

@@ -228,18 +228,22 @@ describe("MCP invokeTool – scan_dead_code", () => {
     );
     await spider.buildFullIndex();
 
-    const response = await callTool("scan_dead_code", { scopePath: path.join(tempDir, "src", "lib") });
+    const response = await callTool("scan_dead_code", { scopePath: path.join(tempDir, "src", "lib"), minConfidence: "low" });
 
     expect(response.type).toBe("result");
     if (response.type !== "result") return;
     const names = (response.data as ScanDeadCodeResult).entries.flatMap((e) => e.unusedSymbols.map((s) => s.name));
     expect(names).toContain("reallyDead");
     expect(names).not.toContain("starUsed");
+    // Nothing imports d.ts: listed for review only, never as a safe deletion.
+    const reallyDead = (response.data as ScanDeadCodeResult).entries.flatMap((e) => e.unusedSymbols).find((s) => s.name === "reallyDead");
+    expect(reallyDead).toMatchObject({ confidence: "low", reasons: ["no-importer"], evidence: { importers: 0, firstImporters: [] } });
+    expect((response.data as ScanDeadCodeResult).byConfidence).toEqual({ high: 0, medium: 0, low: 1 });
 
     // find_unused_symbols reports the same set per file.
     for (const file of ["a.ts", "d.ts"]) {
       const filePath = path.join(lib, file);
-      const single = await callTool("find_unused_symbols", { filePath });
+      const single = await callTool("find_unused_symbols", { filePath, minConfidence: "low" });
       expect(single.type).toBe("result");
       if (single.type !== "result") return;
       const perFile = (single.data as { unusedSymbols: Array<{ name: string }> }).unusedSymbols.map((s) => s.name);

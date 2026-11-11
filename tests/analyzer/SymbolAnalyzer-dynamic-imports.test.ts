@@ -153,7 +153,7 @@ export function lazyFn() {
         expect(targets).toEqual(['./lazy:load', './other:other']);
     });
 
-    it('should ignore rest elements and fall back to default without destructuring', () => {
+    it('reads a rest element or a module object used as a whole as every export (*)', () => {
         const content = `
 export async function main() {
     const { run, ...rest } = await import("./a");
@@ -164,6 +164,33 @@ export async function main() {
         const result = analyzer.analyzeFileContent('/test/index.ts', content);
 
         const targets = result.dependencies.map(d => d.targetSymbolId).sort();
-        expect(targets).toEqual(['./a:run', './b:default']);
+        expect(targets).toEqual(['./a:*', './a:run', './b:*']);
+    });
+
+    it('reads a whole-module import type as every export, and a qualified one as its name', () => {
+        const content = `
+export type Whole = typeof import("./m");
+export type One = import("./n").Item.Sub;
+`;
+        const result = analyzer.analyzeFileContent('/test/index.ts', content);
+
+        expect(result.dependencies.map(d => [d.targetSymbolId, d.isTypeOnly]).sort()).toEqual([['./m:*', true], ['./n:Item', true]]);
+    });
+
+    it('reads only the members accessed on a module object, and default when it is unused', () => {
+        const content = `
+export async function main() {
+    const mod = await import("./b");
+    const other = { mod: 1 };
+    await import("./c").then((unused) => 0);
+    return mod.run() + mod.stop + other.mod;
+}
+export async function idle() {
+    const lone = await import("./d");
+}
+`;
+        const result = analyzer.analyzeFileContent('/test/index.ts', content);
+
+        expect(result.dependencies.map(d => d.targetSymbolId).sort()).toEqual(['./b:run', './b:stop', './c:default', './d:default']);
     });
 });

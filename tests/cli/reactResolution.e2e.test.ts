@@ -54,7 +54,7 @@ describe.skipIf(!fs.existsSync(DIST_ENTRY))("React resolution through the CLI (E
     const markdown = execFileSync(process.execPath, [DIST_ENTRY, "review-pr", "--base", "main", "-w", root, "--format", "markdown"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
     expect(markdown).toContain("src/Old.jsx:2");
     expect(markdown).toContain("props-contract compatibility is not checked");
-    const scan = json<DeadCodeScanResult>("check");
+    const scan = json<DeadCodeScanResult>("check", "--minConfidence", "low");
     expect(scan.entries.flatMap((e) => e.unusedSymbols).map((s) => s.name)).not.toContain("Card");
     expect(scan.entries.flatMap((e) => e.unusedSymbols).map((s) => s.name)).toContain("Missing");
   });
