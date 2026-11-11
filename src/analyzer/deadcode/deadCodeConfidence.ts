@@ -224,7 +224,8 @@ export function findDynamicLoads(filePath: string, relativePath: string, content
 function loadReach(prefix: string | null, python: boolean, dir: string, rootDir: string): Omit<DynamicLoad, "at"> {
   if (python && prefix) {
     // `pkg.plugins.` + name reaches pkg/plugins/; `pkg.plug` + name anything under pkg/.
-    const fragment = prefix.slice(0, prefix.lastIndexOf(".") + 1).replaceAll(".", "/").replace(/\/+$/, "");
+    let fragment = prefix.slice(0, prefix.lastIndexOf(".") + 1).replaceAll(".", "/");
+    while (fragment.endsWith("/")) fragment = fragment.slice(0, -1);
     return fragment && !fragment.startsWith("/") ? { pathFragment: fragment } : { scope: normalizePath(rootDir) };
   }
   if (prefix?.startsWith(".")) return { scope: normalizePath(path.resolve(dir, prefix.slice(0, prefix.lastIndexOf("/") + 1) || ".")) };
