@@ -51,7 +51,8 @@ function totalsLines(result: InitResult): string[] {
   const t = result.assessment.totals;
   return [
     `${t.units} units, ${t.unitEdges} unit edges, ${t.unitCycles} unit cycle(s), ${t.mutualImports} mutual file import(s)`,
-    `${t.acceptedViolations} accepted violation(s), ${t.deadCodeFiles} file(s) with ${t.unusedExports} unused export(s)`,
+    `${t.acceptedViolations} accepted violation(s), ${t.deadCodeFiles} file(s) with ${t.unusedExports} high-confidence unused export(s)`
+      + ` (${t.unusedExportsMedium} medium, ${t.unusedExportsLow} low not listed: graph-it check --minConfidence low)`,
   ];
 }
 

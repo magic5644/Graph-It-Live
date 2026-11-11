@@ -72,6 +72,9 @@ export interface ArchitectureAssessment {
     acceptedViolations: number;
     deadCodeFiles: number;
     unusedExports: number;
+    /** Unused exports below the high confidence the quick wins list (`graph-it check --minConfidence`) */
+    unusedExportsMedium: number;
+    unusedExportsLow: number;
   };
   thresholds: typeof ASSESSMENT_THRESHOLDS;
 }
@@ -81,7 +84,10 @@ export interface AssessmentInput {
   units: Pick<ArchitectureUnits, "units" | "unitEdges" | "cycles">;
   unitOf: ReadonlyMap<string, string>;
   matrix: ArchitectureMatrix<string>;
+  /** High-confidence unused exports only: safe deletion proposals */
   deadCode: readonly DeadCodeFile[];
+  /** Unused exports below high confidence, counted and never listed */
+  deadCodeBelowHigh?: { medium: number; low: number };
   acceptedViolations: number;
 }
 
@@ -293,6 +299,8 @@ export function assessArchitecture(input: AssessmentInput): ArchitectureAssessme
       acceptedViolations: input.acceptedViolations,
       deadCodeFiles: input.deadCode.filter((file) => file.unusedSymbols.length > 0).length,
       unusedExports: input.deadCode.reduce((total, file) => total + file.unusedSymbols.length, 0),
+      unusedExportsMedium: input.deadCodeBelowHigh?.medium ?? 0,
+      unusedExportsLow: input.deadCodeBelowHigh?.low ?? 0,
     },
     thresholds: ASSESSMENT_THRESHOLDS,
   };

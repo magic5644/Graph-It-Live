@@ -91,7 +91,7 @@ describe.skipIf(!wasmBuilt)("React resolution through the MCP tools (#575)", { t
   });
 
   it("keeps JSX-only corpus consumers out of dead code without crediting unresolved names", async () => {
-    const result = await executeScanDeadCode({});
+    const result = await executeScanDeadCode({ minConfidence: "low" });
     const unused = result.entries.flatMap((entry) => entry.unusedSymbols.map((s) => `${rel(entry.filePath)}#${s.name}`));
     for (const key of ["src/ui/Card.tsx#Card", "src/ui/Card.tsx#Panel", "src/ui/Button.jsx#Button", "src/Fancy.tsx#Fancy", "src/Fancy.tsx#Field"]) {
       expect(unused).not.toContain(key);

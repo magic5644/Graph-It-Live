@@ -315,7 +315,7 @@ describe('Spider - Referencing files behind Python and Rust re-exports (#521)', 
         'via_limited_named.py < limited.py', // via_limited_star.py: limited's __all__ leaves `one` out
         'via_outer.py < outer.py',
         'via_renamed.py < renamed.py',
-        'via_sub.py < __init__.py',
+        'via_sub.py', // `from pkg import impl` imports the submodule itself
         'whole.py < __init__.py',
       ],
     ],

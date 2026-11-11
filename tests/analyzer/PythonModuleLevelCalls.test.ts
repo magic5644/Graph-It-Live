@@ -23,7 +23,8 @@ describe('Spider - scanDeadCode counts module-level Python calls (#514)', () => 
   });
 
   it('still reports the definitions nobody calls', () => {
-    expect(unused('src/py/consumer.py').sort()).toEqual(['K', 'deco', 'decorated', 'run', 'with_default']);
+    // `deco` decorates `decorated` at file scope: it runs when the module loads.
+    expect(unused('src/py/consumer.py').sort()).toEqual(['K', 'decorated', 'run', 'with_default']);
   });
 
   it('counts a TypeScript call made at the top level of a script', () => {

@@ -1,4 +1,5 @@
 import { getRelativePath } from "../shared/helpers";
+import { confidenceHint, filterByConfidence } from "../../analyzer/deadcode/DeadCodeScanner";
 import { validateFileExists } from "../../shared/pathSecurity";
 import { workerState } from "../shared/state";
 import type {
@@ -58,7 +59,9 @@ export async function executeFindUnusedSymbols(
   const config = workerState.getConfig();
   await validateFileExists(filePath);
 
-  const unusedSymbols = await spider.findUnusedSymbols(filePath);
+  const minConfidence = params.minConfidence ?? "high";
+  const { listed: unusedSymbols, byConfidence } = filterByConfidence(await spider.findUnusedSymbols(filePath), minConfidence);
+  const hint = confidenceHint(byConfidence, minConfidence);
 
   // Get all exported symbols to calculate percentage
   const { symbols } = await spider.getSymbolGraph(filePath);
@@ -66,9 +69,11 @@ export async function executeFindUnusedSymbols(
 
   const unusedCount = unusedSymbols.length;
   const totalExportedSymbols = exportedSymbols.length;
+  // Share of every unused export found, listed or not.
+  const found = byConfidence.high + byConfidence.medium + byConfidence.low;
   const unusedPercentage =
     totalExportedSymbols > 0
-      ? Math.round((unusedCount / totalExportedSymbols) * 100)
+      ? Math.round((found / totalExportedSymbols) * 100)
       : 0;
 
   const relativePath = getRelativePath(filePath, config.rootDir);
@@ -78,6 +83,9 @@ export async function executeFindUnusedSymbols(
     relativePath,
     unusedCount,
     unusedSymbols,
+    minConfidence,
+    byConfidence,
+    ...(hint ? { hint } : {}),
     totalExportedSymbols,
     unusedPercentage,
   };

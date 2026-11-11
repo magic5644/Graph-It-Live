@@ -36,7 +36,9 @@ export function createSpiderDependentsProvider(
   return {
     getSymbolDependents: (filePath, symbolName) => spider.getSymbolDependents(filePath, symbolName),
     getSymbolGraph: (filePath) => spider.getSymbolGraph(filePath),
-    findUnusedSymbols: (filePath) => spider.findUnusedSymbols(filePath),
+    // An export that tests use is not unused evidence for a review.
+    findUnusedSymbols: async (filePath) =>
+      (await spider.findUnusedSymbols(filePath)).filter((symbol) => !symbol.reasons.includes("test-only-use")),
     findReferencingFiles: (filePath) => spider.findReferencingFiles(filePath),
     findReferencingFilesWithFallback: (filePath) => spider.findReferencingFilesWithFallback(filePath),
     ...(rootDir && analyze && reviewTreeProvider(rootDir, (filePath) => analyze.call(spider, filePath), extensionPath)),

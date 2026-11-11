@@ -8,13 +8,16 @@ import { executeScanDeadCode } from "../../../src/mcp/tools/deadcode";
 describe("deadcode tools", () => {
   let tempDir: string;
 
-  const makeSymbol = (name: string, kind = "FunctionDeclaration", category = "function") => ({
+  const makeSymbol = (name: string, kind = "FunctionDeclaration", category = "function", confidence = "high") => ({
     id: `sym:${name}`,
     name,
     kind,
     line: 1,
     isExported: true,
     category,
+    confidence,
+    reasons: [confidence === "low" ? "no-importer" : "importers-use-other-exports"],
+    evidence: { importers: confidence === "low" ? 0 : 1, firstImporters: [] },
   });
 
   const setupWorkerState = (spiderMock: any) => {
@@ -73,6 +76,36 @@ describe("deadcode tools", () => {
       expect(result.totalUnusedSymbols).toBe(3);
       expect(result.entries).toHaveLength(2);
       expect(result.analysisTimeMs).toBeGreaterThanOrEqual(0);
+      expect(result).toMatchObject({ minConfidence: "high", byConfidence: { high: 3, medium: 0, low: 0 } });
+      expect(result.hint).toBeUndefined();
+    });
+
+    it.each([
+      [undefined, ["keep"], 1, "1 medium, 1 low-confidence item(s) not listed: pass minConfidence low to list them."],
+      ["medium", ["keep", "maybe"], 1, "1 low-confidence item(s) not listed: pass minConfidence low to list them."],
+      ["low", ["keep", "maybe", "entry"], 2, undefined],
+    ] as const)("lists items at minConfidence %s or above and counts every item", async (minConfidence, names, files, hint) => {
+      const fileA = path.join(tempDir, "src", "a.ts");
+      const fileB = path.join(tempDir, "src", "b.ts");
+      setupWorkerState({
+        scanDeadCode: vi.fn(async () => ({
+          entries: [
+            { filePath: fileA, unusedSymbols: [makeSymbol("keep"), makeSymbol("maybe", undefined, undefined, "medium")] },
+            { filePath: fileB, unusedSymbols: [makeSymbol("entry", undefined, undefined, "low")] },
+          ],
+          scannedFiles: 2,
+          skippedFiles: 0,
+          filesBeyondLimit: 0,
+        })),
+      });
+
+      const result = await executeScanDeadCode(minConfidence ? { minConfidence } : {});
+
+      expect(result.entries.flatMap((e) => e.unusedSymbols.map((s) => s.name))).toEqual(names);
+      expect(result.filesWithDeadCode).toBe(files);
+      expect(result.totalUnusedSymbols).toBe(names.length);
+      expect(result.byConfidence).toEqual({ high: 1, medium: 1, low: 1 });
+      expect(result.hint).toBe(hint);
     });
 
     it("should keep the category set by the language analyzer", async () => {

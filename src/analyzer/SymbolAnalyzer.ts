@@ -733,13 +733,11 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
    */
   private extractIntraFileCalls(
     node: Node,
-    sourceFile: SourceFile
+    sourceFile: SourceFile,
+    functionNames: Set<string>,
   ): Array<UsedSymbol> {
     const calls: Array<UsedSymbol> = [];
     const filePath = filePathOf(sourceFile);
-
-    // Get all top-level function names in this file
-    const functionNames = this.collectFunctionNames(sourceFile);
 
     // Find all CallExpression nodes in this declaration
     const callExpressions = node.getDescendantsOfKind(SyntaxKind.CallExpression);
@@ -861,13 +859,17 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     > = {};
     const filePath = filePathOf(sourceFile);
 
-    // Get all top-level declarations (functions, classes, etc.)
+    // Get all top-level declarations (functions, classes, etc.); interfaces, type aliases and enums use types too.
     const declarations = [
       ...sourceFile.getFunctions(),
       ...sourceFile.getClasses(),
       ...sourceFile.getVariableDeclarations(),
+      ...sourceFile.getInterfaces(),
+      ...sourceFile.getTypeAliases(),
+      ...sourceFile.getEnums(),
     ];
     const localNames = localReferenceNames(declarations, importMap);
+    const functionNames = this.collectFunctionNames(sourceFile);
 
     for (const decl of declarations) {
       const symbolName = decl.getName();
@@ -877,9 +879,10 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       const deps = this.extractSymbolDependencies(decl, importMap, localNames);
 
       // CRITICAL: Add intra-file function call detection
-      // This detects calls like fibonacci() -> fibonacci(), isEven() -> isOdd()
-      const intraFileCalls = this.extractIntraFileCalls(decl, sourceFile);
-      deps.push(...intraFileCalls);
+      // This detects calls like fibonacci() -> fibonacci(), isEven() -> isOdd(). A type declaration calls nothing.
+      if (!Node.isInterfaceDeclaration(decl) && !Node.isTypeAliasDeclaration(decl)) {
+        deps.push(...this.extractIntraFileCalls(decl, sourceFile, functionNames));
+      }
 
       usage[symbolId] = deps;
     }
@@ -971,6 +974,18 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
 
     // Extract dependencies from dynamic import() calls
     this.extractDynamicImportDependencies(node, dependencies);
+
+    // Inline import types: `import("./m").Name`; most declarations have none, skip the walk.
+    const importTypes = node.getText().includes("import(") ? node.getDescendantsOfKind(SyntaxKind.ImportType) : [];
+    for (const importType of importTypes) {
+      const argument = importType.getArgument();
+      const literal = Node.isLiteralTypeNode(argument) ? argument.getLiteral() : undefined;
+      if (!Node.isStringLiteral(literal)) continue;
+      const modulePath = literal.getLiteralText();
+      // `typeof import("./m")` is the whole module object: every export.
+      const name = importType.getQualifier()?.getText().split(".")[0] ?? "*";
+      addUnique(dependencies, { symbolId: `${modulePath}:${name}`, filePath: modulePath, isTypeOnly: true, line: importType.getStartLineNumber() });
+    }
 
     return dependencies;
   }
@@ -1079,12 +1094,13 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       }
     }
 
+    if (Node.isIdentifier(pattern)) return namespaceMembersRead(pattern);
     if (!Node.isObjectBindingPattern(pattern)) return [];
 
+    // `...rest` takes every other export.
     return pattern
       .getElements()
-      .filter((element) => !element.getDotDotDotToken())
-      .map((element) => element.getPropertyNameNode()?.getText() ?? element.getName());
+      .map((element) => (element.getDotDotDotToken() ? "*" : element.getPropertyNameNode()?.getText() ?? element.getName()));
   }
 
   /**
@@ -1256,4 +1272,26 @@ function isSpyOnCall(call: CallExpression): boolean {
   const callee = call.getExpression();
   const name = Node.isPropertyAccessExpression(callee) ? callee.getName() : callee.getText();
   return name === "spyOn";
+}
+
+/**
+ * Members read on the module object a dynamic import binds (`const m = await import("./x"); m.run()`): `run`.
+ * Any other use of the binding (passed on, spread, indexed) may read every member: `*`; an unused binding reads
+ * `default`, as before. Same-name identifiers of other scopes count too, which only keeps more exports.
+ */
+function namespaceMembersRead(binding: Node): string[] {
+  const name = binding.getText();
+  const members = new Set<string>();
+  for (const use of binding.getSourceFile().getDescendantsOfKind(SyntaxKind.Identifier)) {
+    if (use === binding || use.getText() !== name) continue;
+    const parent = use.getParent();
+    if (Node.isPropertyAccessExpression(parent) && parent.getExpression() === use) members.add(parent.getName());
+    else if (!isPropertyName(use, parent)) members.add("*");
+  }
+  return members.size > 0 ? [...members] : ["default"];
+}
+
+/** `x` in `o.x` or `{ x: 1 }`: a property name, not a use of a binding named x. */
+function isPropertyName(use: Node, parent: Node | undefined): boolean {
+  return (Node.isPropertyAccessExpression(parent) || Node.isPropertyAssignment(parent)) && parent.getNameNode() === use;
 }

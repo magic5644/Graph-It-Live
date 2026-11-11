@@ -237,7 +237,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
     }
 
     if (node.type === 'impl_item') {
-      this.handleImplItem(node, filePath, content, symbols, parentSymbolId);
+      this.handleImplItem(node, filePath, content, symbols);
       return true;
     }
 
@@ -266,7 +266,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       kind: isAsync ? 'AsyncFunction' : 'FunctionDeclaration',
       line: nameNode.startPosition.row + 1,
       endLine: node.endPosition.row + 1,
-      isExported: isPublic,
+      isExported: isPublic && parentSymbolId === undefined,
       id: symbolId,
       parentSymbolId,
       category: 'function',
@@ -296,7 +296,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       kind: 'StructDeclaration',
       line: nameNode.startPosition.row + 1,
       endLine: node.endPosition.row + 1,
-      isExported: isPublic,
+      isExported: isPublic && parentSymbolId === undefined,
       id: symbolId,
       parentSymbolId,
       category: 'class',
@@ -326,7 +326,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       kind: 'EnumDeclaration',
       line: nameNode.startPosition.row + 1,
       endLine: node.endPosition.row + 1,
-      isExported: isPublic,
+      isExported: isPublic && parentSymbolId === undefined,
       id: symbolId,
       parentSymbolId,
       category: 'type',
@@ -356,7 +356,7 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
       kind: 'InterfaceDeclaration',
       line: nameNode.startPosition.row + 1,
       endLine: node.endPosition.row + 1,
-      isExported: isPublic,
+      isExported: isPublic && parentSymbolId === undefined,
       id: symbolId,
       parentSymbolId,
       category: 'type',
@@ -369,11 +369,13 @@ export class RustSymbolAnalyzer implements ISymbolAnalyzer {
     node: Node,
     filePath: string,
     content: string,
-    symbols: Map<string, SymbolInfo>,
-    parentSymbolId?: string
+    symbols: Map<string, SymbolInfo>
   ): void {
-    // impl blocks don't have a name themselves, extract methods inside
-    this.extractSymbolsFromChildren(node, filePath, content, symbols, parentSymbolId);
+    // impl blocks don't have a name themselves: their members belong to the implemented type, which is
+    // how callers reach them (never through `use`), so they are not module-level exports.
+    const typeNode = node.childForFieldName('type');
+    const typeName = typeNode ? this.getNodeText(typeNode, content).split('<')[0].trim() : 'impl';
+    this.extractSymbolsFromChildren(node, filePath, content, symbols, `${filePath}:${typeName}`);
   }
 
   private extractSymbolsFromChildren(

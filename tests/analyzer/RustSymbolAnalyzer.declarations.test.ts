@@ -29,8 +29,23 @@ impl Shape { pub fn area(&self) -> u32 { 0 } }
       ["Draw", "type", true],
       ["Kind", "type", false],
       ["Shape", "class", true],
-      ["area", "function", true],
+      // A `pub fn` of an impl is reached through its type, never through `use`: not a module-level export.
+      ["area", "function", false],
     ].sort());
+    expect(symbols.find((s) => s.name === "area")?.parentSymbolId).toBe(`${file}:Shape`);
+  });
+
+  it("keeps module-level pub items exported and makes members of generic and trait impls, trait methods and nested functions not exported", () => {
+    const { symbols } = analyzer.analyzeFileContent(file, `pub fn top() { pub fn inner() {} }
+pub struct Stack<T>(Vec<T>);
+impl<T> Stack<T> { pub fn push(&mut self) {} }
+impl Default for Stack<u8> { fn default() -> Self { Stack(Vec::new()) } }
+pub trait Run { fn run(&self) {} }
+`);
+
+    expect(symbols.filter((s) => s.isExported).map((s) => s.name).sort()).toEqual(["Run", "Stack", "top"]);
+    expect(symbols.find((s) => s.name === "push")?.parentSymbolId).toBe(`${file}:Stack`);
+    expect(symbols.find((s) => s.name === "default")?.parentSymbolId).toBe(`${file}:Stack`);
   });
 
   it.each([

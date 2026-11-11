@@ -1,26 +1,35 @@
 import type { Spider } from "../Spider";
-import type { SymbolInfo } from "../types";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
+import { countByConfidence, meetsConfidence, type DeadCodeConfidence, type UnusedSymbol } from "./deadCodeConfidence";
 
 export interface DeadCodeScanOptions {
   scopePath?: string;
   maxFiles?: number;
+  /** Lowest confidence listed (default `high`); the others are only counted in `byConfidence`. */
+  minConfidence?: DeadCodeConfidence;
 }
 
 export interface DeadCodeScanEntry {
   filePath: string;
   relativePath: string;
   unusedCount: number;
-  unusedSymbols: SymbolInfo[];
+  unusedSymbols: UnusedSymbol[];
 }
 
 export interface DeadCodeScanResult {
   rootDir: string;
   scopePath: string;
   scannedFiles: number;
+  /** Files listed: with at least one unused export at minConfidence or above */
   filesWithDeadCode: number;
+  /** Unused exports listed */
   totalUnusedSymbols: number;
+  minConfidence: DeadCodeConfidence;
+  /** Every unused export found, listed or not, per confidence */
+  byConfidence: Record<DeadCodeConfidence, number>;
+  /** How to list the items below minConfidence, when there are some */
+  hint?: string;
   entries: DeadCodeScanEntry[];
   skippedFiles: number;
   /** True when maxFiles stopped the scan: unscanned files may hold dead code too. */
@@ -30,6 +39,22 @@ export interface DeadCodeScanResult {
   analysisTimeMs: number;
 }
 
+/** The items at `minConfidence` or above, and every item counted per confidence. */
+export function filterByConfidence(
+  items: readonly UnusedSymbol[],
+  minConfidence: DeadCodeConfidence,
+): { listed: UnusedSymbol[]; byConfidence: Record<DeadCodeConfidence, number> } {
+  return { listed: items.filter((item) => meetsConfidence(item.confidence, minConfidence)), byConfidence: countByConfidence(items) };
+}
+
+/** A pointer to the unlisted items, or undefined when every item is listed. */
+export function confidenceHint(byConfidence: Record<DeadCodeConfidence, number>, minConfidence: DeadCodeConfidence): string | undefined {
+  const hidden = (["medium", "low"] as const).filter((level) => !meetsConfidence(level, minConfidence) && byConfidence[level] > 0);
+  if (hidden.length === 0) return undefined;
+  const counts = hidden.map((level) => `${byConfidence[level]} ${level}`).join(", ");
+  return `${counts}-confidence item(s) not listed: pass minConfidence ${hidden.at(-1)} to list them.`;
+}
+
 export async function scanDeadCode(
   spider: Spider,
   rootDir: string,
@@ -37,16 +62,21 @@ export async function scanDeadCode(
   signal?: AbortSignal,
 ): Promise<DeadCodeScanResult> {
   const scopePath = validateWorkspacePath(options.scopePath ?? rootDir, rootDir);
+  const minConfidence = options.minConfidence ?? "high";
   const startTime = Date.now();
   const rawResult = await spider.scanDeadCode(scopePath, { maxFiles: options.maxFiles, signal });
-  const entries = rawResult.entries.map((entry) => {
-    return {
+  const byConfidence = countByConfidence(rawResult.entries.flatMap((entry) => entry.unusedSymbols));
+  const entries = rawResult.entries.flatMap((entry) => {
+    const { listed } = filterByConfidence(entry.unusedSymbols, minConfidence);
+    if (listed.length === 0) return [];
+    return [{
       filePath: entry.filePath,
       relativePath: getRelativePath(entry.filePath, rootDir),
-      unusedCount: entry.unusedSymbols.length,
-      unusedSymbols: entry.unusedSymbols,
-    };
+      unusedCount: listed.length,
+      unusedSymbols: listed,
+    }];
   });
+  const hint = confidenceHint(byConfidence, minConfidence);
 
   return {
     rootDir,
@@ -54,6 +84,9 @@ export async function scanDeadCode(
     scannedFiles: rawResult.scannedFiles,
     filesWithDeadCode: entries.length,
     totalUnusedSymbols: entries.reduce((sum, entry) => sum + entry.unusedCount, 0),
+    minConfidence,
+    byConfidence,
+    ...(hint ? { hint } : {}),
     entries,
     skippedFiles: rawResult.skippedFiles,
     truncated: rawResult.filesBeyondLimit > 0,

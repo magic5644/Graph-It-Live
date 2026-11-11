@@ -257,6 +257,8 @@ export interface SymbolInfo {
   category: "function" | "class" | "variable" | "interface" | "type" | "other";
   /** The module's default export, listed under its declared name (`export default function Panel` is `Panel`) */
   isDefaultExport?: boolean;
+  /** Python: the definition has decorators, which may register it by reference (routes, commands, fixtures) */
+  isDecorated?: boolean;
 }
 
 export interface SymbolDependency {

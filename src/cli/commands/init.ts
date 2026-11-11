@@ -171,9 +171,13 @@ async function writeDiagrams(source: UnitSource, workspaceRoot: string, outputDi
   return diagrams;
 }
 
+/** High-confidence unused exports, listed as quick wins, and the counts of the other levels. */
 async function deadCodeFiles() {
-  const scan = await executeScanDeadCode({});
-  return scan.entries.map((entry) => ({ relativePath: entry.relativePath, unusedSymbols: entry.unusedSymbols.map(({ name, line }) => ({ name, line })) }));
+  const scan = await executeScanDeadCode({ minConfidence: "high" });
+  return {
+    deadCode: scan.entries.map((entry) => ({ relativePath: entry.relativePath, unusedSymbols: entry.unusedSymbols.map(({ name, line }) => ({ name, line })) })),
+    deadCodeBelowHigh: { medium: scan.byConfidence.medium, low: scan.byConfidence.low },
+  };
 }
 
 export async function run(args: string[], runtime: CliRuntime, format: CliOutputFormat, io: InitIo = terminalIo): Promise<string> {
@@ -204,7 +208,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     units,
     unitOf: assignment.unitOf,
     matrix: unitMatrix(units),
-    deadCode: await deadCodeFiles(),
+    ...(await deadCodeFiles()),
     acceptedViolations: baseline.length,
   });
   const diagrams = outputDir === undefined ? [] : await writeDiagrams({ graph, units, assignment }, workspaceRoot, outputDir, check, assessment);

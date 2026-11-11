@@ -14,6 +14,7 @@ import { COMMUNITY_MODES } from "../shared/graph-types";
 import { DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel } from "../analyzer/diagram/diagramStyle";
 import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
+import { DEAD_CODE_CONFIDENCES, type DeadCodeConfidence, type UnusedSymbol } from "../analyzer/deadcode/deadCodeConfidence";
 import type { OutOfRootReport } from "../analyzer/utils/workspaceBoundary";
 import {
   getRelativePath as _getRelativePath,
@@ -419,10 +420,20 @@ export const GetSymbolGraphParamsSchema = z.object({
 });
 export type GetSymbolGraphParams = z.infer<typeof GetSymbolGraphParamsSchema>;
 
+const MinConfidenceSchema = z
+  .enum(DEAD_CODE_CONFIDENCES)
+  .optional()
+  .describe(
+    "Lowest confidence listed (default: high). high: the file is imported, no importer uses the export and no other " +
+      "evidence of use was found: a deletion candidate. " + "medium: only tests use it, a computed import may reach it, a decorator may register it, its name is written again in its file (or, in Rust, in another file), or it sits in a test file. low: nothing " +
+      "imports the file (entry point by convention, script, config), review only. Unlisted items are counted in byConfidence.",
+  );
+
 export const FindUnusedSymbolsParamsSchema = z.object({
   filePath: FilePathSchema.describe(
     "Absolute path to the file to check for unused exported symbols",
   ),
+  minConfidence: MinConfidenceSchema,
 });
 export type FindUnusedSymbolsParams = z.infer<
   typeof FindUnusedSymbolsParamsSchema
@@ -852,6 +863,7 @@ export const ScanDeadCodeParamsSchema = z.object({
       "Optional cap on analysed files (default: every analysable file in scope, no upper bound). " +
         "When the cap stops the scan, truncated=true and filesBeyondLimit > 0: the result is partial.",
     ),
+  minConfidence: MinConfidenceSchema,
 });
 export type ScanDeadCodeParams = z.infer<typeof ScanDeadCodeParamsSchema>;
 
@@ -1448,13 +1460,18 @@ export interface FindUnusedSymbolsResult {
   filePath: string;
   /** Relative path from workspace root */
   relativePath: string;
-  /** Number of unused exported symbols found */
+  /** Number of unused exported symbols listed (at minConfidence or above) */
   unusedCount: number;
-  /** List of unused exported symbols (potentially dead code) */
-  unusedSymbols: SymbolInfo[];
+  /** Unused exported symbols at minConfidence or above, each with its confidence, reasons and evidence */
+  unusedSymbols: UnusedSymbol[];
+  minConfidence: DeadCodeConfidence;
+  /** Every unused export found, listed or not, per confidence */
+  byConfidence: Record<DeadCodeConfidence, number>;
+  /** How to list the items below minConfidence, when there are some */
+  hint?: string;
   /** Total number of exported symbols in the file */
   totalExportedSymbols: number;
-  /** Percentage of exports that are unused */
+  /** Percentage of exports that are unused, every confidence counted */
   unusedPercentage: number;
 }
 
@@ -1745,8 +1762,8 @@ export interface DeadCodeFileEntry {
   relativePath: string;
   /** Number of unused exported symbols found */
   unusedCount: number;
-  /** Unused exported symbols */
-  unusedSymbols: SymbolInfo[];
+  /** Unused exported symbols at minConfidence or above, each with its confidence, reasons and evidence */
+  unusedSymbols: UnusedSymbol[];
 }
 
 /**
@@ -1759,10 +1776,15 @@ export interface ScanDeadCodeResult {
   scopePath: string;
   /** Number of files that were analysed */
   scannedFiles: number;
-  /** Number of files containing at least one unused exported symbol */
+  /** Number of files listed: with at least one unused export at minConfidence or above */
   filesWithDeadCode: number;
-  /** Total unused exported symbols across all files */
+  /** Unused exports listed across all files */
   totalUnusedSymbols: number;
+  minConfidence: DeadCodeConfidence;
+  /** Every unused export found, listed or not, per confidence */
+  byConfidence: Record<DeadCodeConfidence, number>;
+  /** How to list the items below minConfidence, when there are some */
+  hint?: string;
   /** Per-file entries (only files with dead code are included) */
   entries: DeadCodeFileEntry[];
   /** Number of files skipped (unsupported language / parse error) */

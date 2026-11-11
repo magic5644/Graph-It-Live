@@ -8,6 +8,15 @@ import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
 import { extractFilePath } from "../utils/PathExtractor";
 import { WasmParserFactory } from "./WasmParserFactory";
 
+/** A `from module import names` statement, whose names may be submodules of a package. */
+interface FromImport {
+  module: string;
+  names: string[];
+  line: number;
+}
+
+const PACKAGE_INIT = /[\\/]__init__\.pyi?$/;
+
 /**
  * Python import parser backed by tree-sitter WASM.
  * Requires `extensionPath` to locate `dist/wasm`.
@@ -112,6 +121,7 @@ export class PythonParser implements ILanguageAnalyzer {
       }
       const dependencies: Dependency[] = [];
       const seen = new Set<string>();
+      const fromImports: FromImport[] = [];
 
       this.traverseTree(tree.rootNode, (node) => {
         // Handle: import module [as alias]
@@ -120,10 +130,12 @@ export class PythonParser implements ILanguageAnalyzer {
         }
         // Handle: from module import name [as alias]
         else if (node.type === "import_from_statement") {
-          this.extractImportFromStatement(node, dependencies, seen, content);
+          const fromImport = this.extractImportFromStatement(node, dependencies, seen, content);
+          if (fromImport) fromImports.push(fromImport);
         }
       });
 
+      await this.addImportedSubmodules(actualPath, fromImports, dependencies, seen);
       return dependencies;
     } catch (error) {
       throw SpiderError.fromError(error, filePath);
@@ -167,8 +179,12 @@ export class PythonParser implements ILanguageAnalyzer {
     seen: Set<string>,
     content: string,
   ): void {
-    // Find dotted_name nodes (the module being imported)
-    const dottedNames = this.findChildrenByType(node, "dotted_name");
+    // The modules imported: `import a.b` (dotted_name) or `import a.b as c` (aliased_import).
+    const dottedNames = node.children.flatMap((child) => {
+      if (child.type === "dotted_name") return [child];
+      const aliased = child.type === "aliased_import" ? child.childForFieldName("name") : null;
+      return aliased ? [aliased] : [];
+    });
 
     for (const dottedName of dottedNames) {
       const module = this.getNodeText(dottedName, content);
@@ -185,14 +201,15 @@ export class PythonParser implements ILanguageAnalyzer {
   }
 
   /**
-   * Extract from...import statement: from x import y
+   * Extract from...import statement: from x import y. Returns the module and the imported names,
+   * which may be submodules of a package (`from pkg import sub`).
    */
   private extractImportFromStatement(
     node: Node,
     dependencies: Dependency[],
     seen: Set<string>,
     content: string,
-  ): void {
+  ): FromImport | null {
     // Find the module path (can be dotted_name or relative_import)
     let module: string | null = null;
 
@@ -216,6 +233,40 @@ export class PythonParser implements ILanguageAnalyzer {
         line: node.startPosition.row + 1,
         module,
       });
+    }
+    if (!module) return null;
+    // The imported names follow the `import` keyword: dotted_name or aliased_import.
+    const importKeyword = node.children.findIndex((child) => child.type === "import");
+    const imported = importKeyword < 0 ? [] : node.children.slice(importKeyword + 1);
+    const names = imported.filter((child) => child.type === "dotted_name" || child.type === "aliased_import").flatMap((name) => {
+      const dotted = name.type === "aliased_import" ? name.childForFieldName("name") : name;
+      const text = dotted ? this.getNodeText(dotted, content) : "";
+      return /^[A-Za-z_]\w*$/.test(text) ? [text] : [];
+    });
+    return names.length > 0 ? { module, names, line: node.startPosition.row + 1 } : null;
+  }
+
+  /**
+   * `from pkg import sub` imports the submodule pkg/sub.py when pkg is a package: add it as a dependency,
+   * or its exports used as `sub.name` would have no importer. Only names that resolve to a file are added.
+   */
+  private async addImportedSubmodules(
+    fromFile: string,
+    fromImports: readonly FromImport[],
+    dependencies: Dependency[],
+    seen: Set<string>,
+  ): Promise<void> {
+    const found = await Promise.all(fromImports.map(async ({ module, names, line }) => {
+      const resolved = await this.resolvePath(fromFile, module);
+      if (!resolved || !PACKAGE_INIT.test(resolved)) return [];
+      const specifiers = names.map((name) => (module.endsWith(".") ? `${module}${name}` : `${module}.${name}`));
+      const files = await Promise.all(specifiers.map((specifier) => this.resolvePath(fromFile, specifier)));
+      return specifiers.filter((_, i) => files[i] !== null).map((specifier) => ({ specifier, line }));
+    }));
+    for (const { specifier, line } of found.flat()) {
+      if (seen.has(specifier)) continue;
+      seen.add(specifier);
+      dependencies.push({ path: "", type: "import", line, module: specifier });
     }
   }
 
@@ -283,7 +334,21 @@ export class PythonParser implements ILanguageAnalyzer {
     addDir(this.rootDir);
 
     // Absolute imports mostly miss (stdlib, site-packages): probe every level at once, keep the nearest hit.
-    return this.firstExistingFile([...dirs.values()].flatMap((dir) => moduleCandidates(dir, modulePath)), firstNonNullConcurrent);
+    // A `src/` layout puts packages one level down: `examples/app/src/pkg` is imported as `pkg` from `examples/app`.
+    // Its candidates are probed only where a `src/` folder exists: most absolute imports miss (stdlib).
+    const srcDirs = await Promise.all([...dirs.values()].map(async (dir) => ((await this.isDirectory(path.join(dir, "src"))) ? [path.join(dir, "src")] : [])));
+    return this.firstExistingFile(
+      [...dirs.values(), ...srcDirs.flat()].flatMap((dir) => moduleCandidates(dir, modulePath)),
+      firstNonNullConcurrent,
+    );
+  }
+
+  private async isDirectory(dirPath: string): Promise<boolean> {
+    try {
+      return (await fs.stat(dirPath)).isDirectory();
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -311,21 +376,6 @@ export class PythonParser implements ILanguageAnalyzer {
     }
   }
 
-  /**
-   * Find all children of a specific type
-   */
-  private findChildrenByType(
-    node: Node,
-    type: string,
-  ): Node[] {
-    const results: Node[] = [];
-    for (const child of node.children) {
-      if (child.type === type) {
-        results.push(child);
-      }
-    }
-    return results;
-  }
 
   /**
    * Find first child of a specific type
