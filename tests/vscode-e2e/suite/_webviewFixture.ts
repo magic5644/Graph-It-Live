@@ -79,7 +79,7 @@ export async function runWebviewFixture<T extends FixtureReport>(
       const listener = panel.webview.onDidReceiveMessage((message: T) => { clearTimeout(timer); listener.dispose(); resolve(message); });
     });
     const script = panel.webview.asWebviewUri(vscode.Uri.file(bundle));
-    panel.webview.html = `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${panel.webview.cspSource}; style-src 'unsafe-inline'; img-src data:;"><style>${options.style}</style></head><body><div id="root"></div><script src="${script}"></script></body></html>`;
+    panel.webview.html = `<!DOCTYPE html><html><head><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src ${panel.webview.cspSource}; style-src 'unsafe-inline'; img-src data:; worker-src blob:;"><style>${options.style}</style></head><body><div id="root"></div><script src="${script}"></script></body></html>`;
     const report = await result;
     assert.strictEqual(report.ok, true, report.error);
     await inspect(report);
