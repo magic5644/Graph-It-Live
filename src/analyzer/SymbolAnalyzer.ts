@@ -292,6 +292,9 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         libReplacement: false,
         // Nor any @types package: no automatic type reference to look for.
         types: [],
+        // A file's own exports need no standard library, and every new file rebuilds the program:
+        // loading lib.*.d.ts each time made the dead-code scan 2.6x slower (#664).
+        noLib: true,
       },
       // Symbols keep the file's own declarations only (#541): resolving imports would only cost time.
       resolutionHost: () => ({ resolveModuleNames: (moduleNames) => moduleNames.map(() => undefined) }),
