@@ -60,6 +60,24 @@ describe("createElk", () => {
     await expect(layout).rejects.toThrow("ELK worker failed: Refused to create a worker (CSP)");
   });
 
+  it("rejects every layout when the worker constructor throws (older Chromium on a CSP block)", async () => {
+    vi.stubGlobal("Worker", class {
+      constructor() {
+        throw new Error("Failed to construct 'Worker': denied by the Content Security Policy");
+      }
+    });
+    try {
+      const elk = createElk();
+      await expect(elk.layout({ id: "root" })).rejects.toThrow(
+        "ELK worker failed: Failed to construct 'Worker': denied by the Content Security Policy",
+      );
+      await expect(elk.layout({ id: "other" })).rejects.toThrow("ELK worker failed");
+      expect(() => elk.terminate()).not.toThrow();
+    } finally {
+      vi.stubGlobal("Worker", FakeWorker);
+    }
+  });
+
   it("terminates its worker", () => {
     const elk = createElk();
     elk.terminate();
