@@ -53,6 +53,29 @@ describe("buildArchitectureGraph", () => {
     expect(graph.context).toMatchObject({ communityMode: "path", indexedAt: "2026-10-15T00:00:00Z", truncated: false, maxFiles: undefined });
   });
 
+  it("drops dependencies resolved into an installed package or a build output, whatever the root's own path", async () => {
+    // The workspace itself under a folder named like an ignored one: only the relative path counts.
+    const nested = path.join(root, "build", "app");
+    const source = path.join(nested, "src", "a.ts");
+    const local = path.join(nested, "src", "b.ts");
+    await fs.mkdir(path.dirname(source), { recursive: true });
+    await fs.writeFile(source, "");
+    await fs.writeFile(local, "");
+    const analyzeFile = vi.fn(async (filePath: string) =>
+      filePath === normalizePath(source)
+        ? [
+          dependency(path.join(nested, "node_modules", "nprogress", "nprogress.css")),
+          dependency(path.join(nested, "packages", "ui", "dist", "index.js")),
+          dependency(local),
+        ]
+        : []);
+
+    const graph = await buildArchitectureGraph(nested, analyzeFile);
+
+    expect(graph.nodes.map((node) => node.relativePath).sort()).toEqual(["src/a.ts", "src/b.ts"]);
+    expect(graph.edges.map((edge) => edge.targetRelative)).toEqual(["src/b.ts"]);
+  });
+
   it("keeps node ids stable when the analysis returns Windows separators", async () => {
     const windowsB = normalizePath(fileB).replaceAll("/", "\\");
     const graph = await buildArchitectureGraph(root, async (filePath) =>
