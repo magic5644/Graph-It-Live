@@ -539,6 +539,8 @@ The default lists `high` items only; `byConfidence` counts every item found and 
 
 A manifest path naming a build output is mapped back to its source: tsconfig `outDir` to `rootDir`, a bundle folder such as `dist/` to `rootDir`, `.js` to `.ts` / `.tsx` (`.mjs` to `.mts`, `.cjs` to `.cts`, `.d.ts` to `.ts`); when nothing matches, a bundle named after its entry (`dist/extension.js`) is matched to the only file with that stem under `rootDir`. A path that names no workspace file, or leaves the workspace, declares nothing. An invalid manifest (bad JSON or TOML, a field of the wrong type) is ignored with a warning naming the file. A JSX function or class default export, or a `.vue` default export, may be loaded by a framework: it is left out too, with `reason: convention:framework-default-export`.
 
+Container and deployment manifests (`Dockerfile`, `docker-compose.yml`, `serverless.yml`, AWS SAM / CloudFormation `template.yaml`) are not read. The file they start (a Lambda `handler`, the script of a `CMD`, a `uvicorn app:app` module) is usually imported by nothing, so its exports are already reported at `low` with `no-importer`, never at `high`. Only a handler that sits in a file other workspace files import for its other exports can reach `high`: check that file before deleting it.
+
 Go, Java and C# files have no symbol analysis yet and are not scanned (#699).
 
 **Output (text, workspace-wide):**
