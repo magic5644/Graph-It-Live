@@ -37,6 +37,11 @@ export class SourceFileCollector {
   }
 
   async collectAllSourceFiles(rootDir: string): Promise<string[]> {
+    return this.collectFiles(rootDir, isSupportedSourceFile);
+  }
+
+  /** The files whose name `accept`s, walked like the source files (same ignore rules and order). */
+  async collectFiles(rootDir: string, accept: (fileName: string) => boolean): Promise<string[]> {
     const files: string[] = [];
     let lastYieldTime = Date.now();
     const isIgnoredByRules = createIgnoreMatcher(rootDir);
@@ -52,7 +57,7 @@ export class SourceFileCollector {
 
       if (entry.isDirectory() && !shouldSkipDirectory(entry.name, this.excludeNodeModules)) {
         await walkDir(fullPath);
-      } else if (entry.isFile() && isSupportedSourceFile(entry.name)) {
+      } else if (entry.isFile() && accept(entry.name)) {
         files.push(fullPath);
       }
     };

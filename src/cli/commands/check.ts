@@ -22,13 +22,14 @@ export async function run(
   format: CliOutputFormat,
 ): Promise<string> {
   const minConfidence = readChoiceOption(args, "--minConfidence", DEAD_CODE_CONFIDENCES);
+  const verbose = args.includes("--verbose");
   const flagIndex = args.indexOf("--minConfidence");
-  const positional = flagIndex < 0 ? args : [...args.slice(0, flagIndex), ...args.slice(flagIndex + 2)];
+  const positional = (flagIndex < 0 ? args : [...args.slice(0, flagIndex), ...args.slice(flagIndex + 2)]).filter((arg) => arg !== "--verbose");
   await runtime.ensureIndexed();
 
   // No argument → full workspace scan for dead code
   if (positional.length === 0) {
-    const result = await executeScanDeadCode({ minConfidence });
+    const result = await executeScanDeadCode({ minConfidence, verbose });
     return formatOutput(result, format, "check");
   }
 
@@ -46,7 +47,7 @@ export async function run(
   }
 
   if (isDirectory) {
-    const result = await executeScanDeadCode({ scopePath: candidatePath, minConfidence });
+    const result = await executeScanDeadCode({ scopePath: candidatePath, minConfidence, verbose });
     return formatOutput(result, format, "check");
   }
 

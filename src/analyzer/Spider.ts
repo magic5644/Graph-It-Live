@@ -836,7 +836,7 @@ export class Spider {
   async scanDeadCode(
     scopePath?: string,
     options?: { maxFiles?: number; signal?: AbortSignal }
-  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: import('./deadcode/deadCodeConfidence').UnusedSymbol[] }>; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
+  ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: import('./deadcode/deadCodeConfidence').UnusedSymbol[] }>; excluded: import('./deadcode/deadCodeConfidence').ExcludedExport[]; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
     const resolvedScope = scopePath ?? this.config.rootDir;
     return this.symbolService.scanDeadCode(resolvedScope, {
       maxFiles: options?.maxFiles,

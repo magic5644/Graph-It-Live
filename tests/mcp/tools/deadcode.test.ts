@@ -225,6 +225,24 @@ describe("deadcode tools", () => {
       expect(result.entries[0].unusedCount).toBe(1);
     });
 
+    it("lists excluded exports, workspace-relative and sorted, only with verbose (#696)", async () => {
+      const excluded = [
+        { filePath: path.join(tempDir, "src", "b.ts"), name: "late", kind: "Function", line: 9, reason: "declared:package.json#main" },
+        { filePath: path.join(tempDir, "src", "b.ts"), name: "early", kind: "Function", line: 2, reason: "declared:package.json#main" },
+        { filePath: path.join(tempDir, "src", "a.tsx"), name: "View", kind: "Function", line: 1, reason: "convention:framework-default-export" },
+      ];
+      setupWorkerState({ scanDeadCode: vi.fn(async () => ({ entries: [], excluded, scannedFiles: 3, skippedFiles: 0, filesBeyondLimit: 0 })) });
+
+      const verbose = await executeScanDeadCode({ verbose: true });
+      expect(verbose.excluded).toEqual([
+        { relativePath: "src/a.tsx", name: "View", kind: "Function", line: 1, reason: "convention:framework-default-export" },
+        { relativePath: "src/b.ts", name: "early", kind: "Function", line: 2, reason: "declared:package.json#main" },
+        { relativePath: "src/b.ts", name: "late", kind: "Function", line: 9, reason: "declared:package.json#main" },
+      ]);
+      expect((await executeScanDeadCode({})).excluded).toBeUndefined();
+      expect((await executeScanDeadCode({ verbose: false })).excluded).toBeUndefined();
+    });
+
     it("should throw when scopePath is outside rootDir", async () => {
       const spiderMock = { scanDeadCode: vi.fn() };
       setupWorkerState(spiderMock);

@@ -864,6 +864,13 @@ export const ScanDeadCodeParamsSchema = z.object({
         "When the cap stops the scan, truncated=true and filesBeyondLimit > 0: the result is partial.",
     ),
   minConfidence: MinConfidenceSchema,
+  verbose: z
+    .boolean()
+    .optional()
+    .describe(
+      "Also list the unused exports left out as excluded, each with its reason: the manifest field that declares it " +
+        "(declared:package.json#exports[\"./x\"]), a Rust attribute, or convention:framework-default-export (default: false)",
+    ),
 });
 export type ScanDeadCodeParams = z.infer<typeof ScanDeadCodeParamsSchema>;
 
@@ -1766,6 +1773,15 @@ export interface DeadCodeFileEntry {
   unusedSymbols: UnusedSymbol[];
 }
 
+/** An unused export the scan leaves out, and why (`declared:<manifest>#<field>`, `attribute:#[...]`, `convention:...`) */
+export interface ExcludedDeadCodeItem {
+  relativePath: string;
+  name: string;
+  kind: string;
+  line: number;
+  reason: string;
+}
+
 /**
  * Result of scan_dead_code tool
  */
@@ -1787,6 +1803,8 @@ export interface ScanDeadCodeResult {
   hint?: string;
   /** Per-file entries (only files with dead code are included) */
   entries: DeadCodeFileEntry[];
+  /** verbose only: unused exports left out, each with why (a manifest field, a Rust attribute, a framework convention) */
+  excluded?: ExcludedDeadCodeItem[];
   /** Number of files skipped (unsupported language / parse error) */
   skippedFiles: number;
   /** True when maxFiles stopped the scan: unscanned files may hold dead code too */

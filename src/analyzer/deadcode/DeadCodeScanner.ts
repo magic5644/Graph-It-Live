@@ -1,13 +1,15 @@
 import type { Spider } from "../Spider";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
-import { countByConfidence, meetsConfidence, type DeadCodeConfidence, type UnusedSymbol } from "./deadCodeConfidence";
+import { countByConfidence, meetsConfidence, type DeadCodeConfidence, type ExcludedExport, type UnusedSymbol } from "./deadCodeConfidence";
 
 export interface DeadCodeScanOptions {
   scopePath?: string;
   maxFiles?: number;
   /** Lowest confidence listed (default `high`); the others are only counted in `byConfidence`. */
   minConfidence?: DeadCodeConfidence;
+  /** Also return `excluded`: the unused exports left out, and why */
+  verbose?: boolean;
 }
 
 export interface DeadCodeScanEntry {
@@ -31,6 +33,8 @@ export interface DeadCodeScanResult {
   /** How to list the items below minConfidence, when there are some */
   hint?: string;
   entries: DeadCodeScanEntry[];
+  /** verbose only: unused exports left out, and why */
+  excluded?: Array<Omit<ExcludedExport, "filePath"> & { relativePath: string }>;
   skippedFiles: number;
   /** True when maxFiles stopped the scan: unscanned files may hold dead code too. */
   truncated: boolean;
@@ -88,9 +92,17 @@ export async function scanDeadCode(
     byConfidence,
     ...(hint ? { hint } : {}),
     entries,
+    ...(options.verbose ? { excluded: excludedItems(rawResult.excluded, rootDir) } : {}),
     skippedFiles: rawResult.skippedFiles,
     truncated: rawResult.filesBeyondLimit > 0,
     filesBeyondLimit: rawResult.filesBeyondLimit,
     analysisTimeMs: Date.now() - startTime,
   };
+}
+
+/** Workspace-relative, sorted by file then line. */
+function excludedItems(excluded: readonly ExcludedExport[], rootDir: string): NonNullable<DeadCodeScanResult["excluded"]> {
+  return excluded
+    .map(({ filePath, ...item }) => ({ relativePath: getRelativePath(filePath, rootDir), ...item }))
+    .sort((a, b) => a.relativePath.localeCompare(b.relativePath) || a.line - b.line);
 }

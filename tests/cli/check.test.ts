@@ -33,8 +33,10 @@ describe('check command', () => {
   });
 
   it.each([
-    [[], { minConfidence: undefined }],
-    [['--minConfidence', 'low'], { minConfidence: 'low' }],
+    [[], { minConfidence: undefined, verbose: false }],
+    [['--minConfidence', 'low'], { minConfidence: 'low', verbose: false }],
+    [['--verbose'], { minConfidence: undefined, verbose: true }],
+    [['--verbose', '--minConfidence', 'medium'], { minConfidence: 'medium', verbose: true }],
   ])('scans the workspace for %j', async (args, expected) => {
     await run(args, runtime(), 'json');
     expect(mocks.executeScanDeadCode).toHaveBeenCalledWith(expected);
@@ -44,8 +46,17 @@ describe('check command', () => {
     await run(['--minConfidence', 'medium', 'src'], runtime(), 'json');
     await run(['src', '--minConfidence', 'medium'], runtime(), 'json');
     expect(mocks.executeScanDeadCode.mock.calls).toEqual([
-      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium' }],
-      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium' }],
+      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium', verbose: false }],
+      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium', verbose: false }],
+    ]);
+  });
+
+  it('passes --verbose to a folder scan, wherever it stands', async () => {
+    await run(['src', '--verbose'], runtime(), 'json');
+    await run(['--verbose', 'src'], runtime(), 'json');
+    expect(mocks.executeScanDeadCode.mock.calls).toEqual([
+      [{ scopePath: path.join(root, 'src'), minConfidence: undefined, verbose: true }],
+      [{ scopePath: path.join(root, 'src'), minConfidence: undefined, verbose: true }],
     ]);
   });
 

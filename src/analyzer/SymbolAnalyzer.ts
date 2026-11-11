@@ -1052,10 +1052,11 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     );
 
     for (const callExpr of callExpressions) {
-      const modulePath = this.extractDynamicImportPath(callExpr);
+      const importPath = this.extractDynamicImportPath(callExpr);
+      const modulePath = importPath ?? requiredModulePath(callExpr);
       if (!modulePath) continue;
 
-      const importedNames = this.extractDynamicImportBindings(callExpr);
+      const importedNames = importPath ? this.extractDynamicImportBindings(callExpr) : requireBindings(callExpr);
       const symbolNames = importedNames.length > 0 ? importedNames : ["default"];
 
       for (const symbolName of symbolNames) {
@@ -1272,6 +1273,29 @@ function isSpyOnCall(call: CallExpression): boolean {
   const callee = call.getExpression();
   const name = Node.isPropertyAccessExpression(callee) ? callee.getName() : callee.getText();
   return name === "spyOn";
+}
+
+/** `"./m"` in `require("./m")`; a computed argument is not followed. */
+function requiredModulePath(callExpr: Node): string | null {
+  if (!Node.isCallExpression(callExpr) || callExpr.getExpression().getText() !== "require") return null;
+  const [firstArg] = callExpr.getArguments();
+  return Node.isStringLiteral(firstArg) || Node.isNoSubstitutionTemplateLiteral(firstArg) ? firstArg.getLiteralValue() : null;
+}
+
+/**
+ * Exports a `require()` reads: `const { a, b: c } = require("./m")`, `require("./m").a`, members read on
+ * `const m = require("./m")`; anywhere else (returned, passed on) the module object escapes: every export.
+ */
+function requireBindings(callExpr: Node): string[] {
+  const parent = callExpr.getParent();
+  if (Node.isPropertyAccessExpression(parent) && parent.getExpression() === callExpr) return [parent.getName()];
+  if (Node.isExpressionStatement(parent)) return [];
+  const pattern = Node.isVariableDeclaration(parent) && parent.getInitializer() === callExpr ? parent.getNameNode() : undefined;
+  if (Node.isIdentifier(pattern)) return namespaceMembersRead(pattern);
+  if (!Node.isObjectBindingPattern(pattern)) return ["*"];
+  return pattern
+    .getElements()
+    .map((element) => (element.getDotDotDotToken() ? "*" : element.getPropertyNameNode()?.getText() ?? element.getName()));
 }
 
 /**

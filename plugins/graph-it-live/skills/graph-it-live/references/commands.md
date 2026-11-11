@@ -103,6 +103,8 @@ graph-it tool analyze_breaking_changes --args '{"filePath":"/abs/src/a.ts","symb
 - `scan_dead_code` is workspace-wide (or `--scopePath`); `find_unused_symbols` is per-file;
   `graph-it check` takes a file, a folder or nothing. All take `--minConfidence high|medium|low`
   (default `high`: the file is imported and no importer uses the export); `byConfidence` counts the rest.
+  Exports a manifest declares (package.json, pyproject/setup, Cargo lib) or JSX/Vue defaults are left
+  out; `--verbose` (`--verbose=true` for `scan_dead_code`) lists them as `excluded` with their `reason`.
 
 ## Architecture
 

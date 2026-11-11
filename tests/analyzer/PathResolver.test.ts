@@ -235,6 +235,28 @@ describe("PathResolver - linked workspace packages", () => {
     expect(await resolve("@acme/core/format/date")).toBe(normalizePath(path.join(root, "libs/core-lib/src/format/date.ts")));
   });
 
+  it("resolves a subpath at the package root when the package has no file there under src/ (#696)", async () => {
+    write("libs/plain/constants.ts", "export const c = 1;");
+    write("libs/core-lib/utils/shared.ts", "export const s = 1;");
+    write("libs/secret.ts", "export const secret = 1;");
+    expect(await resolve("plain-utils/constants")).toBe(normalizePath(path.join(root, "libs/plain/constants.ts")));
+    // src/ first, then the package root.
+    expect(await resolve("@acme/core/format/date")).toBe(normalizePath(path.join(root, "libs/core-lib/src/format/date.ts")));
+    expect(await resolve("@acme/core/utils/shared")).toBe(normalizePath(path.join(root, "libs/core-lib/utils/shared.ts")));
+    expect(await resolve("@acme/core/missing")).toBeNull();
+    expect(await resolve("@acme/core/../secret")).toBeNull();
+  });
+
+  it("resolves a monorepo package under packages/ by its folder name, its subpaths at the package root, never above it (#696)", async () => {
+    write("packages/common/package.json", JSON.stringify({ name: "@nest/common" }));
+    write("packages/common/index.ts", "export const i = 1;");
+    write("packages/common/constants.ts", "export const c = 1;");
+    write("packages/outside.ts", "export const o = 1;");
+    const resolver = new PathResolver(undefined, true, root);
+    expect(await resolver.resolve(main, "@nest/common/constants")).toBe(normalizePath(path.join(root, "packages/common/constants.ts")));
+    expect(await resolver.resolve(main, "@nest/common/../outside")).toBeNull();
+  });
+
   it("finds the link in a package's own node_modules", async () => {
     write("libs/nested/package.json", JSON.stringify({ name: "nested" }));
     write("libs/nested/src/index.ts");

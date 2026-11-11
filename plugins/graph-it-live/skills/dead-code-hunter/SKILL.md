@@ -76,7 +76,13 @@ Use it to identify packages, public entry points, and generated areas that requi
 graph-it tool scan_dead_code --format toon
 graph-it tool scan_dead_code --scopePath=/abs/src --maxFiles=500 --format toon
 graph-it tool scan_dead_code --minConfidence=low --format toon   # every level, for review
+graph-it tool scan_dead_code --verbose=true --format toon         # also what was left out, and why
 ```
+
+Declared entry points are never listed (package.json `main` / `exports` / `bin` / `types`, npm's
+default `index.js`, Python scripts, `__main__.py`, `__all__`, a Cargo lib crate's `pub` items, Rust
+`#[no_mangle]`), nor JSX/Vue default exports. `--verbose=true` lists them under `excluded` with the
+`reason` (`declared:package.json#exports["./x"]`, `convention:framework-default-export`).
 
 Every item carries `confidence`, `reasons` and `evidence` (importer count and first importers). The
 default lists `high` items only; `byConfidence` counts the others and `hint` says how to list them:
@@ -168,7 +174,8 @@ graph-it check src/utils/format.ts --format toon
 ```
 
 `find_unused_symbols` is file-scoped; `graph-it check` takes a file, a folder or nothing (the whole
-workspace), like `scan_dead_code` with `--scopePath`. Both take `--minConfidence`.
+workspace), like `scan_dead_code` with `--scopePath`. Both take `--minConfidence`; a scan
+(`graph-it check [folder] --verbose`) also lists the excluded exports with their reason.
 
 ---
 

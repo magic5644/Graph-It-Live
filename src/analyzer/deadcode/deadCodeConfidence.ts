@@ -56,6 +56,19 @@ export interface UnusedSymbol extends SymbolInfo {
   evidence: DeadCodeEvidence;
 }
 
+/**
+ * An unused export the scan does not report, and why: `declared:<manifest>#<field>` (a language manifest declares it,
+ * its file, or a barrel re-exporting it), `attribute:#[...]` (Rust), or `convention:framework-default-export` (a JSX
+ * or Vue default export a framework may load). What such an export calls inherits its reason.
+ */
+export interface ExcludedExport {
+  filePath: string;
+  name: string;
+  kind: string;
+  line: number;
+  reason: string;
+}
+
 const RANK: Readonly<Record<DeadCodeConfidence, number>> = { low: 0, medium: 1, high: 2 };
 
 export function meetsConfidence(confidence: DeadCodeConfidence, min: DeadCodeConfidence): boolean {
