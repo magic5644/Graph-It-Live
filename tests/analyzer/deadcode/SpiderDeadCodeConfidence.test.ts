@@ -53,6 +53,22 @@ const FILES: Record<string, string> = {
   "rs/helpers.rs": "pub fn rs_used() { convert::to_str(); }\npub fn rs_dead() {}\npub struct S;\nimpl S { pub fn new() -> S { S } }\npub struct Shape;\npub fn make() -> Shape { Shape }\nmod convert {\n    pub(super) fn to_str() {}\n}\n",
   "rs/complete/mod.rs": "pub mod bash;\n",
   "rs/complete/bash.rs": "pub fn generate() {}\npub fn bash_dead() {}\n",
+  // Lambda handlers in files imported for their other exports, named only by deployment manifests (#698)
+  "lambda/handler.ts": "export function shared() { return 1; }\nexport async function main() { return 2; }\nexport function unusedHere() { return 3; }\n",
+  "lambda/consumer.ts": "import { shared } from './handler';\nshared();\n",
+  "serverless.yml": "functions:\n  api:\n    handler: lambda/handler.main\n",
+  "pyfn/__init__.py": "",
+  "pyfn/app.py": "def util():\n    return 1\n\ndef lambda_handler(event, context):\n    return 2\n\ndef app_dead():\n    return 3\n",
+  "pyfn/main.py": "from pyfn.app import util\nutil()\n",
+  // a published package without exports the workspace imports by deep path, a private one, and a generated file (#698)
+  "packages/kit/package.json": '{"name":"@acme/kit","version":"1.0.0"}',
+  "packages/kit/util.ts": "export function kitUsed() { return 1; }\nexport function kitDeep() { return 2; }\n",
+  "packages/priv/package.json": '{"name":"@acme/priv","private":true}',
+  "packages/priv/util.ts": "export function privUsed() { return 1; }\nexport function privDead() { return 2; }\n",
+  "apps/use.ts": "import { kitUsed } from '../packages/kit/util';\nimport { privUsed } from '../packages/priv/util';\nimport '@acme/kit/util';\nimport '@acme/priv/util';\nkitUsed();\nprivUsed();\n",
+  "src/gen/schema.ts": "/*\n * THIS FILE WAS AUTOMATICALLY GENERATED (DO NOT MODIFY)\n */\nexport class Used {}\nexport class Unused {}\n",
+  "src/gen/user.ts": "import { Used } from './schema';\nexport const u = new Used();\n",
+  "pyfn/Dockerfile": "FROM public.ecr.aws/lambda/python:3.12\nCMD [\"app.lambda_handler\"]\n",
 };
 
 describe("Spider - dead-code confidence (#695)", { timeout: 60_000 }, () => {
@@ -98,6 +114,13 @@ describe("Spider - dead-code confidence (#695)", { timeout: 60_000 }, () => {
     ["src/own.ts#helperUsedHere", "medium", ["named-in-own-file"]],
     ["src/own.ts#unusedApi", "high", ["importers-use-other-exports"]],
     ["py/views.py#unused_view", "high", ["importers-use-other-exports"]],
+    ["lambda/handler.ts#main", "medium", ["named-in-deploy-manifest"]],
+    ["lambda/handler.ts#unusedHere", "high", ["importers-use-other-exports"]],
+    ["pyfn/app.py#lambda_handler", "medium", ["named-in-deploy-manifest"]],
+    ["pyfn/app.py#app_dead", "high", ["importers-use-other-exports"]],
+    ["packages/kit/util.ts#kitDeep", "medium", ["published-deep-import"]],
+    ["packages/priv/util.ts#privDead", "high", ["importers-use-other-exports"]],
+    ["src/gen/schema.ts#Unused", "medium", ["convention:generated"]],
   ])("rates %s as %s (%s)", (key, confidence, reasons) => {
     expect(items.get(key)).toMatchObject({ confidence, reasons });
   });

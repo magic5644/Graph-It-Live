@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   collectDeclaredEntryPoints,
   declaredReason,
+  deepImportablePackageName,
+  deepSpecifierPackages,
   pythonAllNames,
   rustAttributedFunctions,
   rustPublicModules,
@@ -340,5 +342,38 @@ describe("declaredReason (#696)", () => {
       { file: "package.json", text: JSON.stringify({ name: "p", main: "index.js", types: "index.d.ts" }) },
     ]);
     expect(entriesOf(input).entries).toEqual(["index.ts#* declared:package.json#main"]);
+  });
+});
+
+describe("published packages imported by deep path (#698)", () => {
+  it.each([
+    ['{"name":"@acme/kit"}', "@acme/kit"],
+    ['\uFEFF{"name":"kit","private":false,"main":"index.js"}', "kit"],
+    ['{"name":"kit","private":true}', undefined],
+    ['{"name":"kit","exports":{".":"./index.js"}}', undefined],
+    ['{"name":"kit","exports":"./index.js"}', undefined],
+    ['{"private":false}', undefined],
+    ["not json", undefined],
+    ["[1]", undefined],
+  ])("reads %s as %s", (text, name) => {
+    expect(deepImportablePackageName(text)).toBe(name);
+  });
+
+  it("collects the package heading each quoted deep specifier, scoped or not, never a relative path", () => {
+    const code = [
+      "import { a } from '@acme/kit/util';",
+      'const b = require("lodash/fp");',
+      "const c = await import(`@acme/kit/deep/x`);",
+      "import d from './local/x';",
+      "import e from '../up/y';",
+      "import f from 'plain';",
+      "import g from '@scope/only';",
+      "const url = 'https://example.com/x';",
+    ].join("\n");
+    expect(deepSpecifierPackages(code).sort()).toEqual(["@acme/kit", "lodash"]);
+  });
+
+  it("returns nothing for code without a deep specifier", () => {
+    expect(deepSpecifierPackages("export const x = 1;\n")).toEqual([]);
   });
 });

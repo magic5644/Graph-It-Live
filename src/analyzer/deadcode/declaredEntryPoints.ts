@@ -104,6 +104,26 @@ export function declaredReason(entryPoints: DeclaredEntryPoints, file: string, n
 // ---------------------------------------------------------------------------------------------------------------
 // package.json
 
+/**
+ * The name of a published package with no `exports` map: Node then resolves `<name>/<any file>`, so a project outside
+ * the workspace may import any of its files by deep path. Undefined for a private, unnamed or `exports`-mapped package.
+ */
+export function deepImportablePackageName(text: string): string | undefined {
+  const pkg = parseJsonObject(text.replace(/^\uFEFF/, ""));
+  return pkg && typeof pkg.name === "string" && pkg.private !== true && pkg.exports === undefined ? pkg.name : undefined;
+}
+
+/**
+ * The package names a JS/TS source writes at the head of a quoted deep specifier (`'@scope/pkg/sub'`, `"pkg/sub"`).
+ * A relative path starts with `.` and never matches; any other quoted `a/b` text counts, which only marks a package
+ * whose name it is.
+ */
+export function deepSpecifierPackages(content: string): string[] {
+  const names = new Set<string>();
+  for (const match of content.matchAll(/(?<=['"`])(@[a-z\d][\w.-]*\/[\w.-]+|[a-z\d][\w.-]*)\/(?=[\w@])/gi)) names.add(match[1]);
+  return [...names];
+}
+
 const PACKAGE_PATH_FIELDS = ["main", "module", "types", "typings"] as const;
 
 function packageJsonEntries(manifest: Manifest, rel: string, sources: EntryPointSources, out: Collected): void {

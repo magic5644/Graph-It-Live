@@ -8,7 +8,9 @@ import { isSupportedSourceFile } from "../SourceFileFilters";
 import { parseTsConfig } from "../utils/tsconfig";
 import { getLogger } from "../../shared/logger";
 import {
+  deployManifestReferences,
   findDynamicLoads,
+  isDeployManifest,
   mayLoadDynamically,
   readsComputedAttribute,
   rustQualifiedPaths,
@@ -16,6 +18,8 @@ import {
 } from "./deadCodeConfidence";
 import {
   collectDeclaredEntryPoints,
+  deepImportablePackageName,
+  deepSpecifierPackages,
   MANIFEST_FILE_NAMES,
   pythonAllNames,
   rustAttributedFunctions,
@@ -30,6 +34,7 @@ const log = getLogger("DeadCodeTextIndex");
 const READ_CONCURRENCY = 16;
 const RUST_FILE = /\.rs$/i;
 const PYTHON_FILE = /\.pyi?$/i;
+const JS_FAMILY_FILE = /\.(?:[cm]?[jt]sx?|vue|svelte)$/i;
 
 interface FileFacts {
   mtimeMs: number;
@@ -43,6 +48,10 @@ interface FileFacts {
   pythonAll: string[];
   rustPubMods: string[];
   rustAttributed: Array<{ name: string; attribute: string }>;
+  /** Deployment manifests only: their `module.name` pairs (deployManifestReferences) */
+  deployRefs: string[];
+  /** JS/TS/Vue sources: the package names heading a quoted deep specifier (deepSpecifierPackages) */
+  deepSpecifiers: string[];
 }
 
 /** What the dead-code scan reads as text across the workspace. */
@@ -57,6 +66,13 @@ export interface WorkspaceTextFacts {
   computedAttributeReaders: ReadonlySet<string>;
   /** What the language manifests declare as used (`declaredEntryPoints.ts`) */
   entryPoints: DeclaredEntryPoints;
+  /** `module.name` pairs written in container and deployment manifests (Dockerfile, serverless, SAM...) */
+  deployReferences: ReadonlySet<string>;
+  /**
+   * Folder of every package.json (absolute, normalized) → whether it is a published package with no `exports` map
+   * that the workspace imports by deep path (`<name>/<file>`)
+   */
+  packageDeepImport: ReadonlyMap<string, boolean>;
 }
 
 /**
@@ -82,7 +98,7 @@ export class DeadCodeTextIndex {
     }
     const isManifest = (name: string): boolean => MANIFEST_FILE_NAMES.has(name);
     // One walk for the source files and the manifests next to them.
-    const walked = (await new SourceFileCollector({ excludeNodeModules }).collectFiles(rootDir, (name) => isSupportedSourceFile(name) || isManifest(name))).map(normalizePath);
+    const walked = (await new SourceFileCollector({ excludeNodeModules }).collectFiles(rootDir, (name) => isSupportedSourceFile(name) || isManifest(name) || isDeployManifest(name))).map(normalizePath);
     const next = new Map<string, FileFacts>();
     await mapWithConcurrency(walked, READ_CONCURRENCY, async (file) => {
       const entry = await this.factsOf(file, isManifest(path.posix.basename(file)));
@@ -100,6 +116,8 @@ export class DeadCodeTextIndex {
       rustTokenFiles,
       computedAttributeReaders,
       entryPoints: await this.entryPoints(root, files, next),
+      deployReferences: new Set([...next.values()].flatMap((entry) => entry.deployRefs)),
+      packageDeepImport: packageDeepImport(next, new Set(present.flatMap((entry) => entry.deepSpecifiers))),
     };
   }
 
@@ -152,12 +170,24 @@ export class DeadCodeTextIndex {
         pythonAll: path.posix.basename(file) === "__init__.py" ? pythonAllNames(content) : [],
         rustPubMods: rust ? rustPublicModules(content) : [],
         rustAttributed: rust ? rustAttributedFunctions(content) : [],
+        deployRefs: isDeployManifest(path.posix.basename(file)) ? deployManifestReferences(content) : [],
+        deepSpecifiers: JS_FAMILY_FILE.test(file) ? deepSpecifierPackages(content) : [],
       };
     } catch {
       // Deleted or unreadable: it holds no code the scan could miss.
       return null;
     }
   }
+}
+
+function packageDeepImport(facts: ReadonlyMap<string, FileFacts>, deepNames: ReadonlySet<string>): Map<string, boolean> {
+  const packages = new Map<string, boolean>();
+  for (const [file, entry] of facts) {
+    if (entry.manifestText === undefined || path.posix.basename(file) !== "package.json") continue;
+    const name = deepImportablePackageName(entry.manifestText);
+    packages.set(path.posix.dirname(file), name !== undefined && deepNames.has(name));
+  }
+  return packages;
 }
 
 /**

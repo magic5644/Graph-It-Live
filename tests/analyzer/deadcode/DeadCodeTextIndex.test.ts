@@ -77,6 +77,39 @@ describe("DeadCodeTextIndex", () => {
     }
   });
 
+  it("collects module.name pairs of deployment manifests only, lock files and sources aside (#698)", async () => {
+    await write("deploy/serverless.yml", "functions:\n  api:\n    handler: src/handler.main\n");
+    await write("Dockerfile.lambda", 'CMD ["app.lambda_handler"]\n');
+    await write("Procfile", "web: uvicorn api:app\n");
+    await write("pnpm-lock.yaml", "lock.only: 1\n");
+    await write("src/code.ts", "export const x = other.thing;\n");
+
+    const { deployReferences } = await index.collect(root, true);
+
+    expect(deployReferences.has("handler.main")).toBe(true);
+    expect(deployReferences.has("app.lambda_handler")).toBe(true);
+    expect(deployReferences.has("api.app")).toBe(true);
+    expect(deployReferences.has("lock.only")).toBe(false);
+    expect(deployReferences.has("other.thing")).toBe(false);
+  });
+
+  it("marks the published packages without exports the workspace imports by deep path (#698)", async () => {
+    await write("packages/kit/package.json", '{"name":"@acme/kit"}');
+    await write("packages/priv/package.json", '{"name":"@acme/priv","private":true}');
+    await write("packages/mapped/package.json", '{"name":"@acme/mapped","exports":"./index.js"}');
+    await write("packages/lone/package.json", '{"name":"@acme/lone"}');
+    await write("app/use.ts", "import '@acme/kit/util';\nimport '@acme/priv/x';\nimport '@acme/mapped/y';\nimport '@acme/lone';\n");
+    await write("app/notes.py", "x = '@acme/lone/z'\n");
+
+    const { packageDeepImport } = await index.collect(root, true);
+    const dir = (relative: string) => normalizePath(path.join(root, relative));
+
+    expect(packageDeepImport.get(dir("packages/kit"))).toBe(true);
+    expect(packageDeepImport.get(dir("packages/priv"))).toBe(false);
+    expect(packageDeepImport.get(dir("packages/mapped"))).toBe(false);
+    expect(packageDeepImport.get(dir("packages/lone"))).toBe(false);
+  });
+
   it("lists the Python files that read attributes by computed name", async () => {
     await write("py/reader.py", "x = getattr(mod, name)\n");
     await write("py/plain.py", "x = getattr(mod, 'static')\n");

@@ -19,7 +19,7 @@ import { isPythonOrRust, namesModule, pythonStarExports, readImportBindings } fr
 import { mayReExport, readModuleReExports, type ModuleReExports, type ReExportTarget } from '../utils/reExports';
 import { DEFAULT_ONLY, findDeclaration, type DeclarationReads } from '../utils/declarations';
 import { getRelativePath } from '../../shared/path';
-import { classifyUnused, codeForNames, isTestFile, loadsReaching, namedAgain, rustQualifiedUse, type ExcludedExport, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
+import { classifyUnused, codeForNames, deployModuleName, inDeepImportedPackage, isGeneratedFile, isTestFile, loadsReaching, namedAgain, rustQualifiedUse, type ExcludedExport, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
 import { declaredReason, type DeclaredEntryPoints } from '../deadcode/declaredEntryPoints';
 import { DeadCodeTextIndex, type WorkspaceTextFacts } from '../deadcode/DeadCodeTextIndex';
 
@@ -227,7 +227,9 @@ export class SpiderSymbolService {
       const content = await this.fileReader.readFile(target);
       const internalGraph = withSameFileCalls(await this.astWorkerHost.getInternalExportDependencyGraph(target, content), symbols, dependencies, target);
       const textFacts = this.workspaceTextFacts(context);
-      const { entryPoints } = await textFacts;
+      const { entryPoints, deployReferences, packageDeepImport } = await textFacts;
+      const publishedDeepImport = inDeepImportedPackage(target, packageDeepImport);
+      const generated = isGeneratedFile(content);
       const reasons = new Map<string, Promise<string | undefined>>();
       const entryReason = (symbol: SymbolInfo): Promise<string | undefined> => {
         let reason = reasons.get(symbol.id);
@@ -267,6 +269,9 @@ export class SpiderSymbolService {
             decorated: decorated.has(symbol.id),
             nameWrittenElsewhere: await this.rustNameWrittenElsewhere(target, symbol, textFacts),
             namedInOwnFile: namedAgain(code, symbol.name),
+            namedInDeployManifest: deployReferences.has(`${deployModuleName(target)}.${symbol.name}`),
+            publishedDeepImport,
+            generated,
             dynamicLoads,
           }),
         }))
