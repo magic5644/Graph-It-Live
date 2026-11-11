@@ -90,8 +90,8 @@ default lists `high` items only; `byConfidence` counts the others and `hint` say
 | Confidence | Reasons | Use in the plan |
 |---|---|---|
 | `high` | `importers-use-other-exports`: the file is imported, no importer uses the export | Deletion candidate; still run Step 3 for public API and monorepo use |
-| `medium` | `test-only-use`, `dynamic-import-in-workspace`, `convention:decorated`, `named-in-own-file` (drop `export` rather than delete), `name-written-elsewhere` (Rust), `convention:test-file` | Review; never delete without the evidence of Step 3 |
-| `low` | `no-importer`: nothing imports the file | Entry point by convention as often as dead (Lambda handler, Dockerfile `CMD`, `serverless.yml` / SAM handler: these manifests are not read): review only |
+| `medium` | `test-only-use`, `dynamic-import-in-workspace`, `convention:decorated`, `named-in-own-file` (drop `export` rather than delete), `name-written-elsewhere` (Rust), `convention:test-file`, `named-in-deploy-manifest` (a Dockerfile, serverless, SAM or Procfile names it: a Lambda handler), `convention:generated` (edit the generator's input, not the file), `published-deep-import` (a published package without `exports` the workspace imports by deep path: outside projects may too) | Review; never delete without the evidence of Step 3 |
+| `low` | `no-importer`: nothing imports the file | Entry point by convention as often as dead (Lambda handler, Dockerfile `CMD`, `serverless.yml` / SAM handler: these manifests declare nothing): review only |
 
 Methods, nested functions and Rust `impl` members are never reported. Go, Java and C# are not scanned.
 
@@ -161,6 +161,8 @@ then the recommended deletion order. Every row states its reference evidence.
 - [ ] In a monorepo, confirm each candidate has no consumer from the monorepo root (or state the package-only scope)
 - [ ] Check if the project is a **published library** — unused exports may be part of the public API
 - [ ] Check `package.json` `exports` field — symbols exported via package entry points are always live
+- [ ] Delete the doc comment and decorators above the declaration too: an item's `line` is the declaration's first line, not its JSDoc
+- [ ] Run the typecheck and lint after each deletion batch: an import, type or helper only the deleted code used is now unused (TypeScript `noUnusedLocals`, ESLint) — delete it in the same batch
 - [ ] Run the test suite after each deletion batch to catch dynamic usage not visible to static analysis
 - [ ] Commit in small batches — one file or one symbol group per commit for easy revert
 

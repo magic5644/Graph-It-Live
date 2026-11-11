@@ -106,7 +106,8 @@ describe("Spider - declared entry points (#696)", { timeout: 60_000 }, () => {
 
   it("reads a publishable package without main as index.js and resolves a subpath at the package root", () => {
     expect(items.has("packages/lib/sub.ts#subFn")).toBe(false);
-    expect(items.get("packages/lib/sub.ts#subDead")?.confidence).toBe("high");
+    // The workspace imports it by deep path and it has no exports map: outside projects may too (#698).
+    expect(items.get("packages/lib/sub.ts#subDead")).toMatchObject({ confidence: "medium", reasons: ["published-deep-import"] });
     expect(items.has("packages/lib/index.ts#libApi")).toBe(false);
   });
 

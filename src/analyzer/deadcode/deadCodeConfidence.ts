@@ -23,6 +23,13 @@ export type DeadCodeConfidence = "high" | "medium" | "low";
  *   follow type uses, `Type::new()` or nested grouped `use`, so it may be used. `medium`.
  * - `convention:test-file`: the file is a test file or lives in a test folder, where fixtures hold unused code by
  *   design and a runner loads files by name. `medium`.
+ * - `named-in-deploy-manifest`: a container or deployment manifest (Dockerfile, compose, serverless, SAM /
+ *   CloudFormation, Procfile) writes `<module>.<name>` or `<module>:<name>` with the file's module name, as a Lambda
+ *   handler or a `uvicorn app:app` target. `medium`.
+ * - `convention:generated`: the file header says it is generated (`@generated`, `DO NOT EDIT`, `automatically
+ *   generated`): the next generation restores a deletion; change the generator's input instead. `medium`.
+ * - `published-deep-import`: the file belongs to a published package with no `exports` map that the workspace itself
+ *   imports by deep path (`<name>/<file>`), so projects outside the workspace may import the file too. `medium`.
  * - `importers-use-other-exports`: the file has importers and none uses the export. `high`.
  */
 export type DeadCodeReason =
@@ -33,6 +40,9 @@ export type DeadCodeReason =
   | "named-in-own-file"
   | "name-written-elsewhere"
   | "convention:test-file"
+  | "named-in-deploy-manifest"
+  | "convention:generated"
+  | "published-deep-import"
   | "importers-use-other-exports";
 
 export const DEAD_CODE_CONFIDENCES = ["high", "medium", "low"] as const satisfies readonly DeadCodeConfidence[];
@@ -106,6 +116,12 @@ export interface ConfidenceInput {
   nameWrittenElsewhere?: boolean;
   /** The name is written again in its own file */
   namedInOwnFile?: boolean;
+  /** A deployment manifest names the export with its module (deployManifestReferences) */
+  namedInDeployManifest?: boolean;
+  /** The file belongs to a published package the workspace imports by deep path (deepImportablePackageName) */
+  publishedDeepImport?: boolean;
+  /** The file header marks it as generated (isGeneratedFile) */
+  generated?: boolean;
 }
 
 export function classifyUnused(input: ConfidenceInput): Pick<UnusedSymbol, "confidence" | "reasons" | "evidence"> {
@@ -121,6 +137,9 @@ export function classifyUnused(input: ConfidenceInput): Pick<UnusedSymbol, "conf
   if (input.namedInOwnFile) reasons.push("named-in-own-file");
   if (input.nameWrittenElsewhere) reasons.push("name-written-elsewhere");
   if (input.testFile) reasons.push("convention:test-file");
+  if (input.namedInDeployManifest) reasons.push("named-in-deploy-manifest");
+  if (input.generated) reasons.push("convention:generated");
+  if (input.publishedDeepImport) reasons.push("published-deep-import");
   if (input.importers.length === 0) return { confidence: "low", reasons: ["no-importer", ...reasons], evidence };
   if (reasons.length > 0) return { confidence: "medium", reasons, evidence };
   return { confidence: "high", reasons: ["importers-use-other-exports"], evidence };
@@ -312,4 +331,59 @@ export function readsComputedAttribute(content: string): boolean {
     if (match[1] !== "self" && match[1] !== "cls") return true;
   }
   return false;
+}
+
+// ---------------------------------------------------------------------------
+// Container and deployment manifests
+// ---------------------------------------------------------------------------
+
+/**
+ * Dockerfile / Containerfile (any suffix), `*.dockerfile`, YAML (compose, serverless, SAM, CloudFormation), Procfile,
+ * `template.json`. Lock files (`pnpm-lock.yaml`) start nothing.
+ */
+export function isDeployManifest(fileName: string): boolean {
+  const name = fileName.toLowerCase();
+  if (name.endsWith("lock.yaml") || name.endsWith("lock.yml")) return false;
+  return (
+    ["dockerfile", "containerfile"].some((base) => name === base || name.startsWith(`${base}.`)) ||
+    [".dockerfile", ".yml", ".yaml", ".template.json"].some((suffix) => name.endsWith(suffix)) ||
+    name === "procfile" ||
+    name === "template.json"
+  );
+}
+
+/**
+ * Every `module.name` and `module:name` pair a deployment manifest writes, as `module.name`: a Lambda handler
+ * (`src/handler.main`, `CMD ["app.handler"]`, SAM `Handler`) or an ASGI/WSGI target (`uvicorn app:app`). Read as text,
+ * no YAML parse and no path resolved, so nothing it writes reaches the file system. `a.b.c` gives `a.b` and `b.c`.
+ * shortcut: any pair counts, keys and URLs included; it only lowers an item to medium, never hides it.
+ */
+export function deployManifestReferences(content: string): string[] {
+  const refs = new Set<string>();
+  for (const match of content.matchAll(/(?<![\w-])([A-Za-z_][\w-]*)(?=[.:]([A-Za-z_$][\w$]*))/g)) refs.add(`${match[1]}.${match[2]}`);
+  return [...refs];
+}
+
+/** The name a manifest gives the module of `filePath`: its base name, or its folder for `__init__.py`. */
+export function deployModuleName(filePath: string): string {
+  const base = path.basename(filePath, path.extname(filePath));
+  return base === "__init__" ? path.basename(path.dirname(filePath)) : base;
+}
+
+/** Whether the nearest package.json folder above `filePath` (absolute, normalized) is marked in `packages`. */
+export function inDeepImportedPackage(filePath: string, packages: ReadonlyMap<string, boolean>): boolean {
+  for (let dir = path.posix.dirname(filePath); ; dir = path.posix.dirname(dir)) {
+    const marked = packages.get(dir);
+    if (marked !== undefined) return marked;
+    if (path.posix.dirname(dir) === dir) return false;
+  }
+}
+
+/** Generated-file markers, read in the head of the file only (a comment block above the code). */
+const GENERATED_MARKER = /@generated\b|\bauto-?generated\b|\bautomatically generated\b|\bdo not (?:edit|modify)\b/i;
+const GENERATED_HEAD_CHARS = 1024;
+
+/** Whether the file header says the file is generated: a deletion there comes back with the next generation. */
+export function isGeneratedFile(content: string): boolean {
+  return GENERATED_MARKER.test(content.slice(0, GENERATED_HEAD_CHARS));
 }
