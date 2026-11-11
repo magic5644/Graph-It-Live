@@ -101,22 +101,19 @@ releases.
 # 1. Go to your project root
 cd /path/to/your/project
 
-# 2. Index the workspace
-graph-it scan
-
-# 3. Get a workspace overview
+# 2. Get a workspace overview (the first command builds the index)
 graph-it summary
 
-# 4. Analyze a specific file
+# 3. Analyze a specific file
 graph-it summary src/main.ts
 
-# 5. Find what depends on a file
+# 4. Find what depends on a file
 graph-it tool find_referencing_files --targetPath=$(pwd)/src/utils.ts
 
-# 6. Scan for dead code
+# 5. Scan for dead code
 graph-it check
 
-# 7. Guard the architecture: rules from the current code, plus quick wins
+# 6. Guard the architecture: rules from the current code, plus quick wins
 graph-it init
 ```
 
@@ -373,7 +370,7 @@ Other commands (`/summary`, `/check`, `/architecture`, `/cycles`, `/query`, `/fo
 
 ### scan
 
-Index (or re-index) the workspace. Must be run before other analysis commands on first use; subsequent commands index automatically if needed.
+Index the workspace and print the index status. Optional: every analysis command indexes on demand, restoring `.graph-it/cache/` and re-analyzing only changed, new and deleted files (see [Index cache](#index-cache)), so neither agents nor scripts need `scan` before analysis or after an edit. Use it to warm the cache once (CI, or `-w <monorepoRoot>` before several cross-package commands) or to read the index status. When results look wrong, `graph-it scan --reindex` rebuilds from scratch. `scan` does not build the call graph: `query_call_graph` and `context` (`graph_context`) build it on first use.
 
 ```
 graph-it scan [options]

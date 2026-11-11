@@ -15,7 +15,7 @@ reading a file. `graph-it -w <dir>` forces the root: it is used exactly as given
 `.graph-it/` (index + cache) is created there.
 
 For impact, dependents and cross-package questions in a monorepo, pass the monorepo root with
-`graph-it -w <monorepoRoot> ...` instead of `cd` into a package. If `scan` warns that imports resolve
+`graph-it -w <monorepoRoot> ...` instead of `cd` into a package. If a command warns that imports resolve
 outside the workspace root, answers cover that root only (`graph-it tool get_index_status` reports
 `outOfRootImports` and `monorepoRoot`): rerun with the `--workspace` it names or state the limitation.
 
@@ -158,7 +158,7 @@ graph-it stats                                # token stats (cl100k_base estimat
 
 ## Review a diff
 
-`graph-it review-pr --base <ref>` indexes automatically (no `scan` first). Without `--head` it compares
+`graph-it review-pr --base <ref>` indexes automatically, like every command (no `scan` first). Without `--head` it compares
 the base with the working tree, staged and unstaged included; `--head <ref>` compares two committed
 refs. `--depth 1-10`, `--max-files` (default 200, no upper bound), `--format toon|json|markdown|sarif`.
 

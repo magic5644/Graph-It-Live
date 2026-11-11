@@ -36,6 +36,10 @@ Examples:
 
 Usage: graph-it scan [options]
 
+Optional: every analysis command indexes on demand and re-analyzes only changed
+files. Use scan to warm the cache (CI) or print the index status; add --reindex
+to rebuild from scratch when results look wrong.
+
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)

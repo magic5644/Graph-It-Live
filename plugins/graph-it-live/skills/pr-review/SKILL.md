@@ -122,5 +122,5 @@ no write token for fork code, and Dependabot for Action updates.
 
 - Review `review-pr` as a Git-diff risk signal, not a replacement for unit, integration, security, or human domain review.
 - Verify changed non-JS/TS files manually when they appear in limitations; signature analysis supports TypeScript and JavaScript extensions.
-- Run `graph-it scan` before unrelated follow-up tool calls if the repository changed after the review run.
+- Follow-up commands re-analyze files changed after the review run on their own: no `graph-it scan` needed.
 - Use **graph-it-live** for architecture and impact questions outside a diff, and **dead-code-hunter** for an intentional cleanup sweep.
