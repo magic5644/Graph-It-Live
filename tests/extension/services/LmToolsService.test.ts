@@ -1686,6 +1686,24 @@ describe('LmToolsService', () => {
       });
     });
 
+    it('lists unreferenced files with unreferencedFiles (#711)', async () => {
+      const scanDeadCode = vi.fn();
+      const scanUnreferencedFiles = vi.fn().mockResolvedValue({
+        files: [{ filePath: A, exports: 0, confidence: 'low', reasons: ['no-importer'], evidence: { importers: 0, firstImporters: [] } }],
+        excluded: [],
+        scannedFiles: 3,
+        skippedFiles: 0,
+        filesBeyondLimit: 0,
+      });
+      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode, scanUnreferencedFiles } }), logger }).registerAll();
+
+      const result = await invokeTool('graph-it-live_scan_dead_code', { unreferencedFiles: true, maxFiles: 10 });
+
+      expect(scanDeadCode).not.toHaveBeenCalled();
+      expect(scanUnreferencedFiles).toHaveBeenCalledWith(expect.any(String), expect.objectContaining({ maxFiles: 10 }));
+      expect(result).toMatchObject({ scannedFiles: 3, totalUnreferencedFiles: 1, unreferencedFiles: [{ relativePath: 'src/a.ts', exports: 0 }] });
+    });
+
     it('rejects an unknown minConfidence before scanning', async () => {
       const scanDeadCode = vi.fn();
       new LmToolsService({ provider: createProvider({ spider: { scanDeadCode } }), logger }).registerAll();

@@ -1,7 +1,7 @@
 import type { Spider } from "../Spider";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
-import { countByConfidence, meetsConfidence, type DeadCodeConfidence, type ExcludedExport, type UnusedSymbol } from "./deadCodeConfidence";
+import { countByConfidence, meetsConfidence, type DeadCodeConfidence, type ExcludedExport, type UnreferencedFile, type UnusedSymbol } from "./deadCodeConfidence";
 
 export interface DeadCodeScanOptions {
   scopePath?: string;
@@ -105,4 +105,62 @@ function excludedItems(excluded: readonly ExcludedExport[], rootDir: string): No
   return excluded
     .map(({ filePath, ...item }) => ({ relativePath: getRelativePath(filePath, rootDir), ...item }))
     .sort((a, b) => a.relativePath.localeCompare(b.relativePath) || a.line - b.line);
+}
+
+export interface UnreferencedFilesScanResult {
+  rootDir: string;
+  scopePath: string;
+  scannedFiles: number;
+  /** Files listed: at minConfidence or above */
+  totalUnreferencedFiles: number;
+  /** Default `low`: every file found is listed */
+  minConfidence: DeadCodeConfidence;
+  /** Every file found, listed or not, per confidence: `low` nothing imports it, `medium` only tests do */
+  byConfidence: Record<DeadCodeConfidence, number>;
+  hint?: string;
+  /** Sorted by path */
+  unreferencedFiles: Array<UnreferencedFile & { relativePath: string }>;
+  /** verbose only: unreferenced files left out, and why (test file, manifest entry point, framework default export) */
+  excluded?: Array<{ relativePath: string; reason: string }>;
+  skippedFiles: number;
+  /** True when maxFiles stopped the scan: unscanned files may be unreferenced too. */
+  truncated: boolean;
+  filesBeyondLimit: number;
+  analysisTimeMs: number;
+}
+
+/** The files of the scope no production file imports (#711): the export scan's `unreferencedFiles` option. */
+export async function scanUnreferencedFiles(
+  spider: Spider,
+  rootDir: string,
+  options: DeadCodeScanOptions,
+  signal?: AbortSignal,
+): Promise<UnreferencedFilesScanResult> {
+  const scopePath = validateWorkspacePath(options.scopePath ?? rootDir, rootDir);
+  const minConfidence = options.minConfidence ?? "low";
+  const startTime = Date.now();
+  const raw = await spider.scanUnreferencedFiles(scopePath, { maxFiles: options.maxFiles, signal });
+  const byConfidence = countByConfidence(raw.files);
+  const unreferencedFiles = raw.files
+    .filter((file) => meetsConfidence(file.confidence, minConfidence))
+    .map((file) => ({ ...file, relativePath: getRelativePath(file.filePath, rootDir) }))
+    .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+  const hint = confidenceHint(byConfidence, minConfidence);
+  return {
+    rootDir,
+    scopePath,
+    scannedFiles: raw.scannedFiles,
+    totalUnreferencedFiles: unreferencedFiles.length,
+    minConfidence,
+    byConfidence,
+    ...(hint ? { hint } : {}),
+    unreferencedFiles,
+    ...(options.verbose
+      ? { excluded: raw.excluded.map(({ filePath, reason }) => ({ relativePath: getRelativePath(filePath, rootDir), reason })).sort((a, b) => a.relativePath.localeCompare(b.relativePath)) }
+      : {}),
+    skippedFiles: raw.skippedFiles,
+    truncated: raw.filesBeyondLimit > 0,
+    filesBeyondLimit: raw.filesBeyondLimit,
+    analysisTimeMs: Date.now() - startTime,
+  };
 }

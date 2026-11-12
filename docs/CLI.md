@@ -1126,6 +1126,7 @@ graph-it check [target] [options]
 |--------|---------|-------------|
 | `--minConfidence` | `high` | Lowest confidence listed: `high`, `medium` or `low` (see below); the other items are counted in `byConfidence` |
 | `--verbose` | off | Workspace or folder scan: also list as `excluded` the unused exports left out, each with its `reason` (see below) |
+| `--unreferencedFiles` | off | Workspace or folder scan: list whole files no production file imports instead of unused exports (see [Unreferenced files](#unreferenced-files)); `--minConfidence` then defaults to `low` |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format |
 
@@ -1165,6 +1166,44 @@ A manifest path naming a build output is mapped back to its source: tsconfig `ou
 Container and deployment manifests (`Dockerfile`, `docker-compose.yml`, `serverless.yml`, AWS SAM / CloudFormation `template.yaml`, `Procfile`) are not parsed and declare nothing. The file they start (a Lambda `handler`, the script of a `CMD`, a `uvicorn app:app` module) is usually imported by nothing, so its exports are already reported at `low` with `no-importer`, never at `high`. A handler that sits in a file other workspace files import for its other exports is kept at `medium` with `named-in-deploy-manifest`: the scan reads these manifests as text for `module.name` and `module:name` pairs, resolves no path from them, and never hides the item.
 
 Go, Java and C# files have no symbol analysis yet and are not scanned (#699).
+
+#### Unreferenced files
+
+`graph-it check [folder] --unreferencedFiles` lists the whole files of the scope that no production file imports: the cheapest deletions on a legacy codebase, scripts and side-effect modules with no export included. It reads the reverse index and the workspace text facts only, never the symbols of an imported file, so it is faster than the export scan. MCP `scan_dead_code` and the Copilot tool take the same option as `unreferencedFiles: true`; `scopePath`, `maxFiles` and `truncated` behave as for the export scan.
+
+| Confidence | Reason codes | Meaning |
+|------------|--------------|---------|
+| `medium` | `test-only-use` | Only test files import the file. `testImporters` lists every one of them: delete the file with its tests, or the test cases on it, a quick cleanup win. |
+| `low` | `no-importer` | No workspace file imports the file, directly or as the target of a barrel. Delete it unless it is run by name (a script, a config file, a tool's entry). |
+
+The reasons of the export scan that apply follow: `dynamic-import-in-workspace`, `named-in-deploy-manifest`, `convention:generated`, `published-deep-import`. A file with one of them needs a check before deletion. Each file has `exports`, its exported symbol count (0 for a script). A file imported by a barrel counts as imported, even when nothing imports the barrel: the barrel is listed, and the files it re-exports show up once it is deleted.
+
+Left out, and listed as `excluded` with `--verbose`:
+
+| `reason` | Files |
+|----------|-------|
+| `convention:test-file` | Test files: a runner loads them by name |
+| `declared:<manifest>#<field>` | Files a manifest declares (see the table above) |
+| `named-in:<file>` | Files whose path a non-test workspace file writes: a bundler entry (`entryPoints: ['src/worker.ts']`), a `package.json` script (`node scripts/x.mjs`), a Dockerfile command |
+| `convention:framework-default-export` | Files with a JSX or Vue default export |
+| `convention:type-declaration` | `.d.ts` files: the compiler loads them, no import does |
+| `convention:config-file` | `*.config.{js,ts,mjs,cjs,mts,cts}`: the tool (Vite, Vitest, ESLint, ...) loads them by name |
+| `gitignored` | Files the `.gitignore` of a folder below the root ignores: a package's build output or generated code. They stay indexed, so a git-ignored generated file that imports source files still counts as their importer |
+| `convention:package-init` | A Python `__init__.py` next to other modules: Python runs it whenever one of them is imported |
+
+Two dead files that import each other are not found: each keeps an importer.
+
+```
+$ graph-it check --unreferencedFiles --format markdown
+## graph-it check --unreferencedFiles
+
+2 file(s) listed out of 8 scanned: 2 nothing imports (low), 0 only tests import (medium).
+
+| File | Exports | Confidence | Reasons | Delete with its tests |
+| --- | --- | --- | --- | --- |
+| app/main.ts | 0 | low | no-importer |  |
+| legacy/dailyReport.ts | 1 | low | no-importer |  |
+```
 
 **Output (text, workspace-wide):**
 
@@ -1214,6 +1253,9 @@ graph-it check --format json | jq '.entries[] | {relativePath, unusedCount}'
 
 # Output as Markdown for PR descriptions
 graph-it check --format markdown > dead-code-report.md
+
+# Whole files nothing imports, with the left-out entry points
+graph-it check src --unreferencedFiles --verbose --format markdown
 ```
 
 > **Use case:** Run `graph-it check` in a pre-commit hook or CI step to prevent dead code from accumulating.
@@ -2254,6 +2296,9 @@ graph-it tool scan_dead_code
 
 # Scoped to a directory
 graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
+
+# Whole files no production file imports
+graph-it tool scan_dead_code --unreferencedFiles=true --verbose=true
 ```
 
 Pass `--minConfidence=medium` or `--minConfidence=low` to list more than the default `high` items; confidence levels and reason codes are described under [`check`](#check). `find_unused_symbols` takes the same `minConfidence`. Pass `--verbose=true` to also list `excluded`: the unused exports a manifest declares or a framework loads, each with its `reason` (see [Declared entry points](#check)).

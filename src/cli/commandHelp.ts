@@ -311,6 +311,13 @@ Options:
                     out, with why: the manifest field that declares them
                     (declared:package.json#main, #exports["./x"], pyproject.toml#project.scripts.x,
                     Cargo.toml#lib, ...), a Rust attribute, or convention:framework-default-export.
+  --unreferencedFiles
+                    Workspace or folder scan: list whole files no production file imports
+                    instead of unused exports. low (no-importer): nothing imports the file;
+                    medium (test-only-use): only tests do. --minConfidence defaults to low.
+                    Test files, manifest entry points, files named by path elsewhere, JSX/Vue
+                    default exports, .d.ts, *.config.* and git-ignored files are left out
+                    (listed as excluded with --verbose).
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
@@ -320,6 +327,7 @@ Examples:
   graph-it check src/api.ts
   graph-it check src --minConfidence low --format json
   graph-it check --verbose --format json
+  graph-it check src --unreferencedFiles --format markdown
 `,
   "review-pr": `graph-it review-pr — Review a Git diff against a base ref
 

@@ -243,6 +243,39 @@ describe("deadcode tools", () => {
       expect((await executeScanDeadCode({ verbose: false })).excluded).toBeUndefined();
     });
 
+    it("lists unreferenced files instead of unused exports with unreferencedFiles (#711)", async () => {
+      const file = (name: string, confidence: "low" | "medium") => ({
+        filePath: path.join(tempDir, "src", name),
+        exports: 1,
+        confidence,
+        reasons: [confidence === "low" ? "no-importer" : "test-only-use"],
+        evidence: { importers: confidence === "low" ? 0 : 1, firstImporters: [] },
+      });
+      const scanDeadCode = vi.fn();
+      const scanUnreferencedFiles = vi.fn(async () => ({
+        files: [file("z.ts", "low"), file("a.ts", "medium")],
+        excluded: [{ filePath: path.join(tempDir, "src", "main.ts"), reason: "declared:package.json#main" }],
+        scannedFiles: 5,
+        skippedFiles: 0,
+        filesBeyondLimit: 0,
+      }));
+      setupWorkerState({ scanDeadCode, scanUnreferencedFiles });
+
+      const result = await executeScanDeadCode({ unreferencedFiles: true, verbose: true, maxFiles: 9 });
+
+      expect(scanDeadCode).not.toHaveBeenCalled();
+      expect(scanUnreferencedFiles).toHaveBeenCalledWith(tempDir, expect.objectContaining({ maxFiles: 9 }));
+      expect(result).toMatchObject({
+        scannedFiles: 5,
+        totalUnreferencedFiles: 2,
+        minConfidence: "low",
+        byConfidence: { high: 0, medium: 1, low: 1 },
+        unreferencedFiles: [{ relativePath: "src/a.ts" }, { relativePath: "src/z.ts" }],
+        excluded: [{ relativePath: "src/main.ts", reason: "declared:package.json#main" }],
+        truncated: false,
+      });
+    });
+
     it("should throw when scopePath is outside rootDir", async () => {
       const spiderMock = { scanDeadCode: vi.fn() };
       setupWorkerState(spiderMock);

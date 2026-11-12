@@ -317,6 +317,8 @@ function formatTrace(data: Record<string, unknown>): string {
 }
 
 function formatMarkdown(data: unknown, command: string, workspaceRoot?: string): string {
+  const record = toRecord(data);
+  if (Array.isArray(record?.["unreferencedFiles"])) return formatUnreferencedFilesMarkdown(record, command);
   // The json fence below stays raw data (absolute ids); only the candidates table is workspace-relative.
   const header = `## graph-it ${command}\n\n${formatCandidates(data, workspaceRoot)}`;
 
@@ -333,6 +335,37 @@ function formatMarkdown(data: unknown, command: string, workspaceRoot?: string):
 }
 
 const ESCAPED_PIPE = String.raw`\|`;
+
+/** `check --unreferencedFiles`: a table a human reads, with workspace-relative paths only. */
+function formatUnreferencedFilesMarkdown(data: Record<string, unknown>, command: string): string {
+  const cell = (value: unknown): string => valueToMermaidString(value, "").replaceAll("|", ESCAPED_PIPE);
+  const list = (value: unknown): string => (Array.isArray(value) ? value.map(cell).join(", ") : "");
+  const files = (data["unreferencedFiles"] as unknown[]).map((file) => toRecord(file) ?? {});
+  const counts = toRecord(data["byConfidence"]) ?? {};
+  const lines = [
+    `## graph-it ${command} --unreferencedFiles`,
+    "",
+    `${files.length} file(s) listed out of ${cell(data["scannedFiles"])} scanned: ${cell(counts["low"])} nothing imports (low), ${cell(counts["medium"])} only tests import (medium).`,
+  ];
+  if (data["truncated"] === true) lines.push("", `**Partial result:** maxFiles left ${cell(data["filesBeyondLimit"])} file(s) unscanned.`);
+  if (typeof data["hint"] === "string") lines.push("", cell(data["hint"]));
+  lines.push("");
+  if (files.length === 0) {
+    lines.push("_No unreferenced file._");
+  } else {
+    lines.push("| File | Exports | Confidence | Reasons | Delete with its tests |", "| --- | --- | --- | --- | --- |");
+    for (const file of files) {
+      lines.push(`| ${cell(file["relativePath"])} | ${cell(file["exports"])} | ${cell(file["confidence"])} | ${list(file["reasons"])} | ${list(file["testImporters"])} |`);
+    }
+  }
+  if (Array.isArray(data["excluded"])) {
+    const excluded = data["excluded"].map((item) => toRecord(item) ?? {});
+    lines.push("", "### Excluded", "");
+    if (excluded.length === 0) lines.push("_None._");
+    else lines.push("| File | Reason |", "| --- | --- |", ...excluded.map((item) => `| ${cell(item["relativePath"])} | ${cell(item["reason"])} |`));
+  }
+  return lines.join("\n") + "\n";
+}
 
 /**
  * Ambiguous or stale-selector `query_call_graph` results: the generic diagram

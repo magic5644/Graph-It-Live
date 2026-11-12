@@ -79,6 +79,26 @@ export interface ExcludedExport {
   reason: string;
 }
 
+/**
+ * A file no production file imports (#711): `low` with `no-importer` when nothing imports it, `medium` with
+ * `test-only-use` when only test files do. `exports` counts its exported symbols (0 for a script or side-effect module).
+ */
+export interface UnreferencedFile {
+  filePath: string;
+  exports: number;
+  confidence: DeadCodeConfidence;
+  reasons: DeadCodeReason[];
+  evidence: DeadCodeEvidence;
+  /** `test-only-use` only: every test that imports the file, to delete or clean up with it (a quick cleanup win) */
+  testImporters?: string[];
+}
+
+/** An unreferenced file the scan does not report, and why (a manifest declares it, a framework loads it, a test file). */
+export interface ExcludedFile {
+  filePath: string;
+  reason: string;
+}
+
 const RANK: Readonly<Record<DeadCodeConfidence, number>> = { low: 0, medium: 1, high: 2 };
 
 export function meetsConfidence(confidence: DeadCodeConfidence, min: DeadCodeConfidence): boolean {
@@ -377,6 +397,26 @@ export function inDeepImportedPackage(filePath: string, packages: ReadonlyMap<st
     if (marked !== undefined) return marked;
     if (path.posix.dirname(dir) === dir) return false;
   }
+}
+
+/** Path-like tokens: letters, digits, `_ $ @ . / -`. */
+const PATH_TOKEN = /[\w@./-]+/g;
+const SOURCE_EXTENSION = /\.(?:[cm]?[jt]sx?|vue|svelte|pyi?|rs|go|java|cs)$/;
+
+/**
+ * The source file paths a file writes, as written (relative to the workspace or to the file): a bundler entry
+ * (`'src/worker.ts'`), a package.json script (`node scripts/x.mjs`), a Dockerfile `CMD python main.py`. Such a file
+ * is run or built by name, so no import shows it is used. Absolute paths and URLs are left out.
+ */
+export function writtenSourcePaths(content: string): string[] {
+  const paths = new Set<string>();
+  for (const match of content.matchAll(PATH_TOKEN)) {
+    let token = match[0];
+    // A path ending a sentence: `see src/a.ts.`
+    while (token.endsWith(".")) token = token.slice(0, -1);
+    if (SOURCE_EXTENSION.test(token) && !token.startsWith("/") && !token.includes("//")) paths.add(token);
+  }
+  return [...paths];
 }
 
 /** Generated-file markers, read in the head of the file only (a comment block above the code). */

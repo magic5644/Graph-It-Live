@@ -11,9 +11,11 @@ import {
   deployManifestReferences,
   findDynamicLoads,
   isDeployManifest,
+  isTestFile,
   mayLoadDynamically,
   readsComputedAttribute,
   rustQualifiedPaths,
+  writtenSourcePaths,
   type DynamicLoad,
 } from "./deadCodeConfidence";
 import {
@@ -52,6 +54,8 @@ interface FileFacts {
   deployRefs: string[];
   /** JS/TS/Vue sources: the package names heading a quoted deep specifier (deepSpecifierPackages) */
   deepSpecifiers: string[];
+  /** Non-test files: the source paths they write (writtenSourcePaths) */
+  writtenPaths: string[];
 }
 
 /** What the dead-code scan reads as text across the workspace. */
@@ -73,6 +77,11 @@ export interface WorkspaceTextFacts {
    * that the workspace imports by deep path (`<name>/<file>`)
    */
   packageDeepImport: ReadonlyMap<string, boolean>;
+  /**
+   * Source file (absolute, normalized) → the first non-test file, workspace-relative, that writes its path: a bundler
+   * entry, a package.json script, a Dockerfile command
+   */
+  namedPaths: ReadonlyMap<string, string>;
 }
 
 /**
@@ -118,6 +127,7 @@ export class DeadCodeTextIndex {
       entryPoints: await this.entryPoints(root, files, next),
       deployReferences: new Set([...next.values()].flatMap((entry) => entry.deployRefs)),
       packageDeepImport: packageDeepImport(next, new Set(present.flatMap((entry) => entry.deepSpecifiers))),
+      namedPaths: namedPaths(root, next, new Set(files)),
     };
   }
 
@@ -172,12 +182,28 @@ export class DeadCodeTextIndex {
         rustAttributed: rust ? rustAttributedFunctions(content) : [],
         deployRefs: isDeployManifest(path.posix.basename(file)) ? deployManifestReferences(content) : [],
         deepSpecifiers: JS_FAMILY_FILE.test(file) ? deepSpecifierPackages(content) : [],
+        // Tests write fixture paths by design: they run nothing by name.
+        writtenPaths: isTestFile(getRelativePath(file, this.rootDir)) ? [] : writtenSourcePaths(content),
       };
     } catch {
       // Deleted or unreadable: it holds no code the scan could miss.
       return null;
     }
   }
+}
+
+/** Each source file whose path another file writes, resolved from the workspace root or from the writer's folder. */
+function namedPaths(root: string, facts: ReadonlyMap<string, FileFacts>, files: ReadonlySet<string>): Map<string, string> {
+  const named = new Map<string, string>();
+  for (const [writer, entry] of facts) {
+    for (const written of entry.writtenPaths) {
+      for (const base of [root, path.posix.dirname(writer)]) {
+        const file = normalizePath(path.resolve(base, written));
+        if (file !== writer && files.has(file) && !named.has(file)) named.set(file, getRelativePath(writer, root));
+      }
+    }
+  }
+  return named;
 }
 
 function packageDeepImport(facts: ReadonlyMap<string, FileFacts>, deepNames: ReadonlySet<string>): Map<string, boolean> {
