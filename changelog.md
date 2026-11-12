@@ -4,9 +4,9 @@
 
 Minor release. `graph-it init` guards a legacy codebase in one command and lists what to fix first (#664, PR #688). Every unused export now comes with a confidence and its reasons, and exports declared by `package.json`, `pyproject.toml`, `setup.cfg` / `setup.py` or `Cargo.toml` count as used (#690: #695, #696, #697, #698). Agent guidance no longer asks for `graph-it scan` before analysis (#689). Read *Breaking / Behavior changes* first: VS Code 1.101 is now the minimum, and `graph-it check` and `scan_dead_code` list fewer items by default.
 
-[![graph-it init on a legacy monorepo: the quick wins next to the units diagram, where packages/core and packages/types form a cycle](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/graph-it-live-init-poster.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/graph-it-live-init.mp4)
+[![graph-it init on a legacy shop: the generated rules, with callouts explaining each one](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/graph-it-live-init-poster.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/graph-it-live-init.mp4)
 
-*85-second video: `graph-it init` on `tests/fixtures/workspaces-project`, the three-line fix its quick wins point at, and the check failing when the cycle comes back.*
+*2-minute video: `graph-it init` on `tests/fixtures/legacy-shop`, then dead code, refactor, tighter rules and the pull request gate, with real outputs.*
 
 ### Breaking / Behavior changes
 

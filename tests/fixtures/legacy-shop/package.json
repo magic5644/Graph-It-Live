@@ -1,0 +1,5 @@
+{
+  "name": "legacy-shop",
+  "private": true,
+  "description": "Demo fixture for the graph-it init video: a small shop with a cycle, an upward import and dead code."
+}
