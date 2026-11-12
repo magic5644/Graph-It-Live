@@ -3,7 +3,7 @@ export function slugify(text: string): string {
 }
 
 export function deepClone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  return structuredClone(value);
 }
 
 export function retry<T>(fn: () => T, attempts = 3): T {
