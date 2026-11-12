@@ -32,6 +32,12 @@ It walks through the file graph with Louvain import clusters, the Dependency Str
 
 It replays how this repository fixed issue #434, with real outputs. You see a circular import in the live dependency graph (ReactFlow) and units in layers with their cycle in the Architecture view, both on `tests/fixtures/workspaces-project`. Then come the call graph, the matrix cycle between `analyzer` and `shared`, and `graph-it check-architecture` failing on 12 violations. Next, the REPL walks the importers, an AI agent extracts interfaces into `src/shared` through the MCP server to invert the dependency, and the review gate scores the pull request. The check ends green.
 
+**Guard a legacy repository in 85 seconds**
+
+[![Graph-It-Live 85-second graph-it init demo: the units diagram of a legacy monorepo with one cycle between packages/core and packages/types](media/graph-it-live-init-poster.png)](media/graph-it-live-init.mp4)
+
+It runs `graph-it init` on `tests/fixtures/workspaces-project`, a monorepo with no rules and one hidden cycle, with real outputs. `init` writes `graphit.architecture.json` from today's imports, so `graph-it check-architecture` passes on day one. Its quick wins, ranked by effort, show that the dead export `epoch` is the only reason `packages/types` imports `packages/core`. Deleting three lines removes the cycle and the dead code. Next, the rules are tightened to lock that in. When a new import brings the cycle back, the check fails with the file, the line and the broken rule.
+
 ## Table of Contents
 
 - [What it does](#what-it-does)
