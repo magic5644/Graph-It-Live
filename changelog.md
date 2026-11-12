@@ -1,5 +1,60 @@
 # Changelog
 
+## v1.25.0
+
+Minor release. `graph-it init` guards a legacy codebase in one command and lists what to fix first (#664, PR #688). Every unused export now comes with a confidence and its reasons, and exports declared by `package.json`, `pyproject.toml`, `setup.cfg` / `setup.py` or `Cargo.toml` count as used (#690: #695, #696, #697, #698). Agent guidance no longer asks for `graph-it scan` before analysis (#689). Read *Breaking / Behavior changes* first: VS Code 1.101 is now the minimum, and `graph-it check` and `scan_dead_code` list fewer items by default.
+
+[![graph-it init on a legacy monorepo: the quick wins next to the units diagram, where packages/core and packages/types form a cycle](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/graph-it-live-init-poster.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/graph-it-live-init.mp4)
+
+*85-second video: `graph-it init` on `tests/fixtures/workspaces-project`, the three-line fix its quick wins point at, and the check failing when the cycle comes back.*
+
+### Breaking / Behavior changes
+
+- **VS Code 1.101 or later** (PR #705): `engines.vscode` goes from `^1.96.0` to `^1.101.0`. The extension already registered its MCP server through `lm.registerMcpServerDefinitionProvider`, an API that first shipped in VS Code 1.101. It was compiled against newer type definitions than the declared minimum. `@types/vscode` is now pinned to exactly `1.101.0`, and the E2E suite passes on VS Code 1.101.0 on Linux, macOS and Windows. Editors that report an older VS Code version no longer install this release.
+- **`graph-it check` and `scan_dead_code` list `high` items by default** (#695, PR #700): every unused export now has a `confidence` (`high`, `medium`, `low`), `reasons` and `evidence`. The default `minConfidence: high` lists only the exports of an imported file that no importer uses. `byConfidence` counts every item found, and `hint` says how to list the others:
+
+  ```bash
+  graph-it check --minConfidence low        # every item, for review
+  graph-it tool scan_dead_code --minConfidence=medium
+  ```
+
+  Scripts that read `totalUnusedSymbols` or `entries` see fewer items. Exports used only by tests are now reported, at `medium` with `test-only-use` (before 1.25.0 they were not reported at all). Methods, nested functions and Rust `impl` members are no longer reported as exports.
+- **Exports declared by a manifest count as used** (#696, PR #701): the dead-code scan reads `package.json` (`main`, `module`, `browser`, `types`, `exports`, `bin`; `index.js` for a publishable package without them), `pyproject.toml`, `setup.cfg` / `setup.py` entry points, `__main__.py` and `__all__`, and `Cargo.toml` lib and bin crates. `graph-it check --verbose` and `scan_dead_code` `verbose: true` list them as `excluded`, each with its `reason` (`declared:package.json#exports["./x"]`, `convention:framework-default-export`...).
+- **The architecture graph leaves out installed packages and build outputs** (#664, PR #688): a dependency that resolves into `node_modules`, `dist`, `build` or another folder the indexer skips is no longer a node. `graph-it architecture`, `graph-it diagram`, the Architecture view and the MCP architecture tools no longer show such files.
+- **The reverse index is rebuilt once** (PR #700): its format version goes from 5 to 6, because Python `from pkg import sub` and `import a.b as c` now depend on the submodule file. The first run after the update re-indexes the workspace.
+
+### Changed
+
+- **`graph-it init`** (#664, PR #688): on a repository with no rules, one command writes `graphit.architecture.json` from today's imports. It adds one `allowOnly` rule per unit with the units it imports now, and one `noCycles` rule over the units that are in no cycle. Existing violations go to the baseline, so `graph-it check-architecture` passes on day one and fails only on new drift.
+
+  ```bash
+  graph-it init                       # write the rules, print the report
+  graph-it init --dry-run             # print the changes and the report, write nothing
+  graph-it init --output architecture-report   # also report.md and SVG diagrams
+  ```
+
+  The report gives guard snippets (pre-commit, CI, SARIF), quick wins ranked by effort (cheap cycle breaks, mutual file imports, weak unit dependencies, dead code) and a reading of the dependency matrix (upward cells, cycle blocks with their cut, hubs at risk, wide rows, entry rows, cohesion). It never overwrites an existing config or baseline without confirmation. In a terminal it lists the changes and asks (default no), keeping `*.bak` copies. Outside a terminal it writes nothing to them unless `--yes`, and still prints the report. Generated elements and rules are only added to an existing config.
+- **Dead-code `medium` reasons** (#695, #698, PRs #700 and #703): an item stays out of `high` when a computed `import()` or `require()` may reach its file (`dynamic-import-in-workspace`), a Python decorator may register it (`convention:decorated`), its own file writes the name again (`named-in-own-file`), or it sits in a test file (`convention:test-file`). It also stays out when a `Dockerfile`, compose, `serverless.yml`, SAM template or `Procfile` names it as a handler (`named-in-deploy-manifest`), when its file says it is generated (`convention:generated`), or when its package is published without `exports` and imported by deep path (`published-deep-import`). The table of reason codes is in [docs/CLI.md](https://github.com/magic5644/Graph-It-Live/blob/main/docs/CLI.md#check).
+- **Container and deployment manifests are documented** (#697, PR #702): `Dockerfile`, compose, `serverless.yml`, SAM and `Procfile` declare nothing. The file they start is usually imported by nothing, so its exports are reported at `low` with `no-importer`, never at `high`.
+- **Dead-code scan 1.3x to 4x faster** (PR #688): symbol analysis no longer loads the TypeScript standard library. Results are identical. On this repository a full scan goes from 24 s to 18 s.
+- **No `graph-it scan` step for agents** (#689, PR #704): `AGENTS.md`, the Copilot instructions, the five skills and `docs/CLI.md` no longer ask for `graph-it scan` before analysis or after edits. Every CLI command indexes on demand and re-reads only changed files; the MCP server restores its index at startup and follows file changes. `graph-it --help` no longer states a wrong MCP tool count.
+- **Review gate**: a member-level change of an interface now counts only the consumers that can break (PR #700). A retyped, removed or renamed member counts the files that name it; a new required member counts the files that may build the type. Kept call sites must reference the changed symbol directly.
+
+### Fixed
+
+- **Architecture view on VS Code 1.101** (PR #705): when the webview could not start the ELK layout worker, `new Worker` threw and the whole view went blank. Layouts now fail cleanly and the view stays up.
+- **Dead-code false positives** (PRs #700 and #701): types used only in interfaces, type aliases or enums, namespace imports used as a whole, same-file calls, `require('./x')` and Rust qualified paths (`complete::bash::generate()`) now count as uses. Workspace package subpaths (`@scope/pkg/constants`) resolve from the package root, as Node does without `exports`.
+
+### Security
+
+- **`npm audit` at 0** (PR #705): the E2E runner's `mocha` pulled `glob` 10.5.0 (GHSA-3g3m-2fjr-6pw4); an `overrides` entry pins `glob ^14.0.5`. Development dependency only, not in the VSIX.
+- **`graph-it init` writes only inside the workspace** (PR #688): it refuses paths outside the workspace, symbolic and hard links, and non-regular files. `check-architecture --update-baseline` uses the same checks.
+
+### Tests
+
+- **Agent benchmark** (#399: #675–#678, #685): `npm run bench:agent` runs the same tasks with and without Graph-It-Live on Claude Code and Codex, on pinned open-source corpora, with frozen hypotheses and answer keys. The results, which claim no token gain yet, are in [docs/benchmarks/agent-benchmark.md](https://github.com/magic5644/Graph-It-Live/blob/main/docs/benchmarks/agent-benchmark.md).
+- **E2E on the minimum VS Code**: the release dependencies step dispatches `e2e-os.yml` on VS Code 1.101.0 on all three operating systems.
+
 ## v1.24.2
 
 Patch release. The dead-code scan and the PR review no longer stop at a hidden file cap (#670, PR #671), and GitHub Copilot CLI gets its own plugin catalog, kept in sync on every publish (#669, PR #672). No command, setting, MCP tool or Copilot tool is added or removed. Read *Breaking / Behavior changes* if a script relies on the old `scan_dead_code` default of 500 files.
