@@ -32,11 +32,17 @@ It walks through the file graph with Louvain import clusters, the Dependency Str
 
 It replays how this repository fixed issue #434, with real outputs. You see a circular import in the live dependency graph (ReactFlow) and units in layers with their cycle in the Architecture view, both on `tests/fixtures/workspaces-project`. Then come the call graph, the matrix cycle between `analyzer` and `shared`, and `graph-it check-architecture` failing on 12 violations. Next, the REPL walks the importers, an AI agent extracts interfaces into `src/shared` through the MCP server to invert the dependency, and the review gate scores the pull request. The check ends green.
 
-**Guard a legacy repository in 85 seconds**
+**From a messy repository to a clean architecture in 2 minutes**
 
-[![Graph-It-Live 85-second graph-it init demo: the units diagram of a legacy monorepo with one cycle between packages/core and packages/types](media/graph-it-live-init-poster.png)](media/graph-it-live-init.mp4)
+[![graph-it init on a legacy shop: the generated rules, with callouts explaining that each folder may import only what it imports today](media/graph-it-live-init-poster.png)](media/graph-it-live-init.mp4)
 
-It runs `graph-it init` on `tests/fixtures/workspaces-project`, a monorepo with no rules and one hidden cycle, with real outputs. `init` writes `graphit.architecture.json` from today's imports, so `graph-it check-architecture` passes on day one. Its quick wins, ranked by effort, show that the dead export `epoch` is the only reason `packages/types` imports `packages/core`. Deleting three lines removes the cycle and the dead code. Next, the rules are tightened to lock that in. When a new import brings the cycle back, the check fails with the file, the line and the broken rule.
+It cleans up `tests/fixtures/legacy-shop`, a small shop with no rules, two cycles and dead code, using real outputs and one step at a time.
+
+1. `graph-it init` writes `graphit.architecture.json` from today's imports, and `graph-it check-architecture` passes on day one.
+2. `graph-it check` lists the dead code with its confidence. Deleting it removes one cycle, and a second scan finds what only the deleted code used.
+3. The quick wins point at the import behind the last cycle; moving one file fixes it.
+4. The rules are tightened to match the clean code.
+5. A pull request that brings a cycle back fails the Graph-It Review Gate (`graph-it review-pr`). The fix turns it green.
 
 ## Table of Contents
 
