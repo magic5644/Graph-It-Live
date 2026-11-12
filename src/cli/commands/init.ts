@@ -35,6 +35,7 @@ import type { UnitSource } from "../../analyzer/architecture/architectureView.js
 import { renderSourceDiagram } from "../../analyzer/diagram/workspaceDiagram.js";
 import { executeScanDeadCode } from "../../mcp/tools";
 import { workerState } from "../../mcp/shared/state";
+import { readWorkspaceText } from "../../analyzer/utils/workspaceText.js";
 import { normalizePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { CliError, ExitCode } from "../errors";
@@ -144,12 +145,12 @@ async function decide(current: CurrentFiles, changes: readonly string[], flags: 
   return io.interactive && (await io.confirm(changes)) ? "updated" : "kept";
 }
 
-/** The units of the cycle blocks, then the hubs at risk: the few that get a folder diagram. */
+/** The units of the unit cycles, then the hubs at risk: the few that get a folder diagram. */
 function hotSpots(assessment: ArchitectureAssessment): string[] {
   const ranked = [
-    ...assessment.matrixFindings.filter((finding) => finding.kind === "cycle-block"),
-    ...assessment.matrixFindings.filter((finding) => finding.kind === "hub-at-risk"),
-  ].flatMap((finding) => finding.rows);
+    ...assessment.quickWins.filter((win) => win.kind === "cycle-break").flatMap((win) => win.units),
+    ...assessment.matrixFindings.filter((finding) => finding.kind === "hub-at-risk").flatMap((finding) => finding.rows),
+  ];
   return [...new Set(ranked)].slice(0, MAX_FOLDER_DIAGRAMS);
 }
 
@@ -171,12 +172,26 @@ async function writeDiagrams(source: UnitSource, workspaceRoot: string, outputDi
   return diagrams;
 }
 
-/** High-confidence unused exports, listed as quick wins, and the counts of the other levels. */
-async function deadCodeFiles() {
+/** Lines of a workspace file; undefined when it cannot be read (too large, binary, gone). */
+async function lineCount(workspaceRoot: string, relativePath: string): Promise<number | undefined> {
+  try {
+    const text = await readWorkspaceText(workspaceRoot, path.join(workspaceRoot, relativePath));
+    // A final line break ends the last line, it does not start one.
+    return text === "" ? 0 : text.split("\n").length - Number(text.endsWith("\n"));
+  } catch {
+    return undefined;
+  }
+}
+
+/** High-confidence unused exports, listed as quick wins, the counts of the other levels, and the files nothing imports (#711). */
+async function deadCodeFiles(workspaceRoot: string) {
   const scan = await executeScanDeadCode({ minConfidence: "high" });
+  const unreferenced = await executeScanDeadCode({ unreferencedFiles: true });
   return {
     deadCode: scan.entries.map((entry) => ({ relativePath: entry.relativePath, unusedSymbols: entry.unusedSymbols.map(({ name, line }) => ({ name, line })) })),
     deadCodeBelowHigh: { medium: scan.byConfidence.medium, low: scan.byConfidence.low },
+    deadFiles: await Promise.all(unreferenced.unreferencedFiles.map(async ({ relativePath, exports, confidence, reasons }) =>
+      ({ relativePath, lines: await lineCount(workspaceRoot, relativePath), exports, confidence, reasons }))),
   };
 }
 
@@ -208,7 +223,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     units,
     unitOf: assignment.unitOf,
     matrix: unitMatrix(units),
-    ...(await deadCodeFiles()),
+    ...(await deadCodeFiles(workspaceRoot)),
     acceptedViolations: baseline.length,
   });
   const diagrams = outputDir === undefined ? [] : await writeDiagrams({ graph, units, assignment }, workspaceRoot, outputDir, check, assessment);
@@ -218,6 +233,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     baselineFile: ARCHITECTURE_BASELINE_FILE,
     status,
     written,
+    reportFiles: [],
     changes,
     acceptedViolations: baseline.length,
     guard: GUARD_SNIPPETS,
@@ -226,7 +242,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   };
   if (outputDir !== undefined) {
     const reportFile = path.posix.join(outputDir, "report.md");
-    result.written.push(...diagrams.map((diagram) => diagram.file), reportFile);
+    result.reportFiles.push(...diagrams.map((diagram) => diagram.file), reportFile);
     await writeWorkspaceFile(workspaceRoot, reportFile, renderInitMarkdown(result, outputDir));
   }
   if (format === "text") return renderInitText(result);

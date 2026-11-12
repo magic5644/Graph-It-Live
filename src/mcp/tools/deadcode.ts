@@ -15,6 +15,7 @@ import type {
  * Guard: requires the reverse index to be ready — never silent O(n²) fallback.
  */
 export function executeScanDeadCode(params: ScanDeadCodeParams & { unreferencedFiles?: false }, signal?: AbortSignal): Promise<ScanDeadCodeResult>;
+export function executeScanDeadCode(params: ScanDeadCodeParams & { unreferencedFiles: true }, signal?: AbortSignal): Promise<UnreferencedFilesScanResult>;
 export function executeScanDeadCode(params: ScanDeadCodeParams, signal?: AbortSignal): Promise<ScanDeadCodeResult | UnreferencedFilesScanResult>;
 export async function executeScanDeadCode(
   params: ScanDeadCodeParams,

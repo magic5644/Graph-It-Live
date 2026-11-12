@@ -989,35 +989,36 @@ Every current violation goes to `graphit.architecture.baseline.json`; the file i
 
 An invalid config is reported, never replaced.
 
-**The guard.** The report prints the commands that keep it on: `graph-it check-architecture` for a pre-commit hook, a CI step, and the SARIF upload for code scanning (see [check-architecture](#check-architecture)).
+**The report**, from the cheapest action to the setup: the rules line (what happened to the config and how many current violations the proposed baseline accepts) and the report files written, apart; a five-line summary (size, cycles, dead files, unused exports, top action: the first dead file with exports, an export-less one being most often an entry point, else the first item of the next sections); then these sections, each left out when empty. A finding is a lead for the architect, never a verdict.
 
-**Quick wins**, ranked by effort (imports or symbols to change), each with its evidence and the next command:
+- **Dead files**: the files no production file imports ([`check --unreferencedFiles`](#check)), grouped by unit, the unit with the most lines first, each with its line count, exports, confidence and reasons, and one `next:` command per unit. An entry point by convention (script, handler) is listed too: check before deleting.
+- **Cycles to cut** and **Other leads** list the quick wins, ranked by gain / effort (what the item removes over the imports or symbols to change), then by gain:
 
-| Kind | What | Effort |
-| --- | --- | --- |
-| `cycle-break` | A unit cycle whose cut is at most 2 file pairs | file pairs to remove or move |
-| `mutual-import` | Two files importing each other | 1 |
-| `weak-dependency` | A unit edge (not in a cycle) of at most 2 file pairs: remove it before freezing it in `allowOnly` | file pairs |
-| `dead-code` | A file with `high`-confidence unused exports, as [`check`](#check) reports them; the totals line counts the `medium` and `low` items it leaves out | unused exports |
+| Kind | What | Gain | Effort |
+| --- | --- | --- | --- |
+| `cycle-break` | A unit cycle; its cut = the cells against the matrix order or its reverse, the cheaper | units layered again | file pairs to remove or move |
+| `mutual-import` | Files importing each other, grouped by hot spot: a file in six mutual imports is one item | file cycles broken | imports to remove |
+| `weak-dependency` | A unit edge (not in a cycle) of at most 2 file pairs: remove it before freezing it in `allowOnly` | 1 | file pairs |
+| `dead-code` | A file with `high`-confidence unused exports, as [`check`](#check) reports them; the summary counts the `medium` and `low` items it leaves out | unused exports | unused exports |
 
-The totals (units, unit edges, unit cycles, mutual imports, accepted violations, dead-code files and unused exports) are the debt baseline to compare release after release.
-
-**Matrix reading.** The [unit matrix](#architecture) (`--level units --matrix`) translated into findings, each with its rows, cells (`from>to=pairs`), import lines, formula and a suggested action. A finding is a lead for the architect, never a verdict.
+- **Hubs** and **Other leads** also read the [unit matrix](#architecture) (`--level units --matrix`) in plain sentences:
 
 | Kind | Rule (fixed thresholds) | Suggested action |
 | --- | --- | --- |
-| `upward-cell` | The cheapest cell above the diagonal of each cycle | The edge to cut first |
-| `cycle-block` | Each cycle; its cut = the cells against the matrix order or its reverse, the cheaper | Removing the cut layers the units again |
-| `hub-at-risk` | Ca ≥ 10 incoming pairs and I ≥ 0.5 | Stabilize it (fewer outgoing dependencies) or split it |
+| `hub-at-risk` | Ca ≥ 10 incoming pairs and I ≥ 0.5 | Make it depend on less, or split it |
 | `wide-row` | Imports ≥ 5 other units, most outgoing pairs (Ce) first | Split it or put it behind an interface |
-| `entry-row` | Ca = 0, with the unit's dead-code file count | An entry point, or a unit nothing uses |
 | `cohesion` | C = diagonal / (diagonal + Ce) < 0.25, units of ≥ 3 files | Merge it or re-cut it |
+| `entry-row` | Ca = 0; all in one line, with how many of these units hold dead files | An entry point, or a unit nothing uses |
+
+The **Glossary** then defines Ca, Ce, I, C, the matrix order and the cut once; **Diagrams**, the **Config changes** and the **Guard** come last: the commands that keep the guard on, `graph-it check-architecture` for a pre-commit hook, a CI step, and the SARIF upload for code scanning (see [check-architecture](#check-architecture)).
+
+The totals (files, units, unit edges, unit cycles, mutual imports and their hot spot, accepted violations, dead files and their lines, dead-code files and unused exports) are the debt baseline to compare release after release.
 
 `json` and `toon` list every item and the `thresholds`; `text` and `markdown` list the first 20 of each section.
 
-**Diagrams.** With `--output <dir>` (a workspace directory, created if needed), `init` also writes, through [`diagram`](#diagram), `units.svg` (current violations drawn as accepted), `matrix.svg`, one `folder-<n>-<unit>.svg` for each of the first 3 units of the cycle blocks and hubs at risk, and `report.md`, whose findings link to their diagram. Writes stay in the workspace and never go through a symbolic link, a hard link or over a non-regular file.
+**Diagrams.** With `--output <dir>` (a workspace directory, created if needed), `init` also writes, through [`diagram`](#diagram), `units.svg` (current violations drawn as accepted), `matrix.svg`, one `folder-<n>-<unit>.svg` for each of the first 3 units of the unit cycles and hubs at risk, and `report.md`, whose findings link to their diagram. Writes stay in the workspace and never go through a symbolic link, a hard link or over a non-regular file.
 
-The dead-code scan takes as long as [`graph-it check`](#check) on the same workspace.
+The dead-code scans take as long as [`graph-it check`](#check) and `graph-it check --unreferencedFiles` on the same workspace. `json` and `toon` list the report files under `reportFiles`, apart from the rules files under `written`.
 
 ```bash
 graph-it init                                    # write the config, print the report

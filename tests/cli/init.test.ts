@@ -13,10 +13,18 @@ import { RULES_CONFIG, startRulesWorker } from "../analyzer/architecture/rulesWo
 vi.mock("@/mcp/tools", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/mcp/tools")>()),
   // The real scan needs the reverse index of a full CLI run (covered by the E2E test).
-  executeScanDeadCode: vi.fn().mockResolvedValue({
-    entries: [{ relativePath: "backend/src/api.ts", unusedSymbols: [{ name: "api", line: 2, id: "x", kind: "VariableDeclaration", isExported: true }] }],
-    byConfidence: { high: 1, medium: 2, low: 3 },
-  }),
+  executeScanDeadCode: vi.fn().mockImplementation(async ({ unreferencedFiles }: { unreferencedFiles?: boolean }) => (unreferencedFiles
+    ? {
+      // A file gone since the scan has no line count.
+      unreferencedFiles: [
+        { relativePath: "backend/src/api.ts", exports: 1, confidence: "low", reasons: ["no-importer"] },
+        { relativePath: "backend/src/gone.ts", exports: 0, confidence: "medium", reasons: ["test-only-use"] },
+      ],
+    }
+    : {
+      entries: [{ relativePath: "backend/src/api.ts", unusedSymbols: [{ name: "api", line: 2, id: "x", kind: "VariableDeclaration", isExported: true }] }],
+      byConfidence: { high: 1, medium: 2, low: 3 },
+    })),
 }));
 
 const CONFIG = "graphit.architecture.json";
@@ -55,7 +63,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     expect(check).toMatchObject({ passed: true, totals: { violations: 0, unmatchedFiles: 0 }, configWarnings: [] });
     // Quick wins and matrix reading come with it.
     expect(result.assessment.quickWins.map((win) => win.kind)).toEqual(expect.arrayContaining(["cycle-break", "dead-code"]));
-    expect(result.assessment.matrixFindings.map((finding) => finding.kind)).toEqual(expect.arrayContaining(["upward-cell", "cycle-block", "entry-row"]));
+    expect(result.assessment.matrixFindings.map((finding) => finding.kind)).toEqual(expect.arrayContaining(["entry-row"]));
   });
 
   it("changes nothing on a second run", async () => {
@@ -131,13 +139,14 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     const result = await init(["--output", "docs/architecture/"]);
     const dir = "docs/architecture";
     expect(result.diagrams.map((diagram) => diagram.file)).toEqual(expect.arrayContaining([`${dir}/units.svg`, `${dir}/matrix.svg`, `${dir}/folder-1-shared-ui.svg`]));
-    expect(result.written).toEqual(expect.arrayContaining([CONFIG, `${dir}/units.svg`, `${dir}/report.md`]));
+    expect(result.written).toEqual([CONFIG]);
+    expect(result.reportFiles).toEqual(expect.arrayContaining([`${dir}/units.svg`, `${dir}/report.md`]));
     for (const diagram of result.diagrams) expect(read(diagram.file)).toMatch(/^<svg/);
     const report = read(`${dir}/report.md`);
     expect(report).toContain("([diagram](units.svg))");
     expect(report).toContain("([diagram](folder-1-shared-ui.svg))");
     // On stdout the links are workspace-relative.
-    expect(await run(["--dry-run"], runtime, "markdown", offline)).toContain("# Architecture guard (graph-it init)");
+    expect(await run(["--dry-run"], runtime, "markdown", offline)).toContain("# Architecture report (graph-it init)");
   });
 
   it("asks before replacing a baseline left without its config", async () => {
@@ -148,7 +157,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
   });
 
   it("reads --output with backslashes, and refuses a file", async () => {
-    expect((await init(["--output", String.raw`docs\architecture`])).written).toContain("docs/architecture/report.md");
+    expect((await init(["--output", String.raw`docs\architecture`])).reportFiles).toContain("docs/architecture/report.md");
     fs.writeFileSync(file("notes.md"), "");
     const error = await errorOf(init(["--output", "notes.md"]));
     expect(error.message).toContain("--output must be a directory");
@@ -157,7 +166,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
 
   it("writes to the workspace root with --output .", async () => {
     const result = await init(["--output", "."]);
-    expect(result.written).toEqual(expect.arrayContaining(["units.svg", "report.md"]));
+    expect(result.reportFiles).toEqual(expect.arrayContaining(["units.svg", "report.md"]));
   });
 
   it.each([
@@ -211,19 +220,25 @@ describe("graph-it init", { timeout: 60_000 }, () => {
 
   it("prints the text report with the guard snippets", async () => {
     const text = await run(["--dry-run"], runtime, "text", offline);
-    expect(text).toMatch(/^graphit\.architecture\.json: dry run: nothing written/);
+    expect(text).toMatch(/^Rules: graphit\.architecture\.json: dry run: nothing written/);
     expect(text).toContain(`pre-commit: ${GUARD_SNIPPETS.preCommit}`);
-    expect(text).toMatch(/Quick wins \(\d+, by effort\):/);
-    expect(text).toMatch(/Matrix reading \(\d+\):/);
+    expect(text).toMatch(/Cycles to cut \(\d+\):/);
+    expect(text.indexOf("Summary:")).toBeLessThan(text.indexOf("Guard:"));
     expect(await run(["--dry-run"], runtime, "toon", offline)).toContain("dry-run");
-    expect(text).toContain("1 file(s) with 1 high-confidence unused export(s) (2 medium, 3 low not listed: graph-it check --minConfidence low)");
+    expect(text).toContain("Unused exports: 1 high-confidence in 1 file (2 medium, 3 low not listed: graph-it check --minConfidence low)");
   });
 
   it("lists only high-confidence dead code as quick wins and counts the other levels", async () => {
     const { executeScanDeadCode } = await import("@/mcp/tools");
     const result = await init(["--dry-run"]);
     expect(executeScanDeadCode).toHaveBeenCalledWith({ minConfidence: "high" });
-    expect(result.assessment.totals).toMatchObject({ deadCodeFiles: 1, unusedExports: 1, unusedExportsMedium: 2, unusedExportsLow: 3 });
+    expect(executeScanDeadCode).toHaveBeenCalledWith({ unreferencedFiles: true });
+    expect(result.assessment.totals).toMatchObject({ deadCodeFiles: 1, unusedExports: 1, unusedExportsMedium: 2, unusedExportsLow: 3, deadFiles: 2 });
+    const lines = fs.readFileSync(file("backend/src/api.ts"), "utf8").trimEnd().split("\n").length;
+    expect(result.assessment.deadFiles.flatMap((group) => group.files)).toEqual([
+      expect.objectContaining({ relativePath: "backend/src/api.ts", lines }),
+      expect.not.objectContaining({ lines: expect.anything() }),
+    ]);
   });
 });
 
