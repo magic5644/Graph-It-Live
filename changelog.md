@@ -6,7 +6,7 @@ Minor release. `graph-it init` guards a legacy codebase in one command and lists
 
 [![graph-it init on a legacy shop: the generated rules, with callouts explaining each one](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/graph-it-live-init-poster.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/graph-it-live-init.mp4)
 
-*2-minute video: `graph-it init` on `tests/fixtures/legacy-shop`, then dead code, refactor, tighter rules and the pull request gate, with real outputs.*
+*2-minute video: `graph-it init` on `tests/demo/legacy-shop`, then dead code, refactor, tighter rules and the pull request gate, with real outputs.*
 
 ### Breaking / Behavior changes
 

@@ -36,7 +36,7 @@ It replays how this repository fixed issue #434, with real outputs. You see a ci
 
 [![graph-it init on a legacy shop: the generated rules, with callouts explaining that each folder may import only what it imports today](media/graph-it-live-init-poster.png)](media/graph-it-live-init.mp4)
 
-It cleans up `tests/fixtures/legacy-shop`, a small shop with no rules, two cycles and dead code, using real outputs and one step at a time.
+It cleans up `tests/demo/legacy-shop`, a small shop with no rules, two cycles and dead code, using real outputs and one step at a time.
 
 1. `graph-it init` writes `graphit.architecture.json` from today's imports, and `graph-it check-architecture` passes on day one.
 2. `graph-it check` lists the dead code with its confidence. Deleting it removes one cycle, and a second scan finds what only the deleted code used.
