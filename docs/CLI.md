@@ -418,7 +418,7 @@ graph-it scan --workspace /path/to/project
 graph-it scan --format json | jq '.reverseIndexStats.indexedFiles'
 ```
 
-> **Tip:** In CI, run `graph-it scan` as a warm-up step before chaining other commands.
+> **Tip:** Other commands index on demand, so no `scan` is needed before them; run it to check the index status or to time a cold index.
 
 ---
 
@@ -501,74 +501,35 @@ graph-it explain <file> [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--minConfidence` | `high` | Lowest confidence listed: `high`, `medium` or `low` (see below); the other items are counted in `byConfidence` |
-| `--verbose` | off | Workspace or folder scan: also list as `excluded` the unused exports left out, each with its `reason` (see below) |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format |
 
 **What it does:**
 
-Combines the reverse index with per-file symbol analysis to find exports no workspace file uses. Only module-level declarations are exports: a method, a nested function or a Rust `impl` member is never reported. Each item carries a `confidence`, machine-readable `reasons` and `evidence` (`importers`: how many files import the file, `firstImporters`: the first three, workspace-relative; `dynamicLoads` when a computed load may reach it).
+Uses AST analysis (Tree-sitter + ts-morph) to map every symbol in the file and construct a call graph:
+- Which symbols are exported vs. internal
+- Which functions/methods call each other
+- Entry points (symbols called by nobody internally)
+- Cycle detection (recursive calls)
 
-| Confidence | Reason codes | Meaning |
-|------------|--------------|---------|
-| `high` | `importers-use-other-exports` | The file is imported, none of its importers (direct or through a barrel) uses this export, and nothing below applies. A deletion candidate. |
-| `medium` | `test-only-use` | Only test files use the export (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, `conftest.py`, files under `test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`). |
-| `medium` | `dynamic-import-in-workspace` | A workspace file loads modules by computed path and may reach this file: `` import(`./plugins/${name}`) `` or `'./x/' + name` reaches the files under that prefix; a bare or aliased prefix (`` `@/plugins/${name}` ``, Python `'plugins' + name`) reaches the whole workspace; a fully computed `import(name)`, `require(name)`, `importlib.import_module(name)` or `__import__(name)` reaches the files under the caller's folder; a Python importer reading attributes by computed name (`getattr(mod, name)`) reaches the module it imports. |
-| `medium` | `convention:decorated` | Python: a decorator may register the definition by reference (`@app.route`, `@click.command`, `@pytest.fixture`), and so may what it calls. |
-| `medium` | `named-in-own-file` | Its file writes the name again (comments aside): code of the file may use it, so removing the `export` may be the fix rather than deleting the code. |
-| `medium` | `name-written-elsewhere` | Rust: another Rust file writes the name; the Rust analysis does not follow type uses, `Type::new()` or nested grouped `use`. |
-| `medium` | `convention:test-file` | The export sits in a test file, where fixtures hold unused code on purpose and test runners load files by name. |
-| `medium` | `named-in-deploy-manifest` | A container or deployment manifest (`Dockerfile*`, `Containerfile*`, YAML such as compose, `serverless.yml` or SAM / CloudFormation `template.yaml`, `Procfile`, `template.json`) writes `<module>.<name>` or `<module>:<name>` with the file's module name: a Lambda handler (`handler: src/handler.main`, `CMD ["app.handler"]`) or an ASGI/WSGI target (`uvicorn app:app`). |
-| `medium` | `convention:generated` | The file header (first 1,024 characters) says it is generated (`@generated`, `DO NOT EDIT`, `DO NOT MODIFY`, `auto-generated`, `automatically generated`): the next generation restores a deletion, so change the generator's input instead. |
-| `medium` | `published-deep-import` | The file belongs to a published package (a `name`, not `private`) with no `exports` map, which the workspace itself imports by deep path (`'<name>/<file>'`): Node resolves any file of such a package, so projects outside the workspace may import this one too. |
-| `low` | `no-importer` | Nothing imports the file (directly or through a barrel): most often an entry point by convention (script, handler, config file, migration). Review only, never a deletion. The other reasons that apply follow it. |
+Each symbol's `kind` is shown by its LSP SymbolKind name (`Function`, `Method`, `Class`, …) in every format.
 
-The default lists `high` items only; `byConfidence` counts every item found and `hint` tells how to list the others. `test-only-use` items are new compared with releases before 1.25.0, which did not report an export used by tests at all.
-
-**Declared entry points** count as used, with everything they re-export (`export *`, named re-exports, `export * as ns`, Python `from x import *`, Rust `pub use`), and what they call in their own file. Each package of a monorepo is read through its own manifest, once per scan:
-
-| Manifest | Declared as used | `reason` in `--verbose` |
-|----------|------------------|-------------------------|
-| `package.json` | `main`, `module`, `browser` (path or map), `types` / `typings`, `exports` (every subpath and condition, `*` patterns; `null` excludes), `bin` (path or map). A publishable package (`name`, not `"private": true`) with no `main`, `module` or `exports` loads `index.js`, as npm does. | `declared:<manifest>#main`, `#exports["./x"]`, `#bin["tool"]`, `#main(default: index.js)` |
-| `pyproject.toml` | `[project.scripts]`, `[project.gui-scripts]`, `[project.entry-points.*]`, `[tool.poetry.scripts]`: the attribute named after `:` (the whole module without one), in the manifest folder or its `src/` | `declared:<manifest>#project.scripts.<name>` |
-| `setup.cfg` / `setup.py` | `[options.entry_points]` / the `entry_points` strings `name = module:attr` | `declared:setup.cfg#options.entry_points.<group>`, `declared:setup.py#entry_points` |
-| Python package | `__main__.py`, the names of `__all__` in an `__init__.py` | `declared:__main__.py`, `declared:<file>#__all__` |
-| `Cargo.toml` | the lib crate (`[lib] path`, else `src/lib.rs` of a `[package]`): its `pub` items and those of the modules it reaches through `pub mod` (never `pub(crate)`); `fn main` of `[[bin]] path`, `src/main.rs`, `src/bin/*.rs` | `declared:<manifest>#lib`, `#bin` |
-| Rust source | functions marked `#[test]`, `#[bench]`, `#[no_mangle]`, `#[export_name]`, `#[proc_macro*]` | `attribute:#[no_mangle]` |
-
-A manifest path naming a build output is mapped back to its source: tsconfig `outDir` to `rootDir`, a bundle folder such as `dist/` to `rootDir`, `.js` to `.ts` / `.tsx` (`.mjs` to `.mts`, `.cjs` to `.cts`, `.d.ts` to `.ts`); when nothing matches, a bundle named after its entry (`dist/extension.js`) is matched to the only file with that stem under `rootDir`. A path that names no workspace file, or leaves the workspace, declares nothing. An invalid manifest (bad JSON or TOML, a field of the wrong type) is ignored with a warning naming the file. A JSX function or class default export, or a `.vue` default export, may be loaded by a framework: it is left out too, with `reason: convention:framework-default-export`.
-
-Container and deployment manifests (`Dockerfile`, `docker-compose.yml`, `serverless.yml`, AWS SAM / CloudFormation `template.yaml`, `Procfile`) are not parsed and declare nothing. The file they start (a Lambda `handler`, the script of a `CMD`, a `uvicorn app:app` module) is usually imported by nothing, so its exports are already reported at `low` with `no-importer`, never at `high`. A handler that sits in a file other workspace files import for its other exports is kept at `medium` with `named-in-deploy-manifest`: the scan reads these manifests as text for `module.name` and `module:name` pairs, resolves no path from them, and never hides the item.
-
-Go, Java and C# files have no symbol analysis yet and are not scanned (#699).
-
-**Output (text, workspace-wide):**
+**Output (text):**
 
 ```
-scannedFiles: 816
-filesWithDeadCode: 14
-totalUnusedSymbols: 20
-minConfidence: high
-byConfidence:
-  high: 20
-  medium: 120
-  low: 18
-hint: 120 medium, 18 low-confidence item(s) not listed: pass minConfidence low to list them.
-entries:
-  [0]:
-    relativePath: src/analyzer/QueryEngine.ts
-    unusedCount: 1
-    unusedSymbols:
-      [0]:
-        name: RawNodeRow
-        kind: InterfaceDeclaration
-        line: 62
-        confidence: high
-        reasons: [importers-use-other-exports]
-        evidence:
-          importers: 8
-          firstImporters: [src/analyzer/graph-context/GraphContextRetriever.ts, ...]
+File: src/mcp/mcpServer.ts
+
+Entry points: initializeServer(), main()
+
+initializeServer()
+  └── registerAllTools()         [call #1]
+  └── setupFileWatcher()         [call #2]
+  └── startListening()           [call #3]
+      └── handleToolCall()
+          ├── validateWorkspace()
+          └── invokeWorker()
+
+Cycles: none
 ```
 
 **Examples:**
@@ -1163,41 +1124,74 @@ graph-it check [target] [options]
 
 | Option | Default | Description |
 |--------|---------|-------------|
+| `--minConfidence` | `high` | Lowest confidence listed: `high`, `medium` or `low` (see below); the other items are counted in `byConfidence` |
+| `--verbose` | off | Workspace or folder scan: also list as `excluded` the unused exports left out, each with its `reason` (see below) |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format |
 
 **What it does:**
 
-Combines the dependency graph with export analysis to find symbols that are exported but never imported anywhere in the project. Reports:
-- File path of the symbol
-- Symbol name and type (function, class, variable, type alias…)
-- Whether it is completely unreferenced or only referenced within the same file
+Combines the reverse index with per-file symbol analysis to find exports no workspace file uses. Only module-level declarations are exports: a method, a nested function or a Rust `impl` member is never reported. Each item carries a `confidence`, machine-readable `reasons` and `evidence` (`importers`: how many files import the file, `firstImporters`: the first three, workspace-relative; `dynamicLoads` when a computed load may reach it).
+
+| Confidence | Reason codes | Meaning |
+|------------|--------------|---------|
+| `high` | `importers-use-other-exports` | The file is imported, none of its importers (direct or through a barrel) uses this export, and nothing below applies. A deletion candidate. |
+| `medium` | `test-only-use` | Only test files use the export (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, `conftest.py`, files under `test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`). |
+| `medium` | `dynamic-import-in-workspace` | A workspace file loads modules by computed path and may reach this file: `` import(`./plugins/${name}`) `` or `'./x/' + name` reaches the files under that prefix; a bare or aliased prefix (`` `@/plugins/${name}` ``, Python `'plugins' + name`) reaches the whole workspace; a fully computed `import(name)`, `require(name)`, `importlib.import_module(name)` or `__import__(name)` reaches the files under the caller's folder; a Python importer reading attributes by computed name (`getattr(mod, name)`) reaches the module it imports. |
+| `medium` | `convention:decorated` | Python: a decorator may register the definition by reference (`@app.route`, `@click.command`, `@pytest.fixture`), and so may what it calls. |
+| `medium` | `named-in-own-file` | Its file writes the name again (comments aside): code of the file may use it, so removing the `export` may be the fix rather than deleting the code. |
+| `medium` | `name-written-elsewhere` | Rust: another Rust file writes the name; the Rust analysis does not follow type uses, `Type::new()` or nested grouped `use`. |
+| `medium` | `convention:test-file` | The export sits in a test file, where fixtures hold unused code on purpose and test runners load files by name. |
+| `medium` | `named-in-deploy-manifest` | A container or deployment manifest (`Dockerfile*`, `Containerfile*`, YAML such as compose, `serverless.yml` or SAM / CloudFormation `template.yaml`, `Procfile`, `template.json`) writes `<module>.<name>` or `<module>:<name>` with the file's module name: a Lambda handler (`handler: src/handler.main`, `CMD ["app.handler"]`) or an ASGI/WSGI target (`uvicorn app:app`). |
+| `medium` | `convention:generated` | The file header (first 1,024 characters) says it is generated (`@generated`, `DO NOT EDIT`, `DO NOT MODIFY`, `auto-generated`, `automatically generated`): the next generation restores a deletion, so change the generator's input instead. |
+| `medium` | `published-deep-import` | The file belongs to a published package (a `name`, not `private`) with no `exports` map, which the workspace itself imports by deep path (`'<name>/<file>'`): Node resolves any file of such a package, so projects outside the workspace may import this one too. |
+| `low` | `no-importer` | Nothing imports the file (directly or through a barrel): most often an entry point by convention (script, handler, config file, migration). Review only, never a deletion. The other reasons that apply follow it. |
+
+The default lists `high` items only; `byConfidence` counts every item found and `hint` tells how to list the others. `test-only-use` items are new compared with releases before 1.25.0, which did not report an export used by tests at all.
+
+**Declared entry points** count as used, with everything they re-export (`export *`, named re-exports, `export * as ns`, Python `from x import *`, Rust `pub use`), and what they call in their own file. Each package of a monorepo is read through its own manifest, once per scan:
+
+| Manifest | Declared as used | `reason` in `--verbose` |
+|----------|------------------|-------------------------|
+| `package.json` | `main`, `module`, `browser` (path or map), `types` / `typings`, `exports` (every subpath and condition, `*` patterns; `null` excludes), `bin` (path or map). A publishable package (`name`, not `"private": true`) with no `main`, `module` or `exports` loads `index.js`, as npm does. | `declared:<manifest>#main`, `#exports["./x"]`, `#bin["tool"]`, `#main(default: index.js)` |
+| `pyproject.toml` | `[project.scripts]`, `[project.gui-scripts]`, `[project.entry-points.*]`, `[tool.poetry.scripts]`: the attribute named after `:` (the whole module without one), in the manifest folder or its `src/` | `declared:<manifest>#project.scripts.<name>` |
+| `setup.cfg` / `setup.py` | `[options.entry_points]` / the `entry_points` strings `name = module:attr` | `declared:setup.cfg#options.entry_points.<group>`, `declared:setup.py#entry_points` |
+| Python package | `__main__.py`, the names of `__all__` in an `__init__.py` | `declared:__main__.py`, `declared:<file>#__all__` |
+| `Cargo.toml` | the lib crate (`[lib] path`, else `src/lib.rs` of a `[package]`): its `pub` items and those of the modules it reaches through `pub mod` (never `pub(crate)`); `fn main` of `[[bin]] path`, `src/main.rs`, `src/bin/*.rs` | `declared:<manifest>#lib`, `#bin` |
+| Rust source | functions marked `#[test]`, `#[bench]`, `#[no_mangle]`, `#[export_name]`, `#[proc_macro*]` | `attribute:#[no_mangle]` |
+
+A manifest path naming a build output is mapped back to its source: tsconfig `outDir` to `rootDir`, a bundle folder such as `dist/` to `rootDir`, `.js` to `.ts` / `.tsx` (`.mjs` to `.mts`, `.cjs` to `.cts`, `.d.ts` to `.ts`); when nothing matches, a bundle named after its entry (`dist/extension.js`) is matched to the only file with that stem under `rootDir`. A path that names no workspace file, or leaves the workspace, declares nothing. An invalid manifest (bad JSON or TOML, a field of the wrong type) is ignored with a warning naming the file. A JSX function or class default export, or a `.vue` default export, may be loaded by a framework: it is left out too, with `reason: convention:framework-default-export`.
+
+Container and deployment manifests (`Dockerfile`, `docker-compose.yml`, `serverless.yml`, AWS SAM / CloudFormation `template.yaml`, `Procfile`) are not parsed and declare nothing. The file they start (a Lambda `handler`, the script of a `CMD`, a `uvicorn app:app` module) is usually imported by nothing, so its exports are already reported at `low` with `no-importer`, never at `high`. A handler that sits in a file other workspace files import for its other exports is kept at `medium` with `named-in-deploy-manifest`: the scan reads these manifests as text for `module.name` and `module:name` pairs, resolves no path from them, and never hides the item.
+
+Go, Java and C# files have no symbol analysis yet and are not scanned (#699).
 
 **Output (text, workspace-wide):**
 
 ```
-Dead code scan — 347 files analyzed
-
-src/utils/legacy.ts
-  ⚠  formatDate        [function]   — exported, never imported
-  ⚠  LegacyConfig      [interface]  — exported, never imported
-
-src/api/deprecated.ts
-  ⚠  oldHandler        [function]   — exported, never imported
-
-3 unused exports found across 2 files.
-```
-
-**Output (text, single file):**
-
-```
-Checking src/utils/helpers.ts
-
-  ✓  formatDate        used in 4 files
-  ✗  parseQueryString  not used anywhere
-  ✓  clamp             used in 2 files
-
-1 unused export found.
+scannedFiles: 816
+filesWithDeadCode: 14
+totalUnusedSymbols: 20
+minConfidence: high
+byConfidence:
+  high: 20
+  medium: 120
+  low: 18
+hint: 120 medium, 18 low-confidence item(s) not listed: pass minConfidence low to list them.
+entries:
+  [0]:
+    relativePath: src/analyzer/QueryEngine.ts
+    unusedCount: 1
+    unusedSymbols:
+      [0]:
+        name: RawNodeRow
+        kind: InterfaceDeclaration
+        line: 62
+        confidence: high
+        reasons: [importers-use-other-exports]
+        evidence:
+          importers: 8
+          firstImporters: [src/analyzer/graph-context/GraphContextRetriever.ts, ...]
 ```
 
 **Examples:**

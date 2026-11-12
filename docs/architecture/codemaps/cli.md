@@ -1,8 +1,8 @@
 # CLI Layer
 
-**Last Updated:** 2026-10-09
+**Last Updated:** 2026-11-12
 **Layer:** Standalone Terminal Interface (VS Code Agnostic)
-**Files:** 34 in `src/cli/` (20 command modules under `src/cli/commands/`, 4 REPL modules under `src/cli/repl/`)
+**Files:** 41 in `src/cli/` (25 under `src/cli/commands/`, 5 under `src/cli/repl/`)
 
 ## Overview
 
@@ -76,7 +76,7 @@ formatter.ts
 └─→ CLI_OUTPUT_FORMATS — const array of all valid formats
 ```
 
-**Format × Command availability (core commands; see full command list below for all 20):**
+**Format × Command availability (core commands; see full command list below for the rest):**
 
 | Format   | scan | summary | trace | explain | path | check | tool |
 |----------|:----:|:-------:|:-----:|:-------:|:----:|:-----:|:----:|
@@ -263,6 +263,16 @@ commands/diagram.ts
 ├─→ Args: [--view units|folder|matrix] [--folder <key>] [--format svg|html] [--theme light|dark] [--output <file>|-] [--rules [--config <file>] [--baseline [<file>]]]
 ├─→ Lays one architecture level out with analyzer/diagram (ELK graph or matrix) and renders SVG or HTML
 └─→ Writes inside the workspace only (validateWorkspacePath); --output - prints to stdout
+```
+
+### init
+
+```
+commands/init.ts + commands/initReport.ts
+├─→ Args: [--yes] [--dry-run] [--output <dir>] [--format text|markdown|json|toon]
+├─→ Writes graphit.architecture.json from current imports: one allowOnly rule per unit, noCycles over acyclic units
+├─→ Never overwrites an existing config or baseline without confirmation (TTY prompt, default no, *.bak copies; non-TTY writes nothing unless --yes)
+└─→ Prints guard snippets, quick wins by effort and the matrix reading; --output adds report.md and SVG diagrams
 ```
 
 ### check-dependencies
