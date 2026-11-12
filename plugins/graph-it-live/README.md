@@ -5,7 +5,8 @@ Graph-It-Live skills (`graph-it-live`, `graph-it-refactor`, `onboarding-express`
 and `pr-review`) from [magic5644/skills](https://github.com/magic5644/skills).
 
 The `check_architecture` MCP tool and `graph-it check-architecture` check imports
-against the rules in `graphit.architecture.json`; see
+against the rules in `graphit.architecture.json`; `graph-it init` generates that
+file from the current imports. See
 [the architecture guide](https://github.com/magic5644/Graph-It-Live/blob/main/docs/architecture.md).
 
 Install the plugin from its repository with the installation mechanism provided

@@ -126,6 +126,14 @@ every static import. It exits 1 on an `error` violation absent from
 `graphit.architecture.baseline.json`; `--update-baseline` accepts the current violations, `--verbose`
 lists accepted ones, `--config`/`--baseline` pick other files, `--format sarif` feeds code scanning.
 
+No rules file yet: `graph-it init` (CLI 1.25.0 or later) writes `graphit.architecture.json` from
+today's imports (one `allowOnly` rule per unit, `noCycles` over the units in no cycle) so the check
+passes now and only new drift fails, then prints quick wins by effort (cycle breaks, mutual imports,
+weak unit dependencies, dead code) and how to read the matrix. `--dry-run` writes nothing; `--output
+<dir>` adds `report.md` and SVG diagrams. It never overwrites an existing config or baseline without
+confirmation: outside a terminal (agent, CI) it then writes nothing unless `--yes`, and still prints
+the report.
+
 ## Diagrams for humans (CLI 1.23.0 or later)
 
 ```bash
