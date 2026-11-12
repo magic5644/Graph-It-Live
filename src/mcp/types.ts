@@ -871,6 +871,16 @@ export const ScanDeadCodeParamsSchema = z.object({
       "Also list the unused exports left out as excluded, each with its reason: the manifest field that declares it " +
         "(declared:package.json#exports[\"./x\"]), a Rust attribute, or convention:framework-default-export (default: false)",
     ),
+  unreferencedFiles: z
+    .boolean()
+    .optional()
+    .describe(
+      "List whole files no production file imports instead of unused exports (default: false): low (no-importer) when " +
+        "nothing imports the file, medium (test-only-use) when only tests do. minConfidence then defaults to low. " +
+        "medium items list testImporters, the tests to delete or clean up with the file. Left out (excluded with verbose): " +
+        "test files, manifest entry points, files a non-test file names by path (bundler entry, package.json script), " +
+        "JSX/Vue default exports, .d.ts files, *.config.* files, files a folder's .gitignore ignores, Python package __init__.py.",
+    ),
 });
 export type ScanDeadCodeParams = z.infer<typeof ScanDeadCodeParamsSchema>;
 

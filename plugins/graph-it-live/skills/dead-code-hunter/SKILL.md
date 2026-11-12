@@ -98,6 +98,25 @@ analysable file in scope is scanned (no upper bound; about 90 s for 12,000 files
 and reports `truncated=true` with `filesBeyondLimit` when reached: report that result as partial. A scan surfaces candidates;
 **confirm each high-priority candidate in Step 3 before recommending deletion.**
 
+**Whole files first** (CLI 1.25.1 or later: `unreferencedFiles` appears in `graph-it tool scan_dead_code --help`).
+On a legacy codebase, unreferenced files are the cheapest deletions; list them before the exports:
+
+```bash
+graph-it tool scan_dead_code --unreferencedFiles=true --verbose=true --format toon
+graph-it check src --unreferencedFiles --format markdown   # a table for a human
+```
+
+| Confidence | Reasons | Use in the plan |
+|---|---|---|
+| `medium` | `test-only-use`: only tests import the file; `testImporters` lists them | Quick cleanup win: delete the file with those tests (or their cases on it) |
+| `low` | `no-importer` alone | Possible ghost file: delete unless it is run by name (script, config, tool entry) |
+| `low` | `no-importer` plus `dynamic-import-in-workspace`, `named-in-deploy-manifest`, `convention:generated` or `published-deep-import` | Review the reason before deleting |
+
+Test files, manifest entry points, files whose path a non-test file writes (`named-in:esbuild.js`,
+`named-in:package.json`), JSX/Vue default exports, `.d.ts` files, tool configs (`*.config.ts`), files a folder's `.gitignore`
+ignores and Python package `__init__.py` are left out (`excluded` with `--verbose`). A file a barrel re-exports counts as imported: delete an unreferenced
+barrel first, then scan again. Two dead files importing each other are not found.
+
 ---
 
 ### Step 3 — Per-file confirmation (avoid false positives)
@@ -142,6 +161,7 @@ Apply this risk classification:
 | **Review first** | Symbol is exported from a barrel (`index.ts`) | Check if barrel is consumed externally |
 | **Do not delete** | Dynamic call patterns detected (`eval`, string-based dispatch) | Flag only |
 | **Test-only** | Only called from test files (`test-only-use`, `medium`) | Evaluate — may be intentional |
+| **Test-only file** | `unreferencedFiles` item at `medium`: only its `testImporters` import it | Delete with its tests — a quick cleanup win |
 
 ---
 

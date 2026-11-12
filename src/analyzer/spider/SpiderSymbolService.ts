@@ -1,3 +1,4 @@
+import fs from 'node:fs/promises';
 import path from 'node:path';
 import { setImmediate } from 'node:timers/promises';
 import { mapWithConcurrency } from '../../shared/concurrency';
@@ -8,6 +9,7 @@ import { Cache } from '../Cache';
 import { FileReader } from '../FileReader';
 import { LanguageService } from '../LanguageService';
 import { SourceFileCollector } from '../SourceFileCollector';
+import { createNestedGitignoreMatcher, type IgnoreMatcher } from '../SourceFileFilters';
 import { SymbolDependencyHelper } from '../SymbolDependencyHelper';
 import type { Dependency, ReferencingFile, SpiderConfig, SymbolDependency, SymbolInfo } from '../types';
 import { SpiderError, SpiderErrorCode, normalizePath } from '../types';
@@ -19,7 +21,7 @@ import { isPythonOrRust, namesModule, pythonStarExports, readImportBindings } fr
 import { mayReExport, readModuleReExports, type ModuleReExports, type ReExportTarget } from '../utils/reExports';
 import { DEFAULT_ONLY, findDeclaration, type DeclarationReads } from '../utils/declarations';
 import { getRelativePath } from '../../shared/path';
-import { classifyUnused, codeForNames, deployModuleName, inDeepImportedPackage, isGeneratedFile, isTestFile, loadsReaching, namedAgain, rustQualifiedUse, type ExcludedExport, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
+import { classifyUnused, codeForNames, deployModuleName, inDeepImportedPackage, isGeneratedFile, isTestFile, loadsReaching, namedAgain, rustQualifiedUse, type ExcludedExport, type ExcludedFile, type UnreferencedFile, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
 import { declaredReason, type DeclaredEntryPoints } from '../deadcode/declaredEntryPoints';
 import { DeadCodeTextIndex, type WorkspaceTextFacts } from '../deadcode/DeadCodeTextIndex';
 
@@ -103,6 +105,7 @@ export interface TraceCallEntry {
 const JS_TS_MODULE = /\.[cm]?[jt]sx?$/i;
 const VUE_FILE = /\.vue$/i;
 const SVELTE_FILE = /\.svelte$/i;
+const CONFIG_FILE = /\.config\.[cm]?[jt]s$/i;
 const PYTHON_FILE = /\.pyi?$/i;
 const RUST_FILE = /\.rs$/i;
 
@@ -1161,63 +1164,154 @@ export class SpiderSymbolService {
     scopePath: string,
     options: { maxFiles?: number; hasReverseIndex: boolean; signal?: AbortSignal }
   ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: UnusedSymbol[] }>; excluded: ExcludedExport[]; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
-    const { maxFiles = Number.POSITIVE_INFINITY, hasReverseIndex, signal } = options;
+    const { filesToScan, filesBeyondLimit } = await this.collectScanFiles(scopePath, options);
+    const context: DeadCodeContext = { reExportMemo: new Map(), excluded: [] };
+    this.scanResolutions = new Map();
 
-    if (!hasReverseIndex) {
+    try {
+      const { results, skippedFiles } = await this.scanEachFile(filesToScan, 'scanDeadCode', options.signal, async (filePath) => ({
+        filePath,
+        unusedSymbols: await this.findUnusedSymbols(filePath, context),
+      }));
+      return {
+        entries: results.flatMap((entry) => (entry && entry.unusedSymbols.length > 0 ? [entry] : [])),
+        excluded: context.excluded ?? [],
+        scannedFiles: filesToScan.length,
+        skippedFiles,
+        filesBeyondLimit,
+      };
+    } finally {
+      this.scanResolutions = undefined;
+    }
+  }
+
+  /**
+   * Files under `scopePath` that no production file imports, directly or as a barrel's target (#711), from the
+   * reverse index: only these candidates are read. A file only tests import is listed at `medium` (`test-only-use`).
+   * Excluded, each with its reason (`unreferencedFile`): test files, entry points (manifest, path written elsewhere,
+   * framework default export), declarations, tool configs, git-ignored output and Python package `__init__.py`.
+   * shortcut: dead files that only import each other each keep an importer and are not listed; finding them needs the
+   * real entry points, which `no-importer` files are as often as dead code.
+   */
+  async scanUnreferencedFiles(
+    scopePath: string,
+    options: { maxFiles?: number; hasReverseIndex: boolean; signal?: AbortSignal }
+  ): Promise<{ files: UnreferencedFile[]; excluded: ExcludedFile[]; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
+    const { filesToScan, filesBeyondLimit } = await this.collectScanFiles(scopePath, options);
+    const textFacts = this.workspaceTextFacts({ reExportMemo: new Map() });
+    const isGitignored = createNestedGitignoreMatcher(this.getConfig().rootDir);
+    const excluded: ExcludedFile[] = [];
+    const { results, skippedFiles } = await this.scanEachFile(filesToScan, 'scanUnreferencedFiles', options.signal, async (filePath) => {
+      const verdict = await this.unreferencedFile(normalizePath(filePath), textFacts, isGitignored);
+      if (!verdict || !('reason' in verdict)) return verdict;
+      excluded.push(verdict);
+      return undefined;
+    });
+    return {
+      files: results.filter((file): file is UnreferencedFile => file !== undefined),
+      excluded,
+      scannedFiles: filesToScan.length,
+      skippedFiles,
+      filesBeyondLimit,
+    };
+  }
+
+  /**
+   * `analyse` on each file, a few at a time; a file whose analysis fails is skipped (undefined) so the batch continues.
+   * With a signal, yields to the event loop before each file so a pending cancel message can abort the scan.
+   */
+  private async scanEachFile<T>(
+    files: string[],
+    label: string,
+    signal: AbortSignal | undefined,
+    analyse: (filePath: string) => Promise<T | undefined>,
+  ): Promise<{ results: Array<T | undefined>; skippedFiles: number }> {
+    let skippedFiles = 0;
+    const results = await mapWithConcurrency(files, DEAD_CODE_SCAN_CONCURRENCY, async (filePath) => {
+      if (signal) {
+        await setImmediate();
+        signal.throwIfAborted();
+      }
+      try {
+        return await analyse(filePath);
+      } catch (error) {
+        log.warn(`${label}: skipping file due to error:`, filePath, SpiderError.fromError(error, filePath).message);
+        skippedFiles++;
+        return undefined;
+      }
+    });
+    return { results, skippedFiles };
+  }
+
+  /** The file as an unreferenced file, as an excluded one, or undefined when a production file imports it. */
+  private async unreferencedFile(
+    target: string,
+    textFacts: Promise<WorkspaceTextFacts>,
+    isGitignored: IgnoreMatcher,
+  ): Promise<UnreferencedFile | ExcludedFile | undefined> {
+    const importers = (await this.findReferencingFiles(target)).map((ref) => this.relativeToRoot(ref.path));
+    const testOnlyUse = importers.length > 0;
+    if (testOnlyUse && !importers.every((importer) => isTestFile(importer))) return undefined;
+    const relativePath = this.relativeToRoot(target);
+    if (isTestFile(relativePath)) return { filePath: target, reason: 'convention:test-file' };
+    // A package's build output or generated code: not source to delete.
+    if (isGitignored(relativePath, false)) return { filePath: target, reason: 'gitignored' };
+    // Ambient declarations: tsconfig loads them, no import does.
+    if (target.endsWith('.d.ts')) return { filePath: target, reason: 'convention:type-declaration' };
+    // Tool configs (vite.config.ts, eslint.config.mjs): the tool loads them by name.
+    if (CONFIG_FILE.test(target)) return { filePath: target, reason: 'convention:config-file' };
+    if (path.posix.basename(target) === '__init__.py' && (await hasOtherPythonModule(path.posix.dirname(target)))) {
+      return { filePath: target, reason: 'convention:package-init' };
+    }
+    const { entryPoints, deployReferences, packageDeepImport, namedPaths } = await textFacts;
+    // Any declared name makes the file an entry point: a script `pkg.cli:main`, `#[no_mangle]`, `__all__`.
+    const declared = entryPoints.get(target)?.values().next().value;
+    if (declared) return { filePath: target, reason: declared };
+    const writer = namedPaths.get(target);
+    if (writer) return { filePath: target, reason: `named-in:${writer}` };
+    const exports = (await this.getSymbolGraph(target)).symbols.filter((symbol) => symbol.isExported);
+    if (exports.some((symbol) => isFrameworkDefault(target, symbol))) return { filePath: target, reason: FRAMEWORK_DEFAULT_EXPORT };
+    const moduleName = `${deployModuleName(target)}.`;
+    importers.sort((a, b) => a.localeCompare(b));
+    return {
+      filePath: target,
+      exports: exports.length,
+      ...(testOnlyUse ? { testImporters: importers } : {}),
+      ...classifyUnused({
+        importers,
+        testOnlyUse,
+        testFile: false,
+        dynamicLoads: await this.dynamicLoadsReaching(target, [], textFacts),
+        namedInDeployManifest: [...deployReferences].some((ref) => ref.startsWith(moduleName)),
+        publishedDeepImport: inDeepImportedPackage(target, packageDeepImport),
+        generated: isGeneratedFile(await this.fileReader.readFile(target)),
+      }),
+    };
+  }
+
+  /** The analysable files under `scopePath`, capped at `maxFiles`; the reverse index is required. */
+  private async collectScanFiles(
+    scopePath: string,
+    options: { maxFiles?: number; hasReverseIndex: boolean }
+  ): Promise<{ filesToScan: string[]; filesBeyondLimit: number }> {
+    if (!options.hasReverseIndex) {
       throw new SpiderError(
         'Dead code scan requires the reverse index. Wait for indexing to complete or call rebuild_index first.',
         SpiderErrorCode.INDEX_NOT_READY,
       );
     }
-
-    const config = this.getConfig();
-    const collector = new SourceFileCollector({
-      excludeNodeModules: config.excludeNodeModules ?? true,
-    });
-
-    // Collect all source files under scopePath
-    const allFiles = await collector.collectAllSourceFiles(scopePath);
-
-    // Filter to files supported by the symbol analyser
-    const analysableFiles = allFiles.filter((f) => !this.isUsageUnverifiable(f));
-
-    // Apply hard cap
-    const filesToScan = analysableFiles.slice(0, maxFiles);
-
-    const context: DeadCodeContext = { reExportMemo: new Map(), excluded: [] };
-    let skippedFiles = 0;
-    this.scanResolutions = new Map();
-
-    let results: Array<{ filePath: string; unusedSymbols: UnusedSymbol[] }>;
-    try {
-      results = await mapWithConcurrency(filesToScan, DEAD_CODE_SCAN_CONCURRENCY, async (filePath) => {
-        if (signal) {
-          // Yield to the event loop so a pending cancel message can abort the signal.
-          await setImmediate();
-          signal.throwIfAborted();
-        }
-        try {
-          return { filePath, unusedSymbols: await this.findUnusedSymbols(filePath, context) };
-        } catch (error) {
-          // Per-file errors are silently skipped so the batch continues.
-          const spiderError = SpiderError.fromError(error, filePath);
-          log.warn('scanDeadCode: skipping file due to error:', filePath, spiderError.message);
-          skippedFiles++;
-          return { filePath, unusedSymbols: [] };
-        }
-      });
-    } finally {
-      this.scanResolutions = undefined;
-    }
-
-    return {
-      entries: results.filter((entry) => entry.unusedSymbols.length > 0),
-      excluded: context.excluded ?? [],
-      scannedFiles: filesToScan.length,
-      skippedFiles,
-      filesBeyondLimit: analysableFiles.length - filesToScan.length,
-    };
+    const collector = new SourceFileCollector({ excludeNodeModules: this.getConfig().excludeNodeModules ?? true });
+    // Files the symbol analyser supports, as the export scan reads them.
+    const analysableFiles = (await collector.collectAllSourceFiles(scopePath)).filter((f) => !this.isUsageUnverifiable(f));
+    const filesToScan = analysableFiles.slice(0, options.maxFiles ?? Number.POSITIVE_INFINITY);
+    return { filesToScan, filesBeyondLimit: analysableFiles.length - filesToScan.length };
   }
+}
+
+/** Python runs a package's `__init__.py` whenever one of its modules or sub-packages is imported. */
+async function hasOtherPythonModule(packageDir: string): Promise<boolean> {
+  const entries = await fs.readdir(packageDir, { withFileTypes: true });
+  return entries.some((entry) => entry.isDirectory() || (PYTHON_FILE.test(entry.name) && entry.name !== '__init__.py'));
 }
 
 /** A JSX function or class default export, or a `.vue` default (the SFC component itself: `export default {}`, `defineComponent()`). */

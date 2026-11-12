@@ -10,6 +10,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { DEAD_CODE_CONFIDENCES } from "../../analyzer/deadcode/deadCodeConfidence";
 import { executeFindUnusedSymbols, executeScanDeadCode } from "../../mcp/tools";
+import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import { readChoiceOption } from "../options";
@@ -23,13 +24,14 @@ export async function run(
 ): Promise<string> {
   const minConfidence = readChoiceOption(args, "--minConfidence", DEAD_CODE_CONFIDENCES);
   const verbose = args.includes("--verbose");
+  const unreferencedFiles = args.includes("--unreferencedFiles");
   const flagIndex = args.indexOf("--minConfidence");
-  const positional = (flagIndex < 0 ? args : [...args.slice(0, flagIndex), ...args.slice(flagIndex + 2)]).filter((arg) => arg !== "--verbose");
-  await runtime.ensureIndexed();
-
+  const positional = (flagIndex < 0 ? args : [...args.slice(0, flagIndex), ...args.slice(flagIndex + 2)])
+    .filter((arg) => arg !== "--verbose" && arg !== "--unreferencedFiles");
   // No argument → full workspace scan for dead code
   if (positional.length === 0) {
-    const result = await executeScanDeadCode({ minConfidence, verbose });
+    await runtime.ensureIndexed();
+    const result = await executeScanDeadCode({ minConfidence, verbose, unreferencedFiles });
     return formatOutput(result, format, "check");
   }
 
@@ -46,8 +48,13 @@ export async function run(
     // Not found or not accessible — treat as file reference below
   }
 
+  if (!isDirectory && unreferencedFiles) {
+    throw new CliError("--unreferencedFiles applies to the workspace or a folder, not to a file", ExitCode.GENERAL_ERROR);
+  }
+  await runtime.ensureIndexed();
+
   if (isDirectory) {
-    const result = await executeScanDeadCode({ scopePath: candidatePath, minConfidence, verbose });
+    const result = await executeScanDeadCode({ scopePath: candidatePath, minConfidence, verbose, unreferencedFiles });
     return formatOutput(result, format, "check");
   }
 

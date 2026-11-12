@@ -105,7 +105,7 @@ describe("CLI check command", () => {
       await run([], runtimeStub as unknown as import("../../src/cli/runtime").CliRuntime, "text");
 
       expect(scanDeadCodeMock).toHaveBeenCalledOnce();
-      expect(scanDeadCodeMock).toHaveBeenCalledWith({ verbose: false });
+      expect(scanDeadCodeMock).toHaveBeenCalledWith({ verbose: false, unreferencedFiles: false });
     });
 
     it("does NOT call executeFindUnusedSymbols", async () => {
@@ -140,7 +140,7 @@ describe("CLI check command", () => {
       await run([srcDir], runtimeStub as unknown as import("../../src/cli/runtime").CliRuntime, "text");
 
       expect(scanDeadCodeMock).toHaveBeenCalledOnce();
-      expect(scanDeadCodeMock).toHaveBeenCalledWith({ scopePath: srcDir, verbose: false });
+      expect(scanDeadCodeMock).toHaveBeenCalledWith({ scopePath: srcDir, verbose: false, unreferencedFiles: false });
     });
 
     it("does NOT call executeFindUnusedSymbols", async () => {

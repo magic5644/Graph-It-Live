@@ -16,6 +16,7 @@ import {
   readsComputedAttribute,
   rustQualifiedPaths,
   rustQualifiedUse,
+  writtenSourcePaths,
 } from "@/analyzer/deadcode/deadCodeConfidence";
 import { confidenceHint, filterByConfidence } from "@/analyzer/deadcode/DeadCodeScanner";
 import { normalizePath } from "@/shared/path";
@@ -265,5 +266,26 @@ describe("Rust qualified paths", () => {
     ["src/util.rs", "", "other::generate", false],
   ])("rustQualifiedUse(%s) with %s reaches generate: %s", (file, content, pair, expected) => {
     expect(rustQualifiedUse(abs(file), content, "generate", new Set([pair]))).toBe(expected);
+  });
+});
+
+describe("writtenSourcePaths (#711)", () => {
+  it.each([
+    ["entryPoints: ['src/worker.ts']", ["src/worker.ts"]],
+    ['"bench": "node scripts/run.mjs --fast"', ["scripts/run.mjs"]],
+    ['CMD ["python", "main.py"]', ["main.py"]],
+    ["new Worker('./jobs/a.js'); import('../b.tsx')", ["./jobs/a.js", "../b.tsx"]],
+    ["src\\win\\a.ts and @scope/pkg/x.vue", ["a.ts", "@scope/pkg/x.vue"]],
+    ["src/a.ts src/a.ts", ["src/a.ts"]],
+    ["see src/a.ts.", ["src/a.ts"]],
+  ])("finds the paths in %s", (content, expected) => {
+    expect(writtenSourcePaths(content)).toEqual(expected);
+  });
+
+  it.each([
+    ["dist/out.js.map"], ["see src/readme.md"], ["https://cdn.example/app.jsx/v2"], ["https://cdn.example/app.js"],
+    ["/abs/a.ts"], ["obj.ts_value"], ["`${dir}/a.ts`"], ["no paths here"],
+  ])("finds no source path in %s", (content) => {
+    expect(writtenSourcePaths(content)).toEqual([]);
   });
 });

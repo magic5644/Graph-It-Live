@@ -809,3 +809,39 @@ describe("renderCliOutput", () => {
     expect(renderCliOutput("done", "text", "/repo")).toBe("done\n");
   });
 });
+
+describe("check --unreferencedFiles markdown (#711)", () => {
+  const result = {
+    rootDir: "/repo",
+    scannedFiles: 9,
+    totalUnreferencedFiles: 2,
+    byConfidence: { high: 0, medium: 1, low: 1 },
+    unreferencedFiles: [
+      { filePath: "/repo/src/a|b.ts", relativePath: "src/a|b.ts", exports: 0, confidence: "low", reasons: ["no-importer"] },
+      { filePath: "/repo/src/t.ts", relativePath: "src/t.ts", exports: 2, confidence: "medium", reasons: ["test-only-use"], testImporters: ["tests/t.test.ts", "tests/u.test.ts"] },
+    ],
+    truncated: false,
+  };
+
+  it("renders a table with workspace-relative paths and escaped pipes", () => {
+    const md = formatOutput(result, "markdown", "check");
+    expect(md).toContain("2 file(s) listed out of 9 scanned: 1 nothing imports (low), 1 only tests import (medium).");
+    expect(md).toContain("| src/a\\|b.ts | 0 | low | no-importer |  |");
+    expect(md).toContain("| src/t.ts | 2 | medium | test-only-use | tests/t.test.ts, tests/u.test.ts |");
+    expect(md).not.toContain("/repo/");
+    expect(md).not.toContain("### Excluded");
+  });
+
+  it("reports a partial result, the hint, an empty list and the excluded files", () => {
+    const md = formatOutput(
+      { ...result, unreferencedFiles: [], truncated: true, filesBeyondLimit: 4, hint: "1 low-confidence item(s) not listed", excluded: [{ relativePath: "src/main.ts", reason: "declared:package.json#main" }] },
+      "markdown",
+      "check",
+    );
+    expect(md).toContain("**Partial result:** maxFiles left 4 file(s) unscanned.");
+    expect(md).toContain("1 low-confidence item(s) not listed");
+    expect(md).toContain("_No unreferenced file._");
+    expect(md).toContain("| src/main.ts | declared:package.json#main |");
+    expect(formatOutput({ ...result, excluded: [] }, "markdown", "check")).toContain("_None._");
+  });
+});

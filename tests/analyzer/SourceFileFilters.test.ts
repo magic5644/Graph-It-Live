@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
-import { createIgnoreMatcher, isSupportedSourceFile, shouldSkipDirectory } from '../../src/analyzer/SourceFileFilters';
+import { createIgnoreMatcher, createNestedGitignoreMatcher, isSupportedSourceFile, shouldSkipDirectory } from '../../src/analyzer/SourceFileFilters';
 
 describe('SourceFileFilters', () => {
   it('detects supported file extensions', () => {
@@ -25,7 +25,10 @@ describe('SourceFileFilters', () => {
     const withRoot = async (files: Record<string, string>, run: (root: string) => void): Promise<void> => {
       const root = await fs.mkdtemp(path.join(tmpdir(), 'ignore-matcher-'));
       try {
-        await Promise.all(Object.entries(files).map(([name, content]) => fs.writeFile(path.join(root, name), content)));
+        for (const [name, content] of Object.entries(files)) {
+          await fs.mkdir(path.dirname(path.join(root, name)), { recursive: true });
+          await fs.writeFile(path.join(root, name), content);
+        }
         run(root);
       } finally {
         await fs.rm(root, { recursive: true, force: true });
@@ -50,6 +53,25 @@ describe('SourceFileFilters', () => {
         expect(isIgnored(path.join('src', 'wiki', 'a.ts'), false)).toBe(false);
         expect(isIgnored(path.join('src', 'a.gen.ts'), false)).toBe(true);
         expect(isIgnored(path.join('tests', 'fixtures', 'a.ts'), false)).toBe(false);
+      });
+    });
+
+    it('createNestedGitignoreMatcher honors the .gitignore of a nested folder, relative to that folder', async () => {
+      await withRoot({ 'pkg/api/.gitignore': '/dist-tsc\n*.log\n', 'pkg/.gitignore': 'tmp/\n', '.gitignore': '*.ts\n' }, root => {
+        expect(createIgnoreMatcher(root)(path.join('pkg', 'api', 'dist-tsc', 'a.js'), false)).toBe(false);
+        const isIgnored = createNestedGitignoreMatcher(root);
+        expect(isIgnored(path.join('..', 'pkg', 'x.log'), false)).toBe(false);
+        expect(isIgnored(path.resolve(root, 'pkg', 'tmp', 'a.ts'), false)).toBe(false);
+        expect(isIgnored('top.ts', false)).toBe(false);
+        expect(isIgnored(path.join('pkg', 'api', 'dist-tsc'), true)).toBe(true);
+        expect(isIgnored(path.join('pkg', 'api', 'dist-tsc', 'src', 'a.js'), false)).toBe(true);
+        expect(isIgnored(path.join('pkg', 'api', 'src', 'dist-tsc', 'a.js'), false)).toBe(false);
+        expect(isIgnored(path.join('pkg', 'api', 'deep', 'x.log'), false)).toBe(true);
+        expect(isIgnored(path.join('pkg', 'tmp', 'a.ts'), false)).toBe(true);
+        expect(isIgnored(path.join('pkg', 'api', 'tmp', 'a.ts'), false)).toBe(true);
+        expect(isIgnored(path.join('dist-tsc', 'a.js'), false)).toBe(false);
+        expect(isIgnored(path.join('other', 'x.log'), false)).toBe(false);
+        expect(isIgnored(path.join('pkg', 'api', 'src', 'a.ts'), false)).toBe(false);
       });
     });
 

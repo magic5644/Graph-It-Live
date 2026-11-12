@@ -845,6 +845,17 @@ export class Spider {
     });
   }
 
+  async scanUnreferencedFiles(
+    scopePath?: string,
+    options?: { maxFiles?: number; signal?: AbortSignal }
+  ): ReturnType<SpiderSymbolService['scanUnreferencedFiles']> {
+    return this.symbolService.scanUnreferencedFiles(scopePath ?? this.config.rootDir, {
+      maxFiles: options?.maxFiles,
+      hasReverseIndex: this.hasReverseIndex(),
+      signal: options?.signal,
+    });
+  }
+
   async verifyDependencyUsage(sourceFile: string, targetFile: string): Promise<boolean> {
     return this.symbolService.verifyDependencyUsage(sourceFile, targetFile);
   }

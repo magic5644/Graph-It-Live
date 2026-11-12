@@ -33,10 +33,10 @@ describe('check command', () => {
   });
 
   it.each([
-    [[], { minConfidence: undefined, verbose: false }],
-    [['--minConfidence', 'low'], { minConfidence: 'low', verbose: false }],
-    [['--verbose'], { minConfidence: undefined, verbose: true }],
-    [['--verbose', '--minConfidence', 'medium'], { minConfidence: 'medium', verbose: true }],
+    [[], { minConfidence: undefined, verbose: false, unreferencedFiles: false }],
+    [['--minConfidence', 'low'], { minConfidence: 'low', verbose: false, unreferencedFiles: false }],
+    [['--verbose'], { minConfidence: undefined, verbose: true, unreferencedFiles: false }],
+    [['--verbose', '--minConfidence', 'medium'], { minConfidence: 'medium', verbose: true, unreferencedFiles: false }],
   ])('scans the workspace for %j', async (args, expected) => {
     await run(args, runtime(), 'json');
     expect(mocks.executeScanDeadCode).toHaveBeenCalledWith(expected);
@@ -46,8 +46,8 @@ describe('check command', () => {
     await run(['--minConfidence', 'medium', 'src'], runtime(), 'json');
     await run(['src', '--minConfidence', 'medium'], runtime(), 'json');
     expect(mocks.executeScanDeadCode.mock.calls).toEqual([
-      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium', verbose: false }],
-      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium', verbose: false }],
+      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium', verbose: false, unreferencedFiles: false }],
+      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium', verbose: false, unreferencedFiles: false }],
     ]);
   });
 
@@ -55,9 +55,27 @@ describe('check command', () => {
     await run(['src', '--verbose'], runtime(), 'json');
     await run(['--verbose', 'src'], runtime(), 'json');
     expect(mocks.executeScanDeadCode.mock.calls).toEqual([
-      [{ scopePath: path.join(root, 'src'), minConfidence: undefined, verbose: true }],
-      [{ scopePath: path.join(root, 'src'), minConfidence: undefined, verbose: true }],
+      [{ scopePath: path.join(root, 'src'), minConfidence: undefined, verbose: true, unreferencedFiles: false }],
+      [{ scopePath: path.join(root, 'src'), minConfidence: undefined, verbose: true, unreferencedFiles: false }],
     ]);
+  });
+
+  it.each([
+    [['--unreferencedFiles'], { minConfidence: undefined, verbose: false, unreferencedFiles: true }],
+    [['src', '--unreferencedFiles', '--verbose'], { scopePath: '<src>', minConfidence: undefined, verbose: true, unreferencedFiles: true }],
+    [['--unreferencedFiles', '--minConfidence', 'medium', 'src'], { scopePath: '<src>', minConfidence: 'medium', verbose: false, unreferencedFiles: true }],
+  ])('lists unreferenced files for %j', async (args, expected) => {
+    await run(args, runtime(), 'json');
+    const scopePath = 'scopePath' in expected ? { scopePath: path.join(root, 'src') } : {};
+    expect(mocks.executeScanDeadCode).toHaveBeenCalledWith({ ...expected, ...scopePath });
+  });
+
+  it('rejects --unreferencedFiles on a file', async () => {
+    const rt = runtime();
+    const error = classifyError(await run(['src/a.ts', '--unreferencedFiles'], rt, 'json').then(() => undefined, (e: unknown) => e));
+    expect(error.message).toContain('--unreferencedFiles applies to the workspace or a folder');
+    expect((rt as { ensureIndexed: ReturnType<typeof vi.fn> }).ensureIndexed).not.toHaveBeenCalled();
+    expect(mocks.executeFindUnusedSymbols).not.toHaveBeenCalled();
   });
 
   it('checks one file at the requested confidence', async () => {

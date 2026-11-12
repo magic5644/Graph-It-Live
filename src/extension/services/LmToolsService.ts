@@ -13,7 +13,7 @@ import { IndexCache } from '@/analyzer/cache/IndexCache';
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
 import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
 import { reportOutOfRootImports } from '@/analyzer/utils/workspaceBoundary';
-import { confidenceHint, filterByConfidence, scanDeadCode } from '@/analyzer/deadcode/DeadCodeScanner';
+import { confidenceHint, filterByConfidence, scanDeadCode, scanUnreferencedFiles } from '@/analyzer/deadcode/DeadCodeScanner';
 import type { DeadCodeConfidence } from '@/analyzer/deadcode/deadCodeConfidence';
 import {
   ExportArchitectureDiagramParamsSchema,
@@ -151,6 +151,7 @@ interface ScanDeadCodeInput {
   scopePath?: string;
   maxFiles?: number;
   minConfidence?: DeadCodeConfidence;
+  unreferencedFiles?: boolean;
 }
 
 // ─── Service options ──────────────────────────────────────────────────────────
@@ -1672,7 +1673,8 @@ export class LmToolsService {
           const abort = new AbortController();
           const cancellation = token.onCancellationRequested(() => abort.abort());
           try {
-            const result = await scanDeadCode(spider, rootDir, { scopePath, maxFiles: maxFiles.data, minConfidence: minConfidence.data }, abort.signal);
+            const scan = options.input.unreferencedFiles === true ? scanUnreferencedFiles : scanDeadCode;
+            const result = await scan(spider, rootDir, { scopePath, maxFiles: maxFiles.data, minConfidence: minConfidence.data }, abort.signal);
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);
