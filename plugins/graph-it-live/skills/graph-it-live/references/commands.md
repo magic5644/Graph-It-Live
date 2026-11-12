@@ -128,8 +128,9 @@ lists accepted ones, `--config`/`--baseline` pick other files, `--format sarif` 
 
 No rules file yet: `graph-it init` (CLI 1.25.0 or later) writes `graphit.architecture.json` from
 today's imports (one `allowOnly` rule per unit, `noCycles` over the units in no cycle) so the check
-passes now and only new drift fails, then prints quick wins by effort (cycle breaks, mutual imports,
-weak unit dependencies, dead code) and how to read the matrix. `--dry-run` writes nothing; `--output
+passes now and only new drift fails, then prints a five-line summary, the dead files by unit (most
+lines first), the cycles to cut and other quick wins ranked by gain / effort (mutual imports grouped
+by hot spot file), hubs, a glossary, and the guard snippets last. `--dry-run` writes nothing; `--output
 <dir>` adds `report.md` and SVG diagrams. It never overwrites an existing config or baseline without
 confirmation: outside a terminal (agent, CI) it then writes nothing unless `--yes`, and still prints
 the report.
