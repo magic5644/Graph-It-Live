@@ -447,16 +447,23 @@ describe("architecture diagram rendering", () => {
       ),
       scope: "src", noun: "groups",
     };
-    const layout = await layoutDiagram(diagram, { cutsOnly: true });
+    const layout = await layoutDiagram(diagram, { cuts: "only" });
     expectSoundGeometry(layout);
     expect(layout.edges.map((edge) => `${edge.from}>${edge.to}`)).toEqual(["c>a"]);
     expect(layout.nodes.map((node) => node.key)).toEqual(["a", "c"]);
     expect(layout.cycles).toMatchObject([{ members: ["a", "c"], size: 3 }]);
     expect(layout.counts).toMatchObject({ nodes: 4, cycles: 1 });
-    expect(layout.text.hidden).toEqual(["only the edges that cut a cycle drawn: 1 in the level (1 file pair)", '1 group of a cycle, 1 group outside cycles, 3 other edges not drawn; all of them: graph-it diagram --folder "src"']);
+    expect(layout.text.hidden).toEqual(["a cycle drawn by the edges that cut it only: 1 in the level (1 file pair)", '1 group of a cycle, 1 group outside cycles, 3 other edges not drawn; all of them: graph-it diagram --folder "src"']);
     expect(renderDiagramSvg(layout)).toContain("cycle · 3");
+    // "cycles": the cycle keeps only its cut, every other node and edge stays.
+    const reduced = await layoutDiagram(diagram, { cuts: "cycles" });
+    expectSoundGeometry(reduced);
+    expect(reduced.nodes.map((node) => node.key)).toEqual(["a", "b", "c", "d"]);
+    expect(reduced.edges.map((edge) => `${edge.from}>${edge.to}`)).toEqual(["c>a", "d>a"]);
+    expect(reduced.cycles).toMatchObject([{ members: ["a", "b", "c"], size: 3 }]);
+    expect(reduced.text.hidden).toEqual(["a cycle drawn by the edges that cut it only: 1 in the level (1 file pair); 2 other edges inside cycles not drawn"]);
     // Without a cycle, nothing to cut: the whole level.
-    const acyclic = await layoutDiagram(input([["a", 1, 1], ["b", 0, 1]], [["a", "b", 1, "down"]]), { cutsOnly: true });
+    const acyclic = await layoutDiagram(input([["a", 1, 1], ["b", 0, 1]], [["a", "b", 1, "down"]]), { cuts: "only" });
     expect(acyclic.nodes).toHaveLength(2);
     expect(acyclic.text.hidden).toEqual([]);
   });

@@ -133,7 +133,7 @@ function glossary(matrix: ArchitectureMatrix<string>): Record<string, string> {
     I: `Instability. ${matrix.formulas.instability} 0: only imported (stable), 1: only imports (free to change).`,
     C: "Cohesion. C = diagonal / (diagonal + Ce): the share of the unit's file pairs that stay inside it.",
     matrix: `${matrix.formulas.cell} ${matrix.formulas.order} ${matrix.formulas.upward}`,
-    cut: "The cells of a cycle that go against one order of its units (the matrix order or its reverse, the cheaper); without them the units are layered again.",
+    cut: "The cells of a cycle that go against one order of its units (the matrix order, its reverse or a greedy Eades–Lin–Smyth order, the cheapest); without them the units are layered again.",
     "gain / effort": "Quick wins are ranked by what they remove over the imports or symbols to change, then by gain.",
   };
 }
@@ -166,21 +166,59 @@ interface CycleCut {
 }
 
 /**
- * One cut per cycle block: the cells against the matrix order or against its reverse, the one
- * with fewer pairs. Any order gives a valid cut; two orders make it exact for a two-unit cycle.
- * shortcut: not the minimum cut of a larger block (NP-hard), switch to a heuristic search if blocks of 3+ units need it.
+ * Eades–Lin–Smyth order of one cycle block: sinks to the back, sources to the front, otherwise the
+ * row whose outgoing pairs exceed its incoming ones most; the cells going back in it are a cut.
+ */
+function greedyOrder(rows: readonly number[], inside: readonly MatrixCell[], keyOf: (row: number) => string): Map<number, number> {
+  // Pairs out of and into each row, kept up to date as rows leave the block.
+  const out = new Map(rows.map((row) => [row, 0]));
+  const into = new Map(rows.map((row) => [row, 0]));
+  for (const cell of inside) {
+    out.set(cell.row, out.get(cell.row)! + cell.fileEdgeCount);
+    into.set(cell.column, into.get(cell.column)! + cell.fileEdgeCount);
+  }
+  const remaining = rows.toSorted((left, right) => byCodeUnit(keyOf(left), keyOf(right)));
+  const alive = new Set(rows);
+  const front: number[] = [];
+  const back: number[] = [];
+  const take = (row: number) => {
+    remaining.splice(remaining.indexOf(row), 1);
+    alive.delete(row);
+    for (const cell of inside) {
+      if (cell.row === row && alive.has(cell.column)) into.set(cell.column, into.get(cell.column)! - cell.fileEdgeCount);
+      if (cell.column === row && alive.has(cell.row)) out.set(cell.row, out.get(cell.row)! - cell.fileEdgeCount);
+    }
+  };
+  while (remaining.length > 0) {
+    const sink = remaining.find((row) => out.get(row) === 0);
+    const source = remaining.find((row) => into.get(row) === 0);
+    const delta = (row: number) => out.get(row)! - into.get(row)!;
+    const next = sink ?? source ?? remaining.reduce((best, row) => (delta(row) > delta(best) ? row : best), remaining[0]);
+    if (sink === undefined) front.push(next);
+    else back.unshift(next);
+    take(next);
+  }
+  return new Map([...front, ...back].map((row, index) => [row, index]));
+}
+
+/**
+ * One cut per cycle block, the cheapest of three: the cells against the matrix order, against its
+ * reverse, or against the Eades–Lin–Smyth order. Each is a valid cut; the two orders make it exact for
+ * a two-unit cycle, the greedy one keeps it small on a large block.
+ * shortcut: not the minimum cut of a larger block (NP-hard), a heuristic; add a local search if its cuts prove too large.
  */
 export function cycleCuts(matrix: ArchitectureMatrix<string>): CycleCut[] {
   return matrix.cycles.map(({ firstRow, lastRow, members }) => {
     const inside = matrix.cells.filter((cell) => cell.row !== cell.column
       && cell.row >= firstRow && cell.row <= lastRow && cell.column >= firstRow && cell.column <= lastRow);
-    const upward = inside.filter((cell) => cell.upward);
-    const cuts = [upward, inside.filter((cell) => !cell.upward)]
+    const rows = Array.from({ length: lastRow - firstRow + 1 }, (_unused, index) => firstRow + index);
+    const order = greedyOrder(rows, inside, (row) => matrix.rows[row].key);
+    const greedy = inside.filter((cell) => order.get(cell.row)! > order.get(cell.column)!);
+    const cuts = [inside.filter((cell) => cell.upward), inside.filter((cell) => !cell.upward), greedy]
       .map((cells) => ({ members, cells, pairs: cells.reduce((total, cell) => total + cell.fileEdgeCount, 0) }));
-    // An empty side is no cut (a malformed matrix): keep the other one.
-    const [first, second] = cuts.filter((cut) => cut.cells.length > 0);
-    if (second === undefined) return first ?? cuts[0];
-    return first.pairs <= second.pairs ? first : second;
+    // An empty side is no cut (a malformed matrix): keep the others.
+    const valid = cuts.filter((cut) => cut.cells.length > 0);
+    return valid.reduce((best, cut) => (cut.pairs < best.pairs ? cut : best), valid[0] ?? cuts[0]);
   });
 }
 
