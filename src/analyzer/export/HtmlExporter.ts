@@ -250,7 +250,10 @@ const OVERLAY_TAIL = String.raw`
     function reveal(units, files, then) {
       const ids = files.filter(id => fileById.has(id));
       ids.forEach(id => expanded.add(fileById.get(id).group));
-      const groupIds = units.map(unit => groupByLabel.get(unit)).filter(g => g !== undefined && !expanded.has(g)).map(groupNodeId);
+      // A unit already expanded has no group node: its files stand for it.
+      const groups = units.map(unit => groupByLabel.get(unit)).filter(g => g !== undefined);
+      const groupIds = ids.length > 0 ? groups.filter(g => !expanded.has(g)).map(groupNodeId)
+        : groups.flatMap(g => expanded.has(g) ? filesData.filter(f => f.group === g).map(f => f.id) : [groupNodeId(g)]);
       render();
       network.once('stabilizationIterationsDone', () => {
         const shown = [...ids, ...groupIds].filter(id => nodes.get(id));
