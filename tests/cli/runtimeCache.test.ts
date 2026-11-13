@@ -271,11 +271,21 @@ describe("CliRuntime index cache", { timeout: 15_000 }, () => {
     expect(progress).toEqual([`  Indexed ${outcome.filesIndexed}/${outcome.filesFound} files`]);
   });
 
-  it("redraws progress with \\r on a TTY", async () => {
+  it("redraws progress with \\r on a TTY, clearing the longer line it replaces", async () => {
     const { stderr, outcome } = await runVerbose({ isTTY: true });
 
-    expect(stderr).toContain("\r  Indexing workspace...");
-    expect(stderr).toContain(`\r  Indexed ${outcome.filesIndexed}/${outcome.filesFound} files\n`);
+    expect(stderr).toContain("\r\u001B[K  Indexing workspace...");
+    expect(stderr).toContain(`\r\u001B[K  Indexed ${outcome.filesIndexed}/${outcome.filesFound} files\n`);
+  });
+
+  it("prints no index summary for a build cancelled by Ctrl-C (#717)", async () => {
+    const build = vi.spyOn(Spider.prototype, "buildFullIndex").mockResolvedValue({ indexedFiles: 3, cancelled: true } as never);
+    try {
+      const { stderr } = await runVerbose();
+      expect(stderr).not.toMatch(/Indexed|Loaded/);
+    } finally {
+      build.mockRestore();
+    }
   });
 
   it("never prints a 0/0 progress line", async () => {

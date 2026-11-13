@@ -835,24 +835,26 @@ export class Spider {
 
   async scanDeadCode(
     scopePath?: string,
-    options?: { maxFiles?: number; signal?: AbortSignal }
+    options?: { maxFiles?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void }
   ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: import('./deadcode/deadCodeConfidence').UnusedSymbol[] }>; excluded: import('./deadcode/deadCodeConfidence').ExcludedExport[]; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
     const resolvedScope = scopePath ?? this.config.rootDir;
     return this.symbolService.scanDeadCode(resolvedScope, {
       maxFiles: options?.maxFiles,
       hasReverseIndex: this.hasReverseIndex(),
       signal: options?.signal,
+      onProgress: options?.onProgress,
     });
   }
 
   async scanUnreferencedFiles(
     scopePath?: string,
-    options?: { maxFiles?: number; signal?: AbortSignal }
+    options?: { maxFiles?: number; signal?: AbortSignal; onProgress?: (done: number, total: number) => void }
   ): ReturnType<SpiderSymbolService['scanUnreferencedFiles']> {
     return this.symbolService.scanUnreferencedFiles(scopePath ?? this.config.rootDir, {
       maxFiles: options?.maxFiles,
       hasReverseIndex: this.hasReverseIndex(),
       signal: options?.signal,
+      onProgress: options?.onProgress,
     });
   }
 

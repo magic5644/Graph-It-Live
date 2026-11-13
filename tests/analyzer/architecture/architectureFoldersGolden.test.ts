@@ -13,6 +13,7 @@ import type {
   ArchitectureFolderLevelMessage,
 } from "../../../src/shared/architecture-types";
 import { buildView } from "./viewHarness";
+import { CliProgress } from "@/cli/progress";
 
 // Golden output of `graph-it architecture --folder` on a workspace nested three folders deep below
 // its unit: the CLI, explore_architecture and the extension's view must report the same levels.
@@ -28,7 +29,7 @@ const NESTED_WORKSPACE: Record<string, string> = {
   "lib/log.ts": "export const log = (message: string) => message;\n",
 };
 let rootDir: string;
-const runtime = { get workspaceRoot() { return rootDir; }, ensureIndexed: async () => undefined, loadState: () => null };
+const runtime = { get workspaceRoot() { return rootDir; }, progress: new CliProgress(false), ensureIndexed: async () => undefined, loadState: () => null };
 const folders = ["app", "app/core", "app/core/util", "app/ui"];
 
 interface Group { id: number; key: string; fileCount: number; internalEdgeCount: number }

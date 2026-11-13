@@ -10,6 +10,7 @@ import type { ArchitectureExtensionMessage, ArchitectureMatrixMessage } from "..
 import type { CommunityMode } from "../../../src/shared/graph-types";
 import { normalizePath } from "../../../src/shared/path";
 import { buildView } from "./viewHarness";
+import { CliProgress } from "@/cli/progress";
 
 // Golden output of `graph-it architecture --matrix`: the CLI, explore_architecture view "matrix"
 // and the extension's Matrix view report the same rows, cells and totals, and the cells are the
@@ -41,7 +42,7 @@ describe.each(fixtures)("architecture matrix golden output: %s", (fixture) => {
       (json, absolute) => json.replaceAll(JSON.stringify(absolute).slice(1, -1), "<root>"),
       JSON.stringify(value, null, 2),
     ) + "\n";
-  const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+  const runtime = { workspaceRoot: rootDir, progress: new CliProgress(false), ensureIndexed: async () => undefined, loadState: () => null };
 
   beforeEach(() => {
     workerState.parser = new Parser();

@@ -126,7 +126,8 @@ export async function run(
     throw new CliError(validation.error, ExitCode.GENERAL_ERROR);
   }
 
-  await runtime.ensureIndexed();
+  // Scripts and agents call tools: no indexing or progress line on stderr, even on a TTY (#717).
+  await runtime.ensureIndexed({ silent: true });
 
   const result = await invokeTool(toolName, validation.data);
   return formatOutput(result, format, "tool", runtime.workspaceRoot);

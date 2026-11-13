@@ -7,6 +7,7 @@ import { classifyError, ExitCode } from "@/cli/errors";
 import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
 import { startRulesWorker } from "../analyzer/architecture/rulesWorkspace";
+import { CliProgress } from "@/cli/progress";
 
 /** A drawn edge of that stroke: the legend samples carry no arrow. */
 const edgeOf = (stroke: string) => new RegExp(`class="edge ${stroke}"[^>]*marker-end`);
@@ -76,7 +77,7 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
 
   beforeAll(() => {
     root = startRulesWorker();
-    runtime = { workspaceRoot: root, ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null } as unknown as CliRuntime;
+    runtime = { workspaceRoot: root, progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null } as unknown as CliRuntime;
   });
 
   afterAll(() => {

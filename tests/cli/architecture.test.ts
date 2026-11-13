@@ -21,6 +21,7 @@ vi.mock('../../src/shared/pathSecurity', async (importOriginal) => ({
 
 import { run } from '../../src/cli/commands/architecture.js';
 import { workerState } from '../../src/mcp/shared/state';
+import { CliProgress } from "@/cli/progress";
 
 describe('architecture command', () => {
   beforeEach(() => {
@@ -55,7 +56,7 @@ describe('architecture command', () => {
 
     const runtime = {
       workspaceRoot,
-      ensureIndexed: vi.fn().mockResolvedValue(undefined),
+      progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined),
       loadState: () => null,
     };
 
@@ -79,7 +80,7 @@ describe('architecture command', () => {
     const workspaceRoot = '/workspace';
     const fileA = normalizePath(path.resolve(workspaceRoot, 'src/api/a.ts'));
     const fileB = normalizePath(path.resolve(workspaceRoot, 'src/db/b.ts'));
-    const runtime = { workspaceRoot, ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null };
+    const runtime = { workspaceRoot, progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null };
     const runWith = async (args: string[]) => {
       mocks.collectAllSourceFiles.mockResolvedValueOnce([fileA, fileB]);
       mocks.executeAnalyzeDependencies
@@ -111,7 +112,7 @@ describe('architecture command', () => {
     const fileC = normalizePath(path.resolve(workspaceRoot, 'src/db/c.ts'));
     const runtime = {
       workspaceRoot,
-      ensureIndexed: vi.fn().mockResolvedValue(undefined),
+      progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined),
       loadState: () => ({ workspaceRoot, lastScanTimestamp: '2026-10-15T00:00:00.000Z' }),
     };
     const dependencies = new Map([[fileA, [fileB, fileC]], [fileB, [fileC]], [fileC, []]]);
@@ -168,7 +169,7 @@ describe('architecture command', () => {
     const fileA = normalizePath(path.resolve(workspaceRoot, 'src/api/a.ts'));
     mocks.collectAllSourceFiles.mockResolvedValueOnce([fileA]);
     mocks.executeAnalyzeDependencies.mockRejectedValueOnce(new Error('parse failed'));
-    const runtime = { workspaceRoot, ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null };
+    const runtime = { workspaceRoot, progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null };
 
     const parsed = JSON.parse(await run(['--groups'], runtime as never, 'json')) as {
       skippedFiles: number;
@@ -196,7 +197,7 @@ describe('architecture command', () => {
 
     const runtime = {
       workspaceRoot,
-      ensureIndexed: vi.fn().mockResolvedValue(undefined),
+      progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined),
       loadState: () => null,
     };
 
@@ -220,7 +221,7 @@ describe('architecture command', () => {
 
     const runtime = {
       workspaceRoot,
-      ensureIndexed: vi.fn().mockResolvedValue(undefined),
+      progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined),
       loadState: () => null,
     };
 

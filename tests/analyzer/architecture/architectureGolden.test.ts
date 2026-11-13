@@ -8,6 +8,7 @@ import { workerState } from "../../../src/mcp/shared/state";
 import { executeExploreArchitecture } from "../../../src/mcp/tools/architecture";
 import { normalizePath } from "../../../src/shared/path";
 import type { CommunityMode } from "../../../src/shared/graph-types";
+import { CliProgress } from "@/cli/progress";
 
 // Golden outputs of `graph-it architecture --groups` and explore_architecture on real fixtures,
 // so moving the architecture graph between layers cannot change a count, order or field.
@@ -38,7 +39,7 @@ describe.each(fixtures)("architecture golden output: %s", (fixture) => {
   });
 
   it.each(modes)("matches the golden CLI and MCP output in %s mode", async (communityMode) => {
-    const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+    const runtime = { workspaceRoot: rootDir, progress: new CliProgress(false), ensureIndexed: async () => undefined, loadState: () => null };
     const cli = JSON.parse(await runArchitectureCli(["--groups", "--communities", communityMode], runtime as never, "json"));
     const summary = await executeExploreArchitecture({ communityMode });
     const firstPage = await executeExploreArchitecture({ communityMode, limit: 1 });

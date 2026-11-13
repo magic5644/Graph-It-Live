@@ -67,12 +67,12 @@ export async function run(
   await runtime.ensureIndexed();
 
   // executeGenerateWiki resolves outputDir against the workspace and rejects paths outside it.
-  const result = await executeGenerateWiki({
+  const result = await runtime.progress.phase("Writing the wiki", () => executeGenerateWiki({
     outputDir,
     topHubsLimit,
     scope,
     exclude: exclude.length > 0 ? exclude : undefined,
-  }, args.includes("--force"));
+  }, args.includes("--force")));
 
   switch (wikiFormat) {
     case "json":

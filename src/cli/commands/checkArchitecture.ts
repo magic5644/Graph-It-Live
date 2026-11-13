@@ -111,9 +111,11 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
 
   await runtime.ensureIndexed();
   const { workspaceRoot } = runtime;
-  const graph = await buildArchitectureGraph(workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
-    indexedAt: runtime.loadState()?.lastScanTimestamp,
-  });
+  const graph = await runtime.progress.phase("Analyzing architecture", (onProgress) =>
+    buildArchitectureGraph(workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
+      indexedAt: runtime.loadState()?.lastScanTimestamp,
+      onProgress,
+    }));
 
   if (updateBaseline) {
     const check = await checkWorkspaceArchitecture(graph, workspaceRoot, { config, baseline: false });

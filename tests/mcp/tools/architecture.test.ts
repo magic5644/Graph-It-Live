@@ -23,6 +23,7 @@ import { run as runArchitectureCli } from "../../../src/cli/commands/architectur
 import { workerState } from "../../../src/mcp/shared/state";
 import { executeExploreArchitecture } from "../../../src/mcp/tools/architecture";
 import { ExploreArchitectureParamsSchema } from "../../../src/mcp/types";
+import { CliProgress } from "@/cli/progress";
 
 const workspaceRoot = path.resolve("/workspace");
 const file = (relative: string) => normalizePath(path.join(workspaceRoot, relative));
@@ -59,7 +60,7 @@ describe("executeExploreArchitecture", () => {
     const summary = await executeExploreArchitecture({});
     const cli = JSON.parse(await runArchitectureCli(
       ["--groups"],
-      { workspaceRoot, ensureIndexed: vi.fn(), loadState: () => null } as never,
+      { workspaceRoot, progress: new CliProgress(false), ensureIndexed: vi.fn(), loadState: () => null } as never,
       "json",
     ));
 
@@ -159,7 +160,7 @@ describe("executeExploreArchitecture", () => {
   });
 
   it("returns the matrix of the groups, the units or a folder, as graph-it architecture --matrix", async () => {
-    const runtime = { workspaceRoot, ensureIndexed: vi.fn(), loadState: () => null } as never;
+    const runtime = { workspaceRoot, progress: new CliProgress(false), ensureIndexed: vi.fn(), loadState: () => null } as never;
     const groups = await executeExploreArchitecture({ view: "matrix" });
     const cli = JSON.parse(await runArchitectureCli(["--matrix"], runtime, "json"));
     expect(groups).toMatchObject({ view: "matrix", rows: cli.rows, cells: cli.cells, totals: cli.totals, page: { total: cli.totals.cells } });

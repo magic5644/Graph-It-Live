@@ -152,8 +152,11 @@ describe('Spider - scanDeadCode', () => {
       return original.call(this, filePath, memo);
     });
     try {
-      const result = await spider.scanDeadCode();
+      const ticks: Array<[number, number]> = [];
+      const result = await spider.scanDeadCode(undefined, { onProgress: (done, total) => ticks.push([done, total]) });
       expect(result.skippedFiles).toBe(1);
+      // One tick per file, the skipped one included, counting up to the total (#717).
+      expect(ticks).toEqual(Array.from({ length: result.scannedFiles }, (_, index) => [index + 1, result.scannedFiles]));
       const scanned = (entries: typeof result.entries) => entries.map((e) => normalizePath(e.filePath));
       expect(scanned(reference.entries)).toContain(normalizePath(utilsPath));
       expect(scanned(result.entries)).toEqual(scanned(reference.entries).filter((f) => f !== normalizePath(utilsPath)));
@@ -272,5 +275,12 @@ describe('Spider - scanDeadCode through re-exports (#513)', () => {
     } finally {
       await fs.rm(big, { recursive: true, force: true });
     }
+  });
+
+  it('reports progress per file for the unreferenced-files scan (#717)', async () => {
+    const ticks: number[] = [];
+    const result = await spider.scanUnreferencedFiles(undefined, { onProgress: (done) => ticks.push(done) });
+    expect(result.scannedFiles).toBeGreaterThan(0);
+    expect(ticks).toEqual(Array.from({ length: result.scannedFiles }, (_, index) => index + 1));
   });
 });

@@ -133,7 +133,7 @@ export async function runExportHtml(
   // Scope filter: positional arg or state.lastFile narrows the graph
   filterGraphByScope(graphData, resolvedScope);
   const frameworkSources = collectReactReferencingPaths(graphData.nodes, file => workerState.spider?.getIndexedReferencingFiles(file) ?? []);
-  await enrichReactFramework(graphData, runtime.workspaceRoot, frameworkSources);
+  await runtime.progress.phase("Detecting React components", () => enrichReactFramework(graphData, runtime.workspaceRoot, frameworkSources));
 
   exportHtml({
     graphData,

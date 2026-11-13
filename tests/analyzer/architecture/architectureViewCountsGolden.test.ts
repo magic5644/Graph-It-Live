@@ -13,6 +13,7 @@ import type {
 } from "../../../src/shared/architecture-types";
 import type { CommunityMode } from "../../../src/shared/graph-types";
 import { buildView } from "./viewHarness";
+import { CliProgress } from "@/cli/progress";
 
 // Characterization of the counts the Architecture view shows (#424): the layer count, the
 // per-unit group caps and the dependents totals, recorded as the webview derived them before
@@ -84,7 +85,7 @@ describe.each(fixtures)("architecture view counts: %s", (fixture) => {
 
   // The view's summary, `graph-it architecture` JSON and explore_architecture report the same totals.
   it.each(modes)("reports the same totals in the view, the CLI and explore_architecture in %s mode", async (communityMode) => {
-    const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+    const runtime = { workspaceRoot: rootDir, progress: new CliProgress(false), ensureIndexed: async () => undefined, loadState: () => null };
     const { summary } = await buildView(rootDir, [], communityMode);
     if (communityMode === "path") {
       const cli = JSON.parse(await runArchitectureCli(["--level", "units"], runtime as never, "json"));

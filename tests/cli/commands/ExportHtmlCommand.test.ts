@@ -20,9 +20,11 @@ vi.mock('../../../src/analyzer/NodeMetadataBuilder', () => ({
 import { runExportHtml } from '../../../src/cli/commands/ExportHtmlCommand';
 import { normalizePath } from '../../../src/shared/path';
 import type { CliRuntime } from '../../../src/cli/runtime';
+import { CliProgress } from "@/cli/progress";
 
 const fakeRuntime = {
   workspaceRoot: '/workspace/my-project',
+  progress: new CliProgress(false),
   loadState: () => ({ lastScanTimestamp: '2026-10-15T09:10:38.000Z' }),
 } as unknown as CliRuntime;
 

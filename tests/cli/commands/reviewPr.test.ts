@@ -7,6 +7,7 @@ import { workerState } from "../../../src/mcp/shared/state";
 import { CliError } from "../../../src/cli/errors";
 import { run } from "../../../src/cli/commands/reviewPr";
 import type { CliRuntime } from "../../../src/cli/runtime";
+import { CliProgress } from "@/cli/progress";
 
 const temporaryDirectories: string[] = [];
 
@@ -33,7 +34,7 @@ describe("review-pr command", () => {
   it("indexes first and renders the review as Markdown", async () => {
     const workspace = await createWorkspace();
     const ensureIndexed = async (): Promise<{ filesIndexed: number; durationMs: number }> => ({ filesIndexed: 1, durationMs: 1 });
-    const runtime = { workspaceRoot: workspace, ensureIndexed } as CliRuntime;
+    const runtime = { workspaceRoot: workspace, ensureIndexed, progress: new CliProgress(false) } as unknown as CliRuntime;
     workerState.spider = { getSymbolDependents: async () => [], getSymbolGraph: async () => ({ symbols: [], dependencies: [] }), findUnusedSymbols: async () => [] } as never;
     workerState.parser = {} as never;
     workerState.resolver = {} as never;
@@ -44,7 +45,7 @@ describe("review-pr command", () => {
   });
 
   it("rejects missing and non-integer review options", async () => {
-    const runtime = {} as CliRuntime;
+    const runtime = { progress: new CliProgress(false) } as unknown as CliRuntime;
     await expect(run([], runtime, "json")).rejects.toBeInstanceOf(CliError);
     await expect(run(["--base", "main", "--depth", "2.5"], runtime, "json")).rejects.toThrow("--depth must be an integer");
     await expect(run(["--base", "main", "--max-files", "bad"], runtime, "json")).rejects.toThrow("--max-files must be an integer");

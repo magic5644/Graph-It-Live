@@ -10,6 +10,8 @@ export interface DeadCodeScanOptions {
   minConfidence?: DeadCodeConfidence;
   /** Also return `excluded`: the unused exports left out, and why */
   verbose?: boolean;
+  /** Called after each scanned file with the files done and the total. */
+  onProgress?: (done: number, total: number) => void;
 }
 
 export interface DeadCodeScanEntry {
@@ -68,7 +70,7 @@ export async function scanDeadCode(
   const scopePath = validateWorkspacePath(options.scopePath ?? rootDir, rootDir);
   const minConfidence = options.minConfidence ?? "high";
   const startTime = Date.now();
-  const rawResult = await spider.scanDeadCode(scopePath, { maxFiles: options.maxFiles, signal });
+  const rawResult = await spider.scanDeadCode(scopePath, { maxFiles: options.maxFiles, signal, onProgress: options.onProgress });
   const byConfidence = countByConfidence(rawResult.entries.flatMap((entry) => entry.unusedSymbols));
   const entries = rawResult.entries.flatMap((entry) => {
     const { listed } = filterByConfidence(entry.unusedSymbols, minConfidence);
@@ -139,7 +141,7 @@ export async function scanUnreferencedFiles(
   const scopePath = validateWorkspacePath(options.scopePath ?? rootDir, rootDir);
   const minConfidence = options.minConfidence ?? "low";
   const startTime = Date.now();
-  const raw = await spider.scanUnreferencedFiles(scopePath, { maxFiles: options.maxFiles, signal });
+  const raw = await spider.scanUnreferencedFiles(scopePath, { maxFiles: options.maxFiles, signal, onProgress: options.onProgress });
   const byConfidence = countByConfidence(raw.files);
   const unreferencedFiles = raw.files
     .filter((file) => meetsConfidence(file.confidence, minConfidence))

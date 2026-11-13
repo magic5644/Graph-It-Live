@@ -13,11 +13,12 @@ import { CheckArchitectureParamsSchema } from "@/mcp/types";
 import type { ArchitectureExtensionMessage } from "@/shared/architecture-types";
 import { createRulesWorkspace } from "./rulesWorkspace";
 import { buildView } from "./viewHarness";
+import { CliProgress } from "@/cli/progress";
 
 // `graph-it check-architecture` and check_architecture on the generated workspace: same
 // violations, exit code 1 on a new error, SARIF valid against the SARIF 2.1.0 schema.
 let rootDir: string;
-const runtime = () => ({ workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null }) as never;
+const runtime = () => ({ workspaceRoot: rootDir, progress: new CliProgress(false), ensureIndexed: async () => undefined, loadState: () => null }) as never;
 
 /** The command's output and exit code, as the CLI entry point prints them. */
 async function cli(args: string[], format: "json" | "sarif" | "toon" | "csv" | "text" | "markdown" = "json") {

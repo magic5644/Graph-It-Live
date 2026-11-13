@@ -41,6 +41,7 @@ import { sessionStats } from "../shared/sessionStats";
 import { classifyError, CliError, ExitCode } from "./errors";
 import type { CliOutputFormat } from "./formatter";
 import { CLI_OUTPUT_FORMATS, renderCliOutput } from "./formatter";
+import { CliProgress } from "./progress";
 import { CliRuntime, resolveCliWorkspaceRoot } from "./runtime";
 import { maybeNotifyCliUpdate } from "./versionCheck";
 
@@ -67,6 +68,9 @@ sessionStats.setSource("cli");
 let activeRuntime: CliRuntime | undefined;
 let requestedSignalExitCode: number | undefined;
 
+/** Long commands that draw phase lines on a TTY stderr (#717); never tool or serve, whose stdout feeds a client. */
+const PROGRESS_COMMANDS = new Set(["init", "check", "check-architecture", "architecture", "export", "review-pr", "wiki", "scan"]);
+
 // Idempotent stats flush — end-of-run and exit paths may both fire.
 let statsFlushed = false;
 function flushStatsOnce(): void {
@@ -92,6 +96,7 @@ process.on("exit", () => {
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     flushStatsOnce();
+    activeRuntime?.progress.interrupt();
     requestedSignalExitCode ??= signal === "SIGINT" ? 130 : 143;
     process.exitCode = requestedSignalExitCode;
     if (activeRuntime) {
@@ -314,6 +319,19 @@ export function createRuntime(
   return runtime;
 }
 
+/** Prints the error on stderr and returns its exit code. */
+function reportError(err: unknown): number {
+  const { message, exitCode } = classifyError(err);
+  // After Ctrl-C the disposed runtime makes the command fail: that error is the signal's echo, not news.
+  if (requestedSignalExitCode === undefined) process.stderr.write(`Error: ${message}\n`);
+  return exitCode;
+}
+
+/** Phase lines only for a long command on a TTY stderr (#717). */
+export function createProgress(command: string, stderrIsTTY = process.stderr.isTTY === true): CliProgress {
+  return new CliProgress(stderrIsTTY && PROGRESS_COMMANDS.has(command));
+}
+
 export function commandWantsHelp(command: string, commandArgs: string[], rawArgvSlice: string[]): boolean {
   return commandArgs.includes("--help") || commandArgs.includes("-h") ||
     (rawArgvSlice.includes("--help") && rawArgvSlice.indexOf(command) < rawArgvSlice.indexOf("--help")) ||
@@ -448,6 +466,7 @@ async function main(): Promise<void> {
   // Resolve workspace
   const workspaceRoot = resolveCliWorkspaceRoot(values.workspace as string | undefined);
   const runtime = createRuntime(workspaceRoot, values);
+  runtime.progress = createProgress(command);
   activeRuntime = runtime;
 
   // Commands that don't need a workspace (skip runtime init to avoid side-effects)
@@ -467,15 +486,15 @@ async function main(): Promise<void> {
     runtime.enableErrorCollection();
     const output = await dispatch(command, rawCommandArgs, runtime, format);
     runtime.disableErrorCollection(); // Discard command parse errors
+    runtime.progress.finish();
     if (output) {
       process.stdout.write(renderCliOutput(output, format, workspaceRoot));
     }
     process.exitCode = ExitCode.SUCCESS;
   } catch (err) {
+    runtime.progress.end();
     writeFailingReport(err, format, workspaceRoot);
-    const { message, exitCode } = classifyError(err);
-    process.stderr.write(`Error: ${message}\n`);
-    process.exitCode = exitCode;
+    process.exitCode = reportError(err);
   } finally {
     await runtime.dispose().catch(() => {/* best-effort */});
     activeRuntime = undefined;

@@ -15,10 +15,11 @@ vi.mock('../../src/mcp/tools', () => ({
 
 import { run } from '../../src/cli/commands/check.js';
 import { classifyError } from '../../src/cli/errors';
+import { CliProgress } from "@/cli/progress";
 
 describe('check command', () => {
   let root: string;
-  const runtime = () => ({ workspaceRoot: root, ensureIndexed: vi.fn().mockResolvedValue(undefined) }) as never;
+  const runtime = () => ({ workspaceRoot: root, progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined) }) as never;
 
   beforeEach(() => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'gitl-check-'));
@@ -33,21 +34,21 @@ describe('check command', () => {
   });
 
   it.each([
-    [[], { minConfidence: undefined, verbose: false, unreferencedFiles: false }],
-    [['--minConfidence', 'low'], { minConfidence: 'low', verbose: false, unreferencedFiles: false }],
-    [['--verbose'], { minConfidence: undefined, verbose: true, unreferencedFiles: false }],
-    [['--verbose', '--minConfidence', 'medium'], { minConfidence: 'medium', verbose: true, unreferencedFiles: false }],
+    [[], { minConfidence: undefined, verbose: false, unreferencedFiles: false }, undefined, expect.any(Function)],
+    [['--minConfidence', 'low'], { minConfidence: 'low', verbose: false, unreferencedFiles: false }, undefined, expect.any(Function)],
+    [['--verbose'], { minConfidence: undefined, verbose: true, unreferencedFiles: false }, undefined, expect.any(Function)],
+    [['--verbose', '--minConfidence', 'medium'], { minConfidence: 'medium', verbose: true, unreferencedFiles: false }, undefined, expect.any(Function)],
   ])('scans the workspace for %j', async (args, expected) => {
     await run(args, runtime(), 'json');
-    expect(mocks.executeScanDeadCode).toHaveBeenCalledWith(expected);
+    expect(mocks.executeScanDeadCode).toHaveBeenCalledWith(expected, undefined, expect.any(Function));
   });
 
   it('scans a folder given before or after --minConfidence', async () => {
     await run(['--minConfidence', 'medium', 'src'], runtime(), 'json');
     await run(['src', '--minConfidence', 'medium'], runtime(), 'json');
     expect(mocks.executeScanDeadCode.mock.calls).toEqual([
-      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium', verbose: false, unreferencedFiles: false }],
-      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium', verbose: false, unreferencedFiles: false }],
+      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium', verbose: false, unreferencedFiles: false }, undefined, expect.any(Function)],
+      [{ scopePath: path.join(root, 'src'), minConfidence: 'medium', verbose: false, unreferencedFiles: false }, undefined, expect.any(Function)],
     ]);
   });
 
@@ -55,8 +56,8 @@ describe('check command', () => {
     await run(['src', '--verbose'], runtime(), 'json');
     await run(['--verbose', 'src'], runtime(), 'json');
     expect(mocks.executeScanDeadCode.mock.calls).toEqual([
-      [{ scopePath: path.join(root, 'src'), minConfidence: undefined, verbose: true, unreferencedFiles: false }],
-      [{ scopePath: path.join(root, 'src'), minConfidence: undefined, verbose: true, unreferencedFiles: false }],
+      [{ scopePath: path.join(root, 'src'), minConfidence: undefined, verbose: true, unreferencedFiles: false }, undefined, expect.any(Function)],
+      [{ scopePath: path.join(root, 'src'), minConfidence: undefined, verbose: true, unreferencedFiles: false }, undefined, expect.any(Function)],
     ]);
   });
 
@@ -67,7 +68,7 @@ describe('check command', () => {
   ])('lists unreferenced files for %j', async (args, expected) => {
     await run(args, runtime(), 'json');
     const scopePath = 'scopePath' in expected ? { scopePath: path.join(root, 'src') } : {};
-    expect(mocks.executeScanDeadCode).toHaveBeenCalledWith({ ...expected, ...scopePath });
+    expect(mocks.executeScanDeadCode).toHaveBeenCalledWith({ ...expected, ...scopePath }, undefined, expect.any(Function));
   });
 
   it('rejects --unreferencedFiles on a file', async () => {

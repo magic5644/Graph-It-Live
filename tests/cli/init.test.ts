@@ -9,6 +9,7 @@ import { classifyError, ExitCode } from "@/cli/errors";
 import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
 import { RULES_CONFIG, startRulesWorker } from "../analyzer/architecture/rulesWorkspace";
+import { CliProgress } from "@/cli/progress";
 
 vi.mock("@/mcp/tools", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/mcp/tools")>()),
@@ -48,7 +49,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
   beforeEach(() => {
     root = startRulesWorker();
     fs.rmSync(file(CONFIG));
-    runtime = { workspaceRoot: root, ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null } as unknown as CliRuntime;
+    runtime = { workspaceRoot: root, progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null } as unknown as CliRuntime;
   });
 
   afterEach(() => {
@@ -139,6 +140,33 @@ describe("graph-it init", { timeout: 60_000 }, () => {
       expect((await errorOf(init(["--yes"]))).message).toContain(CONFIG);
       expect(read(CONFIG)).toBe("{ not json");
     });
+  });
+
+  it("shows each phase on stderr when progress is on, with the same output as without it (#717)", async () => {
+    const quiet = await run(["--output", "docs/architecture/", "--yes"], runtime, "text", offline);
+    fs.rmSync(file(CONFIG)); // the same first run again
+    let stderr = "";
+    const write = vi.spyOn(process.stderr, "write").mockImplementation((chunk) => {
+      stderr += String(chunk);
+      return true;
+    });
+    try {
+      runtime.progress = new CliProgress(true);
+      const shown = await run(["--output", "docs/architecture/", "--yes"], runtime, "text", offline);
+      expect(shown).toBe(quiet);
+    } finally {
+      write.mockRestore();
+    }
+    const finished = stderr.split("\n").filter(Boolean).map((line) => line.split("\r\u001B[K").at(-1) ?? "");
+    expect(finished.map((line) => line.replace(/ [\d/]+ \(| \(.*$/g, "|").split("|")[0].trim())).toEqual([
+      "Analyzing architecture",
+      "Analyzing unused exports",
+      "Finding unreferenced files",
+      "Assessing architecture",
+      "Laying out diagrams",
+      "Writing the HTML page",
+    ]);
+    expect(finished[0]).toMatch(/^ {2}Analyzing architecture \d+\/\d+ \(\d+\.\ds\)$/);
   });
 
   it("writes the diagrams and report.md to --output, linked from the report", async () => {
@@ -316,8 +344,8 @@ describe("graph-it init", { timeout: 60_000 }, () => {
   it("lists only high-confidence dead code as quick wins and counts the other levels", async () => {
     const { executeScanDeadCode } = await import("@/mcp/tools");
     const result = await init(["--dry-run"]);
-    expect(executeScanDeadCode).toHaveBeenCalledWith({ minConfidence: "high" });
-    expect(executeScanDeadCode).toHaveBeenCalledWith({ unreferencedFiles: true });
+    expect(executeScanDeadCode).toHaveBeenCalledWith({ minConfidence: "high" }, undefined, expect.any(Function));
+    expect(executeScanDeadCode).toHaveBeenCalledWith({ unreferencedFiles: true }, undefined, expect.any(Function));
     expect(result.assessment.totals).toMatchObject({ deadCodeFiles: 1, unusedExports: 1, unusedExportsMedium: 2, unusedExportsLow: 3, deadFiles: 2 });
     const lines = fs.readFileSync(file("backend/src/api.ts"), "utf8").trimEnd().split("\n").length;
     expect(result.assessment.deadFiles.flatMap((group) => group.files)).toEqual([
