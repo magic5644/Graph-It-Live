@@ -681,6 +681,36 @@ describe('SignatureAnalyzer', () => {
         expect.objectContaining({ type: 'parameter-type-changed' }),
       ]);
     });
+
+    const declared = (declarations: string, oldType: string, newType: string) => analyzer.analyzeBreakingChanges(
+      '/declared.ts',
+      `${declarations}\nexport function scan(options: ${oldType}): void {}\n`,
+      `${declarations}\nexport function scan(options: ${newType}): void {}\n`,
+    ).find(result => result.symbolName === 'scan');
+    const OPTIONS = 'interface Options { maxFiles?: number; signal?: AbortSignal }\ntype Base = { strict: boolean };';
+
+    it.each([
+      ['an object literal to an interface of the file', '{ maxFiles?: number }', 'Options'],
+      ['a known intersection part kept, an optional literal added', 'Base', 'Base & { signal?: AbortSignal }'],
+      ['an alias of the file kept, an interface of the file added', 'Base & { maxFiles?: number }', 'Base & Options'],
+    ])('treats %s as compatible', (_case, oldType, newType) => {
+      const result = declared(OPTIONS, oldType, newType);
+      expect(result?.breakingChanges ?? []).toEqual([]);
+      expect(result?.nonBreakingChanges).toContain("Parameter 'options' gained optional properties");
+    });
+
+    it.each([
+      ['a retyped property behind an interface', '{ maxFiles?: string }', 'Options'],
+      ['a kept part that already has the added property', 'Base', 'Base & { strict?: boolean }'],
+      ['an interface with extends', '{ maxFiles?: number }', 'Wide'],
+      ['a generic interface', '{ maxFiles?: number }', 'Boxed<number>'],
+      ['a mapped type kept', 'Partial<Base>', 'Partial<Base> & { signal?: AbortSignal }'],
+    ])('keeps %s as a parameter type change', (_case, oldType, newType) => {
+      const declarations = `${OPTIONS}\ninterface Wide extends Base { maxFiles?: number }\ninterface Boxed<T> { maxFiles?: T }`;
+      expect(declared(declarations, oldType, newType)?.breakingChanges).toEqual([
+        expect.objectContaining({ type: 'parameter-type-changed' }),
+      ]);
+    });
   });
 
   describe('destructured parameters (#585)', () => {

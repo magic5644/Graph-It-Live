@@ -314,11 +314,12 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
 
     expect(result.symbols[0]).toMatchObject({
       name: "greet",
-      score: 40,
+      score: 30,
       risk: "medium",
       impactedSymbolCount: 2,
-      // Only src/consumer.ts is unverified: the test consumer is coverage, not risk.
-      scoreFactors: { breakingChanges: 25, unverifiedConsumers: 5, partialImpact: 10, missingTestCandidate: 0 },
+      // Only src/consumer.ts is unverified: the test consumer is coverage, not risk. Every call site
+      // of a parameter change is a direct dependent, so the depth cut leaves no partial weight.
+      scoreFactors: { breakingChanges: 25, unverifiedConsumers: 5, partialImpact: 0, missingTestCandidate: 0 },
     });
     expect(result.symbols[0].evidence).toEqual(expect.arrayContaining([
       { kind: "test-candidate", detail: "Symbol is directly depended on by an existing test — a real incompatibility would fail that test." },
@@ -342,7 +343,7 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
 
     // The only consumer is carried through in the same diff: nothing is left unchecked.
     expect(greet).toMatchObject({
-      risk: "medium",
+      risk: "low",
       consumers: { updated: ["src/consumer.ts"], covered: [], unverified: [] },
       scoreFactors: { breakingChanges: 5, unverifiedConsumers: 0 },
     });
@@ -768,6 +769,48 @@ describe("ReviewGateAnalyzer - references that reach a changed signature", { tim
 
     const symbol = result.symbols.find((s) => s.name === "greet");
     expect(symbol?.consumers.unverified).toEqual(["src/direct.ts"]);
+  });
+});
+
+describe("ReviewGateAnalyzer - parameter changes reach the direct callers only", { timeout: GIT_TEST_TIMEOUT }, () => {
+  const NEW_REQUIRED = [
+    "export function greet(name: string): string { return name; }\n",
+    "export function greet(name: string, formal: boolean): string { return name; }\n",
+  ] as const;
+  const RETURN_TYPE = [
+    "export function greet(name: string): string { return name; }\n",
+    "export function greet(name: string): number { return name.length; }\n",
+  ] as const;
+
+  /** greet <- caller.ts:hello <- far.ts:pick <- tests/far.test.ts; `holder` adds a direct reference to greet as a value. */
+  const analyze = async ([before, after]: readonly [string, string], holder = false) => {
+    const workspace = await createGitWorkspaceWithDiff(before, after);
+    const at = (file: string, symbol: string, relation?: string) => ({ sourceSymbolId: `${path.join(workspace, file)}:${symbol}`, ...(relation ? { relation, line: 1 } : {}) });
+    const graph: Record<string, object[]> = {
+      greet: [at("src/caller.ts", "hello"), ...(holder ? [at("src/holder.ts", "alias", "REFERENCES")] : [])],
+      hello: [at("src/far.ts", "pick")],
+      pick: [at("tests/far.test.ts", "farTest")],
+    };
+    const dependents = { getSymbolDependents: (_filePath: string, symbolName: string) => Promise.resolve(graph[symbolName] ?? []) };
+    const result = await new ReviewGateAnalyzer(workspace, dependents as never).analyze({ baseRef: "main", maxDepth: 3 });
+    return result.symbols.find((symbol) => symbol.name === "greet")!;
+  };
+
+  it("charges the direct caller, not the callers of the caller, and keeps the tests past it as coverage", async () => {
+    const symbol = await analyze(NEW_REQUIRED);
+    expect(symbol.consumers).toEqual({ updated: [], covered: ["src/caller.ts"], unverified: [] });
+    expect(symbol.scoreFactors).toMatchObject({ breakingChanges: 25, unverifiedConsumers: 5, partialImpact: 0 });
+    expect(symbol.impactedSymbolCount).toBe(3);
+  });
+
+  it("keeps every dependent when a direct one holds the function as a value", async () => {
+    const symbol = await analyze(NEW_REQUIRED, true);
+    expect([...symbol.consumers.covered, ...symbol.consumers.unverified].sort()).toEqual(["src/caller.ts", "src/far.ts", "src/holder.ts"]);
+  });
+
+  it("keeps the transitive dependents of a change that is not a parameter change", async () => {
+    const symbol = await analyze(RETURN_TYPE);
+    expect([...symbol.consumers.covered, ...symbol.consumers.unverified].sort()).toEqual(["src/caller.ts", "src/far.ts"]);
   });
 });
 
@@ -1238,8 +1281,8 @@ describe("ReviewGateAnalyzer - residual weight", () => {
 
     expect(symbol.scoreFactors.breakingChanges).toBe(50);
     expect(symbol.scoreFactors.unverifiedConsumers).toBe(40);
-    // An incomplete walk is a real unknown here: there may be more call sites.
-    expect(symbol.scoreFactors.partialImpact).toBe(10);
+    // Every call site is a direct dependent: the walk past them cannot hide one, so no partial weight.
+    expect(symbol.scoreFactors.partialImpact).toBe(0);
     expect(symbol.risk).toBe("critical");
   });
 });
