@@ -622,6 +622,13 @@ describe('exportHtml', () => {
       expect(view.expanded.has(2)).toBe(false);
       view.stabilized();
       expect(view.calls.selected.at(-1)).toEqual(['group:2']);
+
+      // Once its unit is expanded, the same finding centres on the unit's files.
+      view.setAllExpanded(true);
+      view.stabilized();
+      unit.listeners.click();
+      view.stabilized();
+      expect(view.calls.selected.at(-1)).toEqual([C]);
     });
 
     it('says when there is no finding', () => {
