@@ -148,6 +148,8 @@ interface MovedDeclaration extends ReexportedModule {
  */
 export class SignatureAnalyzer {
   private readonly project: Project;
+  /** The two versions of the file whose functions are compared: where a parameter type's names are declared. */
+  private typeScope: { old: SourceFile; new: SourceFile } | undefined;
 
   constructor() {
     this.project = new Project({
@@ -911,7 +913,15 @@ export class SignatureAnalyzer {
     
     const oldSigMap = new Map(oldSigs.map(s => [s.name, s]));
     const newSigMap = new Map(newSigs.map(s => [s.name, s]));
+    this.typeScope = { old: this.getOrCreateSourceFile(`${filePath}.old`, oldContent), new: this.getOrCreateSourceFile(`${filePath}.new`, newContent) };
+    try {
+      this.compareFunctionMaps(oldSigMap, newSigMap, results);
+    } finally {
+      this.typeScope = undefined;
+    }
+  }
 
+  private compareFunctionMaps(oldSigMap: Map<string, SignatureInfo>, newSigMap: Map<string, SignatureInfo>, results: SignatureComparisonResult[]): void {
     for (const [name, oldSig] of oldSigMap) {
       if (oldSig.isExported === false) continue;
       const newSig = newSigMap.get(name);
@@ -1317,15 +1327,54 @@ export class SignatureAnalyzer {
   }
 
   /**
-   * Whether an object-literal parameter type only gained optional properties.
-   * The types differ as text, yet every argument that fitted the old type still
-   * fits the new one, so no call site breaks.
+   * Whether a parameter type only gained optional properties: an object literal, a type the file
+   * declares (`{ a?: T }` to `Options`), or an intersection that keeps its old parts and adds such
+   * types (`A` to `A & { b?: U }`). The types differ as text, yet every argument that fitted the old
+   * type still fits the new one, so no call site breaks. A kept part must be known and name none of
+   * the new properties: `A & { b?: U }` narrows `b` when `A` already has it.
    */
   private isOptionalPropertyWidening(oldType: string, newType: string): boolean {
-    const oldProperties = this.parseTypeLiteralProperties(oldType);
-    const newProperties = this.parseTypeLiteralProperties(newType);
-    return oldProperties !== null && newProperties !== null
+    const oldParts = this.intersectionParts(oldType);
+    const newParts = this.intersectionParts(newType);
+    const kept = oldParts.filter((part) => newParts.includes(part));
+    const removed = oldParts.filter((part) => !newParts.includes(part));
+    const added = newParts.filter((part) => !oldParts.includes(part));
+    if (added.length === 0) return false;
+    const oldProperties = this.partsProperties(removed, this.typeScope?.old);
+    const newProperties = this.partsProperties(added, this.typeScope?.new);
+    const keptNames = this.partsProperties(kept, this.typeScope?.new)?.map((property) => property.name);
+    return oldProperties !== null && newProperties !== null && keptNames !== undefined
+      && !newProperties.some((property) => keptNames.includes(property.name))
       && !this.compareInterfaces('parameter', oldProperties, newProperties).hasBreakingChanges;
+  }
+
+  /** The parts of an intersection type as written, or the type itself. */
+  private intersectionParts(typeText: string): string[] {
+    const typeNode = this.getOrCreateSourceFile(PARAMETER_TYPE_FILE, `type T = ${typeText};`).getTypeAlias('T')?.getTypeNode();
+    return Node.isIntersectionTypeNode(typeNode) ? typeNode.getTypeNodes().map((part) => part.getText()) : [typeText.trim()];
+  }
+
+  /** The properties of every part, or null when one is not an object literal nor a property-only type the file declares. */
+  private partsProperties(parts: readonly string[], scope: SourceFile | undefined): InterfaceMemberInfo[] | null {
+    const properties: InterfaceMemberInfo[] = [];
+    for (const part of parts) {
+      const found = this.parseTypeLiteralProperties(part) ?? this.declaredProperties(part, scope);
+      if (found === null) return null;
+      properties.push(...found);
+    }
+    return properties;
+  }
+
+  /** The properties of an interface (no `extends`) or object-literal alias named `name` in `scope`; null otherwise. */
+  private declaredProperties(name: string, scope: SourceFile | undefined): InterfaceMemberInfo[] | null {
+    if (scope === undefined || !/^[A-Za-z_$][\w$]*$/.test(name)) return null;
+    const iface = scope.getInterface(name);
+    if (iface !== undefined) {
+      const plain = iface.getExtends().length === 0 && iface.getTypeParameters().length === 0;
+      return plain && iface.getMembers().length === iface.getProperties().length ? this.membersOf(iface) : null;
+    }
+    const typeNode = scope.getTypeAlias(name)?.getTypeNode();
+    return Node.isTypeLiteral(typeNode) ? this.parseTypeLiteralProperties(typeNode.getText()) : null;
   }
 
   /** Properties of a `{ ... }` type, or null when the type is anything else or has non-property members. */

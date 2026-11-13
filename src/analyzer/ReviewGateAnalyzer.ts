@@ -738,7 +738,7 @@ export class ReviewGateAnalyzer {
     const contractImpact = this.isVuePropsSymbol(comparison.symbolName)
       ? await this.getVuePropsImpact(absolutePath)
       : await this.getTypeImpact(declaringPath, comparison.symbolName, effectiveMaxDepth, fileEvidence.functions, headRef);
-    const calls = await this.keepCallsThatBreak(contractImpact, comparison.symbolName, errorBreakingChanges, headRef);
+    const calls = await this.keepCallsThatBreak(directCallersOnly(contractImpact, errorBreakingChanges), comparison.symbolName, errorBreakingChanges, headRef);
     // A parent passes Vue props as template attributes (kebab-case, no type name): not matched by text.
     const impact = this.isVuePropsSymbol(comparison.symbolName)
       ? calls
@@ -1645,6 +1645,28 @@ function escapeRegExp(text: string): string {
 
 function memberName(symbolName: string): string {
   return symbolName.slice(symbolName.lastIndexOf(".") + 1);
+}
+
+/**
+ * A parameter change breaks the calls to the symbol, not the callers of its callers: those call a
+ * function whose own signature did not change. Keeps the direct production dependents (the walk past
+ * them stays as impact count and test coverage). Kept whole when a direct dependent holds the symbol as a value (`const f = g`,
+ * `register(g)`): its callers then call it with the new signature; or when the dependents are those
+ * of a containing class (a method's callers may get the instance from a factory).
+ */
+function directCallersOnly(impact: SymbolImpact, changes: BreakingChange[]): SymbolImpact {
+  const parameterLevel = changes.length > 0 && changes.every((change) => change.type.startsWith("parameter-"));
+  if (!parameterLevel || impact.directFiles === undefined || impact.containerScoped || impact.fileScoped
+    || impact.references?.some((reference) => reference.direct)) return impact;
+  const direct = new Set(impact.directFiles);
+  const keep = (files: string[]) => files.filter((file) => direct.has(file));
+  return {
+    ...impact,
+    partial: false,
+    // Tests past the direct callers still exercise them: coverage, not consumers to update.
+    consumerFiles: keep(impact.consumerFiles),
+    coveredFiles: keep(impact.coveredFiles),
+  };
 }
 
 function isMemberLevelChange(type: BreakingChange["type"]): boolean {
