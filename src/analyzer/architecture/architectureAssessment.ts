@@ -283,9 +283,9 @@ function mutualImports(input: AssessmentInput, mutual: readonly Edge[]): { wins:
   return { wins, ...(hotSpot === undefined ? {} : { hotSpot }) };
 }
 
-function weakDependencies(input: AssessmentInput, pairs: Map<string, Edge[]>): QuickWin[] {
+function weakDependencies(input: AssessmentInput, pairs: Map<string, Edge[]>, scope: FocusScope): QuickWin[] {
   return input.units.unitEdges
-    .filter((edge) => edge.kind !== "cycle" && edge.fileEdgeCount <= ASSESSMENT_THRESHOLDS.cheapPairs)
+    .filter((edge) => edge.kind !== "cycle" && edge.fileEdgeCount <= ASSESSMENT_THRESHOLDS.cheapPairs && scope.unitEdge(pairs, edge))
     .map((edge) => ({
       kind: "weak-dependency" as const,
       gain: 1,
@@ -297,9 +297,9 @@ function weakDependencies(input: AssessmentInput, pairs: Map<string, Edge[]>): Q
     }));
 }
 
-function deadCode(input: AssessmentInput): QuickWin[] {
+function deadCode(input: AssessmentInput, files: readonly DeadCodeFile[]): QuickWin[] {
   const imported = new Set(input.graph.edges.map((edge) => edge.targetRelative));
-  return input.deadCode.filter((file) => file.unusedSymbols.length > 0).map((file) => {
+  return files.filter((file) => file.unusedSymbols.length > 0).map((file) => {
     const unit = input.unitOf.get(file.relativePath);
     const unreferenced = imported.has(file.relativePath) ? "" : "; no file imports it";
     return {
@@ -317,9 +317,9 @@ function deadCode(input: AssessmentInput): QuickWin[] {
 const KIND_ORDER: readonly QuickWinKind[] = ["cycle-break", "mutual-import", "weak-dependency", "dead-code"];
 
 /** The dead files by unit, the unit with the most lines first, its largest files first. */
-function deadFileGroups(input: AssessmentInput): DeadFileGroup[] {
+function deadFileGroups(input: AssessmentInput, files: readonly DeadFile[]): DeadFileGroup[] {
   const groups = new Map<string, DeadFile[]>();
-  for (const file of input.deadFiles ?? []) {
+  for (const file of files) {
     const unit = input.unitOf.get(file.relativePath) ?? NO_UNIT;
     groups.set(unit, [...(groups.get(unit) ?? []), file]);
   }
@@ -364,33 +364,84 @@ function rowFindings(input: AssessmentInput): MatrixFinding[] {
   ];
 }
 
-/** The dead files, the quick wins (ranked by gain / effort, then gain, then kind) and the matrix findings of an architecture. */
-export function assessArchitecture(input: AssessmentInput): ArchitectureAssessment {
+/** What a `--focus` keeps; every test passes without one. */
+interface FocusScope {
+  /** The units of the focus files, and those with the files they import or that import them. */
+  rows: ReadonlySet<string> | undefined;
+  file(relativePath: string): boolean;
+  edge(edge: Edge): boolean;
+  unit(unit: string): boolean;
+  unitEdge(pairs: Map<string, Edge[]>, edge: { from: string; to: string }): boolean;
+}
+
+/**
+ * The units of a focus (the units of its files) and the units of its direct neighbours (files
+ * importing a focus file or imported by one), for the report and the diagrams of `init --focus`.
+ */
+export function focusUnits(input: Pick<AssessmentInput, "graph" | "unitOf">, focus: ReadonlySet<string>): { focus: Set<string>; withNeighbours: Set<string> } {
+  const unitsOf = (files: Iterable<string>) => new Set([...files].flatMap((file) => input.unitOf.get(file) ?? []));
+  const neighbours = input.graph.edges.flatMap((edge) => {
+    if (focus.has(edge.sourceRelative)) return [edge.targetRelative];
+    return focus.has(edge.targetRelative) ? [edge.sourceRelative] : [];
+  });
+  const own = unitsOf(focus);
+  return { focus: own, withNeighbours: new Set([...own, ...unitsOf(neighbours)]) };
+}
+
+function focusScope(input: AssessmentInput, focus: ReadonlySet<string> | undefined): FocusScope {
+  if (focus === undefined) {
+    return { rows: undefined, file: () => true, edge: () => true, unit: () => true, unitEdge: () => true };
+  }
+  const units = focusUnits(input, focus);
+  const edge = (candidate: Edge) => focus.has(candidate.sourceRelative) || focus.has(candidate.targetRelative);
+  const importsFocus = new Set(input.graph.edges.filter((candidate) => focus.has(candidate.targetRelative)).map((candidate) => candidate.sourceRelative));
+  return {
+    rows: units.withNeighbours,
+    // A dead file is in the focus, or a neighbour importing it (nothing imports a dead file).
+    file: (relativePath) => focus.has(relativePath) || importsFocus.has(relativePath),
+    edge,
+    unit: (unit) => units.focus.has(unit),
+    unitEdge: (pairs, { from, to }) => (pairs.get(`${from}>${to}`) ?? []).some(edge),
+  };
+}
+
+/**
+ * The dead files, the quick wins (ranked by gain / effort, then gain, then kind) and the matrix
+ * findings of an architecture. With `focus` (workspace-relative files, `init --focus`), only what
+ * touches those files and their direct neighbours, totals included; cycles and matrix rows are
+ * still computed on the whole workspace, so a unit cycle the focus is in is kept whole.
+ */
+export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<string>): ArchitectureAssessment {
+  const scope = focusScope(input, focus);
   const pairs = pairsByUnitEdge(input);
-  const mutual = mutualPairs(input);
+  const mutual = mutualPairs(input).filter(scope.edge);
   const { wins: mutualWins, hotSpot } = mutualImports(input, mutual);
-  const quickWins = [...cycleBreaks(input, cycleCuts(input.matrix), pairs), ...mutualWins, ...weakDependencies(input, pairs), ...deadCode(input)]
+  const cuts = cycleCuts(input.matrix).filter((cut) => cut.members.some(scope.unit));
+  const deadCodeFiles = input.deadCode.filter((file) => focus?.has(file.relativePath) ?? true);
+  const quickWins = [...cycleBreaks(input, cuts, pairs), ...mutualWins, ...weakDependencies(input, pairs, scope), ...deadCode(input, deadCodeFiles)]
     // Cross products compare gain / effort without rounding.
     .sort((left, right) => right.gain * left.effort - left.gain * right.effort || right.gain - left.gain
       || KIND_ORDER.indexOf(left.kind) - KIND_ORDER.indexOf(right.kind) || byCodeUnit(left.subject, right.subject));
-  const deadFiles = deadFileGroups(input);
+  const deadFileList = (input.deadFiles ?? []).filter((file) => scope.file(file.relativePath));
+  const deadFiles = deadFileGroups(input, deadFileList);
+  const { rows } = scope;
   return {
     deadFiles,
     quickWins,
-    matrixFindings: rowFindings(input),
+    matrixFindings: rowFindings(input).filter((finding) => rows === undefined || finding.rows.some((row) => rows.has(row))),
     glossary: glossary(input.matrix),
     totals: {
-      files: input.unitOf.size,
-      units: input.units.units.length,
-      unitEdges: input.units.unitEdges.length,
-      unitCycles: input.units.cycles,
+      files: focus?.size ?? input.unitOf.size,
+      units: rows?.size ?? input.units.units.length,
+      unitEdges: input.units.unitEdges.filter((edge) => scope.unitEdge(pairs, edge)).length,
+      unitCycles: focus === undefined ? input.units.cycles : cuts.length,
       mutualImports: mutual.length,
       ...(hotSpot === undefined ? {} : { mutualHotSpot: hotSpot }),
       acceptedViolations: input.acceptedViolations,
-      deadFiles: input.deadFiles?.length ?? 0,
+      deadFiles: deadFileList.length,
       deadFileLines: deadFiles.reduce((total, group) => total + group.lines, 0),
-      deadCodeFiles: input.deadCode.filter((file) => file.unusedSymbols.length > 0).length,
-      unusedExports: input.deadCode.reduce((total, file) => total + file.unusedSymbols.length, 0),
+      deadCodeFiles: deadCodeFiles.filter((file) => file.unusedSymbols.length > 0).length,
+      unusedExports: deadCodeFiles.reduce((total, file) => total + file.unusedSymbols.length, 0),
       unusedExportsMedium: input.deadCodeBelowHigh?.medium ?? 0,
       unusedExportsLow: input.deadCodeBelowHigh?.low ?? 0,
     },

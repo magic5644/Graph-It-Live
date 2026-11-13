@@ -14,7 +14,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as readline from "node:readline/promises";
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
-import { assessArchitecture, type ArchitectureAssessment } from "../../analyzer/architecture/architectureAssessment.js";
+import { assessArchitecture, focusUnits, type ArchitectureAssessment } from "../../analyzer/architecture/architectureAssessment.js";
 import { elementName, describeConfigChanges, generateArchitectureConfig } from "../../analyzer/architecture/architectureInit.js";
 import { unitMatrix } from "../../analyzer/architecture/architectureMatrix.js";
 import {
@@ -30,12 +30,13 @@ import {
   readWorkspaceFile,
   type ArchitectureCheck,
 } from "../../analyzer/architecture/architectureRules.js";
-import { assignUnits, buildArchitectureUnits } from "../../analyzer/architecture/architectureUnits.js";
+import { assignUnits, buildArchitectureUnits, byCodeUnit, directoryFolderKey, folderKeys, type UnitAssignment } from "../../analyzer/architecture/architectureUnits.js";
 import type { UnitSource } from "../../analyzer/architecture/architectureView.js";
 import type { DrawOptions } from "../../analyzer/diagram/architectureDiagram.js";
 import { renderSourceDiagram } from "../../analyzer/diagram/workspaceDiagram.js";
 import { executeScanDeadCode } from "../../mcp/tools";
 import { workerState } from "../../mcp/shared/state";
+import { closestNames } from "../../analyzer/utils/SymbolLookup.js";
 import { readWorkspaceText } from "../../analyzer/utils/workspaceText.js";
 import { normalizePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
@@ -114,7 +115,43 @@ function readFlags(args: string[], format: CliOutputFormat) {
     throw new CliError(`graph-it init prints --format ${FORMATS.join(", ")}, not "${format}".`, ExitCode.UNSUPPORTED_FORMAT);
   }
   const output = readStringOption(args, "--output", "a directory of the workspace")?.replaceAll("\\", "/");
-  return { yes: args.includes("--yes"), dryRun: args.includes("--dry-run"), output };
+  if (args.filter((arg) => arg === "--focus").length > 1) {
+    throw new CliError("--focus takes one unit or folder: pass it once.", ExitCode.GENERAL_ERROR);
+  }
+  const focus = readStringOption(args, "--focus", "a unit, a package name or a folder of the workspace");
+  return { yes: args.includes("--yes"), dryRun: args.includes("--dry-run"), output, focus };
+}
+
+/**
+ * The unit or folder key `--focus` names, and its files: a unit or folder key
+ * (`graph-it architecture --level units`), a package name, or a workspace directory.
+ */
+function resolveFocus(assignment: UnitAssignment, name: string): { key: string; files: Set<string> } {
+  let wanted = normalizePath(name);
+  while (wanted.length > 1 && wanted.endsWith("/")) wanted = wanted.slice(0, -1);
+  const keysOf = new Map([...assignment.unitOf].map(([file, unit]) => [file, folderKeys(file, unit)]));
+  const keys = new Set([...keysOf.values()].flat());
+  const named = [...assignment.names].filter(([, unitName]) => unitName === wanted).map(([unit]) => unit);
+  if (!keys.has(wanted) && named.length > 1) {
+    throw new CliError(`--focus "${wanted}" names several units (${named.join(", ")}): pass one unit key.`, ExitCode.GENERAL_ERROR);
+  }
+  let key = keys.has(wanted) ? wanted : named[0];
+  const below = [...assignment.unitOf].filter(([file]) => file.startsWith(`${wanted}/`));
+  if (key === undefined && below.length > 0) {
+    const units = [...new Set(below.map(([, unit]) => unit))].sort(byCodeUnit);
+    if (units.length > 1) {
+      const shown = units.length > 5 ? [...units.slice(0, 5), `${units.length - 5} more`] : units;
+      throw new CliError(`--focus "${wanted}" holds several units (${shown.join(", ")}): pass one of them.`, ExitCode.GENERAL_ERROR);
+    }
+    key = directoryFolderKey(assignment, wanted);
+  }
+  if (key === undefined) {
+    const close = closestNames([...new Set([...keys, ...assignment.names.values()])], wanted);
+    const hint = close.length > 0 ? ` Did you mean: ${close.join(", ")}?` : " graph-it architecture --level units lists the units.";
+    throw new CliError(`--focus: no unit, package or folder named "${wanted}".${hint}`, ExitCode.GENERAL_ERROR);
+  }
+  const focusKey = key;
+  return { key: focusKey, files: new Set([...keysOf].filter(([, fileKeys]) => fileKeys.includes(focusKey)).map(([file]) => file)) };
 }
 
 /** The current config and baseline, or undefined where a file does not exist; an invalid one is an error. */
@@ -165,19 +202,32 @@ function hotSpots(assessment: ArchitectureAssessment): string[] {
   return [...new Set(ranked)].slice(0, MAX_FOLDER_DIAGRAMS);
 }
 
-/** The units, matrix and hot-spot diagrams as SVG files in `outputDir`. */
-async function writeDiagrams(source: UnitSource, workspaceRoot: string, outputDir: string, check: ArchitectureCheck, assessment: ArchitectureAssessment): Promise<InitDiagram[]> {
+/** A focus: its unit or folder key, its files, and the units its files and their direct neighbours are in. */
+interface Focus {
+  key: string;
+  files: Set<string>;
+  units: Set<string>;
+}
+
+/**
+ * The units, matrix and hot-spot diagrams as SVG files in `outputDir`. With a focus, the units and
+ * matrix diagrams draw its units and their direct neighbours only, and its folder diagram comes first.
+ */
+async function writeDiagrams(source: UnitSource, workspaceRoot: string, outputDir: string, check: ArchitectureCheck, assessment: ArchitectureAssessment, focus?: Focus): Promise<InitDiagram[]> {
   // Every violation is in the proposed baseline: drawn as accepted.
   const violations = check.violations.map((violation) => ({ ...violation, new: false }));
+  // The units level draws the units of source.units only, as with the view's role filter.
+  const level = focus === undefined ? source : { ...source, units: { ...source.units, units: source.units.units.filter((unit) => focus.units.has(unit.key)) } };
+  const folders = [...new Set([...(focus === undefined ? [] : [focus.key]), ...hotSpots(assessment)])].slice(0, MAX_FOLDER_DIAGRAMS);
   const diagrams: InitDiagram[] = [
     { file: path.posix.join(outputDir, "units.svg"), view: "units" },
     { file: path.posix.join(outputDir, "matrix.svg"), view: "matrix" },
     // Index suffix: two unit keys may give one element name ("a/b", "a-b").
-    ...hotSpots(assessment).map((unit, index) => ({ file: path.posix.join(outputDir, `folder-${index + 1}-${elementName(unit)}.svg`), view: "folder" as const, unit })),
+    ...folders.map((unit, index) => ({ file: path.posix.join(outputDir, `folder-${index + 1}-${elementName(unit)}.svg`), view: "folder" as const, unit })),
   ];
   // At most 2 + MAX_FOLDER_DIAGRAMS independent files.
   await Promise.all(diagrams.map(async (diagram) => {
-    const { markup } = await renderSourceDiagram(source, workspaceRoot, { view: diagram.view, folder: diagram.unit, draw: DRAW[diagram.view], format: "svg", theme: "light", violations });
+    const { markup } = await renderSourceDiagram(diagram.view === "folder" ? source : level, workspaceRoot, { view: diagram.view, folder: diagram.unit, draw: DRAW[diagram.view], format: "svg", theme: "light", violations });
     await writeWorkspaceFile(workspaceRoot, diagram.file, markup);
   }));
   return diagrams;
@@ -194,13 +244,25 @@ async function lineCount(workspaceRoot: string, relativePath: string): Promise<n
   }
 }
 
-/** High-confidence unused exports, listed as quick wins, the counts of the other levels, and the files nothing imports (#711). */
-async function deadCodeFiles(workspaceRoot: string) {
-  const scan = await executeScanDeadCode({ minConfidence: "high" });
+/**
+ * High-confidence unused exports, listed as quick wins, the counts of the other levels, and the files nothing
+ * imports (#711). With focus files, every level is listed so the counts below high cover the focus only.
+ */
+async function deadCodeFiles(workspaceRoot: string, focus?: ReadonlySet<string>) {
+  const scan = await executeScanDeadCode({ minConfidence: focus === undefined ? "high" : "low" });
   const unreferenced = await executeScanDeadCode({ unreferencedFiles: true });
+  const below = { medium: scan.byConfidence.medium, low: scan.byConfidence.low };
+  if (focus !== undefined) {
+    const symbols = scan.entries.filter((entry) => focus.has(entry.relativePath)).flatMap((entry) => entry.unusedSymbols);
+    below.medium = symbols.filter((symbol) => symbol.confidence === "medium").length;
+    below.low = symbols.filter((symbol) => symbol.confidence === "low").length;
+  }
   return {
-    deadCode: scan.entries.map((entry) => ({ relativePath: entry.relativePath, unusedSymbols: entry.unusedSymbols.map(({ name, line }) => ({ name, line })) })),
-    deadCodeBelowHigh: { medium: scan.byConfidence.medium, low: scan.byConfidence.low },
+    deadCode: scan.entries.map((entry) => ({
+      relativePath: entry.relativePath,
+      unusedSymbols: entry.unusedSymbols.filter((symbol) => symbol.confidence === "high").map(({ name, line }) => ({ name, line })),
+    })),
+    deadCodeBelowHigh: below,
     deadFiles: await Promise.all(unreferenced.unreferencedFiles.map(async ({ relativePath, exports, confidence, reasons }) =>
       ({ relativePath, lines: await lineCount(workspaceRoot, relativePath), exports, confidence, reasons }))),
   };
@@ -218,6 +280,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     indexedAt: runtime.loadState()?.lastScanTimestamp,
   });
   const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
+  const focus = flags.focus === undefined ? undefined : resolveFocus(assignment, flags.focus);
   const units = buildArchitectureUnits(graph, workspaceRoot, assignment, current.config?.roles);
   const config = generateArchitectureConfig(units, current.config);
   const { check } = checkGraphArchitecture(graph, workspaceRoot, config);
@@ -234,12 +297,14 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     units,
     unitOf: assignment.unitOf,
     matrix: unitMatrix(units),
-    ...(await deadCodeFiles(workspaceRoot)),
+    ...(await deadCodeFiles(workspaceRoot, focus?.files)),
     acceptedViolations: baseline.length,
-  });
-  const diagrams = outputDir === undefined ? [] : await writeDiagrams({ graph, units, assignment }, workspaceRoot, outputDir, check, assessment);
+  }, focus?.files);
+  const scope = focus === undefined ? undefined : { ...focus, units: focusUnits({ graph, unitOf: assignment.unitOf }, focus.files).withNeighbours };
+  const diagrams = outputDir === undefined ? [] : await writeDiagrams({ graph, units, assignment }, workspaceRoot, outputDir, check, assessment, scope);
 
   const result: InitResult = {
+    ...(focus === undefined ? {} : { focus: focus.key }),
     configFile: ARCHITECTURE_CONFIG_FILE,
     baselineFile: ARCHITECTURE_BASELINE_FILE,
     status,

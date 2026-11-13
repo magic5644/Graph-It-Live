@@ -13,18 +13,24 @@ import { RULES_CONFIG, startRulesWorker } from "../analyzer/architecture/rulesWo
 vi.mock("@/mcp/tools", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/mcp/tools")>()),
   // The real scan needs the reverse index of a full CLI run (covered by the E2E test).
-  executeScanDeadCode: vi.fn().mockImplementation(async ({ unreferencedFiles }: { unreferencedFiles?: boolean }) => (unreferencedFiles
-    ? {
-      // A file gone since the scan has no line count.
-      unreferencedFiles: [
-        { relativePath: "backend/src/api.ts", exports: 1, confidence: "low", reasons: ["no-importer"] },
-        { relativePath: "backend/src/gone.ts", exports: 0, confidence: "medium", reasons: ["test-only-use"] },
-      ],
-    }
-    : {
-      entries: [{ relativePath: "backend/src/api.ts", unusedSymbols: [{ name: "api", line: 2, id: "x", kind: "VariableDeclaration", isExported: true }] }],
-      byConfidence: { high: 1, medium: 2, low: 3 },
-    })),
+  executeScanDeadCode: vi.fn().mockImplementation(async ({ unreferencedFiles, minConfidence }: { unreferencedFiles?: boolean; minConfidence?: string }) => {
+    const symbol = (name: string, confidence: string) => ({ name, line: 2, id: name, kind: "VariableDeclaration", isExported: true, confidence });
+    const high = { relativePath: "backend/src/api.ts", unusedSymbols: [symbol("api", "high")] };
+    // Listed with --focus only (minConfidence low): a medium export in backend, a low one outside it.
+    const below = [
+      { relativePath: "backend/src/db.ts", unusedSymbols: [symbol("query", "medium")] },
+      { relativePath: "mfe/cart/src/view.ts", unusedSymbols: [symbol("unusedView", "low")] },
+    ];
+    return unreferencedFiles
+      ? {
+        // A file gone since the scan has no line count.
+        unreferencedFiles: [
+          { relativePath: "backend/src/api.ts", exports: 1, confidence: "low", reasons: ["no-importer"] },
+          { relativePath: "backend/src/gone.ts", exports: 0, confidence: "medium", reasons: ["test-only-use"] },
+        ],
+      }
+      : { entries: minConfidence === "low" ? [high, ...below] : [high], byConfidence: { high: 1, medium: 2, low: 3 } };
+  }),
 }));
 
 const CONFIG = "graphit.architecture.json";
@@ -231,6 +237,66 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     expect(text.indexOf("Summary:")).toBeLessThan(text.indexOf("Guard:"));
     expect(await run(["--dry-run"], runtime, "toon", offline)).toContain("dry-run");
     expect(text).toContain("Unused exports: 1 high-confidence in 1 file (2 medium, 3 low not listed: graph-it check --minConfidence low)");
+  });
+
+  describe("--focus", () => {
+    it("restricts the report and its totals to a unit and its direct neighbours", async () => {
+      const whole = await init(["--dry-run"]);
+      const result = await init(["--dry-run", "--focus", "backend"]);
+      expect(result.focus).toBe("backend");
+      // backend/src/{api,db}.ts; neighbours: functions/billing, frontend, (root) scripts, shared/utils.
+      expect(result.assessment.totals).toMatchObject({ files: 2, units: 5, unitEdges: 4, unitCycles: 0, unusedExports: 1, unusedExportsMedium: 1, unusedExportsLow: 0, deadFiles: 1 });
+      expect(result.assessment.quickWins.map((win) => win.kind)).not.toContain("cycle-break");
+      expect(result.assessment.quickWins.every((win) => win.units.includes("backend"))).toBe(true);
+      const neighbours = ["backend", "functions/billing", "frontend", "(root)", "shared/utils"];
+      expect(result.assessment.matrixFindings.flatMap((finding) => finding.rows).every((row) => neighbours.includes(row))).toBe(true);
+      // The rules files still cover the whole workspace.
+      expect(result.changes).toEqual(whole.changes);
+      const text = await run(["--dry-run", "--focus", "backend"], runtime, "text", offline);
+      expect(text).toContain("Focus: backend and its direct neighbours only");
+      expect(text).toContain("Size: 2 files in backend, 5 units with its neighbours, 4 unit edges through it");
+    });
+
+    it.each([
+      ["a package name", "@acme/shared-ui", "shared/ui"],
+      ["a directory", "backend/src/", "backend"],
+      ["a directory with backslashes", String.raw`backend\src`, "backend"],
+    ])("accepts %s", async (_name, focus, key) => {
+      expect((await init(["--dry-run", "--focus", focus])).focus).toBe(key);
+    });
+
+    it("keeps the unit cycle of the focus", async () => {
+      const result = await init(["--dry-run", "--focus", "shared/ui"]);
+      expect(result.assessment.quickWins.map((win) => win.kind)).toContain("cycle-break");
+      expect(result.assessment.totals.unitCycles).toBe(1);
+    });
+
+    it("draws the focus units and its folder first", async () => {
+      const result = await init(["--focus", "backend", "--output", "report"]);
+      const folders = result.diagrams.filter((diagram) => diagram.view === "folder").map((diagram) => diagram.file);
+      expect(folders[0]).toBe("report/folder-1-backend.svg");
+      expect(read("report/units.svg").match(/<rect class="node"/g)).toHaveLength(5);
+      expect(read("report/report.md")).toContain("- Focus: backend and its direct neighbours only");
+    });
+
+    it.each([
+      ["an unknown name, with the close ones", ["--focus", "backnd"], /no unit, package or folder named "backnd"\. Did you mean: backend\?/],
+      ["a name far from any", ["--focus", "zzzzzzzzzz"], /graph-it architecture --level units lists the units/],
+      ["a directory holding several units", ["--focus", "shared"], /--focus "shared" holds several units \(shared\/ui, shared\/utils\): pass one of them\./],
+    ])("refuses %s before writing anything", async (_name, args, message) => {
+      const error = await errorOf(init(args));
+      expect(error.exitCode).toBe(ExitCode.GENERAL_ERROR);
+      expect(error.message).toMatch(message);
+      expect(fs.existsSync(file(CONFIG))).toBe(false);
+    });
+
+    it.each([
+      ["twice", ["--focus", "backend", "--focus", "frontend"], "--focus takes one unit or folder"],
+      ["without a value", ["--focus", ""], "--focus must be a unit, a package name or a folder"],
+    ])("refuses --focus %s before any work", async (_name, args, message) => {
+      expect((await errorOf(init(args))).message).toContain(message);
+      expect(runtime.ensureIndexed).not.toHaveBeenCalled();
+    });
   });
 
   it("lists only high-confidence dead code as quick wins and counts the other levels", async () => {

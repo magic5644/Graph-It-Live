@@ -199,3 +199,55 @@ describe("assessArchitecture: dead files", () => {
     expect(result.deadFiles).toEqual([{ unit: "(root)", lines: 2, files: [expect.objectContaining({ relativePath: "script.ts" })] }]);
   });
 });
+
+describe("assessArchitecture: focus", () => {
+  // a ⇄ b in a unit cycle, c imports a once (weak), d stands apart with its own mutual import.
+  const workspace = () => input(["a:3:1", "b:2:1", "c:1:0", "d:2:2"], ["a>b=1", "b>a=1", "c>a=1", "c>d=2"], {
+    cycles: ["a", "b"],
+    files: [
+      ["a/x.ts", "b/y.ts", 1], ["b/y.ts", "a/w.ts", 2], ["a/x.ts", "a/v.ts", 3], ["a/v.ts", "a/x.ts", 4],
+      ["c/m.ts", "a/x.ts", 5], ["c/m.ts", "d/p.ts", 6], ["c/m.ts", "d/q.ts", 7], ["d/p.ts", "d/q.ts", 8], ["d/q.ts", "d/p.ts", 9],
+    ],
+    deadCode: [{ relativePath: "a/v.ts", unusedSymbols: [{ name: "v", line: 1 }] }, { relativePath: "d/p.ts", unusedSymbols: [{ name: "p", line: 1 }] }],
+    deadFiles: [
+      { relativePath: "a/old.ts", lines: 4, exports: 1, confidence: "low", reasons: ["no-importer"] },
+      { relativePath: "d/old.ts", lines: 9, exports: 1, confidence: "low", reasons: ["no-importer"] },
+    ],
+  });
+
+  it("keeps only what touches the focus files and their direct neighbours, totals included", () => {
+    const result = assessArchitecture(workspace(), new Set(["a/x.ts", "a/v.ts", "a/w.ts", "a/old.ts"]));
+    expect(result.quickWins.map((win) => `${win.kind} ${win.units.join(",")}`).toSorted()).toEqual([
+      "cycle-break a,b", "dead-code a", "mutual-import a", "weak-dependency c,a",
+    ]);
+    expect(result.deadFiles.map((group) => group.unit)).toEqual(["a"]);
+    // Neighbour rows only: d has no file pair with a.
+    expect(result.matrixFindings.flatMap((finding) => finding.rows)).not.toContain("d");
+    expect(result.totals).toMatchObject({ files: 4, units: 3, unitEdges: 3, unitCycles: 1, mutualImports: 1, deadFiles: 1, deadFileLines: 4, deadCodeFiles: 1, unusedExports: 1 });
+  });
+
+  it("keeps the unit cycle of a folder whose files are not in its cut", () => {
+    const result = assessArchitecture(workspace(), new Set(["a/v.ts"]));
+    expect(result.quickWins.map((win) => win.kind)).toContain("cycle-break");
+    expect(result.quickWins.map((win) => win.kind)).not.toContain("weak-dependency");
+  });
+
+  it("lists a dead file that imports the focus, nothing imports a dead file", () => {
+    const base = workspace();
+    const focused = assessArchitecture({ ...base, graph: { edges: [...base.graph.edges, { sourceRelative: "d/old.ts", targetRelative: "a/x.ts", line: 1 }] } }, new Set(["a/x.ts"]));
+    expect(focused.deadFiles.map((group) => group.unit)).toEqual(["d"]);
+  });
+
+  it("reports an empty focus with zero totals and no item", () => {
+    const result = assessArchitecture(workspace(), new Set(["e/alone.ts"]));
+    expect(result.quickWins).toEqual([]);
+    expect(result.deadFiles).toEqual([]);
+    expect(result.matrixFindings).toEqual([]);
+    expect(result.totals).toMatchObject({ files: 1, units: 0, unitEdges: 0, unitCycles: 0, mutualImports: 0, deadFiles: 0, unusedExports: 0 });
+  });
+
+  it("keeps the whole workspace without a focus", () => {
+    expect(assessArchitecture(workspace())).toEqual(assessArchitecture(workspace(), undefined));
+    expect(assessArchitecture(workspace()).totals).toMatchObject({ files: 9, units: 4, unitEdges: 4, mutualImports: 2, deadFiles: 2 });
+  });
+});

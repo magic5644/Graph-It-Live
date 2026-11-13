@@ -27,6 +27,8 @@ export interface InitResult {
   configFile: string;
   baselineFile: string;
   status: InitStatus;
+  /** The unit or folder key of `--focus`: the assessment and the diagrams cover it and its direct neighbours only. */
+  focus?: string;
   /** Workspace-relative rules files written, `*.bak` copies included. */
   written: string[];
   /** Workspace-relative report files written with `--output`: diagrams and report.md. */
@@ -157,8 +159,14 @@ function summaryLines(result: InitResult, all: readonly ReportSection[]): string
   const hotSpotText = hotSpot === undefined ? "" : ` (hot spot: ${hotSpot.file} in ${hotSpot.pairs})`;
   const testOnlyText = testOnly === 0 ? "" : ` (${testOnly} only imported by tests)`;
   const topText = topAction(result.assessment, all);
+  const { focus } = result;
   return [
-    `Size: ${plural(t.files, "file")} in ${plural(t.units, "unit")}, ${plural(t.unitEdges, "unit edge")}`,
+    ...(focus === undefined ? [] : [
+      `Focus: ${focus} and its direct neighbours only (the files importing it or imported by it); the rules files cover the whole workspace`,
+    ]),
+    focus === undefined
+      ? `Size: ${plural(t.files, "file")} in ${plural(t.units, "unit")}, ${plural(t.unitEdges, "unit edge")}`
+      : `Size: ${plural(t.files, "file")} in ${focus}, ${plural(t.units, "unit")} with its neighbours, ${plural(t.unitEdges, "unit edge")} through it`,
     `Cycles: ${plural(t.unitCycles, "unit cycle")}, ${plural(t.mutualImports, "mutual file import")}${hotSpotText}`,
     `Dead files: ${plural(t.deadFiles, "file")} no production file imports, ${plural(t.deadFileLines, "line")}${testOnlyText}`,
     `Unused exports: ${t.unusedExports} high-confidence in ${plural(t.deadCodeFiles, "file")} (${t.unusedExportsMedium} medium, ${t.unusedExportsLow} low not listed: graph-it check --minConfidence low)`,

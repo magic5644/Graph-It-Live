@@ -44,6 +44,19 @@ function result(overrides: Partial<InitResult> = {}): InitResult {
 }
 
 describe("initReport", () => {
+  it("names the focus in the summary, an empty one too", () => {
+    const focused = result({ focus: "app", assessment: assessArchitecture(rich(), new Set(["app/main.ts", "app/old.ts"])) });
+    const text = renderInitText(focused);
+    expect(text).toContain("Focus: app and its direct neighbours only (the files importing it or imported by it); the rules files cover the whole workspace");
+    expect(text).toContain("Size: 2 files in app, 2 units with its neighbours, 1 unit edge through it");
+    expect(text).not.toContain("cli/f0.ts");
+    expect(renderInitMarkdown(focused)).toContain("- Focus: app and its direct neighbours only");
+    const none = renderInitText(result({ focus: "lib", assessment: assessArchitecture(rich(), new Set(["lib/a.ts"])) }));
+    expect(none).toContain("Size: 1 file in lib, 0 units with its neighbours, 0 unit edges through it");
+    expect(none).toContain("Top action: none, nothing to clean up");
+    expect(renderInitText(result())).not.toContain("Focus:");
+  });
+
   it("fences the changes longer than any backtick run they hold", () => {
     const markdown = renderInitMarkdown(result({ changes: ["- accepted violation r: gone```.ts -> x.ts", "+ element \"a\": {}"] }));
     expect(markdown).toContain("\n````text\n- accepted violation r: gone```.ts -> x.ts\n");
