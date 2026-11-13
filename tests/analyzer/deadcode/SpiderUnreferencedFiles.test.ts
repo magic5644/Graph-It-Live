@@ -91,6 +91,21 @@ const FILES: Record<string, string> = {
   // the same layout without next: listed
   "apps/plain/package.json": '{"name":"plain","private":true}',
   "apps/plain/app/api/users/route.ts": "export async function GET() { return 1; }\n",
+  // a Vite app: index.html names its entry from the page's folder; the entry imports the app (#728)
+  "web/index.html": '<div id="app"></div>\n<script type="module" src="/src/main.ts"></script>\n',
+  "web/src/main.ts": "import { mount } from './app';\nexport const app = mount();\n",
+  "web/src/app.ts": "export function mount() { return 1; }\n",
+  // a name built at run time, a tool rc file, migrations run by their tool (#728)
+  "tools/package.json": '{"name":"tools","private":true}',
+  "tools/src/generate.ts": "import path from 'node:path';\nexport const entry = (mode: string) => path.resolve('configs', `config.${mode}.ts`);\n",
+  "tools/configs/config.prod.ts": "import { keys } from './keys';\nexport default { keys };\n",
+  "tools/configs/keys.ts": "export const keys = 1;\n",
+  "tools/.toolrc.ts": "export default { dir: './data-migrations' };\n",
+  "tools/data-migrations/executed/001_init/migration.ts": "import { helper } from './helper';\nexport async function up() { helper(); }\n",
+  "tools/data-migrations/executed/001_init/helper.ts": "export function helper() { return 1; }\n",
+  // a computed import may reach plugins/: the plugin is listed, but what it imports does not follow it
+  "src/plugins/report.ts": "import { fmt } from '../fmt';\nexport function run() { return fmt(); }\n",
+  "src/fmt.ts": "export function fmt() { return 1; }\n",
   // run from a working-directory or after cd (#728)
   ".github/workflows/mono.yml": "defaults:\n  run:\n    working-directory: packages/api\njobs:\n  m:\n    steps:\n      - run: node scripts/migrate.mjs\n",
   "packages/api/scripts/migrate.mjs": "console.log(1);\n",
@@ -279,6 +294,27 @@ describe("scanUnreferencedFiles (#711)", { timeout: 60_000 }, () => {
     ["packages/cli/bin/run.mjs", "tools/release.sh"],
   ])("excludes %s, run from the folder %s moves to (#728)", (file, writer) => {
     expect(result.excluded).toContainEqual({ relativePath: file, reason: `named-in:${writer}` });
+  });
+
+  it("excludes a Vite entry, files named by a run-time template, rc configs and migrations, and keeps what they import (#728)", () => {
+    expect(result.excluded).toEqual(expect.arrayContaining([
+      { relativePath: "web/src/main.ts", reason: "named-in:web/index.html" },
+      { relativePath: "tools/configs/config.prod.ts", reason: "named-in:tools/src/generate.ts" },
+      { relativePath: "tools/.toolrc.ts", reason: "convention:config-file" },
+      { relativePath: "tools/data-migrations/executed/001_init/migration.ts", reason: "convention:migration" },
+    ]));
+    for (const file of ["web/src/app.ts", "tools/configs/keys.ts", "tools/data-migrations/executed/001_init/helper.ts"]) {
+      expect(listed().has(file), file).toBe(false);
+    }
+  });
+
+  it("starts no cascade from a file a computed import may load", () => {
+    expect(listed().get("src/plugins/report.ts")?.reasons).toContain("dynamic-import-in-workspace");
+    expect(listed().has("src/fmt.ts")).toBe(false);
+  });
+
+  it("leaves a migration's exports out of the export scan (#728)", async () => {
+    expect(await spider.findUnusedSymbols(path.join(root, "tools/data-migrations/executed/001_init/migration.ts"))).toEqual([]);
   });
 
   it("lists a script only a URL or an absolute path names", () => {

@@ -22,6 +22,8 @@ import {
   rustQualifiedPaths,
   writtenSourcePaths,
   writtenWorkingDirs,
+  htmlSourcePaths,
+  templatedSourceNames,
   expandBraces,
   viteGlobs,
   urlImports,
@@ -48,6 +50,7 @@ const RUST_FILE = /\.rs$/i;
 const PYTHON_FILE = /\.pyi?$/i;
 const JS_FAMILY_FILE = /\.(?:[cm]?[jt]sx?|vue|svelte)$/i;
 const YAML_FILE = /\.ya?ml$/i;
+const HTML_FILE = /\.html?$/i;
 
 interface FileFacts {
   mtimeMs: number;
@@ -73,11 +76,13 @@ interface FileFacts {
   globs: ViteGlob[];
   /** Non-test JS/TS/Vue/Svelte sources: their `new URL('./x', import.meta.url)` specifiers (urlImports) */
   urls: string[];
+  /** Non-test JS/TS sources: the file names they build at run time (templatedSourceNames) */
+  nameTemplates: string[];
 }
 
 const NO_FACTS: Omit<FileFacts, "mtimeMs" | "size"> = {
   loads: [], rustPaths: [], rustTokens: [], readsComputedAttribute: false, pythonAll: [], rustPubMods: [], rustAttributed: [],
-  deployRefs: [], deepSpecifiers: [], writtenPaths: [], workingDirs: [], globs: [], urls: [],
+  deployRefs: [], deepSpecifiers: [], writtenPaths: [], workingDirs: [], globs: [], urls: [], nameTemplates: [],
 };
 
 /** What the dead-code scan reads as text across the workspace. */
@@ -132,7 +137,7 @@ export class DeadCodeTextIndex {
     const isManifest = (name: string): boolean => MANIFEST_FILE_NAMES.has(name);
     // One walk for the source files and the manifests next to them.
     const collector = new SourceFileCollector({ excludeNodeModules });
-    const walked = (await collector.collectFiles(rootDir, (name) => isSupportedSourceFile(name) || isManifest(name) || isDeployManifest(name) || isScriptRunner(name))).map(normalizePath);
+    const walked = (await collector.collectFiles(rootDir, (name) => isSupportedSourceFile(name) || isManifest(name) || isDeployManifest(name) || isScriptRunner(name) || HTML_FILE.test(name))).map(normalizePath);
     // The walk skips dot-folders: CI definitions there run scripts by path (`node scripts/x.mjs`).
     const ciFiles = new Set((await Promise.all(CI_DEFINITION_DIRS.map((dir) => collector.collectFiles(path.join(rootDir, dir), (name) => YAML_FILE.test(name))))).flat().map(normalizePath));
     const next = new Map<string, FileFacts>();
@@ -197,37 +202,42 @@ export class DeadCodeTextIndex {
       if (cached?.mtimeMs === mtimeMs && cached.size === size) return cached;
       // No size cap: a large file's loads and names count as much as any other's (read once, then cached).
       const content = await this.fileReader.readFile(file, { maxSize: Number.POSITIVE_INFINITY });
-      if (ciDefinition) return { ...NO_FACTS, mtimeMs, size, ...writtenFacts(content) };
-      const loads = mayLoadDynamically(content) ? findDynamicLoads(file, getRelativePath(file, this.rootDir), content, this.rootDir) : [];
-      const rust = RUST_FILE.test(file);
-      return {
-        mtimeMs,
-        size,
-        loads,
-        rustPaths: rust ? rustQualifiedPaths(content) : [],
-        rustTokens: rust ? [...new Set(content.match(/\b[A-Za-z_]\w*\b/g))] : [],
-        readsComputedAttribute: PYTHON_FILE.test(file) && readsComputedAttribute(content),
-        ...(manifest ? { manifestText: content } : {}),
-        pythonAll: path.posix.basename(file) === "__init__.py" ? pythonAllNames(content) : [],
-        rustPubMods: rust ? rustPublicModules(content) : [],
-        rustAttributed: rust ? rustAttributedFunctions(content) : [],
-        deployRefs: isDeployManifest(path.posix.basename(file)) ? deployManifestReferences(content) : [],
-        deepSpecifiers: JS_FAMILY_FILE.test(file) ? deepSpecifierPackages(content) : [],
-        ...bundlerLoads(file, content, isTestFile(getRelativePath(file, this.rootDir))),
-        // Tests write fixture paths by design: they run nothing by name.
-        ...(isTestFile(getRelativePath(file, this.rootDir)) ? { writtenPaths: [], workingDirs: [] } : writtenFacts(content)),
-      };
+      return { mtimeMs, size, ...this.contentFacts(file, content, manifest, ciDefinition) };
     } catch {
       // Deleted or unreadable: it holds no code the scan could miss.
       return null;
     }
   }
+
+  private contentFacts(file: string, content: string, manifest: boolean, ciDefinition: boolean): Omit<FileFacts, "mtimeMs" | "size"> {
+    const test = isTestFile(getRelativePath(file, this.rootDir));
+    if (ciDefinition) return { ...NO_FACTS, ...writtenFacts(content) };
+    if (HTML_FILE.test(file)) return { ...NO_FACTS, writtenPaths: test ? [] : htmlSourcePaths(content) };
+    const loads = mayLoadDynamically(content) ? findDynamicLoads(file, getRelativePath(file, this.rootDir), content, this.rootDir) : [];
+    const rust = RUST_FILE.test(file);
+    return {
+      loads,
+      rustPaths: rust ? rustQualifiedPaths(content) : [],
+      rustTokens: rust ? [...new Set(content.match(/\b[A-Za-z_]\w*\b/g))] : [],
+      readsComputedAttribute: PYTHON_FILE.test(file) && readsComputedAttribute(content),
+      ...(manifest ? { manifestText: content } : {}),
+      pythonAll: path.posix.basename(file) === "__init__.py" ? pythonAllNames(content) : [],
+      rustPubMods: rust ? rustPublicModules(content) : [],
+      rustAttributed: rust ? rustAttributedFunctions(content) : [],
+      deployRefs: isDeployManifest(path.posix.basename(file)) ? deployManifestReferences(content) : [],
+      deepSpecifiers: JS_FAMILY_FILE.test(file) ? deepSpecifierPackages(content) : [],
+      ...bundlerLoads(file, content, test),
+      // Tests write fixture paths by design: they run nothing by name.
+      ...(test ? { writtenPaths: [], workingDirs: [] } : writtenFacts(content)),
+    };
+  }
 }
 
 /** What a bundler loads from a non-test JS-family source besides its imports: `import.meta.glob`, `new URL(..., import.meta.url)`. */
-function bundlerLoads(file: string, content: string, test: boolean): Pick<FileFacts, "globs" | "urls"> {
-  if (test || !JS_FAMILY_FILE.test(file) || !content.includes("import.meta.")) return { globs: [], urls: [] };
-  return { globs: viteGlobs(content), urls: urlImports(content) };
+function bundlerLoads(file: string, content: string, test: boolean): Pick<FileFacts, "globs" | "urls" | "nameTemplates"> {
+  if (test || !JS_FAMILY_FILE.test(file)) return { globs: [], urls: [], nameTemplates: [] };
+  const meta = content.includes("import.meta.");
+  return { globs: meta ? viteGlobs(content) : [], urls: meta ? urlImports(content) : [], nameTemplates: content.includes("${") ? templatedSourceNames(content) : [] };
 }
 
 function writtenFacts(content: string): Pick<FileFacts, "writtenPaths" | "workingDirs"> {
@@ -256,7 +266,8 @@ function namedPaths(root: string, facts: ReadonlyMap<string, FileFacts>, files: 
 }
 
 /**
- * Adds to `named` the files a source has its bundler load (globTargets, urlTarget), named after that source.
+ * Adds to `named` the files a source loads by a path its imports do not show (globTargets, urlTarget, templateTargets),
+ * named after that source.
  */
 function bundlerLoadedPaths(
   root: string,
@@ -271,6 +282,7 @@ function bundlerLoadedPaths(
     const loaded = [
       ...entry.globs.flatMap((glob) => globTargets(glob, writer, viteRoot(writer), files)),
       ...entry.urls.flatMap((url) => urlTarget(url, writer, fileSet) ?? []),
+      ...templateTargets(entry.nameTemplates, viteRoot(writer), files),
     ];
     for (const file of loaded) if (file !== writer && !named.has(file)) named.set(file, getRelativePath(writer, root));
   }
@@ -292,6 +304,16 @@ function globTargets(glob: ViteGlob, writer: string, viteRoot: string, files: re
   // `!**/node_modules` excludes anywhere: compile it as relative to the same folder.
   const exclude = glob.patterns.filter((pattern) => pattern.startsWith("!")).flatMap((pattern) => compile(pattern.slice(1).replace(/^(?![./])/, "./"), "(?:/.*)?"));
   return files.filter((file) => include.some((re) => re.test(file)) && !exclude.some((re) => re.test(file)));
+}
+
+/**
+ * The files of the writer's package whose name matches a name it builds at run time (`config.*.ts`).
+ * shortcut: the folder the name is joined to is not followed, any folder of the package matches; it only keeps files alive.
+ */
+function templateTargets(names: readonly string[], packageDir: string, files: readonly string[]): string[] {
+  if (names.length === 0) return [];
+  const patterns = names.map((name) => new RegExp(`^${globToRegexSource(name)}$`));
+  return files.filter((file) => file.startsWith(`${packageDir}/`) && patterns.some((re) => re.test(path.posix.basename(file))));
 }
 
 /** The file `new URL(url, import.meta.url)` of `writer` loads, resolved like an import: as written, with an extension, or a folder's index. */

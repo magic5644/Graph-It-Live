@@ -880,7 +880,7 @@ export const ScanDeadCodeParamsSchema = z.object({
         "medium items list testImporters, the tests to delete or clean up with the file. Left out (excluded with verbose): " +
         "test files, manifest entry points, files a non-test file names by path (bundler entry, package.json script, CI workflow, " +
         "Makefile, shell script), JSX/Vue default exports, framework route files (Next.js, SvelteKit, Remix, Nuxt, Astro...), " +
-        "files a bundler loads (import.meta.glob, new URL), .d.ts files, *.config.* files, files a folder's .gitignore ignores, " +
+        "files a bundler loads (import.meta.glob, new URL, HTML entry), migrations, .d.ts files, *.config.* files, files a folder's .gitignore ignores, " +
         "Python package __init__.py. Then the files only dead files and tests import (reason cascade, via = their dead importers); " +
         "tests = the tests that import nothing but dead files.",
     ),
