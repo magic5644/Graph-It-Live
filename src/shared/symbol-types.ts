@@ -67,21 +67,3 @@ export interface SymbolDependency {
   isTypeOnly?: boolean;
 }
 
-export interface SymbolCluster {
-  id: string;
-  type: "namespace" | "class";
-  name: string;
-  namespace?: string;
-  parentClass?: string;
-  symbolIds: string[];
-  childClusterIds: string[];
-  isOpen: boolean;
-  x?: number;
-  y?: number;
-  width?: number;
-  height?: number;
-}
-
-export interface IntraFileGraphWithClusters extends IntraFileGraph {
-  clusters: SymbolCluster[];
-}

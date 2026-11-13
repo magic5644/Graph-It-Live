@@ -132,15 +132,6 @@ components/SymbolCardView.tsx (200+ lines)
 └→ Used vs unused indicators
 ```
 
-#### Hooks
-
-```
-hooks/useGraphData.ts (442 lines)
-├→ Custom hook for graph data fetching and state management
-├→ Handles graph data updates, merging, and expansion state
-└→ Used by App.tsx to separate data logic from rendering
-```
-
 #### ReactFlow Custom Components
 
 ```
@@ -172,13 +163,6 @@ components/reactflow/CommunityLegend.tsx
 #### Graph Manipulation
 
 ```
-utils/graphUtils.ts (500+ lines)
-├─→ calculateVisibleGraph() - Filter & hierarchy
-├─→ detectCycles() - Cycle detection algorithm
-├─→ isExternalPackage() - node_modules detection
-├─→ getDisambiguatedLabel() - Unique labels
-└─→ countFileNames() - Duplicate detection
-
 utils/graphMerge.ts
 ├─→ mergeGraphData() - Combine graph datasets
 └─→ Used when expanding nodes
@@ -186,10 +170,6 @@ utils/graphMerge.ts
 utils/graphTraversal.ts
 ├─→ DFS/BFS traversal utilities
 └─→ Path finding in the graph
-
-utils/clusterUtils.ts
-├─→ Group nodes into clusters
-└─→ Folder-level grouping support
 
 utils/symbolUtils.ts
 ├─→ Symbol-specific node helpers

@@ -109,5 +109,3 @@ export function computeGroupDependents(graph: ArchitectureGraph, seedFiles: read
     },
   };
 }
-
-export type GroupDependents = ReturnType<typeof computeGroupDependents>;
