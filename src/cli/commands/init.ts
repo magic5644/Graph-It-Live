@@ -86,13 +86,13 @@ const FORMATS: readonly CliOutputFormat[] = ["text", "markdown", "json", "toon"]
 const MAX_FOLDER_DIAGRAMS = 3;
 /**
  * What each diagram leaves out to stay readable on a large workspace, each note counting it:
- * units: the 20 most coupled, cycle members first, a cycle drawn by its cuts; no matrix row without an edge;
- * a folder in a cycle drawn by its cuts.
+ * units: the 20 most coupled, cycle members first, a cycle drawn by the edges that cut it, no unit without
+ * an edge; no matrix row without an edge; a folder in a cycle: the edges that cut it and their ends only.
  */
 const DRAW: Record<InitDiagram["view"], DrawOptions> = {
-  units: { connectedOnly: true, byCoupling: true, maxNodes: 20, cutsOnly: true },
+  units: { connectedOnly: true, byCoupling: true, maxNodes: 20, cuts: "cycles" },
   matrix: { connectedOnly: true },
-  folder: { cutsOnly: true },
+  folder: { cuts: "only", byCoupling: true, maxNodes: 20 },
 };
 
 /** `--output` as a workspace-relative `/` path ("." for the root), refused outside the workspace before any work. */

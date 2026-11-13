@@ -263,22 +263,33 @@ export interface DrawOptions {
   connectedOnly?: boolean;
   /** Keeps the most coupled nodes (file pairs in and out) instead of the largest, cycle members first. */
   byCoupling?: boolean;
-  /** On a level with cycles, draws only the edges that cut them (cycleCuts) and their ends. */
-  cutsOnly?: boolean;
+  /**
+   * On a level with cycles, the edges that cut them (cycleCuts) replace the edges inside each cycle:
+   * "cycles" keeps every other edge and node, "only" draws the cut edges and their ends alone.
+   */
+  cuts?: "cycles" | "only";
 }
 
-/** The edges that cut the level's cycles and the note counting the rest, or undefined without a cycle. */
-function cutView(input: DiagramInput) {
+/** The edges drawn once the level's cycles are reduced to their cuts, and the notes counting the rest; undefined without a cycle. */
+function cutView(input: DiagramInput, mode: "cycles" | "only") {
   const matrix = buildMatrix(
     input.nodes.map(({ key, label, internalEdgeCount }) => ({ id: key, key, label, internalEdgeCount: internalEdgeCount ?? 0 })),
     input.edges,
   );
   const cut = new Set(cycleCuts(matrix).flatMap((cycle) => cycle.cells.map((cell) => `${matrix.rows[cell.row].key}>${matrix.rows[cell.column].key}`)));
   if (cut.size === 0) return undefined;
-  const edges = input.edges.filter((edge) => cut.has(`${edge.from}>${edge.to}`));
+  const cuts = input.edges.filter((edge) => cut.has(`${edge.from}>${edge.to}`));
+  const pairs = cuts.reduce((total, edge) => total + edge.fileEdgeCount, 0);
+  const cutNote = `a cycle drawn by the edges that cut it only: ${cuts.length} in the level (${plural(pairs, "file pairs")})`;
+  if (mode === "cycles") {
+    const cycleOf = new Map(matrix.cycles.flatMap((cycle, index) => cycle.members.map((key) => [key, index])));
+    const inside = (edge: DiagramEdge) => cycleOf.get(edge.from) !== undefined && cycleOf.get(edge.from) === cycleOf.get(edge.to);
+    const edges = input.edges.filter((edge) => !inside(edge) || cut.has(`${edge.from}>${edge.to}`));
+    return { edges, ends: undefined, notes: [`${cutNote}; ${plural(input.edges.length - edges.length, "other edges")} inside cycles not drawn`] };
+  }
+  const edges = cuts;
   const ends = new Set(edges.flatMap((edge) => [edge.from, edge.to]));
   const inCycle = matrix.cycles.flatMap((cycle) => cycle.members);
-  const pairs = edges.reduce((total, edge) => total + edge.fileEdgeCount, 0);
   const full = input.scope === "units" ? "graph-it diagram" : `graph-it diagram --folder ${JSON.stringify(fitLabel(input.scope, 64))}`;
   const left = [
     [inCycle.filter((key) => !ends.has(key)).length, input.noun, " of a cycle"],
@@ -287,10 +298,10 @@ function cutView(input: DiagramInput) {
   ] as const;
   const notDrawn = left.filter(([count]) => count > 0).map(([count, noun, where]) => plural(count, noun) + where);
   const notes = [
-    `only the edges that cut a cycle drawn: ${edges.length} in the level (${plural(pairs, "file pairs")})`,
+    cutNote,
     ...(notDrawn.length > 0 ? [`${notDrawn.join(", ")} not drawn; all of them: ${full}`] : []),
   ];
-  return { edges, notes };
+  return { edges, ends, notes };
 }
 
 /** Which nodes the cap drew, and how many of those it left out sit in a cycle. */
@@ -319,11 +330,12 @@ function byCoupling(nodes: readonly DiagramNode[], input: DiagramInput) {
  */
 export function capNodes(input: DiagramInput, options: DrawOptions = {}) {
   const maxNodes = Math.max(1, options.maxNodes ?? MAX_DIAGRAM_NODES);
-  const cut = options.cutsOnly ? cutView(input) : undefined;
+  const cut = options.cuts === undefined ? undefined : cutView(input, options.cuts);
   const drawable = cut?.edges ?? input.edges;
-  const linked = new Set(drawable.flatMap((edge) => [edge.from, edge.to]));
+  const linked = cut?.ends ?? new Set(input.edges.flatMap((edge) => [edge.from, edge.to]));
+  const filtered = cut?.ends !== undefined || options.connectedOnly;
   // A level without any edge keeps its nodes: an empty drawing says less than lone boxes.
-  const candidates = linked.size > 0 && (cut !== undefined || options.connectedOnly) ? input.nodes.filter((node) => linked.has(node.key)) : input.nodes;
+  const candidates = linked.size > 0 && filtered ? input.nodes.filter((node) => linked.has(node.key)) : input.nodes;
   const coupled = options.byCoupling ? byCoupling(candidates, input) : undefined;
   const ranked = coupled?.ranked ?? candidates.toSorted((left, right) => right.fileCount - left.fileCount || byCodeUnit(left.key, right.key));
   const nodes = ranked.slice(0, maxNodes).sort((left, right) => byCodeUnit(left.key, right.key));
@@ -331,7 +343,7 @@ export function capNodes(input: DiagramInput, options: DrawOptions = {}) {
   const edges = drawable
     .filter((edge) => kept.has(edge.from) && kept.has(edge.to))
     .sort((left, right) => byCodeUnit(left.from, right.from) || byCodeUnit(left.to, right.to));
-  const isolated = cut === undefined && options.connectedOnly ? input.nodes.length - candidates.length : 0;
+  const isolated = cut?.ends === undefined && options.connectedOnly ? input.nodes.length - candidates.length : 0;
   const capped = candidates.length - nodes.length;
   const notes = [
     ...(cut?.notes ?? []),

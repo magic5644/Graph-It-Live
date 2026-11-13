@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ASSESSMENT_THRESHOLDS, assessArchitecture, type AssessmentInput, type DeadCodeFile, type DeadFile } from "@/analyzer/architecture/architectureAssessment";
+import { ASSESSMENT_THRESHOLDS, assessArchitecture, cycleCuts, type AssessmentInput, type DeadCodeFile, type DeadFile } from "@/analyzer/architecture/architectureAssessment";
 import { unitMatrix } from "@/analyzer/architecture/architectureMatrix";
 import type { ArchitectureUnitEdge, ArchitectureUnits } from "@/shared/architecture-model";
 
@@ -155,9 +155,16 @@ describe("assessArchitecture: matrix reading", () => {
 
   it("still cuts a cycle whose rows show no upward cell", () => {
     const base = input(["a:1:0", "b:1:0"], ["a>b=2", "b>a=1"], { cycles: ["a", "b"] });
-    // A malformed matrix: the cycle's cells all below the diagonal.
+    // A malformed matrix: the cycle's cells all below the diagonal; the greedy order ignores the flag.
     const matrix = { ...base.matrix, cells: base.matrix.cells.map((cell) => ({ ...cell, upward: false })) };
-    expect(assessArchitecture({ ...base, matrix }).quickWins).toEqual([expect.objectContaining({ kind: "cycle-break", effort: 3 })]);
+    expect(assessArchitecture({ ...base, matrix }).quickWins).toEqual([expect.objectContaining({ kind: "cycle-break", effort: 1 })]);
+  });
+
+  it("cuts a large block by its greedy order when neither matrix side is cheap", () => {
+    // Ring a > c > b > d > a: the matrix order (a, b, c, d) costs 10 or 6 pairs, the greedy one 1 (d > a).
+    const ring = input(["a:1:0", "b:1:0", "c:1:0", "d:1:0"], ["a>c=5", "c>b=5", "b>d=5", "d>a=1"], { cycles: ["a", "b", "c", "d"] });
+    expect(cycleCuts(ring.matrix)).toEqual([expect.objectContaining({ pairs: 1, cells: [expect.objectContaining({ fileEdgeCount: 1 })] })]);
+    expect(assessArchitecture(ring).quickWins[0]).toMatchObject({ kind: "cycle-break", effort: 1, subject: expect.stringContaining("(d>a)") });
   });
 
   it("finds nothing in an empty workspace", () => {
