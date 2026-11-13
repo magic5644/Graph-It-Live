@@ -173,16 +173,10 @@ Branch Watch adds a native path alongside the existing webview: `BranchWatchServ
 - `components/cytoscape/CytoscapeTheme.ts` - Style objects derived from `LANGUAGE_COLORS`, red dashed cyclic edges (366 lines)
 - `components/cytoscape/GraphLegend.tsx` - Filter overlay with accessible checkboxes posting `callGraphFilterChanged` (259 lines)
 
-**Hooks:**
-
-- `hooks/useGraphData.ts` - Custom hook for graph data management and updates (442 lines)
-
 **Utilities:**
 
-- `utils/graphUtils.ts` - Graph filter & hierarchy
 - `utils/graphMerge.ts` - Merge graph datasets
 - `utils/graphTraversal.ts` - Graph traversal algorithms
-- `utils/clusterUtils.ts` - Node clustering helpers
 - `utils/nodeUtils.ts` - Node label formatting
 - `utils/symbolUtils.ts` - Symbol node helpers
 - `utils/updateGraphReducer.ts` - State reducer

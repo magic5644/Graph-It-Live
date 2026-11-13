@@ -348,9 +348,3 @@ export function validateScopePath(scopePath: string, rootDir: string): void {
 
 export { convertSpiderToLspFormat, mapKindToLspNumber } from "../../shared/converters";
 
-/**
- * Filter edges by actual usage verification (parallelized)
- * Note: This function requires access to Spider instance, so it stays in McpWorker.ts
- * but is exported here as a type/interface for documentation purposes
- */
-export type FilterEdgesByUsageFn = (edges: EdgeInfo[]) => Promise<EdgeInfo[]>;

@@ -29,8 +29,6 @@ import { ESTIMATION_NOTE, sessionStats, type SessionStatsSnapshot } from "../../
 /** No parameters — the tool always reports the current session. */
 export const GetSessionStatsSchema = z.object({});
 
-export type GetSessionStatsParams = z.infer<typeof GetSessionStatsSchema>;
-
 // ---------------------------------------------------------------------------
 // Result types
 // ---------------------------------------------------------------------------

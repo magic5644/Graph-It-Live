@@ -1,6 +1,5 @@
 /**
  * Utility functions for node manipulation in the graph visualization
- * These are extracted from useGraphData for testability
  */
 
 import dagre from '@dagrejs/dagre';
@@ -14,10 +13,9 @@ export const nodeHeight = 40;
 export const minNodeWidth = 120;
 export const maxNodeWidth = 300;
 export const charWidth = 7; // Approximate width per character at 12px font
-// Sizes for small circular UI elements (action buttons, cycle indicator, symbol node)
+// Sizes for small circular UI elements (action buttons, cycle indicator)
 export const actionButtonSize = 10; // Expand/Collapse, drill button, reference button
 export const cycleIndicatorSize = 8; // Small red dot for cycle
-export const symbolNodeSize = 40; // Circular symbol nodes
 
 export interface NodeStyleResult {
     background: string;

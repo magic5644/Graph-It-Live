@@ -19,7 +19,6 @@
 - `src/shared/logger.ts` - Logging infrastructure
 - `src/shared/toon.ts` - Token-Oriented Object Notation
 - `src/shared/converters.ts` - Spider AST → LSP format conversion utilities
-- `src/shared/index.ts` - Barrel file re-exporting all public shared API
 - `src/shared/utils/languageDetection.ts` - Language detection utilities
 
 ### Core Data Models

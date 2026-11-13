@@ -1,5 +1,3 @@
-import type * as vscode from "vscode";
-
 export type ServiceToken<T> = symbol & { __type?: T };
 export type ServiceFactory<T> = () => T;
 export type ServiceLifetime = "singleton" | "transient";
@@ -71,14 +69,5 @@ export class ServiceContainer {
       }
     }
     if (failed) throw firstError;
-  }
-}
-
-export function registerDisposable(
-  context: vscode.ExtensionContext,
-  disposable?: vscode.Disposable,
-): void {
-  if (disposable) {
-    context.subscriptions.push(disposable);
   }
 }
