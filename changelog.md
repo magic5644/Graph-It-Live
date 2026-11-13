@@ -1,5 +1,67 @@
 # Changelog
 
+## v1.25.1
+
+Patch release focused on dead code and the `graph-it init` report.
+- `graph-it check --unreferencedFiles` lists whole files nothing imports, including the files dead by cascade and the tests to delete with them (#711, #726).
+- Framework route files, migrations and files that CI or a bundler loads are no longer reported (#728).
+- The `init` report now starts with a summary and ranks quick wins by gain / effort. It draws readable diagrams on large workspaces, writes an explorable `index.html` and takes `--focus` (#716, #718).
+- Long CLI commands show one progress line per phase on a terminal (#717).
+
+Read *Breaking / Behavior changes* first if a script reads the JSON of `graph-it init`.
+
+[![index.html written by graph-it init --output on tests/demo/legacy-shop: the Findings panel lists the dead files and the cycles to cut, the graph groups the files by unit, two dead files with a dashed border and the cycle edges in orange](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/init-explorable-page.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/init-explorable-page.png)
+
+*`graph-it init --output report` on `tests/demo/legacy-shop`, then open `report/index.html`.*
+
+### Breaking / Behavior changes
+- **`graph-it init` JSON** (#716, PRs #719, #720 and #722):
+  - `written` now lists only the rules files (`graphit.architecture.json`, the baseline and their `*.bak` copies).
+  - A new `reportFiles` lists what `--output` writes: diagrams, `report.md` and `index.html`; `page` names the page.
+  - The matrix findings `upward-cell` and `cycle-block`, and the `formula` field of every matrix finding, are removed. A unit cycle now shows as a `cycle-break` quick win with its cut, and the formulas are written once in the report's glossary.
+  - `InitResult.focus` holds the `--focus` key.
+  ```bash
+  graph-it init --dry-run --format json | jq '{written, reportFiles, page}'
+  ```
+- **Progress on stderr** (#717, PR #724): on a terminal, `init`, `check`, `check-architecture`, `architecture`, `export`, `review-pr`, `wiki` and `scan` print one line per phase on stderr after indexing. stdout is byte for byte the same. No phase line is printed when stderr is piped or redirected; the one-line indexing summary stays. `graph-it tool` now indexes silently too.
+- **The `.graph-it` cache is rebuilt once**: the first command, MCP server or extension start after the update re-indexes the workspace, because the cache records the Graph-It-Live version. `.mts` and `.cts` files are indexed from then on.
+
+### Changed
+- **Whole files nothing imports** (#711, PR #715): `graph-it check --unreferencedFiles` lists the files no production file imports. These are the cheapest deletions on a legacy codebase. `medium` with `test-only-use` means only tests import the file; `testImporters` lists them. `low` with `no-importer` means nothing imports it. Test files, manifest entry points, files whose path another file writes (bundler entries, `package.json` scripts) and tool configs are left out; `--verbose` lists them as `excluded`. The MCP tool `scan_dead_code` and the Copilot tool take `unreferencedFiles: true`.
+  ```bash
+  graph-it check src --unreferencedFiles --verbose --format markdown
+  ```
+- **Dead code by cascade** (#726, PR #727): after the direct pass, a file whose production importers are all dead is listed after them with the new reason `cascade` and the new JSON field `via` (its dead importers). Every dead file also gets `tests`: the test files that import nothing but dead files, to delete with it. Chains and dead cycles are included. An entry point, an excluded file, a dead file something may still load (a computed import, a deployment manifest) or a dead file that runs as a program (no export, or a `__main__` / `require.main` / `import.meta.main` guard) keeps what it imports alive. The `init` report lists these files under their unit.
+- **Scripts run by CI or a task runner are entry points** (#726, #728): a path written in `.github/workflows`, `.github/actions`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `.circleci`, a `Makefile`, `justfile`, `Taskfile.yml` or `*.sh` keeps the file out (`named-in:<file>`). `working-directory:` and `cd <dir>` are read.
+- **Framework route files** (#728, PR #729): files a framework loads by file name are left out as `convention:framework-route`, and their exports are left out of the export scan. This applies when a `package.json` above the file depends on the framework: Next.js, SvelteKit, Remix / React Router, Nuxt (layers included), Astro, Expo Router, Gatsby and Storybook (`*.stories.*`). Files of a migrations folder (`migrations/`, `*_migrations/`, `alembic/versions/`...) are `convention:migration`.
+- **Files loaded without an import** (#728, PR #729): these files are no longer reported:
+  - files matched by `import.meta.glob(...)`;
+  - workers named by `new URL('./x', import.meta.url)`;
+  - the script entry of an HTML page (Vite's `<script type="module" src="/src/main.ts">`);
+  - files whose name a source builds at run time (`` `config.${mode}.ts` ``);
+  - `.<tool>rc.ts` configs and `vercel.ts`.
+  `.e2e.*` and `.integration-test.*` (any `.<kind>-test.*`) files count as tests.
+  Measured with `graph-it check --unreferencedFiles` (files listed, before → after): cal.com 962 → 331, svelte.dev 106 → 3, nuxt.com 172 → 0.
+- **`init` report** (#716, PRs #719 and #720):
+  - It starts with a five-line summary: size, cycles, dead files, unused exports and the top action. When a dead file has exports, the top action reads `check, then delete <file>` for a `low` one and `delete <file>` for a `medium` or `high` one (#728); otherwise it is the first item of the next sections.
+  - Then come *Dead files* by unit, *Cycles to cut* and *Other leads*, ranked by gain / effort, then *Hubs* and a glossary. A cycle's cut is the cheapest of the matrix order, its reverse and a greedy (Eades–Lin–Smyth) order.
+  - The SVG diagrams stay readable on large workspaces: at most the 20 most coupled units, and inside a cycle only the edges that cut it. A note counts what is left out.
+- **Explorable `index.html`** (#718, PR #723): `graph-it init --output <dir>` also writes one offline page, grouped by architecture unit, with the report's findings beside the graph. Clicking a finding centres the graph on its files. Dead files have a dashed border, and cycle and upward edges are orange.
+- **`--focus <unit|package|folder>`** (#716, PR #722): restricts the report, the diagrams and the page to one unit or folder and its direct neighbours. The page gets a panel with what the focus depends on and what uses it. The rules files still cover the whole workspace. An unknown name fails before anything is written, with `Did you mean: …` when a name is close.
+  ```bash
+  graph-it init --focus apps/api --output architecture-report
+  ```
+  ![index.html with --focus billing: billing and its neighbour orders, the findings of billing and the Focus panel](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/init-focus.png)
+- **Repository and dependencies**: dead files and unused exports found by `graph-it` on this repository were removed (PR #725); `@vscode/vsce` 4.1.1 and `glob` 14.0.6 (PR #730), `npm audit` at 0.
+- **Init video**: the 2-minute `graph-it init` demo on `tests/demo/legacy-shop` shows the 1.25.1 report (PR #732).
+
+### Fixed
+- **`.mts` and `.cts` files are indexed** (#726, PR #727): they were never collected, so their imports, call graph and dead code were missing.
+- **Module resolution** (#728, PR #729): a bare specifier resolves from an explicit tsconfig `baseUrl`. Workspace packages under `apps/` and one folder deeper are found. A package subpath tries the package root before `src/`, as Node does. A subpath into a tsconfig output folder (`declarationDir`) lands on its source. These fixes apply to every graph, not only dead code.
+- **Ctrl-C** (#717, PR #724): an interrupted command no longer prints an induced error such as `Worker not initialized`; on a terminal the running phase ends with `interrupted after Ns`. The exit code stays 130.
+- **`review-pr`** (PR #720): a parameter change counts its direct callers only.
+- **`index.html`**: clicking a unit finding after expanding the unit centres the graph on the unit's files (#718, PR #723).
+
 ## v1.25.0
 
 Minor release. `graph-it init` guards a legacy codebase in one command and lists what to fix first (#664, PR #688). Every unused export now comes with a confidence and its reasons, and exports declared by `package.json`, `pyproject.toml`, `setup.cfg` / `setup.py` or `Cargo.toml` count as used (#690: #695, #696, #697, #698). Agent guidance no longer asks for `graph-it scan` before analysis (#689). Read *Breaking / Behavior changes* first: VS Code 1.101 is now the minimum, and `graph-it check` and `scan_dead_code` list fewer items by default.
