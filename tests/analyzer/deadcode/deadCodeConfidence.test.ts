@@ -10,6 +10,10 @@ import {
   isDeployManifest,
   isScriptRunner,
   runsAsProgram,
+  urlImports,
+  viteGlobs,
+  expandBraces,
+  writtenWorkingDirs,
   isGeneratedFile,
   isTestFile,
   loadsReaching,
@@ -56,6 +60,59 @@ describe("classifyUnused", () => {
     [{ testOnlyUse: true, dynamicLoads: ["src/loader.ts:3"], testFile: true }, ["test-only-use", "dynamic-import-in-workspace", "convention:test-file"]],
   ])("rates %o as medium with its reasons", (overrides, reasons) => {
     expect(classifyUnused({ ...base, ...overrides })).toMatchObject({ confidence: "medium", reasons });
+  });
+});
+
+describe("bundler loads (#728)", () => {
+  it("reads import.meta.glob patterns, arrays, negations and the base option", () => {
+    const content = [
+      "const a = import.meta.glob('./pages/*.ts');",
+      "const b = import.meta.glob<string>(['./**/+assets/**', '!**/node_modules'], { eager: true, base: '../../content' });",
+      "const c = import.meta.globEager(\"/src/*.{js,ts}\");",
+      "const d = import.meta.glob(`./${dir}/*.ts`);",
+      "const e = import.meta.glob(pattern);",
+    ].join("\n");
+    expect(viteGlobs(content)).toEqual([
+      { patterns: ["./pages/*.ts"] },
+      { patterns: ["./**/+assets/**", "!**/node_modules"], base: "../../content" },
+      { patterns: ["/src/*.{js,ts}"] },
+    ]);
+  });
+
+  it("does not take the base of a later call", () => {
+    expect(viteGlobs("import.meta.glob('./a/*'); f({ base: './x' });")).toEqual([{ patterns: ["./a/*"] }]);
+  });
+
+  it("expands braces, nested ones too", () => {
+    expect(expandBraces("*.{ts,js}")).toEqual(["*.ts", "*.js"]);
+    expect(expandBraces("{a,{b,c}}/x")).toEqual(["a/x", "b/x", "a/x", "c/x"]);
+    expect(expandBraces("plain")).toEqual(["plain"]);
+  });
+
+  it("reads relative new URL(..., import.meta.url) specifiers only", () => {
+    const content = "new Worker(new URL('./workers/bundler/index', import.meta.url));\nnew URL(\"../a.svg\", import.meta.url);\nnew URL('https://x.dev/a.js', import.meta.url);\nnew URL(`./${n}.js`, import.meta.url);\nnew URL('./b.js', base);\n";
+    expect(urlImports(content)).toEqual(["./workers/bundler/index", "../a.svg"]);
+  });
+
+  it("reads a path after an interpolated folder as relative", () => {
+    expect(writtenSourcePaths("fork(`${dir}/get_donors.js`); run('/opt/x.js')")).toEqual(["get_donors.js"]);
+  });
+});
+
+describe("writtenWorkingDirs (#728)", () => {
+  it("reads working-directory keys and cd commands, once each", () => {
+    const content = [
+      "defaults:\n  run:\n    working-directory: packages/api",
+      "      - working-directory: 'apps/web'\n        run: node scripts/x.mjs",
+      "  workingDirectory: ignored",
+      "run: cd tools && node build.mjs; cd \"tools\" && node b.mjs",
+      "release:\n\tcd ../shared/x && node y.mjs",
+    ].join("\n");
+    expect(writtenWorkingDirs(content)).toEqual(["packages/api", "apps/web", "tools", "../shared/x"]);
+  });
+
+  it("leaves out absolute, templated and parent-only folders, and words ending in cd", () => {
+    expect(writtenWorkingDirs("working-directory: /opt/app\ncd ${{ inputs.dir }}\ncd ..\ncd .\nabcd tools\nsome-cd x\n")).toEqual([]);
   });
 });
 
@@ -170,11 +227,14 @@ describe("isTestFile", () => {
   it.each([
     "src/a.test.ts", "src/a.spec.tsx", "tests/util.rs", "test/helper.js", "src/__tests__/x.ts", "pkg/tests/fixtures/f.py",
     "tests/test_app.py", "app/test_views.py", "app/views_test.py", "conftest.py", "app\\tests\\x.py",
+    // #728: Playwright / Jest conventions
+    "apps/web/playwright/login.e2e.ts", "apps/web/playwright/fixtures/users.ts", "src/x/__fixtures__/event.fixture.ts",
+    "src/__mocks__/fs.ts", "cypress/support/commands.ts", "lib/x.integration-test.ts", "api/x.controller.e2e-spec.ts", "src/a.unit-test.js",
   ])("treats %s as a test file", (file) => {
     expect(isTestFile(file)).toBe(true);
   });
 
-  it.each(["src/latest.ts", "src/testing.ts", "src/contest.py", "src/attest_test_helper.ts", "spec.ts", "src/protest.spec"])(
+  it.each(["src/latest.ts", "src/testing.ts", "src/contest.py", "src/attest_test_helper.ts", "spec.ts", "src/protest.spec", "src/e2e.ts", "src/playwright.ts", "src/mocks/x.ts", "src/latest-test.ts", "src/contest-spec.md"])(
     "treats %s as production code",
     (file) => {
       expect(isTestFile(file)).toBe(false);
@@ -313,7 +373,7 @@ describe("writtenSourcePaths (#711)", () => {
 
   it.each([
     ["dist/out.js.map"], ["see src/readme.md"], ["https://cdn.example/app.jsx/v2"], ["https://cdn.example/app.js"],
-    ["/abs/a.ts"], ["obj.ts_value"], ["`${dir}/a.ts`"], ["no paths here"],
+    ["/abs/a.ts"], ["obj.ts_value"], ["no paths here"],
   ])("finds no source path in %s", (content) => {
     expect(writtenSourcePaths(content)).toEqual([]);
   });

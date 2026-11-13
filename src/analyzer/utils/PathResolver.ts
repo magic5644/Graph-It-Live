@@ -41,6 +41,15 @@ export class PathResolver {
   private readonly tsConfigPathAliases: Map<string, Map<string, string>> =
     new Map();
 
+  // Cache: package name -> its folder found under the common monorepo locations
+  private readonly workspacePackageDirs: Map<string, Promise<string | null>> = new Map();
+
+  // Cache: package folder -> the output folders (outDir, declarationDir) its tsconfig files declare
+  private readonly packageOutputDirs: Map<string, Promise<string[]>> = new Map();
+
+  // Cache: explicit baseUrl folder -> its entry names, with and without extension
+  private readonly baseUrlEntries: Map<string, Promise<Set<string>>> = new Map();
+
   // Cache: package.json path -> parsed imports map (alias -> target path)
   private readonly packageJsonImports: Map<string, Map<string, string>> =
     new Map();
@@ -387,7 +396,26 @@ export class PathResolver {
       }
     }
 
+    // TypeScript then resolves a bare specifier from an explicit baseUrl (`app/_utils` with baseUrl "."). Only when its first
+    // segment is an entry of that folder, so a package name (`react`) costs one cached readdir, not a stat per extension.
+    const baseUrl = aliases.get(BASE_URL_KEY);
+    if (baseUrl && (await this.entriesOf(baseUrl)).has(modulePath.split("/")[0])) {
+      return normalizePath(path.join(baseUrl, modulePath));
+    }
+
     return null;
+  }
+
+  private entriesOf(dir: string): Promise<Set<string>> {
+    let entries = this.baseUrlEntries.get(dir);
+    if (!entries) {
+      entries = fs.readdir(dir).then(
+        (names) => new Set(names.flatMap((name) => [name, path.parse(name).name])),
+        () => new Set<string>(),
+      );
+      this.baseUrlEntries.set(dir, entries);
+    }
+    return entries;
   }
 
   /**
@@ -1228,12 +1256,47 @@ export class PathResolver {
       return null;
     }
 
-    // Common monorepo package locations
-    const locations = ["packages", "libs", "modules"];
+    let found = this.workspacePackageDirs.get(packageName);
+    if (!found) {
+      // Common monorepo package locations (apps/: Turborepo, Nx), then one folder deeper (packages/embeds/embed-core).
+      const locations = ["packages", "apps", "libs", "modules"].map((loc) => path.join(workspaceRoot, loc));
+      const hasManifest = async (packageDir: string) => ((await this.fileExists(path.join(packageDir, "package.json"))) ? packageDir : null);
+      found = firstNonNull(locations.map((loc) => path.join(loc, packageName)), hasManifest).then(async (direct) => {
+        if (direct) return direct;
+        const groups = await Promise.all(locations.map((loc) => fs.readdir(loc, { withFileTypes: true }).catch(() => [])));
+        const nested = groups.flatMap((entries, i) => entries.filter((entry) => entry.isDirectory()).map((entry) => path.join(locations[i], entry.name, packageName)));
+        return firstNonNull(nested, hasManifest);
+      });
+      this.workspacePackageDirs.set(packageName, found);
+    }
+    return found;
+  }
 
-    const packageDirs = locations.map((loc) => path.join(workspaceRoot, loc, packageName));
-    return firstNonNull(packageDirs, async (packageDir) =>
-      (await this.fileExists(path.join(packageDir, "package.json"))) ? packageDir : null);
+  /**
+   * Where a subpath into a folder a tsconfig of the package emits to (outDir, declarationDir) comes from: the rest of the
+   * path from the package root, from src/, or from the source folder the output folder is named after
+   * (`types/server/routers/_app` from `server/routers/_app`). Empty when the subpath enters no output folder.
+   */
+  private async emittedSourceSubpaths(packageDir: string, subpath: string): Promise<string[]> {
+    let outputs = this.packageOutputDirs.get(packageDir);
+    if (!outputs) {
+      outputs = fs.readdir(packageDir).then(
+        (names) => Promise.all(names.filter((name) => /^tsconfig.*\.json$/.test(name)).map(async (name) => {
+          const config = parseTsConfig(path.join(packageDir, name), await fs.readFile(path.join(packageDir, name), "utf-8").catch(() => ""));
+          return [config?.compilerOptions?.declarationDir, config?.compilerOptions?.outDir]
+            .filter((dir): dir is string => typeof dir === "string")
+            .map((dir) => path.posix.normalize(normalizePath(dir)).replace(/\/$/, ""));
+        })).then((dirs) => [...new Set(dirs.flat())].filter((dir) => dir !== "." && !dir.startsWith(".."))),
+        () => [],
+      );
+      this.packageOutputDirs.set(packageDir, outputs);
+    }
+    const posixSubpath = normalizePath(subpath).replace(/^\//, "");
+    return (await outputs).flatMap((dir) => {
+      if (!posixSubpath.startsWith(`${dir}/`)) return [];
+      const rest = posixSubpath.slice(dir.length + 1);
+      return [rest, `src/${rest}`, `${path.posix.basename(dir)}/${rest}`];
+    });
   }
 
   /**
@@ -1267,9 +1330,10 @@ export class PathResolver {
       }
       if (subpath) {
         const srcDir = pkgJson.source ? path.dirname(pkgJson.source) : "src";
-        // The source folder first, then the package root: Node's resolution of a subpath when there is no `exports`.
-        return (await this.resolveWithExtensions(path.join(packageDir, srcDir, subpath)))
-          ?? this.resolveWithExtensions(path.join(packageDir, subpath));
+        // The package root, as Node resolves a subpath when there is no `exports`, then the source folder; a subpath into
+        // a tsconfig output folder (declarationDir "types/server") lands on the source it is emitted from.
+        const candidates = [subpath, path.join(srcDir, subpath), ...(await this.emittedSourceSubpaths(packageDir, subpath))];
+        return firstNonNull(candidates, (candidate) => this.resolveWithExtensions(path.join(packageDir, candidate)));
       }
 
       // Try common entry points
@@ -1301,8 +1365,14 @@ export class PathResolver {
   }
 }
 
-/** Add a config's "paths" (first target only) to the alias map, resolved against its baseUrl. */
+/** Alias-map key of the explicit baseUrl folder of a config chain; no specifier can equal or start with it. */
+const BASE_URL_KEY = "\0baseUrl";
+
+/** Add a config's "paths" (first target only) to the alias map, resolved against its baseUrl, and its explicit baseUrl. */
 function addPathAliases(tsConfig: TsConfigJson, tsConfigDir: string, aliases: Map<string, string>): void {
+  if (typeof tsConfig.compilerOptions?.baseUrl === "string") {
+    aliases.set(BASE_URL_KEY, normalizePath(path.resolve(tsConfigDir, tsConfig.compilerOptions.baseUrl)));
+  }
   const paths = tsConfig.compilerOptions?.paths;
   if (!paths || typeof paths !== "object") {
     return;

@@ -106,6 +106,29 @@ describe("DeadCodeTextIndex", () => {
     expect(deployReferences.has("handler.main")).toBe(false);
   });
 
+  it("names the files a bundler loads: import.meta.glob with base, braces and negation, and new URL workers (#728)", async () => {
+    await write("app/package.json", '{"name":"app"}');
+    await write("app/src/lib/content.ts", "export const a = import.meta.glob(['./**/+assets/**', '!**/skip/**', '!**/drafts'], { base: '../../content' });\nexport const b = import.meta.glob('/src/pages/*.{ts,js}');\nexport const w = new Worker(new URL('./worker', import.meta.url));\n");
+    await write("app/content/tutorial/+assets/app/src/routes/+page.js", "export const load = 1;\n");
+    await write("app/content/tutorial/+assets/skip/x.js", "export const x = 1;\n");
+    await write("app/content/tutorial/+assets/drafts/d.js", "export const d = 1;\n");
+    await write("app/content/other/y.js", "export const y = 1;\n");
+    await write("app/src/pages/home.ts", "export const h = 1;\n");
+    await write("app/src/pages/about.js", "export const h = 1;\n");
+    await write("app/src/pages/deep/no.ts", "export const n = 1;\n");
+    await write("app/src/lib/worker.ts", "self.onmessage = () => {};\n");
+
+    const { namedPaths } = await index.collect(root, true);
+    const named = (file: string) => namedPaths.get(normalizePath(path.join(root, file)));
+
+    for (const file of ["app/content/tutorial/+assets/app/src/routes/+page.js", "app/src/pages/home.ts", "app/src/pages/about.js", "app/src/lib/worker.ts"]) {
+      expect(named(file), file).toBe("app/src/lib/content.ts");
+    }
+    for (const file of ["app/content/tutorial/+assets/skip/x.js", "app/content/tutorial/+assets/drafts/d.js", "app/content/other/y.js", "app/src/pages/deep/no.ts"]) {
+      expect(named(file), file).toBeUndefined();
+    }
+  });
+
   it("marks the published packages without exports the workspace imports by deep path (#698)", async () => {
     await write("packages/kit/package.json", '{"name":"@acme/kit"}');
     await write("packages/priv/package.json", '{"name":"@acme/priv","private":true}');

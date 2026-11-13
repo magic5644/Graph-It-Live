@@ -33,6 +33,34 @@ describe("PathResolver - tsconfig path aliases", () => {
     expect(await resolve(`${alias.slice(0, -2)}/lib/x`)).toBe(target);
   });
 
+  it("resolves a bare specifier from an explicit baseUrl, inherited too, and leaves packages and missing files alone (#728)", async () => {
+    write("tsconfig.base.json", JSON.stringify({ compilerOptions: { baseUrl: "src" } }));
+    write("tsconfig.json", JSON.stringify({ extends: "./tsconfig.base.json" }));
+    write("src/app/_utils.tsx", "export const u = 1;");
+    write("src/app/page/index.ts", "export const p = 1;");
+    expect(await resolve("lib/x")).toBe(target);
+    expect(await resolve("app/_utils")).toBe(normalizePath(path.join(root, "src/app/_utils.tsx")));
+    expect(await resolve("app/page")).toBe(normalizePath(path.join(root, "src/app/page/index.ts")));
+    expect(await resolve("app/missing")).toBeNull();
+    expect(await resolve("react")).toBeNull();
+    expect(await resolve("react", new PathResolver(undefined, false, root))).toBe("react");
+  });
+
+  it("never resolves from baseUrl when the config does not set it, nor outside the workspace", async () => {
+    write("app/_utils.ts", "export const u = 1;");
+    write("tsconfig.json", JSON.stringify({ compilerOptions: { paths: { "~/*": ["src/*"] } } }));
+    expect(await resolve("app/_utils")).toBeNull();
+    const outside = `${root}-outside`;
+    fs.mkdirSync(path.join(outside, "shared"), { recursive: true });
+    fs.writeFileSync(path.join(outside, "shared/secret.ts"), "export {};");
+    try {
+      write("tsconfig.json", JSON.stringify({ compilerOptions: { baseUrl: `../${path.basename(outside)}` } }));
+      expect(await resolve("shared/secret", new PathResolver(undefined, true, root))).toBeNull();
+    } finally {
+      fs.rmSync(outside, { recursive: true, force: true });
+    }
+  });
+
   it("still treats unmapped bare packages as node_modules", async () => {
     write("tsconfig.json", '{ "compilerOptions": { "paths": { "~/*": ["src/*"] } } }');
     expect(await resolve("lodash")).toBeNull();
@@ -257,6 +285,40 @@ describe("PathResolver - linked workspace packages", () => {
     expect(await resolver.resolve(main, "@nest/common/../outside")).toBeNull();
   });
 
+  it("resolves a deep import of an app under apps/ by its package name, with no node_modules link (#728)", async () => {
+    write("apps/site/package.json", JSON.stringify({ name: "@acme/site" }));
+    write("apps/site/modules/booking/Times.tsx", "export const t = 1;");
+    write("apps/other/package.json", JSON.stringify({ name: "@other/name" }));
+    const resolver = new PathResolver(undefined, true, root);
+    expect(await resolver.resolve(main, "@acme/site/modules/booking/Times")).toBe(normalizePath(path.join(root, "apps/site/modules/booking/Times.tsx")));
+    // The folder name matches, the package name does not: not this package.
+    expect(await resolver.resolve(main, "@acme/other/x")).toBeNull();
+  });
+
+  it("finds a package one folder deeper, takes a subpath at its root before src/, as Node does (#728)", async () => {
+    write("packages/embeds/embed-core/package.json", JSON.stringify({ name: "@acme/embed-core", main: "./dist/embed.js" }));
+    write("packages/embeds/embed-core/embed-iframe.ts", "export const root = 1;");
+    write("packages/embeds/embed-core/src/embed-iframe.ts", "export const src = 1;");
+    write("packages/embeds/embed-core/src/only-src.ts", "export const s = 1;");
+    const resolver = new PathResolver(undefined, true, root);
+    expect(await resolver.resolve(main, "@acme/embed-core/embed-iframe")).toBe(normalizePath(path.join(root, "packages/embeds/embed-core/embed-iframe.ts")));
+    expect(await resolver.resolve(main, "@acme/embed-core/src/embed-iframe")).toBe(normalizePath(path.join(root, "packages/embeds/embed-core/src/embed-iframe.ts")));
+    expect(await resolver.resolve(main, "@acme/embed-core/only-src")).toBe(normalizePath(path.join(root, "packages/embeds/embed-core/src/only-src.ts")));
+    expect(await resolver.resolve(main, "@acme/missing-pkg/x")).toBeNull();
+  });
+
+  it("maps a subpath into a tsconfig output folder back to its source (#728)", async () => {
+    write("packages/trpc/package.json", JSON.stringify({ name: "@acme/trpc" }));
+    write("packages/trpc/tsconfig.json", '{ // JSONC\n "compilerOptions": { "emitDeclarationOnly": true, "declarationDir": "types/server", } }');
+    write("packages/trpc/tsconfig.build.json", JSON.stringify({ compilerOptions: { outDir: "./dist/" } }));
+    write("packages/trpc/server/routers/_app.ts", "export type AppRouter = {};");
+    write("packages/trpc/src/client.ts", "export const c = 1;");
+    const resolver = new PathResolver(undefined, true, root);
+    expect(await resolver.resolve(main, "@acme/trpc/types/server/routers/_app")).toBe(normalizePath(path.join(root, "packages/trpc/server/routers/_app.ts")));
+    expect(await resolver.resolve(main, "@acme/trpc/dist/client")).toBe(normalizePath(path.join(root, "packages/trpc/src/client.ts")));
+    expect(await resolver.resolve(main, "@acme/trpc/types/server/missing")).toBeNull();
+  });
+
   it("finds the link in a package's own node_modules", async () => {
     write("libs/nested/package.json", JSON.stringify({ name: "nested" }));
     write("libs/nested/src/index.ts");
@@ -348,7 +410,8 @@ describe("PathResolver - readResolverInputs", () => {
       "tsconfig.base.json": base.replace('"compilerOptions": {', '"compilerOptions": { "strict": true, '),
       "tsconfig.json": '{ "extends": "./tsconfig.base.json", "include": ["src"] }',
     });
-    expect(await a.inputs("tsconfig.json")).toBe('[["@app","src/app"]]');
+    // An explicit baseUrl moves bare specifiers too (#728): it is part of the inputs.
+    expect(await a.inputs("tsconfig.json")).toBe(String.raw`[["\u0000baseUrl","src"],["@app","src/app"]]`);
     expect(await b.inputs("tsconfig.json")).toBe(await a.inputs("tsconfig.json"));
   });
 

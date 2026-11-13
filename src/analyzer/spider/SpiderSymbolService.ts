@@ -25,6 +25,7 @@ import { classifyUnused, codeForNames, EVIDENCE_PATHS, deployModuleName, inDeepI
 import { declaredReason, type DeclaredEntryPoints } from '../deadcode/declaredEntryPoints';
 import { DeadCodeTextIndex, type WorkspaceTextFacts } from '../deadcode/DeadCodeTextIndex';
 import { cascadeConfidence, deadByCascade } from '../deadcode/deadCodeCascade';
+import { FRAMEWORK_ROUTE, isFrameworkRoute } from '../deadcode/frameworkRoutes';
 
 const log = getLogger('SpiderSymbolService');
 
@@ -106,7 +107,8 @@ export interface TraceCallEntry {
 const JS_TS_MODULE = /\.[cm]?[jt]sx?$/i;
 const VUE_FILE = /\.vue$/i;
 const SVELTE_FILE = /\.svelte$/i;
-const CONFIG_FILE = /\.config\.[cm]?[jt]s$/i;
+// `vercel.ts`: the Vercel project config, loaded by name like a `*.config.ts`.
+const CONFIG_FILE = /(?:\.config|(?:^|\/)vercel)\.[cm]?[jt]s$/i;
 const TYPE_DECLARATION = /\.d\.[cm]?ts$/i;
 const PYTHON_FILE = /\.pyi?$/i;
 const RUST_FILE = /\.rs$/i;
@@ -232,14 +234,18 @@ export class SpiderSymbolService {
       const content = await this.fileReader.readFile(target);
       const internalGraph = withSameFileCalls(await this.astWorkerHost.getInternalExportDependencyGraph(target, content), symbols, dependencies, target);
       const textFacts = this.workspaceTextFacts(context);
-      const { entryPoints, deployReferences, packageDeepImport } = await textFacts;
+      const { entryPoints, deployReferences, packageDeepImport, frameworksByPackage } = await textFacts;
       const publishedDeepImport = inDeepImportedPackage(target, packageDeepImport);
+      // A route or auto-imported file: the framework loads it and reads its exports (GET, load, default...).
+      const frameworkRoute = isFrameworkRoute(target, frameworksByPackage);
       const generated = isGeneratedFile(content);
       const reasons = new Map<string, Promise<string | undefined>>();
       const entryReason = (symbol: SymbolInfo): Promise<string | undefined> => {
         let reason = reasons.get(symbol.id);
         if (!reason) {
-          reason = this.entryReason(target, content, symbol, referencingFiles, entryPoints, context.reExportMemo);
+          reason = frameworkRoute
+            ? Promise.resolve(FRAMEWORK_ROUTE)
+            : this.entryReason(target, content, symbol, referencingFiles, entryPoints, context.reExportMemo);
           reasons.set(symbol.id, reason);
         }
         return reason;
@@ -1356,10 +1362,11 @@ export class SpiderSymbolService {
     if (TYPE_DECLARATION.test(target)) return { filePath: target, reason: 'convention:type-declaration' };
     // Tool configs (vite.config.ts, eslint.config.mjs): the tool loads them by name.
     if (CONFIG_FILE.test(target)) return { filePath: target, reason: 'convention:config-file' };
+    const { entryPoints, deployReferences, packageDeepImport, namedPaths, frameworksByPackage } = await textFacts;
+    if (isFrameworkRoute(target, frameworksByPackage)) return { filePath: target, reason: FRAMEWORK_ROUTE };
     if (path.posix.basename(target) === '__init__.py' && (await hasOtherPythonModule(path.posix.dirname(target)))) {
       return { filePath: target, reason: 'convention:package-init' };
     }
-    const { entryPoints, deployReferences, packageDeepImport, namedPaths } = await textFacts;
     // Any declared name makes the file an entry point: a script `pkg.cli:main`, `#[no_mangle]`, `__all__`.
     const declared = entryPoints.get(target)?.values().next().value;
     if (declared) return { filePath: target, reason: declared };

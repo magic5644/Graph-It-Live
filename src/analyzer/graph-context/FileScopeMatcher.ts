@@ -46,7 +46,8 @@ function escapeRegexCharacter(character: string): string {
   return /[\\^$.*+?()[\]{}|]/.test(character) ? `\\${character}` : character;
 }
 
-function globToRegexSource(pattern: string): string {
+/** `*` within a segment, `**` across segments, `?` one character; everything else literal. */
+export function globToRegexSource(pattern: string): string {
   let source = '';
 
   for (let index = 0; index < pattern.length; index += 1) {

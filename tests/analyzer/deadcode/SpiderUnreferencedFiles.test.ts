@@ -47,6 +47,7 @@ const FILES: Record<string, string> = {
   "pkg/index.generated.ts": "export const load = () => import('../src/lazy');\n",
   "src/lazy.ts": "export const lazy = 1;\n",
   "vitest.config.ts": "export default {};\n",
+  "vercel.ts": "export const config = {};\n",
   // dead by cascade (#726): a chain, a cycle, a diamond with a live branch, a file only a dead file and tests import
   "src/chain/a.ts": "import { b } from './b';\nexport const a = b;\n",
   "src/chain/b.ts": "import { c } from './c';\nexport function b() { c(); }\n",
@@ -81,6 +82,20 @@ const FILES: Record<string, string> = {
   "src/esm/types.d.mts": "export declare const typed: number;\n",
   "tool.config.mts": "import { report } from './scripts/reporter';\nexport default { report };\n",
   "scripts/reporter.ts": "export const report = 1;\n",
+  // a Next.js app of a monorepo (#728): its routes are loaded by file name, what they import lives
+  "apps/web/package.json": '{"name":"web","private":true,"dependencies":{"next":"15"}}',
+  "apps/web/app/api/users/route.ts": "import { query } from '../../../lib/db';\nexport async function GET() { return query(); }\n",
+  "apps/web/lib/db.ts": "export function query() { return 1; }\n",
+  "apps/web/pages/api/trpc/[trpc].ts": "export default function handler() { return 1; }\nexport const config = {};\n",
+  "tests/route.test.ts": "import { GET } from '../apps/web/app/api/users/route';\nGET();\n",
+  // the same layout without next: listed
+  "apps/plain/package.json": '{"name":"plain","private":true}',
+  "apps/plain/app/api/users/route.ts": "export async function GET() { return 1; }\n",
+  // run from a working-directory or after cd (#728)
+  ".github/workflows/mono.yml": "defaults:\n  run:\n    working-directory: packages/api\njobs:\n  m:\n    steps:\n      - run: node scripts/migrate.mjs\n",
+  "packages/api/scripts/migrate.mjs": "console.log(1);\n",
+  "tools/release.sh": "#!/bin/sh\ncd ../packages/cli && node bin/run.mjs\n",
+  "packages/cli/bin/run.mjs": "console.log(1);\n",
   // scripts CI definitions and task runners run by path (#726); a URL or an absolute path names no file
   ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: node scripts/ci-workflow.mjs\n      - run: curl https://example.com/scripts/ci-url.mjs\n      - run: node /opt/scripts/ci-absolute.mjs\n",
   ".github/actions/setup/action.yml": "runs:\n  steps:\n    - run: node scripts/ci-action.mjs\n",
@@ -159,6 +174,7 @@ describe("scanUnreferencedFiles (#711)", { timeout: 60_000 }, () => {
       { relativePath: "py/__init__.py", reason: "convention:package-init" },
       { relativePath: "pkg/dist-tsc/out.js", reason: "gitignored" },
       { relativePath: "vitest.config.ts", reason: "convention:config-file" },
+      { relativePath: "vercel.ts", reason: "convention:config-file" },
       { relativePath: "pkg/index.generated.ts", reason: "gitignored" },
     ]));
     const excludedPaths = new Set(result.excluded?.map((item) => item.relativePath));
@@ -243,6 +259,26 @@ describe("scanUnreferencedFiles (#711)", { timeout: 60_000 }, () => {
     ["shell", "tools/publish.sh"],
   ])("excludes scripts/ci-%s.mjs, run by path from %s (#726)", (name, writer) => {
     expect(result.excluded).toContainEqual({ relativePath: `scripts/ci-${name}.mjs`, reason: `named-in:${writer}` });
+  });
+
+  it("excludes the files a framework the nearest package.json uses loads by name, and keeps what they import (#728)", () => {
+    expect(result.excluded).toEqual(expect.arrayContaining([
+      { relativePath: "apps/web/app/api/users/route.ts", reason: "convention:framework-route" },
+      { relativePath: "apps/web/pages/api/trpc/[trpc].ts", reason: "convention:framework-route" },
+    ]));
+    expect(listed().has("apps/web/lib/db.ts")).toBe(false);
+    expect(listed().get("apps/plain/app/api/users/route.ts")).toMatchObject({ reasons: ["no-importer"] });
+  });
+
+  it("leaves a route's exports out of the export scan, even when only a test imports them (#728)", async () => {
+    expect(await spider.findUnusedSymbols(path.join(root, "apps/web/app/api/users/route.ts"))).toEqual([]);
+  });
+
+  it.each([
+    ["packages/api/scripts/migrate.mjs", ".github/workflows/mono.yml"],
+    ["packages/cli/bin/run.mjs", "tools/release.sh"],
+  ])("excludes %s, run from the folder %s moves to (#728)", (file, writer) => {
+    expect(result.excluded).toContainEqual({ relativePath: file, reason: `named-in:${writer}` });
   });
 
   it("lists a script only a URL or an absolute path names", () => {
