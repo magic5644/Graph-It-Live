@@ -17,6 +17,13 @@ describe("LanguageService", () => {
       );
     });
 
+    it("detects ES module and CommonJS TypeScript files (.mts, .cts, .d.mts) (#726)", () => {
+      for (const file of ["/project/vite.config.mts", "/project/tool.CTS", "/project/types.d.mts", String.raw`C:\project\index.cts`]) {
+        expect(LanguageService.detectLanguage(file), file).toBe(Language.TypeScript);
+      }
+      expect(LanguageService.detectLanguage("/project/file.mtsx")).toBe(Language.Unknown);
+    });
+
     it("should detect JavaScript files", () => {
       expect(LanguageService.detectLanguage("/project/file.js")).toBe(
         Language.TypeScript,

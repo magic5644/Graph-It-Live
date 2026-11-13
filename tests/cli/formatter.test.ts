@@ -818,16 +818,18 @@ describe("check --unreferencedFiles markdown (#711)", () => {
     byConfidence: { high: 0, medium: 1, low: 1 },
     unreferencedFiles: [
       { filePath: "/repo/src/a|b.ts", relativePath: "src/a|b.ts", exports: 0, confidence: "low", reasons: ["no-importer"] },
-      { filePath: "/repo/src/t.ts", relativePath: "src/t.ts", exports: 2, confidence: "medium", reasons: ["test-only-use"], testImporters: ["tests/t.test.ts", "tests/u.test.ts"] },
+      { filePath: "/repo/src/t.ts", relativePath: "src/t.ts", exports: 2, confidence: "medium", reasons: ["test-only-use"], testImporters: ["tests/t.test.ts", "tests/u.test.ts"], tests: ["tests/t.test.ts"] },
+      { filePath: "/repo/src/c.ts", relativePath: "src/c.ts", exports: 1, confidence: "low", reasons: ["cascade"], via: ["src/a|b.ts"] },
     ],
     truncated: false,
   };
 
   it("renders a table with workspace-relative paths and escaped pipes", () => {
     const md = formatOutput(result, "markdown", "check");
-    expect(md).toContain("2 file(s) listed out of 9 scanned: 1 nothing imports (low), 1 only tests import (medium).");
-    expect(md).toContain("| src/a\\|b.ts | 0 | low | no-importer |  |");
-    expect(md).toContain("| src/t.ts | 2 | medium | test-only-use | tests/t.test.ts, tests/u.test.ts |");
+    expect(md).toContain("3 file(s) listed out of 9 scanned, 1 of them dead by cascade (only dead files import them): 1 low, 1 medium (only tests import them).");
+    expect(md).toContain("| src/a\\|b.ts | 0 | low | no-importer |  |  |  |");
+    expect(md).toContain("| src/t.ts | 2 | medium | test-only-use |  | tests/t.test.ts | tests/u.test.ts |");
+    expect(md).toContain("| src/c.ts | 1 | low | cascade | src/a\\|b.ts |  |  |");
     expect(md).not.toContain("/repo/");
     expect(md).not.toContain("### Excluded");
   });

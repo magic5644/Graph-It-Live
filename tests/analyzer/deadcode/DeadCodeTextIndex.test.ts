@@ -93,6 +93,19 @@ describe("DeadCodeTextIndex", () => {
     expect(deployReferences.has("other.thing")).toBe(false);
   });
 
+  it("reads the paths CI definitions of dot-folders write, not their module.name pairs (#726)", async () => {
+    await write("scripts/release.mjs", "console.log(1);\n");
+    await write("scripts/handler.ts", "export const main = 1;\n");
+    await write(".github/workflows/release.yml", "jobs:\n  r:\n    steps:\n      - run: node scripts/release.mjs\n      - run: echo ${{ steps.handler.main }}\n");
+    await write(".github/hidden/.nested/skip.yml", "run: node scripts/handler.ts\n");
+
+    const { namedPaths, deployReferences } = await index.collect(root, true);
+
+    expect(namedPaths.get(normalizePath(path.join(root, "scripts/release.mjs")))).toBe(".github/workflows/release.yml");
+    expect(namedPaths.has(normalizePath(path.join(root, "scripts/handler.ts")))).toBe(false);
+    expect(deployReferences.has("handler.main")).toBe(false);
+  });
+
   it("marks the published packages without exports the workspace imports by deep path (#698)", async () => {
     await write("packages/kit/package.json", '{"name":"@acme/kit"}');
     await write("packages/priv/package.json", '{"name":"@acme/priv","private":true}');

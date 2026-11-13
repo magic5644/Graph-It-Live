@@ -76,6 +76,8 @@ export class LanguageService {
     switch (ext) {
       case ".ts":
       case ".tsx":
+      case ".mts":
+      case ".cts":
       case ".js":
       case ".jsx":
       case ".mjs":

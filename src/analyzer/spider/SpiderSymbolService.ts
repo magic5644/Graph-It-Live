@@ -21,9 +21,10 @@ import { isPythonOrRust, namesModule, pythonStarExports, readImportBindings } fr
 import { mayReExport, readModuleReExports, type ModuleReExports, type ReExportTarget } from '../utils/reExports';
 import { DEFAULT_ONLY, findDeclaration, type DeclarationReads } from '../utils/declarations';
 import { getRelativePath } from '../../shared/path';
-import { classifyUnused, codeForNames, deployModuleName, inDeepImportedPackage, isGeneratedFile, isTestFile, loadsReaching, namedAgain, rustQualifiedUse, type ExcludedExport, type ExcludedFile, type UnreferencedFile, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
+import { classifyUnused, codeForNames, EVIDENCE_PATHS, deployModuleName, inDeepImportedPackage, isGeneratedFile, isTestFile, runsAsProgram, loadsReaching, namedAgain, rustQualifiedUse, type DeadCodeConfidence, type ExcludedExport, type ExcludedFile, type UnreferencedFile, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
 import { declaredReason, type DeclaredEntryPoints } from '../deadcode/declaredEntryPoints';
 import { DeadCodeTextIndex, type WorkspaceTextFacts } from '../deadcode/DeadCodeTextIndex';
+import { cascadeConfidence, deadByCascade } from '../deadcode/deadCodeCascade';
 
 const log = getLogger('SpiderSymbolService');
 
@@ -106,6 +107,7 @@ const JS_TS_MODULE = /\.[cm]?[jt]sx?$/i;
 const VUE_FILE = /\.vue$/i;
 const SVELTE_FILE = /\.svelte$/i;
 const CONFIG_FILE = /\.config\.[cm]?[jt]s$/i;
+const TYPE_DECLARATION = /\.d\.[cm]?ts$/i;
 const PYTHON_FILE = /\.pyi?$/i;
 const RUST_FILE = /\.rs$/i;
 
@@ -1068,12 +1070,15 @@ export class SpiderSymbolService {
 
   /** Files a source imports with a bare `import './x'`, which carries no symbol for the AST to find. */
   private async sideEffectTargets(normalizedSource: string): Promise<Set<string>> {
-    const analyzer = this.languageService.getAnalyzer(normalizedSource);
-    const imports = await analyzer.parseImports(normalizedSource);
-    const resolved = await Promise.all(
-      imports.filter((dep) => dep.type === 'side-effect').map((dep) => analyzer.resolvePath(normalizedSource, dep.module))
-    );
-    return new Set(resolved.filter((target): target is string => target !== null).map(normalizePath));
+    return new Set(await this.resolvedImports(normalizedSource, (dep) => dep.type === 'side-effect'));
+  }
+
+  /** The workspace files a source imports (normalized); packages and unresolved specifiers are left out. */
+  private async resolvedImports(source: string, keep: (dep: Dependency) => boolean = () => true): Promise<string[]> {
+    const analyzer = this.languageService.getAnalyzer(source);
+    const imports = await analyzer.parseImports(source);
+    const resolved = await Promise.all(imports.filter(keep).map((dep) => analyzer.resolvePath(source, dep.module)));
+    return resolved.filter((target): target is string => target !== null).map(normalizePath);
   }
 
   private markAllAsUsed(targetFiles: string[]): Map<string, boolean> {
@@ -1191,8 +1196,8 @@ export class SpiderSymbolService {
    * reverse index: only these candidates are read. A file only tests import is listed at `medium` (`test-only-use`).
    * Excluded, each with its reason (`unreferencedFile`): test files, entry points (manifest, path written elsewhere,
    * framework default export), declarations, tool configs, git-ignored output and Python package `__init__.py`.
-   * shortcut: dead files that only import each other each keep an importer and are not listed; finding them needs the
-   * real entry points, which `no-importer` files are as often as dead code.
+   * Then the files only those dead files and tests import, to a fixed point (`cascadeFiles`, #726), and for every dead
+   * file the tests that import nothing else (`tests`).
    */
   async scanUnreferencedFiles(
     scopePath: string,
@@ -1202,14 +1207,21 @@ export class SpiderSymbolService {
     const textFacts = this.workspaceTextFacts({ reExportMemo: new Map() });
     const isGitignored = createNestedGitignoreMatcher(this.getConfig().rootDir);
     const excluded: ExcludedFile[] = [];
+    const importersOf = new Map<string, string[]>();
     const { results, skippedFiles } = await this.scanEachFile(filesToScan, 'scanUnreferencedFiles', options, async (filePath) => {
-      const verdict = await this.unreferencedFile(normalizePath(filePath), textFacts, isGitignored);
+      const target = normalizePath(filePath);
+      const importers = (await this.findReferencingFiles(target)).map((ref) => normalizePath(ref.path));
+      importersOf.set(target, importers);
+      const verdict = await this.unreferencedFile(target, importers, textFacts, isGitignored);
       if (!verdict || !('reason' in verdict)) return verdict;
       excluded.push(verdict);
       return undefined;
     });
+    const direct = results.filter((file): file is UnreferencedFile => file !== undefined);
+    const files = [...direct, ...(await this.cascadeFiles(direct, importersOf, textFacts, isGitignored, excluded))];
+    await this.addDeletableTests(files, importersOf);
     return {
-      files: results.filter((file): file is UnreferencedFile => file !== undefined),
+      files,
       excluded,
       scannedFiles: filesToScan.length,
       skippedFiles,
@@ -1248,13 +1260,92 @@ export class SpiderSymbolService {
     return { results, skippedFiles };
   }
 
+  /**
+   * The files only dead files and tests import (#726): `cascade`, `via` their dead importers, at the lowest level of
+   * theirs and their own. One that is excluded (an entry point, a config) lives and keeps what it imports alive, so
+   * the cascade is computed again until none is. Only dead files with exports that do not run as a program start one.
+   */
+  private async cascadeFiles(
+    direct: readonly UnreferencedFile[],
+    importersOf: ReadonlyMap<string, readonly string[]>,
+    textFacts: Promise<WorkspaceTextFacts>,
+    isGitignored: IgnoreMatcher,
+    excluded: ExcludedFile[],
+  ): Promise<UnreferencedFile[]> {
+    const isTest = (file: string): boolean => isTestFile(this.relativeToRoot(file));
+    // An export-less file (main.ts) or one written to run as a program (`if __name__ == "__main__"`) is most often an
+    // entry point no manifest declares: it is listed but keeps what it imports alive, or a whole application would follow it.
+    const dead = new Set<string>();
+    await mapWithConcurrency(direct.filter((file) => file.exports > 0), DEAD_CODE_SCAN_CONCURRENCY, async ({ filePath }) => {
+      if (!runsAsProgram(await this.fileReader.readFile(filePath))) dead.add(filePath);
+    });
+    const live = new Set<string>();
+    const verdicts = new Map<string, UnreferencedFile | ExcludedFile | undefined>();
+    let via = deadByCascade(importersOf, dead, live, isTest);
+    for (;;) {
+      const pending = [...via.keys()].filter((file) => !verdicts.has(file));
+      // Only tests are left once the dead importers go: the same checks as a direct file.
+      // eslint-disable-next-line no-await-in-loop -- each round needs the verdicts of the previous one's survivors
+      await mapWithConcurrency(pending, DEAD_CODE_SCAN_CONCURRENCY, async (file) => { // NOSONAR: fixed point, rounds depend on each other
+        verdicts.set(file, await this.unreferencedFile(file, (importersOf.get(file) ?? []).filter(isTest), textFacts, isGitignored));
+      });
+      const kept = [...via.keys()].filter((file) => { const verdict = verdicts.get(file); return !verdict || 'reason' in verdict; });
+      if (kept.length === 0) break;
+      for (const file of kept) live.add(file);
+      via = deadByCascade(importersOf, dead, live, isTest);
+    }
+    for (const file of live) {
+      const verdict = verdicts.get(file);
+      if (verdict && 'reason' in verdict) excluded.push(verdict);
+    }
+    // Every file left is listed: its verdict is an UnreferencedFile.
+    const listed = (file: string): UnreferencedFile => verdicts.get(file) as UnreferencedFile;
+    // Its own `no-importer` only says the dead importers are gone: any other reason caps it at medium.
+    const cap = new Map([...via.keys()].map((file): [string, DeadCodeConfidence] =>
+      [file, listed(file).reasons.some((reason) => reason !== 'no-importer') ? 'medium' : 'high']));
+    const confidence = cascadeConfidence(via, new Map(direct.map((file) => [file.filePath, file.confidence])), cap);
+    const relative = (files: readonly string[]): string[] => files.map((file) => this.relativeToRoot(file)).sort((a, b) => a.localeCompare(b));
+    return [...via].map(([file, deadImporters]) => {
+      const verdict = listed(file);
+      const importers = relative(importersOf.get(file) ?? []);
+      return {
+        ...verdict,
+        confidence: confidence.get(file) ?? verdict.confidence,
+        reasons: ['cascade', ...verdict.reasons.filter((reason) => reason !== 'no-importer')],
+        evidence: { ...verdict.evidence, importers: importers.length, firstImporters: importers.slice(0, EVIDENCE_PATHS) },
+        via: relative(deadImporters),
+      };
+    });
+  }
+
+  /** Sets `tests` on each dead file: its test importers whose resolved imports are all dead, to delete with it. */
+  private async addDeletableTests(files: UnreferencedFile[], importersOf: ReadonlyMap<string, readonly string[]>): Promise<void> {
+    const dead = new Set(files.map((file) => file.filePath));
+    const testsOf = new Map(files.map((file) => [file, (importersOf.get(file.filePath) ?? []).filter((importer) => isTestFile(this.relativeToRoot(importer)))]));
+    const tests = [...new Set([...testsOf.values()].flat())];
+    const deletable = new Set<string>();
+    await mapWithConcurrency(tests, DEAD_CODE_SCAN_CONCURRENCY, async (test) => {
+      try {
+        if ((await this.resolvedImports(test)).every((target) => dead.has(target))) deletable.add(test);
+      } catch (error) {
+        // Unreadable test: kept, never proposed for deletion.
+        log.debug('Dead-code scan: cannot read the imports of', test, SpiderError.fromError(error, test).message);
+      }
+    });
+    for (const [file, importers] of testsOf) {
+      const own = importers.filter((test) => deletable.has(test)).map((test) => this.relativeToRoot(test)).sort((a, b) => a.localeCompare(b));
+      if (own.length > 0) file.tests = own;
+    }
+  }
+
   /** The file as an unreferenced file, as an excluded one, or undefined when a production file imports it. */
   private async unreferencedFile(
     target: string,
+    importerPaths: readonly string[],
     textFacts: Promise<WorkspaceTextFacts>,
     isGitignored: IgnoreMatcher,
   ): Promise<UnreferencedFile | ExcludedFile | undefined> {
-    const importers = (await this.findReferencingFiles(target)).map((ref) => this.relativeToRoot(ref.path));
+    const importers = importerPaths.map((importer) => this.relativeToRoot(importer));
     const testOnlyUse = importers.length > 0;
     if (testOnlyUse && !importers.every((importer) => isTestFile(importer))) return undefined;
     const relativePath = this.relativeToRoot(target);
@@ -1262,7 +1353,7 @@ export class SpiderSymbolService {
     // A package's build output or generated code: not source to delete.
     if (isGitignored(relativePath, false)) return { filePath: target, reason: 'gitignored' };
     // Ambient declarations: tsconfig loads them, no import does.
-    if (target.endsWith('.d.ts')) return { filePath: target, reason: 'convention:type-declaration' };
+    if (TYPE_DECLARATION.test(target)) return { filePath: target, reason: 'convention:type-declaration' };
     // Tool configs (vite.config.ts, eslint.config.mjs): the tool loads them by name.
     if (CONFIG_FILE.test(target)) return { filePath: target, reason: 'convention:config-file' };
     if (path.posix.basename(target) === '__init__.py' && (await hasOtherPythonModule(path.posix.dirname(target)))) {

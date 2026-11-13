@@ -10,7 +10,9 @@ import { getLogger } from "../../shared/logger";
 import {
   deployManifestReferences,
   findDynamicLoads,
+  CI_DEFINITION_DIRS,
   isDeployManifest,
+  isScriptRunner,
   isTestFile,
   mayLoadDynamically,
   readsComputedAttribute,
@@ -37,6 +39,7 @@ const READ_CONCURRENCY = 16;
 const RUST_FILE = /\.rs$/i;
 const PYTHON_FILE = /\.pyi?$/i;
 const JS_FAMILY_FILE = /\.(?:[cm]?[jt]sx?|vue|svelte)$/i;
+const YAML_FILE = /\.ya?ml$/i;
 
 interface FileFacts {
   mtimeMs: number;
@@ -57,6 +60,11 @@ interface FileFacts {
   /** Non-test files: the source paths they write (writtenSourcePaths) */
   writtenPaths: string[];
 }
+
+const NO_FACTS: Omit<FileFacts, "mtimeMs" | "size"> = {
+  loads: [], rustPaths: [], rustTokens: [], readsComputedAttribute: false, pythonAll: [], rustPubMods: [], rustAttributed: [],
+  deployRefs: [], deepSpecifiers: [], writtenPaths: [],
+};
 
 /** What the dead-code scan reads as text across the workspace. */
 export interface WorkspaceTextFacts {
@@ -107,10 +115,13 @@ export class DeadCodeTextIndex {
     }
     const isManifest = (name: string): boolean => MANIFEST_FILE_NAMES.has(name);
     // One walk for the source files and the manifests next to them.
-    const walked = (await new SourceFileCollector({ excludeNodeModules }).collectFiles(rootDir, (name) => isSupportedSourceFile(name) || isManifest(name) || isDeployManifest(name))).map(normalizePath);
+    const collector = new SourceFileCollector({ excludeNodeModules });
+    const walked = (await collector.collectFiles(rootDir, (name) => isSupportedSourceFile(name) || isManifest(name) || isDeployManifest(name) || isScriptRunner(name))).map(normalizePath);
+    // The walk skips dot-folders: CI definitions there run scripts by path (`node scripts/x.mjs`).
+    const ciFiles = new Set((await Promise.all(CI_DEFINITION_DIRS.map((dir) => collector.collectFiles(path.join(rootDir, dir), (name) => YAML_FILE.test(name))))).flat().map(normalizePath));
     const next = new Map<string, FileFacts>();
-    await mapWithConcurrency(walked, READ_CONCURRENCY, async (file) => {
-      const entry = await this.factsOf(file, isManifest(path.posix.basename(file)));
+    await mapWithConcurrency([...walked, ...ciFiles], READ_CONCURRENCY, async (file) => {
+      const entry = await this.factsOf(file, isManifest(path.posix.basename(file)), ciFiles.has(file));
       if (entry) next.set(file, entry);
     });
     this.perFile = next;
@@ -160,13 +171,15 @@ export class DeadCodeTextIndex {
     return entryPoints;
   }
 
-  private async factsOf(file: string, manifest: boolean): Promise<FileFacts | null> {
+  /** `ciDefinition`: a CI file of a dot-folder, read for the paths it writes only (its `steps.x` keys are no handlers). */
+  private async factsOf(file: string, manifest: boolean, ciDefinition: boolean): Promise<FileFacts | null> {
     try {
       const { mtimeMs, size } = await fs.stat(file);
       const cached = this.perFile.get(file);
       if (cached?.mtimeMs === mtimeMs && cached.size === size) return cached;
       // No size cap: a large file's loads and names count as much as any other's (read once, then cached).
       const content = await this.fileReader.readFile(file, { maxSize: Number.POSITIVE_INFINITY });
+      if (ciDefinition) return { ...NO_FACTS, mtimeMs, size, writtenPaths: writtenSourcePaths(content) };
       const loads = mayLoadDynamically(content) ? findDynamicLoads(file, getRelativePath(file, this.rootDir), content, this.rootDir) : [];
       const rust = RUST_FILE.test(file);
       return {
@@ -192,7 +205,11 @@ export class DeadCodeTextIndex {
   }
 }
 
-/** Each source file whose path another file writes, resolved from the workspace root or from the writer's folder. */
+/**
+ * Each source file whose path another file writes, resolved from the workspace root or from the writer's folder.
+ * shortcut: a CI step's `working-directory` (or a `cd` before the command) is not read, so a path relative to it stays
+ * unresolved and its file listed; read it when a monorepo reports such a script.
+ */
 function namedPaths(root: string, facts: ReadonlyMap<string, FileFacts>, files: ReadonlySet<string>): Map<string, string> {
   const named = new Map<string, string>();
   for (const [writer, entry] of facts) {

@@ -31,6 +31,8 @@ export type DeadCodeConfidence = "high" | "medium" | "low";
  * - `published-deep-import`: the file belongs to a published package with no `exports` map that the workspace itself
  *   imports by deep path (`<name>/<file>`), so projects outside the workspace may import the file too. `medium`.
  * - `importers-use-other-exports`: the file has importers and none uses the export. `high`.
+ * - `cascade`: unreferenced files only: every production file that imports the file is dead itself (`via`), so it
+ *   goes with them. Never above its own level nor theirs; a dead cycle nothing else imports is `low`.
  */
 export type DeadCodeReason =
   | "no-importer"
@@ -43,7 +45,8 @@ export type DeadCodeReason =
   | "named-in-deploy-manifest"
   | "convention:generated"
   | "published-deep-import"
-  | "importers-use-other-exports";
+  | "importers-use-other-exports"
+  | "cascade";
 
 export const DEAD_CODE_CONFIDENCES = ["high", "medium", "low"] as const satisfies readonly DeadCodeConfidence[];
 
@@ -81,7 +84,8 @@ export interface ExcludedExport {
 
 /**
  * A file no production file imports (#711): `low` with `no-importer` when nothing imports it, `medium` with
- * `test-only-use` when only test files do. `exports` counts its exported symbols (0 for a script or side-effect module).
+ * `test-only-use` when only test files do; or a file only dead files and tests import (`cascade`, #726).
+ * `exports` counts its exported symbols (0 for a script or side-effect module).
  */
 export interface UnreferencedFile {
   filePath: string;
@@ -91,6 +95,10 @@ export interface UnreferencedFile {
   evidence: DeadCodeEvidence;
   /** `test-only-use` only: every test that imports the file, to delete or clean up with it (a quick cleanup win) */
   testImporters?: string[];
+  /** `cascade` only: the dead production files that import it, workspace-relative */
+  via?: string[];
+  /** Tests that import the file and nothing but dead files: to delete with it, workspace-relative */
+  tests?: string[];
 }
 
 /** An unreferenced file the scan does not report, and why (a manifest declares it, a framework loads it, a test file). */
@@ -373,6 +381,19 @@ export function isDeployManifest(fileName: string): boolean {
 }
 
 /**
+ * Files that run scripts by path, read only for the paths they write (`writtenSourcePaths`): Makefile (`*.mk`),
+ * justfile and shell scripts. CI definitions in dot-folders (`.github`, `.circleci`) are walked apart
+ * (`CI_DEFINITION_DIRS`); root YAML ones (`.gitlab-ci.yml`, `azure-pipelines.yml`, Taskfile) already count as manifests.
+ */
+export function isScriptRunner(fileName: string): boolean {
+  const name = fileName.toLowerCase();
+  return ["makefile", "gnumakefile", "justfile", ".justfile"].includes(name) || name.endsWith(".mk") || name.endsWith(".sh");
+}
+
+/** Dot-folders the source walk skips that hold CI definitions running scripts by path. */
+export const CI_DEFINITION_DIRS = [".github", ".circleci"] as const;
+
+/**
  * Every `module.name` and `module:name` pair a deployment manifest writes, as `module.name`: a Lambda handler
  * (`src/handler.main`, `CMD ["app.handler"]`, SAM `Handler`) or an ASGI/WSGI target (`uvicorn app:app`). Read as text,
  * no YAML parse and no path resolved, so nothing it writes reaches the file system. `a.b.c` gives `a.b` and `b.c`.
@@ -417,6 +438,14 @@ export function writtenSourcePaths(content: string): string[] {
     if (SOURCE_EXTENSION.test(token) && !token.startsWith("/") && !token.includes("//")) paths.add(token);
   }
   return [...paths];
+}
+
+/** Python `if __name__ == "__main__":`, Node `require.main === module`, `import.meta.main`, a Rust `fn main()`. */
+const RUN_AS_PROGRAM = /\b__name__\s*==\s*["']__main__["']|\brequire\.main\s*===?\s*module\b|\bimport\.meta\.main\b|\bfn\s+main\s*\(/;
+
+/** Whether the file runs as a program when started by path: an entry point, even with functions it exports. */
+export function runsAsProgram(content: string): boolean {
+  return RUN_AS_PROGRAM.test(content);
 }
 
 /** Generated-file markers, read in the head of the file only (a comment block above the code). */

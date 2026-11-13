@@ -87,7 +87,9 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
 
 function deadFileItem(group: DeadFileGroup): ReportItem {
   const files = group.files.slice(0, ITEM_LIMIT).map((file) =>
-    `${file.relativePath}: ${file.lines === undefined ? "lines unknown" : plural(file.lines, "line")}, ${plural(file.exports, "export")}, ${file.confidence} ${file.reasons.join(", ")}`);
+    `${file.relativePath}: ${file.lines === undefined ? "lines unknown" : plural(file.lines, "line")}, ${plural(file.exports, "export")}, ${file.confidence} ${file.reasons.join(", ")}` +
+    (file.via ? ` via ${file.via.join(", ")}` : "") +
+    (file.tests ? `; delete with ${file.tests.map((test) => test.relativePath).join(", ")}` : ""));
   return {
     label: `${plural(group.files.length, "file")}, ${plural(group.lines, "line")}`,
     subject: group.unit,
@@ -169,7 +171,10 @@ function summaryLines(result: InitResult, all: readonly ReportSection[]): string
   const hotSpot = t.mutualHotSpot;
   const testOnly = result.assessment.deadFiles.flatMap((group) => group.files).filter((file) => file.confidence === "medium").length;
   const hotSpotText = hotSpot === undefined ? "" : ` (hot spot: ${hotSpot.file} in ${hotSpot.pairs})`;
-  const testOnlyText = testOnly === 0 ? "" : ` (${testOnly} only imported by tests)`;
+  const cascade = result.assessment.deadFiles.flatMap((group) => group.files).filter((file) => file.via !== undefined).length;
+  const importedBy = [testOnly === 0 ? "" : `${testOnly} only imported by tests`, cascade === 0 ? "" : `${cascade} only imported by dead files`]
+    .filter(Boolean).join(", ");
+  const testOnlyText = importedBy === "" ? "" : ` (${importedBy})`;
   const topText = topAction(result.assessment, all);
   const { focus } = result;
   return [
@@ -180,7 +185,7 @@ function summaryLines(result: InitResult, all: readonly ReportSection[]): string
       ? `Size: ${plural(t.files, "file")} in ${plural(t.units, "unit")}, ${plural(t.unitEdges, "unit edge")}`
       : `Size: ${plural(t.files, "file")} in ${focus}, ${plural(t.units, "unit")} with its neighbours, ${plural(t.unitEdges, "unit edge")} through it`,
     `Cycles: ${plural(t.unitCycles, "unit cycle")}, ${plural(t.mutualImports, "mutual file import")}${hotSpotText}`,
-    `Dead files: ${plural(t.deadFiles, "file")} no production file imports, ${plural(t.deadFileLines, "line")}${testOnlyText}`,
+    `Dead files: ${plural(t.deadFiles, "file")} no production file imports, ${plural(t.deadFileLines, "line")} with their tests${testOnlyText}`,
     `Unused exports: ${t.unusedExports} high-confidence in ${plural(t.deadCodeFiles, "file")} (${t.unusedExportsMedium} medium, ${t.unusedExportsLow} low not listed: graph-it check --minConfidence low)`,
     `Top action: ${topText}`,
   ];

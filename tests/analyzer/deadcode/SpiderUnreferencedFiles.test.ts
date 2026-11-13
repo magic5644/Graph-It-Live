@@ -9,8 +9,8 @@ import { SpiderErrorCode } from "@/analyzer/types";
 
 /** Whole files no production file imports (#711). */
 const FILES: Record<string, string> = {
-  "package.json": '{"name":"shop","private":true,"main":"src/main.ts"}',
-  "src/main.ts": "import { used } from './lib';\nimport { fromBarrel } from './api';\nused();\nfromBarrel();\n",
+  "package.json": '{"name":"shop","private":true,"main":"src/main.ts","scripts":{"cli":"node src/entry/cli.ts"}}',
+  "src/main.ts": "import { used } from './lib';\nimport { fromBarrel } from './api';\nimport { right } from './diamond/right';\nimport { esm } from './esm/helper.mjs';\nused();\nfromBarrel();\nright();\nesm();\n",
   "src/lib.ts": "export function used() { return 1; }\n",
   // nothing imports them: one with exports, one script without
   "src/dead.ts": "export function a() { return 1; }\nexport const b = 2;\n",
@@ -47,6 +47,53 @@ const FILES: Record<string, string> = {
   "pkg/index.generated.ts": "export const load = () => import('../src/lazy');\n",
   "src/lazy.ts": "export const lazy = 1;\n",
   "vitest.config.ts": "export default {};\n",
+  // dead by cascade (#726): a chain, a cycle, a diamond with a live branch, a file only a dead file and tests import
+  "src/chain/a.ts": "import { b } from './b';\nexport const a = b;\n",
+  "src/chain/b.ts": "import { c } from './c';\nexport function b() { c(); }\n",
+  "src/chain/c.ts": "export function c() { return 1; }\n",
+  "src/cycle/x.ts": "import { y } from './y';\nexport function x() { y(); }\n",
+  "src/cycle/y.ts": "import { x } from './x';\nexport function y() { x(); }\n",
+  "src/diamond/top.ts": "import { left } from './left';\nimport { right } from './right';\nexport const top = [left, right];\n",
+  "src/diamond/left.ts": "import { bottom } from './bottom';\nexport function left() { bottom(); }\n",
+  "src/diamond/right.ts": "import { bottom } from './bottom';\nexport function right() { bottom(); }\n",
+  "src/diamond/bottom.ts": "export function bottom() { return 1; }\n",
+  "src/hooks/useGraphData.ts": "import { layout } from '../utils/graphUtils';\nexport function useGraphData() { return layout(); }\n",
+  "src/utils/graphUtils.ts": "export function layout() { return 1; }\n",
+  "tests/graphUtils.test.ts": "import { layout } from '../src/utils/graphUtils';\nlayout();\n",
+  "tests/graphUtils.more.test.ts": "import { layout } from '../src/utils/graphUtils';\nlayout();\n",
+  "tests/graphUtils.mixed.test.ts": "import { layout } from '../src/utils/graphUtils';\nimport { used } from '../src/lib';\nlayout();\nused();\n",
+  // a test-only file's import keeps its medium level down the cascade
+  "src/medRoot.ts": "import { leaf } from './medLeaf';\nexport const root = leaf;\n",
+  "src/medLeaf.ts": "export function leaf() { return 1; }\n",
+  "tests/medRoot.test.ts": "import { root } from '../src/medRoot';\nroot();\n",
+  // a Python script with functions, run by path: listed, but no cascade from it
+  "py/cli.py": "from py.core import go\n\ndef main():\n    go()\n\nif __name__ == \"__main__\":\n    main()\n",
+  "py/core.py": "def go():\n    return 1\n",
+  // an entry point a dead file imports stops the cascade
+  "src/deadUser.ts": "import { cli } from './entry/cli';\nexport const user = cli;\n",
+  "src/entry/cli.ts": "import { help } from './helper';\nexport function cli() { help(); }\n",
+  "src/entry/helper.ts": "export function help() { return 1; }\n",
+  // .mts / .cts imported from .ts and importing .ts, in both directions; a .d.mts declaration
+  "src/esm/helper.mts": "import { cjs } from '../cjs/util.cjs';\nimport { fromMts } from '../fromMts';\nexport function esm() { cjs(); fromMts(); }\n",
+  "src/cjs/util.cts": "import { fromCts } from '../fromCts';\nexport function cjs() { fromCts(); }\n",
+  "src/fromMts.ts": "export function fromMts() { return 1; }\n",
+  "src/fromCts.ts": "export function fromCts() { return 1; }\n",
+  "src/esm/types.d.mts": "export declare const typed: number;\n",
+  "tool.config.mts": "import { report } from './scripts/reporter';\nexport default { report };\n",
+  "scripts/reporter.ts": "export const report = 1;\n",
+  // scripts CI definitions and task runners run by path (#726); a URL or an absolute path names no file
+  ".github/workflows/ci.yml": "jobs:\n  test:\n    steps:\n      - run: node scripts/ci-workflow.mjs\n      - run: curl https://example.com/scripts/ci-url.mjs\n      - run: node /opt/scripts/ci-absolute.mjs\n",
+  ".github/actions/setup/action.yml": "runs:\n  steps:\n    - run: node scripts/ci-action.mjs\n",
+  ".circleci/config.yml": "jobs:\n  build:\n    steps:\n      - run: node scripts/ci-circle.mjs\n",
+  ".gitlab-ci.yml": "test:\n  script: node scripts/ci-gitlab.mjs\n",
+  "azure-pipelines.yml": "steps:\n  - script: node scripts/ci-azure.mjs\n",
+  "bitbucket-pipelines.yml": "pipelines:\n  default:\n    - step:\n        script: [node scripts/ci-bitbucket.mjs]\n",
+  "Taskfile.yml": "tasks:\n  bench:\n    cmds: [node scripts/ci-taskfile.mjs]\n",
+  "Makefile": "release:\n\tnode scripts/ci-make.mjs\n",
+  "justfile": "smoke:\n  node scripts/ci-just.mjs\n",
+  "tools/publish.sh": "#!/bin/sh\nnode ../scripts/ci-shell.mjs\n",
+  ...Object.fromEntries(["workflow", "action", "circle", "gitlab", "azure", "bitbucket", "taskfile", "make", "just", "shell", "url", "absolute"]
+    .map((name) => [`scripts/ci-${name}.mjs`, "console.log(1);\n"])),
   "empty/.gitkeep": "",
 };
 
@@ -94,8 +141,10 @@ describe("scanUnreferencedFiles (#711)", { timeout: 60_000 }, () => {
     expect(listed().get("src/dead.ts")?.testImporters).toBeUndefined();
   });
 
-  it("keeps files production code imports, directly or through a barrel", () => {
-    for (const file of ["src/lazy.ts", "src/lib.ts", "src/api/impl.ts", "src/api/index.ts", "src/old/impl.ts", "src/both.ts", "py/mod.py"]) {
+  it("keeps files production code imports, directly or through a barrel, and what an export-less dead file imports", () => {
+    // src/old/index.ts, src/both-user.ts, py/run.py and py/cli.py are listed, but run like entry points: no cascade from them
+    expect(listed().has("py/cli.py")).toBe(true);
+    for (const file of ["src/lazy.ts", "src/lib.ts", "src/api/impl.ts", "src/api/index.ts", "src/old/impl.ts", "src/both.ts", "py/mod.py", "py/core.py"]) {
       expect(listed().has(file), file).toBe(false);
     }
   });
@@ -116,16 +165,19 @@ describe("scanUnreferencedFiles (#711)", { timeout: 60_000 }, () => {
     expect(result.unreferencedFiles.filter((file) => excludedPaths.has(file.relativePath))).toEqual([]);
   });
 
-  it("counts every file per confidence and sorts the list by path", () => {
-    expect(result.byConfidence).toEqual({ high: 0, medium: 1, low: result.totalUnreferencedFiles - 1 });
-    const paths = result.unreferencedFiles.map((file) => file.relativePath);
-    expect(paths).toEqual([...paths].sort((a, b) => a.localeCompare(b)));
+  it("counts every file per confidence and sorts the list by path, the cascade files last", () => {
+    expect(result.byConfidence).toEqual({ high: 0, medium: 3, low: result.totalUnreferencedFiles - 3 });
+    const direct = result.unreferencedFiles.filter((file) => file.via === undefined).map((file) => file.relativePath);
+    const cascade = result.unreferencedFiles.filter((file) => file.via !== undefined).map((file) => file.relativePath);
+    expect(result.unreferencedFiles.map((file) => file.relativePath)).toEqual([...direct, ...cascade]);
+    expect(direct).toEqual([...direct].sort((a, b) => a.localeCompare(b)));
+    expect(cascade).toEqual([...cascade].sort((a, b) => a.localeCompare(b)));
     expect(result).toMatchObject({ minConfidence: "low", truncated: false, filesBeyondLimit: 0, skippedFiles: 0 });
   });
 
   it("lists only the files at minConfidence or above, with a hint for the others", async () => {
     const medium = await scanUnreferencedFiles(spider, root, { minConfidence: "medium" });
-    expect(medium.unreferencedFiles.map((file) => file.relativePath)).toEqual(["src/testOnly.ts"]);
+    expect(medium.unreferencedFiles.map((file) => file.relativePath)).toEqual(["src/medRoot.ts", "src/testOnly.ts", "src/medLeaf.ts"]);
     expect(medium.hint).toContain("low-confidence item(s) not listed");
     expect(medium.excluded).toBeUndefined();
   });
@@ -136,6 +188,66 @@ describe("scanUnreferencedFiles (#711)", { timeout: 60_000 }, () => {
     const capped = await scanUnreferencedFiles(spider, root, { maxFiles: 2 });
     expect(capped).toMatchObject({ scannedFiles: 2, truncated: true });
     expect(capped.filesBeyondLimit).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ["src/chain/b.ts", "low", ["src/chain/a.ts"]],
+    ["src/chain/c.ts", "low", ["src/chain/b.ts"]],
+    ["src/cycle/x.ts", "low", ["src/cycle/y.ts"]],
+    ["src/cycle/y.ts", "low", ["src/cycle/x.ts"]],
+    ["src/diamond/left.ts", "low", ["src/diamond/top.ts"]],
+    ["src/utils/graphUtils.ts", "low", ["src/hooks/useGraphData.ts"]],
+    ["src/medLeaf.ts", "medium", ["src/medRoot.ts"]],
+  ])("lists %s dead by cascade at %s, via its dead importers %j (#726)", (file, confidence, via) => {
+    expect(listed().get(file)).toMatchObject({ confidence, via });
+    expect(listed().get(file)?.reasons[0]).toBe("cascade");
+  });
+
+  it("stops the cascade at a live importer and at an entry point a dead file imports", () => {
+    for (const file of ["src/diamond/right.ts", "src/diamond/bottom.ts", "src/entry/cli.ts", "src/entry/helper.ts"]) {
+      expect(listed().has(file), file).toBe(false);
+    }
+    expect(listed().has("src/deadUser.ts")).toBe(true);
+    expect(result.excluded).toContainEqual({ relativePath: "src/entry/cli.ts", reason: "named-in:package.json" });
+  });
+
+  it("names the tests to delete: those that import nothing but dead files", () => {
+    const graphUtils = listed().get("src/utils/graphUtils.ts");
+    expect(graphUtils?.tests).toEqual(["tests/graphUtils.more.test.ts", "tests/graphUtils.test.ts"]);
+    expect(graphUtils?.testImporters).toEqual(["tests/graphUtils.mixed.test.ts", "tests/graphUtils.more.test.ts", "tests/graphUtils.test.ts"]);
+    // it also imports src/both.ts, which lives
+    expect(listed().get("src/testOnly.ts")?.tests).toBeUndefined();
+    expect(listed().get("src/medRoot.ts")?.tests).toEqual(["tests/medRoot.test.ts"]);
+  });
+
+  it("follows the imports of .mts and .cts files, both ways, and leaves .d.mts out (#726)", () => {
+    for (const file of ["src/esm/helper.mts", "src/cjs/util.cts", "src/fromMts.ts", "src/fromCts.ts", "scripts/reporter.ts"]) {
+      expect(listed().has(file), file).toBe(false);
+    }
+    expect(result.excluded).toEqual(expect.arrayContaining([
+      { relativePath: "src/esm/types.d.mts", reason: "convention:type-declaration" },
+      { relativePath: "tool.config.mts", reason: "convention:config-file" },
+    ]));
+  });
+
+  it.each([
+    ["workflow", ".github/workflows/ci.yml"],
+    ["action", ".github/actions/setup/action.yml"],
+    ["circle", ".circleci/config.yml"],
+    ["gitlab", ".gitlab-ci.yml"],
+    ["azure", "azure-pipelines.yml"],
+    ["bitbucket", "bitbucket-pipelines.yml"],
+    ["taskfile", "Taskfile.yml"],
+    ["make", "Makefile"],
+    ["just", "justfile"],
+    ["shell", "tools/publish.sh"],
+  ])("excludes scripts/ci-%s.mjs, run by path from %s (#726)", (name, writer) => {
+    expect(result.excluded).toContainEqual({ relativePath: `scripts/ci-${name}.mjs`, reason: `named-in:${writer}` });
+  });
+
+  it("lists a script only a URL or an absolute path names", () => {
+    expect(listed().has("scripts/ci-url.mjs")).toBe(true);
+    expect(listed().has("scripts/ci-absolute.mjs")).toBe(true);
   });
 
   it("returns an empty list for a scope with no source file", async () => {
@@ -157,6 +269,27 @@ describe("scanUnreferencedFiles (#711)", { timeout: 60_000 }, () => {
   });
 });
 
+describe("scanUnreferencedFiles: a test that cannot be read (#726)", { timeout: 60_000 }, () => {
+  it("never proposes to delete a test whose imports it cannot read", async () => {
+    const root = await fs.mkdtemp(path.join(tmpdir(), "gitl-unreadable-test-"));
+    try {
+      await fs.mkdir(path.join(root, "src"));
+      await fs.mkdir(path.join(root, "tests"));
+      await fs.writeFile(path.join(root, "src/dead.ts"), "export const dead = 1;\n");
+      await fs.writeFile(path.join(root, "tests/dead.test.ts"), "import { dead } from '../src/dead';\ndead;\n");
+      const spider = new SpiderBuilder().withRootDir(root).withReverseIndex(true).build();
+      await spider.buildFullIndex();
+      // The reverse index still names the test, the file is gone.
+      await fs.rm(path.join(root, "tests/dead.test.ts"));
+      const result = await scanUnreferencedFiles(spider, root, {});
+      expect(result.unreferencedFiles).toEqual([expect.objectContaining({ relativePath: "src/dead.ts", testImporters: ["tests/dead.test.ts"] })]);
+      expect(result.unreferencedFiles[0].tests).toBeUndefined();
+    } finally {
+      await fs.rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    }
+  });
+});
+
 describe("scanUnreferencedFiles on the legacy-shop demo", { timeout: 60_000 }, () => {
   it("lists legacy/dailyReport.ts", async () => {
     const root = path.resolve(__dirname, "../../demo/legacy-shop");
@@ -164,5 +297,7 @@ describe("scanUnreferencedFiles on the legacy-shop demo", { timeout: 60_000 }, (
     await spider.buildFullIndex();
     const result = await scanUnreferencedFiles(spider, root, {});
     expect(result.unreferencedFiles).toContainEqual(expect.objectContaining({ relativePath: "legacy/dailyReport.ts", exports: 1, reasons: ["no-importer"] }));
+    // app/main.ts has no export: listed, but the application it imports does not follow it by cascade (#726)
+    expect(result.unreferencedFiles.map((file) => file.relativePath)).toEqual(["app/main.ts", "legacy/dailyReport.ts"]);
   });
 });

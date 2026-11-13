@@ -28,7 +28,10 @@
         "scripts/",
         ".github/",
         "/esbuild.js",
-        "/eslint.config.mjs"
+        "/eslint.config.mjs",
+        "/vitest.config.mts",
+        "/vitest.benchmark.config.mts",
+        "/vitest.memory.config.mts"
       ]
     }
   },

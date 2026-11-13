@@ -1,7 +1,7 @@
 import type { Framework } from './graph-types';
 
 // Extensions by language for type-safe language detection
-export const TYPESCRIPT_EXTENSIONS = ['.ts', '.tsx'] as const;
+export const TYPESCRIPT_EXTENSIONS = ['.ts', '.tsx', '.mts', '.cts'] as const;
 export const JAVASCRIPT_EXTENSIONS = ['.js', '.jsx', '.mjs', '.cjs'] as const;
 export const PYTHON_EXTENSIONS = ['.py', '.pyi'] as const;
 export const RUST_EXTENSIONS = ['.rs'] as const;
@@ -39,7 +39,7 @@ export const SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS = [
 ];
 
 // Unified regex for source files we analyze across extension/webview/mcp
-export const SUPPORTED_SOURCE_FILE_REGEX = /\.(ts|tsx|js|jsx|mjs|cjs|vue|svelte|gql|graphql|py|pyi|rs|cs|csproj|go|java)$/;
+export const SUPPORTED_SOURCE_FILE_REGEX = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|svelte|gql|graphql|py|pyi|rs|cs|csproj|go|java)$/;
 
 export const IGNORED_DIRECTORIES = [
     'node_modules',

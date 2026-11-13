@@ -268,8 +268,11 @@ async function deadCodeFiles(workspaceRoot: string, progress: CliProgress, focus
       unusedSymbols: entry.unusedSymbols.filter((symbol) => symbol.confidence === "high").map(({ name, line }) => ({ name, line })),
     })),
     deadCodeBelowHigh: below,
-    deadFiles: await Promise.all(unreferenced.unreferencedFiles.map(async ({ relativePath, exports, confidence, reasons }) =>
-      ({ relativePath, lines: await lineCount(workspaceRoot, relativePath), exports, confidence, reasons }))),
+    deadFiles: await Promise.all(unreferenced.unreferencedFiles.map(async ({ relativePath, exports, confidence, reasons, via, tests }) => ({
+      relativePath, lines: await lineCount(workspaceRoot, relativePath), exports, confidence, reasons,
+      ...(via ? { via } : {}),
+      ...(tests ? { tests: await Promise.all(tests.map(async (test) => ({ relativePath: test, lines: await lineCount(workspaceRoot, test) }))) } : {}),
+    }))),
   };
 }
 

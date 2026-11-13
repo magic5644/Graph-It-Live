@@ -336,16 +336,24 @@ function formatMarkdown(data: unknown, command: string, workspaceRoot?: string):
 
 const ESCAPED_PIPE = String.raw`\|`;
 
+/** An unreferenced file's tests to delete with it (`tests`), and the other tests that import it, to clean up. */
+function testsOf(file: Record<string, unknown>): { tests: unknown[]; cleanUp: unknown[] } {
+  const tests = Array.isArray(file["tests"]) ? file["tests"] : [];
+  const importers = Array.isArray(file["testImporters"]) ? file["testImporters"] : [];
+  return { tests, cleanUp: importers.filter((test) => !tests.includes(test)) };
+}
+
 /** `check --unreferencedFiles`: a table a human reads, with workspace-relative paths only. */
 function formatUnreferencedFilesMarkdown(data: Record<string, unknown>, command: string): string {
   const cell = (value: unknown): string => valueToMermaidString(value, "").replaceAll("|", ESCAPED_PIPE);
   const list = (value: unknown): string => (Array.isArray(value) ? value.map(cell).join(", ") : "");
   const files = (data["unreferencedFiles"] as unknown[]).map((file) => toRecord(file) ?? {});
   const counts = toRecord(data["byConfidence"]) ?? {};
+  const cascade = files.filter((file) => Array.isArray(file["via"])).length;
   const lines = [
     `## graph-it ${command} --unreferencedFiles`,
     "",
-    `${files.length} file(s) listed out of ${cell(data["scannedFiles"])} scanned: ${cell(counts["low"])} nothing imports (low), ${cell(counts["medium"])} only tests import (medium).`,
+    `${files.length} file(s) listed out of ${cell(data["scannedFiles"])} scanned, ${cascade} of them dead by cascade (only dead files import them): ${cell(counts["low"])} low, ${cell(counts["medium"])} medium (only tests import them).`,
   ];
   if (data["truncated"] === true) lines.push("", `**Partial result:** maxFiles left ${cell(data["filesBeyondLimit"])} file(s) unscanned.`);
   if (typeof data["hint"] === "string") lines.push("", cell(data["hint"]));
@@ -353,9 +361,10 @@ function formatUnreferencedFilesMarkdown(data: Record<string, unknown>, command:
   if (files.length === 0) {
     lines.push("_No unreferenced file._");
   } else {
-    lines.push("| File | Exports | Confidence | Reasons | Delete with its tests |", "| --- | --- | --- | --- | --- |");
+    lines.push("| File | Exports | Confidence | Reasons | Dead importers | Tests to delete | Tests to clean up |", "| --- | --- | --- | --- | --- | --- | --- |");
     for (const file of files) {
-      lines.push(`| ${cell(file["relativePath"])} | ${cell(file["exports"])} | ${cell(file["confidence"])} | ${list(file["reasons"])} | ${list(file["testImporters"])} |`);
+      const { tests, cleanUp } = testsOf(file);
+      lines.push(`| ${cell(file["relativePath"])} | ${cell(file["exports"])} | ${cell(file["confidence"])} | ${list(file["reasons"])} | ${list(file["via"])} | ${list(tests)} | ${list(cleanUp)} |`);
     }
   }
   if (Array.isArray(data["excluded"])) {

@@ -193,6 +193,19 @@ describe("assessArchitecture: dead files", () => {
     expect(result.totals).toMatchObject({ deadFiles: 4, deadFileLines: 75 });
   });
 
+  it("puts the cascade files after the others and counts each test to delete once (#726)", () => {
+    const shared = { relativePath: "tests/u.test.ts", lines: 7 };
+    const deadFiles: DeadFile[] = [
+      { ...dead("a/cascade.ts", 90), reasons: ["cascade"], via: ["a/root.ts"], tests: [shared, { relativePath: "tests/unread.test.ts" }] },
+      { ...dead("a/root.ts", 10), tests: [shared] },
+    ];
+    const result = assessArchitecture(input(["a:2:0"], [], { deadFiles }));
+    expect(result.deadFiles.map((group) => [group.lines, group.files.map((file) => file.relativePath)])).toEqual([[107, ["a/root.ts", "a/cascade.ts"]]]);
+    // a test shared by two units counts once in the total
+    const twoUnits = assessArchitecture(input(["a:1:0", "b:1:0"], [], { deadFiles: [{ ...dead("a/x.ts", 1), tests: [shared] }, { ...dead("b/y.ts", 2), tests: [shared] }] }));
+    expect(twoUnits.totals.deadFileLines).toBe(10);
+  });
+
   it("puts a file outside every unit under the root unit", () => {
     const base = input([], []);
     const result = assessArchitecture({ ...base, deadFiles: [dead("script.ts", 2)] });
