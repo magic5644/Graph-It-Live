@@ -42,12 +42,16 @@ export interface DeadFile {
   /** `low` (`no-importer`) or `medium` (`test-only-use`), as the scan reports it. */
   confidence: string;
   reasons: readonly string[];
+  /** Dead by cascade (#726): the dead production files that import it. */
+  via?: readonly string[];
+  /** Tests that import nothing but dead files, deleted with it; lines undefined when unread. */
+  tests?: readonly { relativePath: string; lines?: number }[];
 }
 
-/** The dead files of one unit, largest first. */
+/** The dead files of one unit, those nothing imports first, then those dead by cascade; largest first. */
 export interface DeadFileGroup {
   unit: string;
-  /** Lines of the files that could be read. */
+  /** Lines of the files and of their tests to delete (each test once) that could be read. */
   lines: number;
   files: DeadFile[];
 }
@@ -316,6 +320,12 @@ function deadCode(input: AssessmentInput, files: readonly DeadCodeFile[]): Quick
 
 const KIND_ORDER: readonly QuickWinKind[] = ["cycle-break", "mutual-import", "weak-dependency", "dead-code"];
 
+/** Lines of the files that could be read, and of their tests to delete, each test once. */
+function deadLines(files: readonly DeadFile[]): number {
+  const tests = new Map(files.flatMap((file) => file.tests ?? []).map((test) => [test.relativePath, test.lines ?? 0]));
+  return [...files.map((file) => file.lines ?? 0), ...tests.values()].reduce((total, lines) => total + lines, 0);
+}
+
 /** The dead files by unit, the unit with the most lines first, its largest files first. */
 function deadFileGroups(input: AssessmentInput, files: readonly DeadFile[]): DeadFileGroup[] {
   const groups = new Map<string, DeadFile[]>();
@@ -325,9 +335,10 @@ function deadFileGroups(input: AssessmentInput, files: readonly DeadFile[]): Dea
   }
   return [...groups].map(([unit, files]) => ({
     unit,
-    lines: files.reduce((total, file) => total + (file.lines ?? 0), 0),
-    // An unread file (no line count) goes last.
-    files: files.toSorted((left, right) => (right.lines ?? -1) - (left.lines ?? -1) || byCodeUnit(left.relativePath, right.relativePath)),
+    lines: deadLines(files),
+    // Cascade files after the others; an unread file (no line count) goes last.
+    files: files.toSorted((left, right) => Number(left.via !== undefined) - Number(right.via !== undefined) ||
+      (right.lines ?? -1) - (left.lines ?? -1) || byCodeUnit(left.relativePath, right.relativePath)),
   })).sort((left, right) => right.lines - left.lines || right.files.length - left.files.length || byCodeUnit(left.unit, right.unit));
 }
 
@@ -439,7 +450,7 @@ export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<s
       ...(hotSpot === undefined ? {} : { mutualHotSpot: hotSpot }),
       acceptedViolations: input.acceptedViolations,
       deadFiles: deadFileList.length,
-      deadFileLines: deadFiles.reduce((total, group) => total + group.lines, 0),
+      deadFileLines: deadLines(deadFileList),
       deadCodeFiles: deadCodeFiles.filter((file) => file.unusedSymbols.length > 0).length,
       unusedExports: deadCodeFiles.reduce((total, file) => total + file.unusedSymbols.length, 0),
       unusedExportsMedium: input.deadCodeBelowHigh?.medium ?? 0,

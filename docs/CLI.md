@@ -1019,7 +1019,7 @@ An invalid config is reported, never replaced.
 
 **The report**, from the cheapest action to the setup: the rules line (what happened to the config and how many current violations the proposed baseline accepts) and the report files written, apart; a five-line summary (size, cycles, dead files, unused exports, top action: the first dead file with exports, an export-less one being most often an entry point, else the first item of the next sections); then these sections, each left out when empty. A finding is a lead for the architect, never a verdict.
 
-- **Dead files**: the files no production file imports ([`check --unreferencedFiles`](#check)), grouped by unit, the unit with the most lines first, each with its line count, exports, confidence and reasons, and one `next:` command per unit. An entry point by convention (script, handler) is listed too: check before deleting.
+- **Dead files**: the files no production file imports ([`check --unreferencedFiles`](#check)), grouped by unit, the unit with the most lines first (the lines of the tests to delete with them included), each with its line count, exports, confidence and reasons, then the files dead by cascade with their dead importers (`via`), each with the tests to delete with it, and one `next:` command per unit. An entry point by convention (script, handler) is listed too: check before deleting.
 - **Cycles to cut** and **Other leads** list the quick wins, ranked by gain / effort (what the item removes over the imports or symbols to change), then by gain:
 
 | Kind | What | Gain | Effort |
@@ -1209,6 +1209,7 @@ Go, Java and C# files have no symbol analysis yet and are not scanned (#699).
 |------------|--------------|---------|
 | `medium` | `test-only-use` | Only test files import the file. `testImporters` lists every one of them: delete the file with its tests, or the test cases on it, a quick cleanup win. |
 | `low` | `no-importer` | No workspace file imports the file, directly or as the target of a barrel. Delete it unless it is run by name (a script, a config file, a tool's entry). |
+| `low` or `medium` | `cascade` | Only the dead files above and tests import the file (`via` lists the dead importers): it goes with them. Never above its own level nor any of its importers'; a dead cycle nothing else imports is `low`. |
 
 The reasons of the export scan that apply follow: `dynamic-import-in-workspace`, `named-in-deploy-manifest`, `convention:generated`, `published-deep-import`. A file with one of them needs a check before deletion. Each file has `exports`, its exported symbol count (0 for a script). A file imported by a barrel counts as imported, even when nothing imports the barrel: the barrel is listed, and the files it re-exports show up once it is deleted.
 
@@ -1218,25 +1219,25 @@ Left out, and listed as `excluded` with `--verbose`:
 |----------|-------|
 | `convention:test-file` | Test files: a runner loads them by name |
 | `declared:<manifest>#<field>` | Files a manifest declares (see the table above) |
-| `named-in:<file>` | Files whose path a non-test workspace file writes: a bundler entry (`entryPoints: ['src/worker.ts']`), a `package.json` script (`node scripts/x.mjs`), a Dockerfile command |
+| `named-in:<file>` | Files whose path a non-test workspace file writes: a bundler entry (`entryPoints: ['src/worker.ts']`), a `package.json` script (`node scripts/x.mjs`), a Dockerfile command, a CI definition (`.github/workflows/*.yml`, `.github/actions/**/action.yml`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`, `.circleci/config.yml`), a `Makefile`, `justfile`, `Taskfile.yml` or `*.sh` script. A path in a URL or an absolute path names no file |
 | `convention:framework-default-export` | Files with a JSX or Vue default export |
-| `convention:type-declaration` | `.d.ts` files: the compiler loads them, no import does |
+| `convention:type-declaration` | `.d.ts`, `.d.mts` and `.d.cts` files: the compiler loads them, no import does |
 | `convention:config-file` | `*.config.{js,ts,mjs,cjs,mts,cts}`: the tool (Vite, Vitest, ESLint, ...) loads them by name |
 | `gitignored` | Files the `.gitignore` of a folder below the root ignores: a package's build output or generated code. They stay indexed, so a git-ignored generated file that imports source files still counts as their importer |
 | `convention:package-init` | A Python `__init__.py` next to other modules: Python runs it whenever one of them is imported |
 
-Two dead files that import each other are not found: each keeps an importer.
+**Cascade.** Deleting the files above often leaves others dead. The scan follows the reverse index to a fixed point: a file is live when a live production file imports it, so a file whose production importers are all dead is listed after them with `cascade`, chains and dead cycles (A imports B, B imports A, nothing else imports either) included. An entry point, an excluded file, an importer outside the scanned scope, or a dead file that runs as a program (no export, like `app/main.ts`, or `if __name__ == "__main__":`, `require.main === module`, `import.meta.main`, a Rust `fn main()`: most often an entry point no manifest declares) keeps what it imports alive. A path a CI step writes relative to its `working-directory` is not resolved. Every dead file has `tests`, the test files that import nothing but dead files: delete them with it. The tests of `testImporters` that also import live code need a cleanup instead.
 
 ```
 $ graph-it check --unreferencedFiles --format markdown
 ## graph-it check --unreferencedFiles
 
-2 file(s) listed out of 8 scanned: 2 nothing imports (low), 0 only tests import (medium).
+2 file(s) listed out of 8 scanned, 0 of them dead by cascade (only dead files import them): 2 low, 0 medium (only tests import them).
 
-| File | Exports | Confidence | Reasons | Delete with its tests |
-| --- | --- | --- | --- | --- |
-| app/main.ts | 0 | low | no-importer |  |
-| legacy/dailyReport.ts | 1 | low | no-importer |  |
+| File | Exports | Confidence | Reasons | Dead importers | Tests to delete | Tests to clean up |
+| --- | --- | --- | --- | --- | --- | --- |
+| app/main.ts | 0 | low | no-importer |  |  |  |
+| legacy/dailyReport.ts | 1 | low | no-importer |  |  |  |
 ```
 
 **Output (text, workspace-wide):**

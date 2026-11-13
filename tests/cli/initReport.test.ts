@@ -107,7 +107,7 @@ describe("initReport", () => {
     expect(summary).toEqual([
       "  Size: 11 files in 3 units, 2 unit edges",
       "  Cycles: 0 unit cycles, 1 mutual file import",
-      "  Dead files: 9 files no production file imports, 21 lines (7 only imported by tests)",
+      "  Dead files: 9 files no production file imports, 21 lines with their tests (7 only imported by tests)",
       "  Unused exports: 0 high-confidence in 0 files (0 medium, 0 low not listed: graph-it check --minConfidence low)",
       "  Top action: delete app/old.ts (dead file: 12 lines, 1 export)",
     ]);
@@ -120,6 +120,18 @@ describe("initReport", () => {
     expect(renderInitText(result({ assessment: assessArchitecture(scripts) }))).toContain("Top action: core/x.ts and core/y.ts import each other");
     const only = { ...empty, deadFiles: [{ relativePath: "run.ts", exports: 0, confidence: "low", reasons: ["no-importer"] }] };
     expect(renderInitText(result({ assessment: assessArchitecture(only) }))).toContain("Top action: (root) (dead files: 1 file, 0 lines)");
+  });
+
+  it("shows a cascade file's dead importers and the tests to delete, and counts the cascade in the summary (#726)", () => {
+    const input = rich();
+    const deadFiles = [
+      ...input.deadFiles!,
+      { relativePath: "app/utils.ts", lines: 5, exports: 1, confidence: "low", reasons: ["cascade"], via: ["app/old.ts"], tests: [{ relativePath: "tests/utils.test.ts", lines: 4 }] },
+    ];
+    const unitOf = new Map([...input.unitOf, ["app/utils.ts", "app"]]);
+    const text = renderInitText(result({ assessment: assessArchitecture({ ...input, unitOf, deadFiles }) }));
+    expect(text).toContain("  [2 files, 21 lines] app\n      app/old.ts: 12 lines, 1 export, low no-importer\n      app/utils.ts: 5 lines, 1 export, low cascade via app/old.ts; delete with tests/utils.test.ts\n");
+    expect(text).toContain("Dead files: 10 files no production file imports, 30 lines with their tests (7 only imported by tests, 1 only imported by dead files)");
   });
 
   it("lists dead files by unit with one next command, capped per unit", () => {

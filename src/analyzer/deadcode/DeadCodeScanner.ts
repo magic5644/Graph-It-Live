@@ -120,7 +120,7 @@ export interface UnreferencedFilesScanResult {
   /** Every file found, listed or not, per confidence: `low` nothing imports it, `medium` only tests do */
   byConfidence: Record<DeadCodeConfidence, number>;
   hint?: string;
-  /** Sorted by path */
+  /** Sorted by path, the files dead by cascade (`via`) last */
   unreferencedFiles: Array<UnreferencedFile & { relativePath: string }>;
   /** verbose only: unreferenced files left out, and why (test file, manifest entry point, framework default export) */
   excluded?: Array<{ relativePath: string; reason: string }>;
@@ -146,7 +146,8 @@ export async function scanUnreferencedFiles(
   const unreferencedFiles = raw.files
     .filter((file) => meetsConfidence(file.confidence, minConfidence))
     .map((file) => ({ ...file, relativePath: getRelativePath(file.filePath, rootDir) }))
-    .sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+    // Files nothing imports first, then those dead by cascade (#726).
+    .sort((a, b) => Number(a.via !== undefined) - Number(b.via !== undefined) || a.relativePath.localeCompare(b.relativePath));
   const hint = confidenceHint(byConfidence, minConfidence);
   return {
     rootDir,

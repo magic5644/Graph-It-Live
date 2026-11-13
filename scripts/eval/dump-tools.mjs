@@ -5,8 +5,8 @@
  * Run against a built dist/mcpServer.mjs. Snapshots let the tool-selection eval
  * compare description revisions without rebuilding between runs:
  *
- *   git checkout main      && npm run build && node scripts/eval/dump-tools.mjs /tmp/tools.main.json
- *   git checkout my-branch && npm run build && node scripts/eval/dump-tools.mjs /tmp/tools.new.json
+ *   git checkout main      && npm run eval:dump-tools -- /tmp/tools.main.json
+ *   git checkout my-branch && npm run eval:dump-tools -- /tmp/tools.new.json
  */
 
 import { spawn } from 'node:child_process';

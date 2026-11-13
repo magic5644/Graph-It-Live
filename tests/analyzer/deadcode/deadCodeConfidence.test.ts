@@ -8,6 +8,8 @@ import {
   findDynamicLoads,
   inDeepImportedPackage,
   isDeployManifest,
+  isScriptRunner,
+  runsAsProgram,
   isGeneratedFile,
   isTestFile,
   loadsReaching,
@@ -54,6 +56,33 @@ describe("classifyUnused", () => {
     [{ testOnlyUse: true, dynamicLoads: ["src/loader.ts:3"], testFile: true }, ["test-only-use", "dynamic-import-in-workspace", "convention:test-file"]],
   ])("rates %o as medium with its reasons", (overrides, reasons) => {
     expect(classifyUnused({ ...base, ...overrides })).toMatchObject({ confidence: "medium", reasons });
+  });
+});
+
+describe("runsAsProgram (#726)", () => {
+  it.each([
+    'if __name__ == "__main__":\n    main()\n',
+    "if __name__=='__main__': run()\n",
+    "if (require.main === module) main();\n",
+    "if (require.main == module) main();\n",
+    "if (import.meta.main) await main();\n",
+    "fn main() {\n}\n",
+  ])("reads %j as a program", (content) => {
+    expect(runsAsProgram(content)).toBe(true);
+  });
+
+  it.each(["export function main() {}\n", "const name = '__main__';\n", "def domain():\n    pass\n", "fn mainly() {}\n"])("reads %j as a module", (content) => {
+    expect(runsAsProgram(content)).toBe(false);
+  });
+});
+
+describe("script runners (#726)", () => {
+  it.each(["Makefile", "makefile", "GNUmakefile", "rules.mk", "justfile", "Justfile", ".justfile", "publish.sh", "ci/run.SH"])("reads %s", (name) => {
+    expect(isScriptRunner(name)).toBe(true);
+  });
+
+  it.each(["Makefile.am.txt", "make.ts", "justfile.md", "bash.shx", "README.md"])("ignores %s", (name) => {
+    expect(isScriptRunner(name)).toBe(false);
   });
 });
 

@@ -76,6 +76,8 @@ const DEFAULT_EXCLUDE_SUFFIXES = [
   ".test.tsx",
   ".spec.tsx",
   ".d.ts",
+  ".d.mts",
+  ".d.cts",
   ".min.js",
 ];
 
