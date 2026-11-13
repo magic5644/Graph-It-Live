@@ -12,6 +12,8 @@ import ELK, { type ElkExtendedEdge, type ElkNode } from "elkjs/lib/elk.bundled.j
 import type { ArchitectureUnitEdgeKind, UnitRole } from "../../shared/architecture-model";
 import { ELK_LAYERED_OPTIONS, layerPartition } from "../../shared/elkLayered";
 import { normalizePath } from "../../shared/path";
+import { cycleCuts } from "../architecture/architectureAssessment";
+import { buildMatrix } from "../architecture/architectureMatrix";
 import { rulesByEdge, type ArchitectureViolation } from "../architecture/architectureRules";
 import { byCodeUnit } from "../architecture/architectureUnits";
 import { viewUnitLevel, type UnitSource } from "../architecture/architectureView";
@@ -85,15 +87,21 @@ export interface PlacedEdge extends DiagramEdge {
 }
 
 export interface PlacedCycle extends Box {
+  /** The members drawn. */
   members: string[];
+  /** Members of the cycle in the whole level. */
+  size: number;
 }
 
 export interface DiagramText {
   title: string;
   caption: string;
   counts: string;
-  hidden: string | undefined;
+  /** What the drawing leaves out of the level, one line each. */
+  hidden: string[];
   rules: string | undefined;
+  /** Matrix only: how to read a cell. */
+  reading?: string;
 }
 
 export interface DiagramCounts {
@@ -247,17 +255,90 @@ export function cyclesOf(nodes: readonly string[], edges: readonly DiagramEdge[]
     .sort((left, right) => byCodeUnit(left[0], right[0]));
 }
 
-/** The largest `maxNodes` nodes (by files, then key) and the edges between them. */
-export function capNodes(input: DiagramInput, maxNodes: number) {
-  const nodes = input.nodes
-    .toSorted((left, right) => right.fileCount - left.fileCount || byCodeUnit(left.key, right.key))
-    .slice(0, maxNodes)
-    .sort((left, right) => byCodeUnit(left.key, right.key));
+/** What a drawing leaves out of its level; the counts line still covers the whole level. */
+export interface DrawOptions {
+  /** Nodes drawn at most (default MAX_DIAGRAM_NODES). */
+  maxNodes?: number;
+  /** Leaves out the nodes with no edge to another node of the level. */
+  connectedOnly?: boolean;
+  /** Keeps the most coupled nodes (file pairs in and out) instead of the largest, cycle members first. */
+  byCoupling?: boolean;
+  /** On a level with cycles, draws only the edges that cut them (cycleCuts) and their ends. */
+  cutsOnly?: boolean;
+}
+
+/** The edges that cut the level's cycles and the note counting the rest, or undefined without a cycle. */
+function cutView(input: DiagramInput) {
+  const matrix = buildMatrix(
+    input.nodes.map(({ key, label, internalEdgeCount }) => ({ id: key, key, label, internalEdgeCount: internalEdgeCount ?? 0 })),
+    input.edges,
+  );
+  const cut = new Set(cycleCuts(matrix).flatMap((cycle) => cycle.cells.map((cell) => `${matrix.rows[cell.row].key}>${matrix.rows[cell.column].key}`)));
+  if (cut.size === 0) return undefined;
+  const edges = input.edges.filter((edge) => cut.has(`${edge.from}>${edge.to}`));
+  const ends = new Set(edges.flatMap((edge) => [edge.from, edge.to]));
+  const inCycle = matrix.cycles.flatMap((cycle) => cycle.members);
+  const pairs = edges.reduce((total, edge) => total + edge.fileEdgeCount, 0);
+  const full = input.scope === "units" ? "graph-it diagram" : `graph-it diagram --folder ${JSON.stringify(fitLabel(input.scope, 64))}`;
+  const left = [
+    [inCycle.filter((key) => !ends.has(key)).length, input.noun, " of a cycle"],
+    [input.nodes.length - inCycle.length, input.noun, " outside cycles"],
+    [input.edges.length - edges.length, "other edges", ""],
+  ] as const;
+  const notDrawn = left.filter(([count]) => count > 0).map(([count, noun, where]) => plural(count, noun) + where);
+  const notes = [
+    `only the edges that cut a cycle drawn: ${edges.length} in the level (${plural(pairs, "file pairs")})`,
+    ...(notDrawn.length > 0 ? [`${notDrawn.join(", ")} not drawn; all of them: ${full}`] : []),
+  ];
+  return { edges, notes };
+}
+
+/** Which nodes the cap drew, and how many of those it left out sit in a cycle. */
+function drawnNote(coupled: { inCycle: ReadonlySet<string> } | undefined, left: readonly DiagramNode[]) {
+  if (coupled === undefined) return "largest are drawn";
+  const count = left.filter((node) => coupled.inCycle.has(node.key)).length;
+  return "most coupled are drawn, cycle members first" + (count > 0 ? ` (${count} of them in a cycle)` : "");
+}
+
+/** The coupled order: cycle members first, then by file pairs in and out, then by key. */
+function byCoupling(nodes: readonly DiagramNode[], input: DiagramInput) {
+  const pairs = new Map<string, number>();
+  for (const { from, to, fileEdgeCount } of input.edges) {
+    pairs.set(from, (pairs.get(from) ?? 0) + fileEdgeCount);
+    pairs.set(to, (pairs.get(to) ?? 0) + fileEdgeCount);
+  }
+  const inCycle = new Set(cyclesOf(input.nodes.map((node) => node.key), input.edges).flat());
+  const ranked = nodes.toSorted((left, right) =>
+    Number(inCycle.has(right.key)) - Number(inCycle.has(left.key)) || (pairs.get(right.key) ?? 0) - (pairs.get(left.key) ?? 0) || byCodeUnit(left.key, right.key));
+  return { ranked, inCycle };
+}
+
+/**
+ * The nodes and edges drawn, at most `maxNodes` nodes (the largest by default), the nodes of the
+ * level left out and the note that names them.
+ */
+export function capNodes(input: DiagramInput, options: DrawOptions = {}) {
+  const maxNodes = Math.max(1, options.maxNodes ?? MAX_DIAGRAM_NODES);
+  const cut = options.cutsOnly ? cutView(input) : undefined;
+  const drawable = cut?.edges ?? input.edges;
+  const linked = new Set(drawable.flatMap((edge) => [edge.from, edge.to]));
+  // A level without any edge keeps its nodes: an empty drawing says less than lone boxes.
+  const candidates = linked.size > 0 && (cut !== undefined || options.connectedOnly) ? input.nodes.filter((node) => linked.has(node.key)) : input.nodes;
+  const coupled = options.byCoupling ? byCoupling(candidates, input) : undefined;
+  const ranked = coupled?.ranked ?? candidates.toSorted((left, right) => right.fileCount - left.fileCount || byCodeUnit(left.key, right.key));
+  const nodes = ranked.slice(0, maxNodes).sort((left, right) => byCodeUnit(left.key, right.key));
   const kept = new Set(nodes.map((node) => node.key));
-  const edges = input.edges
+  const edges = drawable
     .filter((edge) => kept.has(edge.from) && kept.has(edge.to))
     .sort((left, right) => byCodeUnit(left.from, right.from) || byCodeUnit(left.to, right.to));
-  return { nodes, edges, hidden: input.nodes.length - nodes.length };
+  const isolated = cut === undefined && options.connectedOnly ? input.nodes.length - candidates.length : 0;
+  const capped = candidates.length - nodes.length;
+  const notes = [
+    ...(cut?.notes ?? []),
+    isolated > 0 ? `${plural(isolated, input.noun)} with no edge to the others not drawn` : undefined,
+    capped > 0 ? `${plural(capped, "more " + input.noun)} not drawn: the ${nodes.length} ${drawnNote(coupled, ranked.slice(maxNodes))}` : undefined,
+  ].filter((note) => note !== undefined);
+  return { nodes, edges, hidden: input.nodes.length - nodes.length, notes };
 }
 
 /** Legend samples, left to right: a 24 px line sample, 8 px, the text, 16 px to the next. */
@@ -297,7 +378,7 @@ export const brokenRules = (edges: readonly DiagramEdge[]) => [...new Set(edges.
  * The counts of the whole level, the header lines, the note naming what the cap leaves out and
  * the names of the broken rules: shared by the graph and the matrix.
  */
-export function diagramHeader(input: DiagramInput, hidden: number, drawn: number): { counts: DiagramCounts; text: DiagramText } {
+export function diagramHeader(input: DiagramInput, hidden: string[] = []): { counts: DiagramCounts; text: DiagramText } {
   const counts = {
     nodes: input.nodes.length,
     layers: new Set(input.nodes.map((node) => node.layer)).size,
@@ -313,14 +394,14 @@ export function diagramHeader(input: DiagramInput, hidden: number, drawn: number
       title: `Architecture · ${fitLabel(input.workspace, 48)}`,
       caption: [scope, ...(input.filters ?? []).map((filter) => fitLabel(filter, 48)), `revision ${input.revision.slice(0, 12)}`, ...(input.date ? [input.date] : [])].join(" · "),
       counts: [plural(counts.nodes, input.noun), plural(counts.layers, "layers"), plural(counts.cycles, "cycles"), plural(counts.violations, "violations") + accepted].join(" · "),
-      hidden: hidden > 0 ? `${plural(hidden, "more " + input.noun)} not drawn: the ${drawn} largest are drawn` : undefined,
+      hidden,
       rules: rules.length > 0 ? fitLabel(`broken rules: ${rules.join(", ")}`, 96) : undefined,
     },
   };
 }
 
 /** Notes drawn above the legend, bottom one last. */
-export const legendNotes = (text: DiagramText) => [text.hidden, text.rules].filter((note) => note !== undefined);
+export const legendNotes = (text: DiagramText) => [...text.hidden, text.rules, text.reading].filter((note) => note !== undefined);
 
 /** Height of the legend and its notes, one 20 px line per note. */
 export const legendHeight = (text: DiagramText) => SIZES.legendHeight + 20 * legendNotes(text).length;
@@ -345,11 +426,16 @@ const round = (value: number | undefined) => Math.round((value ?? 0) * 10) / 10;
 /**
  * Lays one level out: ELK layered, top to bottom, each node's layer a partition (highest on
  * top), the members of each cycle inside one block that carries their shared layer. Box sizes
- * come from the labels, so a label always fits its box. At most `maxNodes` nodes are drawn.
+ * come from the labels, so a label always fits its box. `options` choose the nodes drawn (capNodes).
  */
-export async function layoutDiagram(input: DiagramInput, options: { maxNodes?: number } = {}): Promise<DiagramLayout> {
-  const { nodes, edges, hidden } = capNodes(input, Math.max(1, options.maxNodes ?? MAX_DIAGRAM_NODES));
-  const cycles = cyclesOf(nodes.map((node) => node.key), edges);
+export async function layoutDiagram(input: DiagramInput, options: DrawOptions = {}): Promise<DiagramLayout> {
+  const { nodes, edges, hidden, notes } = capNodes(input, options);
+  const kept = new Set(nodes.map((node) => node.key));
+  // The cycles of the whole level: a cut view draws no cycle edge back, its block still holds the members.
+  const levelCycles = cyclesOf(input.nodes.map((node) => node.key), input.edges)
+    .map((members) => ({ members: members.filter((key) => kept.has(key)), size: members.length }))
+    .filter(({ members }) => members.length > 1);
+  const cycles = levelCycles.map(({ members }) => members);
   const cycleOf = new Map(cycles.flatMap((members, index) => members.map((key) => [key, index])));
   const id = new Map(nodes.map((node, index) => [node.key, `n${index}`]));
   const top = Math.max(0, ...nodes.map((node) => node.layer));
@@ -386,7 +472,7 @@ export async function layoutDiagram(input: DiagramInput, options: { maxNodes?: n
     ({ x: round(SIZES.margin + (node?.x ?? 0)), y: round(header + (node?.y ?? 0)), width: round(node?.width), height: round(node?.height) });
   const shift = (point: { x: number; y: number }) => ({ x: round(SIZES.margin + point.x), y: round(header + point.y) });
   const routes = new Map((result.edges ?? []).map((edge) => [edge.id, edge.sections ?? []]));
-  const { counts, text } = diagramHeader(input, hidden, nodes.length);
+  const { counts, text } = diagramHeader(input, notes);
   return {
     input,
     text,
@@ -399,7 +485,7 @@ export async function layoutDiagram(input: DiagramInput, options: { maxNodes?: n
       stroke: strokeWidth(edge.fileEdgeCount),
       points: (routes.get(`e${index}`) ?? []).flatMap((section) => [section.startPoint, ...(section.bendPoints ?? []), section.endPoint]).map(shift),
     })),
-    cycles: cycles.map((members, index) => ({ members, ...at(placed.get(`c${index}`)) })),
+    cycles: levelCycles.map(({ members, size }, index) => ({ members, size, ...at(placed.get(`c${index}`)) })),
     hidden,
     counts,
   };

@@ -42,7 +42,7 @@ const CLASSES = [
   ".edge{fill:none;stroke-linejoin:round}",
   ...STROKES.map((stroke) => `.${stroke}{stroke:var(--${STROKE_COLOURS[stroke]})}.head-${stroke}{fill:var(--${STROKE_COLOURS[stroke]})}`),
   ".accepted{stroke-dasharray:4 3}",
-  `.cell{fill:var(--surface);stroke-width:${SIZES.hairline}px}.diagonal{fill:var(--bg);stroke:var(--line)}`,
+  `.cell{fill:var(--surface);stroke-width:${SIZES.hairline}px}.diagonal{fill:var(--line);fill-opacity:0.18}`,
   `.frame{fill:none;stroke:var(--line);stroke-width:${SIZES.hairline}px}`,
   `.cycle{fill:none;stroke:var(--accent);stroke-width:${SIZES.hairline}px;stroke-dasharray:4 4}`,
   // A halo keeps the title readable where an edge crosses it.
@@ -83,7 +83,7 @@ function graphMarkup(layout: DiagramLayout): string[] {
   const pad = SIZES.nodePaddingX;
   const cycles = layout.cycles.map((cycle) =>
     `<rect class="cycle" x="${cycle.x}" y="${cycle.y}" width="${cycle.width}" height="${cycle.height}" rx="${SIZES.radius}"/>` +
-    text(cycle.x + pad, cycle.y + 18, "cycle-title", `cycle · ${cycle.members.length}`));
+    text(cycle.x + pad, cycle.y + 18, "cycle-title", `cycle · ${cycle.size}`));
   const nodes = layout.nodes.map((node) =>
     `<g><title>${escapeXml(node.key + ": " + node.meta)}</title>` +
     `<rect class="node" x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${SIZES.radius}"/>` +

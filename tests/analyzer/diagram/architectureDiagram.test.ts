@@ -222,10 +222,12 @@ describe("architecture diagram: workspaces-project", () => {
     // A cycle's upward cell is the accent, the diagonal holds the pairs inside a unit.
     expect(layout.cells.filter((cell) => cell.kind === "accent").length).toBeGreaterThan(0);
     expect(layout.cells.filter((cell) => cell.kind === "diagonal").every((cell) => cell.title.endsWith("file pairs inside"))).toBe(true);
-    expect(layout.text).toEqual((await layoutDiagram(diagram)).text);
+    // The graph's lines, plus how to read a cell.
+    expect(layout.text).toEqual({ ...(await layoutDiagram(diagram)).text, reading: "row imports column: N file pairs · grey diagonal: pairs inside" });
     const svg = renderDiagramSvg(layout);
     expectSafeMarkup(svg);
     expect(svg).toContain('class="cell error"');
+    expect(svg).toContain("row imports column: N file pairs");
     expect(svg).not.toContain("width = file pairs");
     await expect(svg).toMatchFileSnapshot("__snapshots__/workspaces-project.matrix.svg");
     expectSafeMarkup(renderDiagramHtml(layout));
@@ -398,9 +400,9 @@ describe("architecture diagram rendering", () => {
     expect(layout.edges.map((edge) => `${edge.from}>${edge.to}`)).toEqual(["a>b", "b>c"]);
     expect(layout.hidden).toBe(2);
     expect(layout.counts.nodes).toBe(5);
-    expect(layout.text.hidden).toBe("2 more units not drawn: the 3 largest are drawn");
+    expect(layout.text.hidden).toEqual(["2 more units not drawn: the 3 largest are drawn"]);
     expect(renderDiagramSvg(layout)).toContain("2 more units not drawn");
-    expect((await layoutDiagram(diagram)).text.hidden).toBeUndefined();
+    expect((await layoutDiagram(diagram)).text.hidden).toEqual([]);
   });
 
   it("counts the cycles of the whole level, and draws only those the cap keeps whole", async () => {
@@ -409,7 +411,54 @@ describe("architecture diagram rendering", () => {
     expectSoundGeometry(layout);
     expect(layout.cycles).toEqual([]);
     expect(layout.counts.cycles).toBe(1);
-    expect(layout.text.hidden).toBe("1 more unit not drawn: the 2 largest are drawn");
+    expect(layout.text.hidden).toEqual(["1 more unit not drawn: the 2 largest are drawn"]);
+  });
+
+  it("draws the most coupled connected nodes, every cycle member kept, and counts the others", async () => {
+    const diagram = input(
+      [["big", 0, 50], ["p", 0, 1], ["q", 0, 1], ["x", 1, 2], ["y", 1, 3], ["z", 2, 1]],
+      [["p", "q", 1, "cycle"], ["q", "p", 1, "cycle"], ["x", "p", 5, "down"], ["y", "p", 1, "down"], ["z", "y", 1, "down"]],
+    );
+    const layout = await layoutDiagram(diagram, { connectedOnly: true, byCoupling: true, maxNodes: 3 });
+    expectSoundGeometry(layout);
+    expect(layout.nodes.map((node) => node.key)).toEqual(["p", "q", "x"]);
+    expect(layout.cycles).toMatchObject([{ members: ["p", "q"], size: 2 }]);
+    expect(layout.hidden).toBe(3);
+    expect(layout.counts.nodes).toBe(6);
+    expect(layout.text.hidden).toEqual(["1 unit with no edge to the others not drawn", "2 more units not drawn: the 3 most coupled are drawn, cycle members first"]);
+    // A cycle larger than the cap: its most coupled member is drawn, the block still counts the whole cycle.
+    const tight = await layoutDiagram(diagram, { byCoupling: true, maxNodes: 1 });
+    expect(tight.nodes.map((node) => node.key)).toEqual(["p"]);
+    expect(tight.text.hidden).toEqual(["5 more units not drawn: the 1 most coupled are drawn, cycle members first (1 of them in a cycle)"]);
+    // Without isolated node, no note: the matrix rows are the connected ones.
+    const matrix = layoutMatrix(diagram, { connectedOnly: true });
+    expect(matrix.rows.map((row) => row.key).sort()).toEqual(["p", "q", "x", "y", "z"]);
+    expect(matrix.text.hidden).toEqual(["1 unit with no edge to the others not drawn"]);
+    // A level without edges keeps its nodes, with no note.
+    const lone = layoutMatrix(input([["a", 0, 1], ["b", 0, 1]]), { connectedOnly: true });
+    expect([lone.rows.length, lone.text.hidden]).toEqual([2, []]);
+  });
+
+  it("draws only the edges that cut a cycle, in its block, and counts the rest", async () => {
+    const diagram = {
+      ...input(
+        [["a", 0, 1], ["b", 0, 1], ["c", 0, 1], ["d", 1, 1]],
+        [["a", "b", 5, "cycle"], ["b", "c", 4, "cycle"], ["c", "a", 1, "cycle"], ["d", "a", 2, "down"]],
+      ),
+      scope: "src", noun: "groups",
+    };
+    const layout = await layoutDiagram(diagram, { cutsOnly: true });
+    expectSoundGeometry(layout);
+    expect(layout.edges.map((edge) => `${edge.from}>${edge.to}`)).toEqual(["c>a"]);
+    expect(layout.nodes.map((node) => node.key)).toEqual(["a", "c"]);
+    expect(layout.cycles).toMatchObject([{ members: ["a", "c"], size: 3 }]);
+    expect(layout.counts).toMatchObject({ nodes: 4, cycles: 1 });
+    expect(layout.text.hidden).toEqual(["only the edges that cut a cycle drawn: 1 in the level (1 file pair)", '1 group of a cycle, 1 group outside cycles, 3 other edges not drawn; all of them: graph-it diagram --folder "src"']);
+    expect(renderDiagramSvg(layout)).toContain("cycle · 3");
+    // Without a cycle, nothing to cut: the whole level.
+    const acyclic = await layoutDiagram(input([["a", 1, 1], ["b", 0, 1]], [["a", "b", 1, "down"]]), { cutsOnly: true });
+    expect(acyclic.nodes).toHaveLength(2);
+    expect(acyclic.text.hidden).toEqual([]);
   });
 
   it("draws two cycles apart, sorted by their first member", async () => {
@@ -465,7 +514,7 @@ describe("architecture matrix diagram", () => {
     expectSoundMatrix(layout);
     expect(layout.rows.map((row) => row.text)).toEqual(["1 b", "2 a"]);
     expect(layout.cells.map((cell) => [cell.kind, cell.count])).toEqual([["down", 123_456], ["diagonal", 4]]);
-    expect(layout.text.hidden).toBe("1 more unit not drawn: the 2 largest are drawn");
+    expect(layout.text.hidden).toEqual(["1 more unit not drawn: the 2 largest are drawn"]);
     expect(layout.grid.width / 2).toBeGreaterThan(28);
   });
 

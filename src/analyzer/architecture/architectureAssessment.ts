@@ -170,7 +170,7 @@ interface CycleCut {
  * with fewer pairs. Any order gives a valid cut; two orders make it exact for a two-unit cycle.
  * shortcut: not the minimum cut of a larger block (NP-hard), switch to a heuristic search if blocks of 3+ units need it.
  */
-function cycleCuts(matrix: ArchitectureMatrix<string>): CycleCut[] {
+export function cycleCuts(matrix: ArchitectureMatrix<string>): CycleCut[] {
   return matrix.cycles.map(({ firstRow, lastRow, members }) => {
     const inside = matrix.cells.filter((cell) => cell.row !== cell.column
       && cell.row >= firstRow && cell.row <= lastRow && cell.column >= firstRow && cell.column <= lastRow);

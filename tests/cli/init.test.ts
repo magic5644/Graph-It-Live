@@ -142,6 +142,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     expect(result.written).toEqual([CONFIG]);
     expect(result.reportFiles).toEqual(expect.arrayContaining([`${dir}/units.svg`, `${dir}/report.md`]));
     for (const diagram of result.diagrams) expect(read(diagram.file)).toMatch(/^<svg/);
+    expect(read(`${dir}/matrix.svg`)).toContain("row imports column: N file pairs");
     const report = read(`${dir}/report.md`);
     expect(report).toContain("([diagram](units.svg))");
     expect(report).toContain("([diagram](folder-1-shared-ui.svg))");

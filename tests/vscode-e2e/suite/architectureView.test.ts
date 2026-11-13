@@ -840,6 +840,7 @@ suite('Architecture view mode', () => {
     const root = vscode.workspace.workspaceFolders![0].uri;
     const svgFile = vscode.Uri.joinPath(root, 'architecture-e2e.svg');
     const pngFile = vscode.Uri.joinPath(root, 'architecture-e2e.png');
+    const matrixFile = vscode.Uri.joinPath(root, 'architecture-e2e-matrix.svg');
     /** The bytes the extension writes once the export settles. */
     const written = async (file: vscode.Uri): Promise<Uint8Array> => {
       const start = Date.now();
@@ -874,11 +875,18 @@ suite('Architecture view mode', () => {
       const start = Date.now();
       while (Date.now() - start < 30000 && (await vscode.env.clipboard.readText()) === '') await sleep(250);
       assert.strictEqual(await vscode.env.clipboard.readText(), svg, 'Copy as SVG copies the same SVG');
+
+      await expectMatrix('the libraries matrix', { view: 'matrix' }, matrix => matrix.unit === undefined);
+      await exportTo({ target: 'file', output: 'architecture-e2e-matrix.svg' });
+      const matrixSvg = Buffer.from(await written(matrixFile)).toString('utf8');
+      assert.ok(matrixSvg.includes('row imports column: N file pairs'), 'the matrix says what a cell counts');
+      assert.match(matrixSvg, /\.diagonal\{fill:var\(--line\)/, 'the diagonal is greyed');
     } finally {
+      await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { view: 'graph' });
       await vscode.env.clipboard.writeText(clipboard);
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { role: 'library' });
       await waitForRender('every unit again', filtered.renderCount, render => !render.roles.some(role => role.endsWith('*')));
-      const files = [svgFile, pngFile];
+      const files = [svgFile, pngFile, matrixFile];
       const existing = (await Promise.all(files.map(file => Promise.resolve(vscode.workspace.fs.stat(file)).then(() => file, () => undefined))))
         .filter((file): file is vscode.Uri => file !== undefined);
       if (existing.length > 0) await settleFileEvents(existing, () => Promise.all(existing.map(file => vscode.workspace.fs.delete(file))));
