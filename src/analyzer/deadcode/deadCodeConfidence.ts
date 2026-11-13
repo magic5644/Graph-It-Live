@@ -460,7 +460,7 @@ export interface ViteGlob {
   base?: string;
 }
 
-const VITE_GLOB = /\bimport\.meta\.glob(?:Eager)?\s*(?:<[^>]*>)?\s*\(\s*/g;
+const VITE_GLOB = /\bimport\.meta\.glob(?:Eager)?\s*(?:<[^>]*>\s*)?\(\s*/g;
 const QUOTED = /^(["'`])((?:(?!\1)[^\\\n])*)\1/;
 /** The options object of the call reaches its `base` key before any other call; a template `${...}` makes it dynamic. */
 const GLOB_BASE = /^[^()]*?\bbase\s*:\s*(["'])([^"'\n]*)\1/;
@@ -521,12 +521,15 @@ export function templatedSourceNames(content: string): string[] {
   return [...names];
 }
 
-/** Files a migration tool runs from its folder (Knex, TypeORM, Sequelize, Prisma, Django, Alembic...). */
-const MIGRATION_FOLDER = /(?:^|\/)(?:[\w-]*[-_])?migrations\/|(?:^|\/)alembic\/versions\//i;
-
-/** Whether a workspace-relative path lies in a migrations folder (`migrations/`, `data-migrations/`, `alembic/versions/`). */
+/**
+ * Whether a workspace-relative path lies in a folder a migration tool runs files from (Knex, TypeORM, Sequelize, Prisma,
+ * Django, Alembic...): `migrations/`, `data-migrations/`, `*_migrations/`, `alembic/versions/`.
+ */
 export function isMigrationFile(relativePath: string): boolean {
-  return MIGRATION_FOLDER.test(normalizePath(relativePath));
+  const folders = normalizePath(relativePath).toLowerCase().split("/").slice(0, -1);
+  return folders.some((folder, i) =>
+    folder === "migrations" || folder.endsWith("-migrations") || folder.endsWith("_migrations") ||
+    (folder === "versions" && folders[i - 1] === "alembic"));
 }
 
 /** `working-directory: <dir>` (GitHub Actions, Azure) and `cd <dir>` in a command. */
