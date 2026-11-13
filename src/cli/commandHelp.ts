@@ -245,6 +245,9 @@ Options:
                      the report
   --output DIR       Also write report.md and SVG diagrams (units, matrix, hot-spot
                      folders) to this workspace directory
+  --focus NAME       Restrict the report and the diagrams to one unit, package name or
+                     folder and its direct neighbours; the rules files still cover the
+                     whole workspace
   --workspace, -w    Workspace root directory (default: auto-detected)
   --format, -f       Output format: text|markdown|json|toon (default: text)
   --help, -h         Show this help
@@ -253,6 +256,7 @@ Examples:
   graph-it init
   graph-it init --dry-run --format markdown > architecture-assessment.md
   graph-it init --output architecture-report
+  graph-it init --focus apps/api --output architecture-report
   graph-it init --yes --format json
 `,
   diagram: `graph-it diagram — Write a static architecture diagram

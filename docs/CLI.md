@@ -970,7 +970,7 @@ The VS Code Architecture view and the [`check_architecture`](#check_architecture
 Sets up the architecture guard from the code as it is today, so that [`check-architecture`](#check-architecture) passes now and fails only on new drift. It does not judge whether the current architecture is good. Then it prints what can be improved quickly and reads the dependency matrix for you.
 
 ```bash
-graph-it init [--yes] [--dry-run] [--output <dir>] [--format text|markdown|json|toon]
+graph-it init [--yes] [--dry-run] [--output <dir>] [--focus <unit|package|folder>] [--format text|markdown|json|toon]
 ```
 
 **The config.** `init` writes `graphit.architecture.json`:
@@ -1018,16 +1018,19 @@ The totals (files, units, unit edges, unit cycles, mutual imports and their hot 
 
 **Diagrams.** With `--output <dir>` (a workspace directory, created if needed), `init` also writes, through [`diagram`](#diagram), `units.svg` (current violations drawn as accepted), `matrix.svg`, one `folder-<n>-<unit>.svg` for each of the first 3 units of the unit cycles and hubs at risk, and `report.md`, whose findings link to their diagram. To stay readable on a large workspace, these diagrams draw less than `diagram` does, and a note under each counts what it leaves out (the header counts still cover the whole level): `units.svg` draws at most the 20 most coupled units (file pairs in and out), cycle members first, and inside a unit cycle only the edges that cut it; neither `units.svg` nor `matrix.svg` draws a unit with no edge to the others; a folder diagram of a level with a cycle draws only the edges that cut it (the cut of the `cycle-break` quick win) and their two ends, in the cycle's block, at most the 20 most coupled groups. `graph-it diagram` draws the full level. Writes stay in the workspace and never go through a symbolic link, a hard link or over a non-regular file.
 
+**Focus.** `--focus <name>` restricts the report and the diagrams to one unit or folder and its direct neighbours (the files importing it or imported by it). The name is a unit or folder key as [`architecture --level units`](#architecture) and `--folder` print them (`apps/web`, `(root)/cli`), a package name (`@acme/web`), or a workspace directory (`apps/web/src/components`, mapped to its key as [`diagram`](#diagram) maps `<dir>`). It takes one value: pass it once. The summary starts with a `Focus:` line and its totals cover the focus: its files, its units with their neighbours, the unit edges through it, the unit cycles it is in. Kept: the dead files in the focus or importing it; the mutual imports, weak dependencies and unused exports touching its files; the whole `cycle-break` of a unit cycle its unit is in, even when the cut is outside the focus; the matrix findings of its units and of their neighbours. `units.svg` and `matrix.svg` draw those units only, and the first folder diagram is the focus itself. The rules files still cover the whole workspace. An unknown name fails before anything is written, with the closest names (`Did you mean: …`); a directory holding several units asks for one of them. A focus with nothing to report prints zero totals and `Top action: none`.
+
 The dead-code scans take as long as [`graph-it check`](#check) and `graph-it check --unreferencedFiles` on the same workspace. `json` and `toon` list the report files under `reportFiles`, apart from the rules files under `written`.
 
 ```bash
 graph-it init                                    # write the config, print the report
 graph-it init --dry-run --format markdown > architecture-assessment.md
 graph-it init --output architecture-report       # plus report.md and SVG diagrams
+graph-it init --focus apps/api --output architecture-report   # one unit or folder and its neighbours
 graph-it init --yes                              # merge into an existing config without a prompt
 ```
 
-**Exit code**: 0, also when an existing config is kept; 1 on an invalid config or baseline; 5 for `--output` outside the workspace or a refused write; 4 for another format.
+**Exit code**: 0, also when an existing config is kept; 1 on an invalid config or baseline, or an unknown or repeated `--focus`; 5 for `--output` outside the workspace or a refused write; 4 for another format.
 
 ### diagram
 
