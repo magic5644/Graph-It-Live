@@ -1280,15 +1280,7 @@ export class PathResolver {
   private async emittedSourceSubpaths(packageDir: string, subpath: string): Promise<string[]> {
     let outputs = this.packageOutputDirs.get(packageDir);
     if (!outputs) {
-      outputs = fs.readdir(packageDir).then(
-        (names) => Promise.all(names.filter((name) => /^tsconfig.*\.json$/.test(name)).map(async (name) => {
-          const config = parseTsConfig(path.join(packageDir, name), await fs.readFile(path.join(packageDir, name), "utf-8").catch(() => ""));
-          return [config?.compilerOptions?.declarationDir, config?.compilerOptions?.outDir]
-            .filter((dir): dir is string => typeof dir === "string")
-            .map((dir) => path.posix.normalize(normalizePath(dir)).replace(/\/$/, ""));
-        })).then((dirs) => [...new Set(dirs.flat())].filter((dir) => dir !== "." && !dir.startsWith(".."))),
-        () => [],
-      );
+      outputs = this.readOutputDirs(packageDir);
       this.packageOutputDirs.set(packageDir, outputs);
     }
     const posixSubpath = normalizePath(subpath).replace(/^\//, "");
@@ -1297,6 +1289,19 @@ export class PathResolver {
       const rest = posixSubpath.slice(dir.length + 1);
       return [rest, `src/${rest}`, `${path.posix.basename(dir)}/${rest}`];
     });
+  }
+
+  /** The output folders (outDir, declarationDir) the tsconfig*.json files of a package declare, package-relative. */
+  private async readOutputDirs(packageDir: string): Promise<string[]> {
+    const names = await fs.readdir(packageDir).catch(() => []);
+    const dirs = await Promise.all(names.filter((name) => /^tsconfig.*\.json$/.test(name)).map(async (name) => {
+      const file = path.join(packageDir, name);
+      const config = parseTsConfig(file, await fs.readFile(file, "utf-8").catch(() => ""));
+      return [config?.compilerOptions?.declarationDir, config?.compilerOptions?.outDir]
+        .filter((dir): dir is string => typeof dir === "string")
+        .map((dir) => path.posix.normalize(normalizePath(dir)).replace(/\/$/, ""));
+    }));
+    return [...new Set(dirs.flat())].filter((dir) => dir !== "." && !dir.startsWith(".."));
   }
 
   /**
