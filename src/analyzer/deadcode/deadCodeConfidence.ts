@@ -497,6 +497,38 @@ export function expandBraces(pattern: string): string[] {
   return pattern.slice(open + 1, close).split(",").flatMap((choice) => expandBraces(pattern.slice(0, open) + choice + pattern.slice(close + 1)));
 }
 
+/**
+ * The source paths an HTML page writes: Vite's `<script type="module" src="/src/main.ts">` names the entry from the
+ * page's folder (the Vite root), so a root-relative `src` / `href` counts as relative to it.
+ */
+export function htmlSourcePaths(content: string): string[] {
+  return writtenSourcePaths(content.replaceAll(/(\b(?:src|href)\s*=\s*["'])\/(?!\/)/gi, "$1"));
+}
+
+const TEMPLATE_PATH = /`([\w@./-]*\$\{[^`}]+\}[\w@./${}-]*?)`/g;
+
+/**
+ * File names a source builds at run time and loads (`` path.resolve(dir, `config.${mode}.ts`) ``): the name with each
+ * `${...}` as `*` (`config.*.ts`). Only names with a literal part besides the extension and the wildcards, so
+ * `` `${name}.ts` `` names nothing.
+ */
+export function templatedSourceNames(content: string): string[] {
+  const names = new Set<string>();
+  for (const match of content.matchAll(TEMPLATE_PATH)) {
+    const name = path.posix.basename(match[1].replaceAll(/\$\{[^}]*\}/g, "*"));
+    if (SOURCE_EXTENSION.test(name) && /[\w-]/.test(name.replace(SOURCE_EXTENSION, "").replaceAll(/[*.]/g, ""))) names.add(name);
+  }
+  return [...names];
+}
+
+/** Files a migration tool runs from its folder (Knex, TypeORM, Sequelize, Prisma, Django, Alembic...). */
+const MIGRATION_FOLDER = /(?:^|\/)(?:[\w-]*[-_])?migrations\/|(?:^|\/)alembic\/versions\//i;
+
+/** Whether a workspace-relative path lies in a migrations folder (`migrations/`, `data-migrations/`, `alembic/versions/`). */
+export function isMigrationFile(relativePath: string): boolean {
+  return MIGRATION_FOLDER.test(normalizePath(relativePath));
+}
+
 /** `working-directory: <dir>` (GitHub Actions, Azure) and `cd <dir>` in a command. */
 const WORKING_DIR = /(?:\bworking[-_]directory\s*:\s*|(?<![\w-])cd\s+)["']?([\w@.][\w@./-]*)/g;
 

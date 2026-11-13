@@ -11,6 +11,9 @@ import {
   isScriptRunner,
   runsAsProgram,
   urlImports,
+  htmlSourcePaths,
+  templatedSourceNames,
+  isMigrationFile,
   viteGlobs,
   expandBraces,
   writtenWorkingDirs,
@@ -96,6 +99,25 @@ describe("bundler loads (#728)", () => {
 
   it("reads a path after an interpolated folder as relative", () => {
     expect(writtenSourcePaths("fork(`${dir}/get_donors.js`); run('/opt/x.js')")).toEqual(["get_donors.js"]);
+  });
+});
+
+describe("htmlSourcePaths, templatedSourceNames, isMigrationFile (#728)", () => {
+  it("reads a Vite page's root-relative entry as relative to the page, never a protocol-relative URL", () => {
+    expect(htmlSourcePaths('<script type="module" src="/src/main.ts"></script><script src="//cdn.x/a.js"></script><link href="./theme.ts">')).toEqual(["src/main.ts", "./theme.ts"]);
+  });
+
+  it("reads names built at run time, with a literal part besides the wildcards", () => {
+    const content = "path.resolve(dir, `config.${mode}.ts`); load(`./plugins/${name}/index.js`); x(`${name}.ts`); y(`${a}${b}.js`); z(`hello ${who}`);";
+    expect(templatedSourceNames(content)).toEqual(["config.*.ts", "index.js"]);
+  });
+
+  it.each([
+    ["backend/data-migrations/executed/2026_x/migration.ts", true], ["db/migrations/001_init.js", true],
+    ["src/database/typeorm_migrations/a.ts", true], ["alembic/versions/abc_add.py", true], ["app\\migrations\\0001.py", true],
+    ["src/migration.ts", false], ["src/migrationsHelper.ts", false], ["src/premigrations/x.ts", false],
+  ])("%s in a migrations folder: %s", (file, expected) => {
+    expect(isMigrationFile(file)).toBe(expected);
   });
 });
 

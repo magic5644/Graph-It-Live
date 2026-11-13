@@ -21,7 +21,7 @@ import { isPythonOrRust, namesModule, pythonStarExports, readImportBindings } fr
 import { mayReExport, readModuleReExports, type ModuleReExports, type ReExportTarget } from '../utils/reExports';
 import { DEFAULT_ONLY, findDeclaration, type DeclarationReads } from '../utils/declarations';
 import { getRelativePath } from '../../shared/path';
-import { classifyUnused, codeForNames, EVIDENCE_PATHS, deployModuleName, inDeepImportedPackage, isGeneratedFile, isTestFile, runsAsProgram, loadsReaching, namedAgain, rustQualifiedUse, type DeadCodeConfidence, type ExcludedExport, type ExcludedFile, type UnreferencedFile, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
+import { classifyUnused, codeForNames, EVIDENCE_PATHS, deployModuleName, inDeepImportedPackage, isGeneratedFile, isMigrationFile, isTestFile, runsAsProgram, loadsReaching, namedAgain, rustQualifiedUse, type DeadCodeConfidence, type ExcludedExport, type ExcludedFile, type UnreferencedFile, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
 import { declaredReason, type DeclaredEntryPoints } from '../deadcode/declaredEntryPoints';
 import { DeadCodeTextIndex, type WorkspaceTextFacts } from '../deadcode/DeadCodeTextIndex';
 import { cascadeConfidence, deadByCascade } from '../deadcode/deadCodeCascade';
@@ -107,8 +107,9 @@ export interface TraceCallEntry {
 const JS_TS_MODULE = /\.[cm]?[jt]sx?$/i;
 const VUE_FILE = /\.vue$/i;
 const SVELTE_FILE = /\.svelte$/i;
-// `vercel.ts`: the Vercel project config, loaded by name like a `*.config.ts`.
-const CONFIG_FILE = /(?:\.config|(?:^|\/)vercel)\.[cm]?[jt]s$/i;
+// `vercel.ts` (Vercel) and `.<tool>rc.ts` files are configs loaded by name like a `*.config.ts`.
+const CONFIG_FILE = /(?:\.config|(?:^|\/)(?:vercel|\.[\w-]+rc))\.[cm]?[jt]s$/i;
+const MIGRATION = 'convention:migration';
 const TYPE_DECLARATION = /\.d\.[cm]?ts$/i;
 const PYTHON_FILE = /\.pyi?$/i;
 const RUST_FILE = /\.rs$/i;
@@ -236,15 +237,14 @@ export class SpiderSymbolService {
       const textFacts = this.workspaceTextFacts(context);
       const { entryPoints, deployReferences, packageDeepImport, frameworksByPackage } = await textFacts;
       const publishedDeepImport = inDeepImportedPackage(target, packageDeepImport);
-      // A route or auto-imported file: the framework loads it and reads its exports (GET, load, default...).
-      const frameworkRoute = isFrameworkRoute(target, frameworksByPackage);
+      const loadedByConvention = this.conventionReason(target, frameworksByPackage);
       const generated = isGeneratedFile(content);
       const reasons = new Map<string, Promise<string | undefined>>();
       const entryReason = (symbol: SymbolInfo): Promise<string | undefined> => {
         let reason = reasons.get(symbol.id);
         if (!reason) {
-          reason = frameworkRoute
-            ? Promise.resolve(FRAMEWORK_ROUTE)
+          reason = loadedByConvention
+            ? Promise.resolve(loadedByConvention)
             : this.entryReason(target, content, symbol, referencingFiles, entryPoints, context.reExportMemo);
           reasons.set(symbol.id, reason);
         }
@@ -1281,8 +1281,10 @@ export class SpiderSymbolService {
     const isTest = (file: string): boolean => isTestFile(this.relativeToRoot(file));
     // An export-less file (main.ts) or one written to run as a program (`if __name__ == "__main__"`) is most often an
     // entry point no manifest declares: it is listed but keeps what it imports alive, or a whole application would follow it.
+    // A file something may still load (a computed import reaches it, a deploy manifest names it) starts none either.
+    const certain = (file: UnreferencedFile): boolean => file.exports > 0 && file.reasons.every((reason) => reason === 'no-importer' || reason === 'test-only-use');
     const dead = new Set<string>();
-    await mapWithConcurrency(direct.filter((file) => file.exports > 0), DEAD_CODE_SCAN_CONCURRENCY, async ({ filePath }) => {
+    await mapWithConcurrency(direct.filter(certain), DEAD_CODE_SCAN_CONCURRENCY, async ({ filePath }) => {
       if (!runsAsProgram(await this.fileReader.readFile(filePath))) dead.add(filePath);
     });
     const live = new Set<string>();
@@ -1344,6 +1346,15 @@ export class SpiderSymbolService {
     }
   }
 
+  /**
+   * Why a tool loads the file by convention, its exports read without an import: a framework route or auto-imported
+   * file (GET, load, default...), or a migration its tool runs (up/down).
+   */
+  private conventionReason(target: string, frameworksByPackage: ReadonlyMap<string, readonly number[]>): string | undefined {
+    if (isFrameworkRoute(target, frameworksByPackage)) return FRAMEWORK_ROUTE;
+    return isMigrationFile(this.relativeToRoot(target)) ? MIGRATION : undefined;
+  }
+
   /** The file as an unreferenced file, as an excluded one, or undefined when a production file imports it. */
   private async unreferencedFile(
     target: string,
@@ -1363,7 +1374,8 @@ export class SpiderSymbolService {
     // Tool configs (vite.config.ts, eslint.config.mjs): the tool loads them by name.
     if (CONFIG_FILE.test(target)) return { filePath: target, reason: 'convention:config-file' };
     const { entryPoints, deployReferences, packageDeepImport, namedPaths, frameworksByPackage } = await textFacts;
-    if (isFrameworkRoute(target, frameworksByPackage)) return { filePath: target, reason: FRAMEWORK_ROUTE };
+    const convention = this.conventionReason(target, frameworksByPackage);
+    if (convention) return { filePath: target, reason: convention };
     if (path.posix.basename(target) === '__init__.py' && (await hasOtherPythonModule(path.posix.dirname(target)))) {
       return { filePath: target, reason: 'convention:package-init' };
     }
