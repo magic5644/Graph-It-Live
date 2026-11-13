@@ -10,10 +10,10 @@ import { buildMatrix } from "../architecture/architectureMatrix";
 import {
   capNodes,
   diagramHeader,
+  type DrawOptions,
   fitLabel,
   hasAccepted,
   legendHeight,
-  MAX_DIAGRAM_NODES,
   textBound,
   textWidth,
   type Box,
@@ -61,9 +61,12 @@ function cellKind(row: number, column: number, edge: DiagramEdge | undefined): C
   return column > row ? "accent" : "down";
 }
 
-/** Lays the matrix of one level out; at most `maxNodes` rows, the largest kept. */
-export function layoutMatrix(input: DiagramInput, options: { maxNodes?: number } = {}): MatrixLayout {
-  const { nodes, edges, hidden } = capNodes(input, Math.max(1, options.maxNodes ?? MAX_DIAGRAM_NODES));
+/** What a cell means, drawn above the legend of every matrix. */
+const READING = "row imports column: N file pairs · grey diagonal: pairs inside";
+
+/** Lays the matrix of one level out; `options` choose the rows drawn (capNodes). */
+export function layoutMatrix(input: DiagramInput, options: DrawOptions = {}): MatrixLayout {
+  const { nodes, edges, hidden, notes } = capNodes(input, options);
   const matrix = buildMatrix(
     nodes.map(({ key, label, internalEdgeCount }) => ({ id: key, key, label, internalEdgeCount: internalEdgeCount ?? 0 })),
     edges,
@@ -78,7 +81,9 @@ export function layoutMatrix(input: DiagramInput, options: { maxNodes?: number }
   const gridX = SIZES.margin + labelWidth;
   const gridY = top + COLUMN_HEADER;
   const size = matrix.rows.length * cell;
-  const { counts, text } = diagramHeader(input, hidden, nodes.length);
+  const header = diagramHeader(input, notes);
+  const { counts } = header;
+  const text = { ...header.text, reading: READING };
   const placed = matrix.cells.map((matrixCell): PlacedCell => {
     const [from, to] = [matrix.rows[matrixCell.row].key, matrix.rows[matrixCell.column].key];
     const edge = edgeOf.get(`${from}>${to}`);

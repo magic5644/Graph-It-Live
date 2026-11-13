@@ -32,6 +32,7 @@ import {
 } from "../../analyzer/architecture/architectureRules.js";
 import { assignUnits, buildArchitectureUnits } from "../../analyzer/architecture/architectureUnits.js";
 import type { UnitSource } from "../../analyzer/architecture/architectureView.js";
+import type { DrawOptions } from "../../analyzer/diagram/architectureDiagram.js";
 import { renderSourceDiagram } from "../../analyzer/diagram/workspaceDiagram.js";
 import { executeScanDeadCode } from "../../mcp/tools";
 import { workerState } from "../../mcp/shared/state";
@@ -83,6 +84,16 @@ const terminalIo: InitIo = {
 const FORMATS: readonly CliOutputFormat[] = ["text", "markdown", "json", "toon"];
 /** Folder diagrams drawn for the units the findings rank first. */
 const MAX_FOLDER_DIAGRAMS = 3;
+/**
+ * What each diagram leaves out to stay readable on a large workspace, each note counting it:
+ * units: the 20 most coupled, cycle members first, a cycle drawn by its cuts; no matrix row without an edge;
+ * a folder in a cycle drawn by its cuts.
+ */
+const DRAW: Record<InitDiagram["view"], DrawOptions> = {
+  units: { connectedOnly: true, byCoupling: true, maxNodes: 20, cutsOnly: true },
+  matrix: { connectedOnly: true },
+  folder: { cutsOnly: true },
+};
 
 /** `--output` as a workspace-relative `/` path ("." for the root), refused outside the workspace before any work. */
 function readOutputDir(workspaceRoot: string, output: string): string {
@@ -166,7 +177,7 @@ async function writeDiagrams(source: UnitSource, workspaceRoot: string, outputDi
   ];
   // At most 2 + MAX_FOLDER_DIAGRAMS independent files.
   await Promise.all(diagrams.map(async (diagram) => {
-    const { markup } = await renderSourceDiagram(source, workspaceRoot, { view: diagram.view, folder: diagram.unit, format: "svg", theme: "light", violations });
+    const { markup } = await renderSourceDiagram(source, workspaceRoot, { view: diagram.view, folder: diagram.unit, draw: DRAW[diagram.view], format: "svg", theme: "light", violations });
     await writeWorkspaceFile(workspaceRoot, diagram.file, markup);
   }));
   return diagrams;

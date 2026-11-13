@@ -10,7 +10,7 @@ import { buildArchitectureGraph, type AnalyzeFile } from "../architecture/Archit
 import { checkWorkspaceArchitecture, loadDeclaredRoles, type ArchitectureRulesFileNames } from "../architecture/architectureRules";
 import { assignUnits, buildArchitectureUnits, directoryFolderKey } from "../architecture/architectureUnits";
 import type { UnitSource } from "../architecture/architectureView";
-import { architectureDiagramInput, layoutDiagram, type DiagramInputOptions } from "./architectureDiagram";
+import { architectureDiagramInput, layoutDiagram, type DiagramInputOptions, type DrawOptions } from "./architectureDiagram";
 import { layoutMatrix } from "./diagramMatrix";
 import type { DIAGRAM_FORMATS, DiagramTheme, DiagramView } from "./diagramStyle";
 import { diagramSpec } from "./diagramSpec";
@@ -52,7 +52,7 @@ export async function renderWorkspaceDiagram(workspaceRoot: string, analyze: Ana
 export async function renderSourceDiagram(
   source: UnitSource,
   workspaceRoot: string,
-  options: Pick<WorkspaceDiagramOptions, "view" | "folder" | "format" | "theme"> & Omit<DiagramInputOptions, "folder">,
+  options: Pick<WorkspaceDiagramOptions, "view" | "folder" | "format" | "theme"> & Omit<DiagramInputOptions, "folder"> & { draw?: DrawOptions },
 ) {
   const input = architectureDiagramInput(source, workspaceRoot, options);
   if (options.format === "diagram-spec") {
@@ -60,7 +60,7 @@ export async function renderSourceDiagram(
     const spec = diagramSpec(input);
     return { markup: `${JSON.stringify(spec, null, 2)}\n`, counts: spec.caption.counts, width: 0, height: 0 };
   }
-  const layout = options.view === "matrix" ? layoutMatrix(input) : await layoutDiagram(input);
+  const layout = options.view === "matrix" ? layoutMatrix(input, options.draw) : await layoutDiagram(input, options.draw);
   const markup = options.format === "svg" ? renderDiagramSvg(layout, options.theme) : renderDiagramHtml(layout);
   return { markup, counts: layout.text.counts, width: layout.width, height: layout.height };
 }

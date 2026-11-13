@@ -42,7 +42,7 @@ export interface DiagramSpec {
 
 /** The spec of one level: every node and edge, sorted by key, so one index revision gives one document. */
 export function diagramSpec(input: DiagramInput): DiagramSpec {
-  const { counts, text } = diagramHeader(input, 0, input.nodes.length);
+  const { counts, text } = diagramHeader(input);
   const nodes = input.nodes.toSorted((left, right) => byCodeUnit(left.key, right.key));
   const edges = input.edges.toSorted((left, right) => byCodeUnit(left.from, right.from) || byCodeUnit(left.to, right.to));
   const layers = [...new Set(nodes.map((node) => node.layer))].sort((left, right) => left - right);

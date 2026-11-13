@@ -1016,7 +1016,7 @@ The totals (files, units, unit edges, unit cycles, mutual imports and their hot 
 
 `json` and `toon` list every item and the `thresholds`; `text` and `markdown` list the first 20 of each section.
 
-**Diagrams.** With `--output <dir>` (a workspace directory, created if needed), `init` also writes, through [`diagram`](#diagram), `units.svg` (current violations drawn as accepted), `matrix.svg`, one `folder-<n>-<unit>.svg` for each of the first 3 units of the unit cycles and hubs at risk, and `report.md`, whose findings link to their diagram. Writes stay in the workspace and never go through a symbolic link, a hard link or over a non-regular file.
+**Diagrams.** With `--output <dir>` (a workspace directory, created if needed), `init` also writes, through [`diagram`](#diagram), `units.svg` (current violations drawn as accepted), `matrix.svg`, one `folder-<n>-<unit>.svg` for each of the first 3 units of the unit cycles and hubs at risk, and `report.md`, whose findings link to their diagram. To stay readable on a large workspace, these diagrams draw less than `diagram` does, and a note under each counts what it leaves out (the header counts still cover the whole level): `units.svg` draws at most the 20 most coupled units (file pairs in and out), cycle members first, a unit cycle by the edges that cut it only; neither `units.svg` nor `matrix.svg` draws a unit with no edge to the others; a folder diagram of a level with a cycle draws only the edges that cut it (the cheaper side of the matrix order, as the `cycle-break` quick win) and their two ends, in the cycle's block. `graph-it diagram` draws the full level. Writes stay in the workspace and never go through a symbolic link, a hard link or over a non-regular file.
 
 The dead-code scans take as long as [`graph-it check`](#check) and `graph-it check --unreferencedFiles` on the same workspace. `json` and `toon` list the report files under `reportFiles`, apart from the rules files under `written`.
 
@@ -1049,7 +1049,7 @@ graph-it diagram [<dir>] [--view units|folder|matrix] [--folder <key>] [--format
 | `--config <file>` | `graphit.architecture.json` | Rules file, with `--rules` |
 | `--baseline [<file>]` | off | With `--rules`: draws the violations the baseline accepts as dashed lines, counted apart (`3 violations (2 accepted)`). Without a file it reads `graphit.architecture.baseline.json`, which must then exist |
 
-At most 60 units or groups are drawn, the largest ones; a note counts the others, and the header counts cover the whole level. The output has no script, no external resource and no `foreignObject`. Labels are escaped, and paths are workspace-relative.
+At most 60 units or groups are drawn, the largest ones; a note counts the others, and the header counts cover the whole level. Under the matrix, a note says how to read it: row imports column, N file pairs per cell, the greyed diagonal counting the pairs inside each row. The output has no script, no external resource and no `foreignObject`. Labels are escaped, and paths are workspace-relative.
 
 <img src="../media/cli-diagram-units.svg" alt="graph-it diagram on tests/fixtures/workspaces-project: seven units in three layers, the cycle between @ws/core and @ws/types outlined, edge widths by file pairs, and a legend" width="648"/>
 

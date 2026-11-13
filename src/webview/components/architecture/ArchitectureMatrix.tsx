@@ -260,7 +260,7 @@ export function ArchitectureMatrix(props: Readonly<ArchitectureMatrixProps>): Re
     <div style={{ position: "absolute", inset: 0, zIndex: 0, display: "flex", flexDirection: "column", fontSize: 12 }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "2px 10px", borderBottom: "1px solid var(--vscode-widget-border)" }}>
         <span>
-          Row imports column · <span style={{ color: "var(--vscode-errorForeground)" }}>red: above the diagonal (cycle)</span> · outlined: cycles
+          Row imports column: N file pairs · <span style={{ color: "var(--vscode-errorForeground)" }}>red: above the diagonal (cycle)</span> · outlined: cycles
           {violations && Object.keys(violations).length > 0 && <span style={{ color: "var(--vscode-errorForeground)" }}> · red frame: breaks a rule</span>}
         </span>
         <label style={{ display: "flex", alignItems: "center", gap: 4 }}>
