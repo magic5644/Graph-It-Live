@@ -13,8 +13,9 @@ const REDRAW_MS = 1000;
 
 /** `3.1s` under a minute, `1m 32s` above. */
 export function formatDuration(ms: number): string {
-  if (ms < 60_000) return `${(ms / 1000).toFixed(1)}s`;
-  const seconds = Math.floor(ms / 1000);
+  // Compared after rounding: 59 960 ms is "1m 0s", not "60.0s".
+  if (ms < 59_950) return `${(ms / 1000).toFixed(1)}s`;
+  const seconds = Math.round(ms / 1000);
   return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
 }
 
