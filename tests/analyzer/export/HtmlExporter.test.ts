@@ -23,7 +23,9 @@ import {
   buildHtmlGraphModel,
   exportHtml,
   jsonForScript,
+  renderHtmlPage,
   type HtmlExporterConfig,
+  type HtmlOverlay,
 } from '../../../src/analyzer/export/HtmlExporter';
 import { aggregateCommunityGroups } from '../../../src/analyzer/community/groupAggregation';
 import { COMMUNITY_PALETTE } from '../../../src/shared/communityPalette';
@@ -302,22 +304,29 @@ describe('exportHtml', () => {
       }
     }
     const handlers: Record<string, (params: { nodes: string[]; edges: string[] }) => void> = {};
+    // Layout-done callbacks, run by stabilized() in registration order as vis-network does.
+    const pending: (() => void)[] = [];
+    const calls = { fit: [] as unknown[], selected: [] as unknown[] };
     class Network {
       getPositions(): Record<string, unknown> { return {}; }
       on(event: string, handler: (params: { nodes: string[]; edges: string[] }) => void): void { handlers[event] = handler; }
-      once(): void {}
+      once(_event: string, callback: () => void): void { pending.push(callback); }
       setOptions(): void {}
       stabilize(): void {}
-      fit(): void {}
+      fit(options?: unknown): void { calls.fit.push(options); }
+      selectNodes(ids: string[]): void { calls.selected.push(ids); }
     }
     const elements = new Map<string, Record<string, unknown>>();
     const element = (tag = 'div'): Record<string, unknown> => {
+      const listeners: Record<string, (event?: unknown) => void> = {};
       const node: Record<string, unknown> = {
-        tag, textContent: '', style: {}, children: [] as unknown[],
+        tag, textContent: '', style: {}, children: [] as unknown[], attributes: {}, listeners,
         classList: { add: vi.fn(), remove: vi.fn(), toggle: vi.fn() },
         appendChild: (child: unknown) => (node.children as unknown[]).push(child),
+        append: (...children: unknown[]) => (node.children as unknown[]).push(...children.map(child => typeof child === 'string' ? { textContent: child, children: [] } : child)),
         replaceChildren: (...children: unknown[]) => { node.children = children; },
-        addEventListener: (_event: string, listener: () => void) => { node.onClick = listener; },
+        setAttribute: (name: string, value: string) => { (node.attributes as Record<string, string>)[name] = value; },
+        addEventListener: (event: string, listener: () => void) => { listeners[event] = listener; },
       };
       return node;
     };
@@ -325,11 +334,14 @@ describe('exportHtml', () => {
       getElementById: (id: string) => elements.get(id) ?? elements.set(id, element()).get(id),
       createElement: element,
     };
-    const run = new Function('vis', 'document', `${script}; return { nodes, edges, expanded, render, applyFilter, setAllExpanded };`);
+    const run = new Function('vis', 'document', `${script}; return { nodes, edges, expanded, render, applyFilter, setAllExpanded,
+      revealFocus: typeof revealFocus === 'function' ? revealFocus : undefined };`);
     const page = run({ DataSet, Network }, document);
     const text = (node: Record<string, unknown>): string =>
       [node.textContent, ...(node.children as Record<string, unknown>[]).map(text)].join(' ');
-    return { ...page, handlers, panelText: () => text(document.getElementById('panel')!) };
+    const stabilized = () => pending.splice(0).forEach(callback => callback());
+    const findings = () => (document.getElementById('findings-list')!.children as Record<string, unknown>[]);
+    return { ...page, handlers, calls, stabilized, findings, text, panelText: () => text(document.getElementById('panel')!) };
   }
 
   it('creates output directory and writes to outputPath', () => {
@@ -513,5 +525,139 @@ describe('exportHtml', () => {
     for (let i = 0; i < 201; i++) graphData.nodes.push(`/ws/a/f${i}.ts`);
     const page = runPage(render({ ...baseConfig, graphData }));
     expect(page.nodes.get().map((n: { id: string }) => n.id)).toEqual(['group:0']);
+  });
+
+  describe('init page overlay (#718)', () => {
+    const A = '/ws/src/core/a.ts';
+    const B = '/ws/src/core/b.ts';
+    const C = '/ws/src/ui/c.ts';
+    const MAIN = '/ws/main.ts';
+    const item = (fields: Partial<HtmlOverlay['findings'][number]['items'][number]>) =>
+      ({ label: 'kind', subject: 'subject', details: [], units: [], files: [], ...fields });
+    const overlay = (fields: Partial<HtmlOverlay> = {}): HtmlOverlay => ({
+      edgeKinds: [[C, A, 'violation'], [B, C, 'cycle'], [MAIN, C, 'upward']],
+      deadFiles: [MAIN],
+      findings: [],
+      ...fields,
+    });
+    const page = (fields: Partial<HtmlOverlay> = {}) => runPage(renderHtmlPage({ ...baseConfig, overlay: overlay(fields) }));
+
+    it('renders exactly the export page without an overlay', () => {
+      const { outputPath: _outputPath, ...config } = baseConfig;
+      const html = renderHtmlPage(config);
+      expect(html).toBe(render());
+      for (const part of ['findings', 'overlay', 'revealFocus', 'violation']) expect(html).not.toContain(part);
+    });
+
+    it('colours violation, cycle and upward file pairs, and restores them when the panel closes', () => {
+      const view = page();
+      const edge = (from: string, to: string) => view.edges.get(JSON.stringify([from, to]));
+      expect(edge(C, A)).toMatchObject({ base: '#ff7b72', dashes: true, title: '1 violation(s) of 1 file pair(s). Click to list them.' });
+      expect(edge(B, C)).toMatchObject({ base: '#f0883e', dashes: false, title: '1 in a unit cycle of 1 file pair(s). Click to list them.' });
+      expect(edge(MAIN, C)).toMatchObject({ base: '#f0883e', title: '1 upward of 1 file pair(s). Click to list them.' });
+      expect(edge(A, B).base).toBeUndefined();
+
+      // Collapsed: a violation among the pairs wins over the plain ones.
+      view.setAllExpanded(false);
+      expect(view.edges.get('["group:2","group:1"]')).toMatchObject({ base: '#ff7b72', dashes: true, title: '1 violation(s) of 2 file pair(s). Click to list them.' });
+      view.handlers.click({ nodes: ['group:1'], edges: [] });
+      expect(view.edges.get('["group:2","group:1"]').color.color).toBe('#4a9eff');
+      view.handlers.click({ nodes: [], edges: [] });
+      expect(view.edges.get('["group:2","group:1"]').color).toEqual({ color: '#ff7b72', opacity: 0.9 });
+      expect(view.edges.get('["group:0","group:2"]').color).toEqual({ color: '#f0883e', opacity: 0.9 });
+    });
+
+    it('marks dead files and lists the overlay in the legend', () => {
+      const html = renderHtmlPage({ ...baseConfig, overlay: overlay() });
+      const view = runPage(html);
+      expect(view.nodes.get(MAIN)).toMatchObject({ label: 'main.ts · dead', shapeProperties: { borderDashes: [4, 3] } });
+      expect(view.nodes.get(MAIN).title).toContain('Dead file: no production file imports it.');
+      expect(view.nodes.get(A).label).toBe('a.ts');
+      expect(view.nodes.get(A).opacity).toBeUndefined();
+      const legend = html.split('<div id="legend">')[1];
+      expect(legend).toContain('upward or cycle edge');
+      expect(legend).toContain('violation, accepted in the baseline (dashed)');
+      expect(legend).toContain('dead file: no production file imports it');
+      expect(html).not.toContain('revealFocus()">');
+    });
+
+    it('lists the findings in order with their text, and reveals the files or units of a clicked one', () => {
+      const view = page({
+        findings: [
+          { title: 'Dead files', intro: 'Cheapest first.', total: 3, more: ['... 1 more (--format json lists them all)'], items: [
+            item({ label: '1 file', subject: 'core', details: ['src/core/b.ts: 3 lines'], next: 'graph-it check "core" --unreferencedFiles', units: ['core'], files: [B] }),
+            item({ label: 'hub-at-risk', subject: 'ui', note: 'split it', units: ['ui'] }),
+          ] },
+          { title: 'Other leads', total: 1, more: [], items: [item({ label: 'entry-row', subject: 'a, b' })] },
+        ],
+      });
+      const entries = view.findings();
+      expect(entries.map(entry => view.text(entry).replaceAll(/\s+/g, ' ').trim())).toEqual([
+        'Dead files (3)',
+        'Cheapest first.',
+        '1 file : core src/core/b.ts: 3 lines next: graph-it check "core" --unreferencedFiles',
+        'hub-at-risk : ui split it',
+        '... 1 more (--format json lists them all)',
+        'Other leads (1)',
+        'entry-row : a, b',
+      ]);
+      const [, , file, unit, , , none] = entries as Record<string, Record<string, (event?: unknown) => void>>[];
+      expect((unit.attributes as unknown as Record<string, string>).role).toBe('button');
+      expect((none.attributes as unknown as Record<string, string>).role).toBeUndefined();
+
+      view.setAllExpanded(false);
+      view.stabilized();
+      file.listeners.click();
+      expect(view.expanded.has(1)).toBe(true);
+      view.stabilized();
+      expect(view.calls.selected.at(-1)).toEqual([B]);
+      expect(view.calls.fit.at(-1)).toEqual({ nodes: [B], animation: true });
+
+      // A unit-level finding centres its collapsed unit without expanding it.
+      const preventDefault = vi.fn();
+      unit.listeners.keydown({ key: 'Tab', preventDefault });
+      expect(preventDefault).not.toHaveBeenCalled();
+      unit.listeners.keydown({ key: 'Enter', preventDefault });
+      expect(preventDefault).toHaveBeenCalled();
+      expect(view.expanded.has(2)).toBe(false);
+      view.stabilized();
+      expect(view.calls.selected.at(-1)).toEqual(['group:2']);
+    });
+
+    it('says when there is no finding', () => {
+      expect(page().findings().map(entry => entry.textContent)).toEqual(['No finding: nothing to clean up.']);
+    });
+
+    it('opens on the focus: its groups expanded, other files dimmed, its boundary in the panel', () => {
+      const html = renderHtmlPage({ ...baseConfig, overlay: overlay({ focus: { label: 'src/core/b.ts', files: [B, '/ws/gone.ts'] } }) });
+      expect(html).toContain('<button onclick="revealFocus()">◎ Focus</button>');
+      const view = runPage(html);
+      expect([...view.expanded]).toEqual([1]);
+      expect(view.nodes.get(A).opacity).toBe(0.35);
+      expect(view.nodes.get(B).opacity).toBeUndefined();
+      view.stabilized();
+      expect(view.calls.fit.at(-1)).toEqual({ nodes: [B] });
+      const panel = view.panelText().replaceAll(/\s+/g, ' ');
+      expect(panel).toContain('Focus: src/core/b.ts (1 file(s))');
+      expect(panel).toContain('Depends on → (orange): 1 unit(s) ui: 1 file pair(s) (1 in a unit cycle)');
+      // Sorted by file pairs, then by unit; core counts a.ts, the same unit as the focus.
+      expect(panel).toContain('Used by ← (blue): 2 unit(s) core: 1 file pair(s) ui: 1 file pair(s)');
+      expect(view.edges.get(JSON.stringify([B, 'group:2'])).color.color).toBe('#ffaa00');
+      expect(view.edges.get(JSON.stringify([A, B])).color.color).toBe('#4a9eff');
+
+      view.handlers.click({ nodes: [], edges: [] });
+      view.revealFocus();
+      view.stabilized();
+      expect(view.panelText()).toContain('Focus: src/core/b.ts');
+    });
+
+    it('keeps repository text out of the markup', () => {
+      const html = renderHtmlPage({ ...baseConfig, overlay: overlay({
+        findings: [{ title: 'T', total: 1, more: [], items: [item({ subject: '</script><script>alert(1)</script>' })] }],
+        focus: { label: '<img src=x>', files: [] },
+      }) });
+      expect(html).not.toContain('</script><script>alert(1)');
+      expect(html).not.toContain('<img src=x>');
+    });
   });
 });

@@ -31,8 +31,10 @@ export interface InitResult {
   focus?: string;
   /** Workspace-relative rules files written, `*.bak` copies included. */
   written: string[];
-  /** Workspace-relative report files written with `--output`: diagrams and report.md. */
+  /** Workspace-relative report files written with `--output`: diagrams, index.html and report.md. */
   reportFiles: string[];
+  /** The explorable page written with `--output` (#718), linked from report.md. */
+  page?: string;
   /** One line per element, rule or accepted violation the proposal adds, changes or removes. */
   changes: string[];
   acceptedViolations: number;
@@ -152,6 +154,16 @@ function sections(assessment: ArchitectureAssessment): ReportSection[] {
   ];
 }
 
+/** The sections a report lists: non-empty ones, their first REPORT_LIMIT items and the line counting the rest. */
+export function reportSections(assessment: ArchitectureAssessment) {
+  return sections(assessment).filter((section) => section.items.length > 0).map((section) => ({
+    ...section,
+    total: section.items.length,
+    items: section.items.slice(0, REPORT_LIMIT),
+    more: more(section.items.length),
+  }));
+}
+
 function summaryLines(result: InitResult, all: readonly ReportSection[]): string[] {
   const t = result.assessment.totals;
   const hotSpot = t.mutualHotSpot;
@@ -221,9 +233,9 @@ export function renderInitText(result: InitResult): string {
     "Summary:",
     ...summaryLines(result, all).map((line) => `  ${line}`),
   ];
-  for (const section of all.filter((s) => s.items.length > 0)) {
-    lines.push("", `${section.title} (${section.items.length}):`, ...(section.intro === undefined ? [] : [`  ${section.intro}`]),
-      ...section.items.slice(0, REPORT_LIMIT).flatMap(textItem), ...more(section.items.length));
+  for (const section of reportSections(result.assessment)) {
+    lines.push("", `${section.title} (${section.total}):`, ...(section.intro === undefined ? [] : [`  ${section.intro}`]),
+      ...section.items.flatMap(textItem), ...section.more);
   }
   lines.push("", "Glossary:", ...Object.entries(result.assessment.glossary).map(([term, meaning]) => `  ${term}: ${meaning}`));
   if (result.diagrams.length > 0) lines.push("", "Diagrams:", ...result.diagrams.map((diagram) => `  ${diagram.file}`));
@@ -269,10 +281,13 @@ export function renderInitMarkdown(result: InitResult, base?: string): string {
     ...result.written.map((file) => `- wrote ${code(file)}`),
   ];
   if (result.reportFiles.length > 0) lines.push("", `Report: wrote ${result.reportFiles.map(code).join(", ")}.`);
+  if (result.page !== undefined) {
+    lines.push("", `Explore: [${path.posix.basename(result.page)}](${encodeURI(base === undefined ? result.page : path.posix.relative(base, result.page))}): units as groups, findings, cycles, violations and dead files, offline.`);
+  }
   lines.push("", "## Summary", "", ...summaryLines(result, all).map((line) => `- ${line}`));
-  for (const section of all.filter((s) => s.items.length > 0)) {
-    lines.push("", `## ${section.title} (${section.items.length})`, "", ...(section.intro === undefined ? [] : [section.intro, ""]),
-      ...section.items.slice(0, REPORT_LIMIT).flatMap((item) => markdownItem(item, result.diagrams, base)), ...more(section.items.length));
+  for (const section of reportSections(result.assessment)) {
+    lines.push("", `## ${section.title} (${section.total})`, "", ...(section.intro === undefined ? [] : [section.intro, ""]),
+      ...section.items.flatMap((item) => markdownItem(item, result.diagrams, base)), ...section.more);
   }
   lines.push("", "## Glossary", "", ...Object.entries(result.assessment.glossary).map(([term, meaning]) => `- **${term}**: ${meaning}`));
   if (result.diagrams.length > 0) {
