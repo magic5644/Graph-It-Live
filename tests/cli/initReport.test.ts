@@ -109,7 +109,7 @@ describe("initReport", () => {
       "  Cycles: 0 unit cycles, 1 mutual file import",
       "  Dead files: 9 files no production file imports, 21 lines with their tests (7 only imported by tests)",
       "  Unused exports: 0 high-confidence in 0 files (0 medium, 0 low not listed: graph-it check --minConfidence low)",
-      "  Top action: delete app/old.ts (dead file: 12 lines, 1 export)",
+      "  Top action: check, then delete app/old.ts (dead file: 12 lines, 1 export, low)",
     ]);
     expect(renderInitText(result())).toContain("Top action: none, nothing to clean up");
   });
@@ -132,6 +132,11 @@ describe("initReport", () => {
     const text = renderInitText(result({ assessment: assessArchitecture({ ...input, unitOf, deadFiles }) }));
     expect(text).toContain("  [2 files, 21 lines] app\n      app/old.ts: 12 lines, 1 export, low no-importer\n      app/utils.ts: 5 lines, 1 export, low cascade via app/old.ts; delete with tests/utils.test.ts\n");
     expect(text).toContain("Dead files: 10 files no production file imports, 30 lines with their tests (7 only imported by tests, 1 only imported by dead files)");
+  });
+
+  it("says delete for a medium dead file, check then delete for a low one (#728)", () => {
+    const medium = { ...empty, deadFiles: [{ relativePath: "src/t.ts", lines: 3, exports: 1, confidence: "medium", reasons: ["test-only-use"] }] };
+    expect(renderInitText(result({ assessment: assessArchitecture(medium) }))).toContain("Top action: delete src/t.ts (dead file: 3 lines, 1 export, medium)");
   });
 
   it("lists dead files by unit with one next command, capped per unit", () => {

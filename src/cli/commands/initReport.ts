@@ -198,7 +198,9 @@ function summaryLines(result: InitResult, all: readonly ReportSection[]): string
 function topAction(assessment: ArchitectureAssessment, all: readonly ReportSection[]): string {
   const file = assessment.deadFiles.flatMap((group) => group.files).find((dead) => dead.exports > 0);
   if (file !== undefined) {
-    return `delete ${file.relativePath} (dead file: ${file.lines === undefined ? "lines unknown" : plural(file.lines, "line")}, ${plural(file.exports, "export")})`;
+    // low: nothing imports it, an entry point by convention as often as dead code.
+    const verb = file.confidence === "low" ? "check, then delete" : "delete";
+    return `${verb} ${file.relativePath} (dead file: ${file.lines === undefined ? "lines unknown" : plural(file.lines, "line")}, ${plural(file.exports, "export")}, ${file.confidence})`;
   }
   const section = [...all.slice(1), all[0]].find((candidate) => candidate.items.length > 0);
   const top = section?.items[0];

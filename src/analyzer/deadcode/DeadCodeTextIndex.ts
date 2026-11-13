@@ -6,6 +6,9 @@ import type { FileReader } from "../FileReader";
 import { SourceFileCollector } from "../SourceFileCollector";
 import { isSupportedSourceFile } from "../SourceFileFilters";
 import { parseTsConfig } from "../utils/tsconfig";
+import { packageFrameworks } from "./frameworkRoutes";
+import { globToRegexSource } from "../graph-context/FileScopeMatcher";
+import { SUPPORTED_FILE_EXTENSIONS } from "../../shared/constants";
 import { getLogger } from "../../shared/logger";
 import {
   deployManifestReferences,
@@ -18,7 +21,12 @@ import {
   readsComputedAttribute,
   rustQualifiedPaths,
   writtenSourcePaths,
+  writtenWorkingDirs,
+  expandBraces,
+  viteGlobs,
+  urlImports,
   type DynamicLoad,
+  type ViteGlob,
 } from "./deadCodeConfidence";
 import {
   collectDeclaredEntryPoints,
@@ -59,11 +67,17 @@ interface FileFacts {
   deepSpecifiers: string[];
   /** Non-test files: the source paths they write (writtenSourcePaths) */
   writtenPaths: string[];
+  /** Files writing paths: the folders their commands run in (writtenWorkingDirs) */
+  workingDirs: string[];
+  /** Non-test JS/TS/Vue/Svelte sources: their `import.meta.glob` calls (viteGlobs) */
+  globs: ViteGlob[];
+  /** Non-test JS/TS/Vue/Svelte sources: their `new URL('./x', import.meta.url)` specifiers (urlImports) */
+  urls: string[];
 }
 
 const NO_FACTS: Omit<FileFacts, "mtimeMs" | "size"> = {
   loads: [], rustPaths: [], rustTokens: [], readsComputedAttribute: false, pythonAll: [], rustPubMods: [], rustAttributed: [],
-  deployRefs: [], deepSpecifiers: [], writtenPaths: [],
+  deployRefs: [], deepSpecifiers: [], writtenPaths: [], workingDirs: [], globs: [], urls: [],
 };
 
 /** What the dead-code scan reads as text across the workspace. */
@@ -90,6 +104,8 @@ export interface WorkspaceTextFacts {
    * entry, a package.json script, a Dockerfile command
    */
   namedPaths: ReadonlyMap<string, string>;
+  /** Folder of every package.json (absolute, normalized) → the frameworks it uses (frameworkRoutes.ts) */
+  frameworksByPackage: ReadonlyMap<string, readonly number[]>;
 }
 
 /**
@@ -126,6 +142,7 @@ export class DeadCodeTextIndex {
     });
     this.perFile = next;
     const files = walked.filter((file) => isSupportedSourceFile(file));
+    const packageDirs = walked.filter((file) => path.posix.basename(file) === "package.json").map((file) => path.posix.dirname(file));
     const present = files.flatMap((file) => next.get(file) ?? []);
     const computedAttributeReaders = new Set(files.filter((file) => next.get(file)?.readsComputedAttribute));
     const rustTokenFiles = new Map<string, number>();
@@ -138,7 +155,8 @@ export class DeadCodeTextIndex {
       entryPoints: await this.entryPoints(root, files, next),
       deployReferences: new Set([...next.values()].flatMap((entry) => entry.deployRefs)),
       packageDeepImport: packageDeepImport(next, new Set(present.flatMap((entry) => entry.deepSpecifiers))),
-      namedPaths: namedPaths(root, next, new Set(files)),
+      namedPaths: bundlerLoadedPaths(root, next, files, packageDirs, namedPaths(root, next, new Set(files))),
+      frameworksByPackage: new Map(packageDirs.map((dir) => [dir, packageFrameworks(next.get(`${dir}/package.json`)?.manifestText ?? "")])),
     };
   }
 
@@ -179,7 +197,7 @@ export class DeadCodeTextIndex {
       if (cached?.mtimeMs === mtimeMs && cached.size === size) return cached;
       // No size cap: a large file's loads and names count as much as any other's (read once, then cached).
       const content = await this.fileReader.readFile(file, { maxSize: Number.POSITIVE_INFINITY });
-      if (ciDefinition) return { ...NO_FACTS, mtimeMs, size, writtenPaths: writtenSourcePaths(content) };
+      if (ciDefinition) return { ...NO_FACTS, mtimeMs, size, ...writtenFacts(content) };
       const loads = mayLoadDynamically(content) ? findDynamicLoads(file, getRelativePath(file, this.rootDir), content, this.rootDir) : [];
       const rust = RUST_FILE.test(file);
       return {
@@ -195,8 +213,9 @@ export class DeadCodeTextIndex {
         rustAttributed: rust ? rustAttributedFunctions(content) : [],
         deployRefs: isDeployManifest(path.posix.basename(file)) ? deployManifestReferences(content) : [],
         deepSpecifiers: JS_FAMILY_FILE.test(file) ? deepSpecifierPackages(content) : [],
+        ...bundlerLoads(file, content, isTestFile(getRelativePath(file, this.rootDir))),
         // Tests write fixture paths by design: they run nothing by name.
-        writtenPaths: isTestFile(getRelativePath(file, this.rootDir)) ? [] : writtenSourcePaths(content),
+        ...(isTestFile(getRelativePath(file, this.rootDir)) ? { writtenPaths: [], workingDirs: [] } : writtenFacts(content)),
       };
     } catch {
       // Deleted or unreadable: it holds no code the scan could miss.
@@ -205,22 +224,80 @@ export class DeadCodeTextIndex {
   }
 }
 
+/** What a bundler loads from a non-test JS-family source besides its imports: `import.meta.glob`, `new URL(..., import.meta.url)`. */
+function bundlerLoads(file: string, content: string, test: boolean): Pick<FileFacts, "globs" | "urls"> {
+  if (test || !JS_FAMILY_FILE.test(file) || !content.includes("import.meta.")) return { globs: [], urls: [] };
+  return { globs: viteGlobs(content), urls: urlImports(content) };
+}
+
+function writtenFacts(content: string): Pick<FileFacts, "writtenPaths" | "workingDirs"> {
+  const writtenPaths = writtenSourcePaths(content);
+  return { writtenPaths, workingDirs: writtenPaths.length > 0 ? writtenWorkingDirs(content) : [] };
+}
+
 /**
- * Each source file whose path another file writes, resolved from the workspace root or from the writer's folder.
- * shortcut: a CI step's `working-directory` (or a `cd` before the command) is not read, so a path relative to it stays
- * unresolved and its file listed; read it when a monorepo reports such a script.
+ * Each source file whose path another file writes, resolved from the workspace root, from the writer's folder, or
+ * from a folder its commands run in (`working-directory`, `cd`), itself relative to the root or to the writer.
+ * shortcut: any folder of the writer applies to any path it writes; it only keeps more files alive.
  */
 function namedPaths(root: string, facts: ReadonlyMap<string, FileFacts>, files: ReadonlySet<string>): Map<string, string> {
   const named = new Map<string, string>();
   for (const [writer, entry] of facts) {
+    const near = [root, path.posix.dirname(writer)];
+    const bases = [...near, ...entry.workingDirs.flatMap((dir) => near.map((from) => path.posix.join(from, dir)))];
     for (const written of entry.writtenPaths) {
-      for (const base of [root, path.posix.dirname(writer)]) {
+      for (const base of bases) {
         const file = normalizePath(path.resolve(base, written));
         if (file !== writer && files.has(file) && !named.has(file)) named.set(file, getRelativePath(writer, root));
       }
     }
   }
   return named;
+}
+
+/**
+ * Adds to `named` the files a source has its bundler load (globTargets, urlTarget), named after that source.
+ */
+function bundlerLoadedPaths(
+  root: string,
+  facts: ReadonlyMap<string, FileFacts>,
+  files: readonly string[],
+  packageDirs: readonly string[],
+  named: Map<string, string>,
+): Map<string, string> {
+  const fileSet = new Set(files);
+  const viteRoot = (file: string): string => packageDirs.filter((dir) => file.startsWith(`${dir}/`)).sort((a, b) => b.length - a.length)[0] ?? root;
+  for (const [writer, entry] of facts) {
+    const loaded = [
+      ...entry.globs.flatMap((glob) => globTargets(glob, writer, viteRoot(writer), files)),
+      ...entry.urls.flatMap((url) => urlTarget(url, writer, fileSet) ?? []),
+    ];
+    for (const file of loaded) if (file !== writer && !named.has(file)) named.set(file, getRelativePath(writer, root));
+  }
+  return named;
+}
+
+/**
+ * The files an `import.meta.glob` (Vite) of `writer` matches: patterns relative to the file or to its `base` option, `/`
+ * from `viteRoot`, `!` ones taking files out (a negated folder with what it holds); aliased patterns (`@/x/*`) left out.
+ */
+function globTargets(glob: ViteGlob, writer: string, viteRoot: string, files: readonly string[]): string[] {
+  const from = glob.base ? path.posix.join(path.posix.dirname(writer), glob.base) : path.posix.dirname(writer);
+  const compile = (pattern: string, under = ""): RegExp[] => expandBraces(pattern).flatMap((expanded) => {
+    if (!expanded.startsWith(".") && !expanded.startsWith("/")) return [];
+    const absolute = expanded.startsWith("/") ? path.posix.join(viteRoot, expanded) : path.posix.join(from, expanded);
+    return [new RegExp(`^${globToRegexSource(absolute)}${under}$`)];
+  });
+  const include = glob.patterns.filter((pattern) => !pattern.startsWith("!")).flatMap((pattern) => compile(pattern));
+  // `!**/node_modules` excludes anywhere: compile it as relative to the same folder.
+  const exclude = glob.patterns.filter((pattern) => pattern.startsWith("!")).flatMap((pattern) => compile(pattern.slice(1).replace(/^(?![./])/, "./"), "(?:/.*)?"));
+  return files.filter((file) => include.some((re) => re.test(file)) && !exclude.some((re) => re.test(file)));
+}
+
+/** The file `new URL(url, import.meta.url)` of `writer` loads, resolved like an import: as written, with an extension, or a folder's index. */
+function urlTarget(url: string, writer: string, files: ReadonlySet<string>): string | undefined {
+  const base = path.posix.join(path.posix.dirname(writer), url);
+  return [base, ...SUPPORTED_FILE_EXTENSIONS.flatMap((ext) => [base + ext, `${base}/index${ext}`])].find((candidate) => files.has(candidate));
 }
 
 function packageDeepImport(facts: ReadonlyMap<string, FileFacts>, deepNames: ReadonlySet<string>): Map<string, boolean> {

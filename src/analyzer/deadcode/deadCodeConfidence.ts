@@ -119,14 +119,16 @@ export function countByConfidence(items: readonly { confidence: DeadCodeConfiden
   return counts;
 }
 
-const TEST_DIRS = new Set(["test", "tests", "__tests__", "spec", "e2e"]);
-const TEST_FILE = /(?:\.(?:test|spec)\.[^/.]+|^test_[^/]*\.py|_test\.py|^conftest\.py)$/;
+const TEST_DIRS = new Set(["test", "tests", "__tests__", "spec", "e2e", "__fixtures__", "__mocks__", "playwright", "cypress"]);
+// `.test.ts`, `.spec.ts`, `.e2e.ts`, and a kind before them: `.integration-test.ts`, `.e2e-spec.ts`.
+const TEST_FILE = /\.(?:(?:[a-z\d]+-)?(?:test|spec)|e2e)\.[^/.]+$/;
+const PYTHON_TEST_FILE = /(?:^test_[^/]*|_test|^conftest)\.py$/;
 
 /** Test files and the files of test folders (a workspace-relative path with `/`). */
 export function isTestFile(relativePath: string): boolean {
   const segments = normalizePath(relativePath).split("/");
   const name = segments.pop() ?? "";
-  return TEST_FILE.test(name) || segments.some((segment) => TEST_DIRS.has(segment));
+  return TEST_FILE.test(name) || PYTHON_TEST_FILE.test(name) || segments.some((segment) => TEST_DIRS.has(segment));
 }
 
 export interface ConfidenceInput {
@@ -435,9 +437,75 @@ export function writtenSourcePaths(content: string): string[] {
     let token = match[0];
     // A path ending a sentence: `see src/a.ts.`
     while (token.endsWith(".")) token = token.slice(0, -1);
+    // After an interpolated folder (`${dir}/get_donors.js`) the path is relative to it, not absolute.
+    if (token.startsWith("/") && content[match.index - 1] === "}") token = token.slice(1);
     if (SOURCE_EXTENSION.test(token) && !token.startsWith("/") && !token.includes("//")) paths.add(token);
   }
   return [...paths];
+}
+
+const URL_IMPORT = /\bnew\s+URL\s*\(\s*(["'`])(\.{1,2}\/[^"'`\n$]+)\1\s*,\s*import\.meta\.url\b/g;
+
+/**
+ * The relative specifiers of `new URL('./x', import.meta.url)`: how a Vite or webpack project loads a worker or an asset
+ * (`new Worker(new URL('./worker', import.meta.url))`), resolved like an import by the bundler.
+ */
+export function urlImports(content: string): string[] {
+  return [...new Set([...content.matchAll(URL_IMPORT)].map((match) => match[2]))];
+}
+
+/** A Vite `import.meta.glob(...)` call: its patterns (`!` negated) and its `base` option, as written. */
+export interface ViteGlob {
+  patterns: string[];
+  base?: string;
+}
+
+const VITE_GLOB = /\bimport\.meta\.glob(?:Eager)?\s*(?:<[^>]*>)?\s*\(\s*/g;
+const QUOTED = /^(["'`])((?:(?!\1)[^\\\n])*)\1/;
+/** The options object of the call reaches its `base` key before any other call; a template `${...}` makes it dynamic. */
+const GLOB_BASE = /^[^()]*?\bbase\s*:\s*(["'])([^"'\n]*)\1/;
+
+/**
+ * The files a Vite-based project (SvelteKit, Nuxt, Astro, Vite) loads with `import.meta.glob`: a string or an array of
+ * strings, then options. Only quoted literals count; a pattern with `${` is computed and left out.
+ */
+export function viteGlobs(content: string): ViteGlob[] {
+  return [...content.matchAll(VITE_GLOB)].flatMap((match) => {
+    const { patterns, rest } = globPatterns(content.slice(match.index + match[0].length));
+    const base = GLOB_BASE.exec(rest)?.[2];
+    return patterns.length > 0 ? [{ patterns, ...(base ? { base } : {}) }] : [];
+  });
+}
+
+/** The quoted literal or array of quoted literals opening `args`, and what follows them. */
+function globPatterns(args: string): { patterns: string[]; rest: string } {
+  const array = args.startsWith("[");
+  let rest = array ? args.slice(1).trimStart() : args;
+  const patterns: string[] = [];
+  for (let quoted = QUOTED.exec(rest); quoted; quoted = array ? QUOTED.exec(rest) : null) {
+    if (!quoted[2].includes("${")) patterns.push(quoted[2]);
+    rest = rest.slice(quoted[0].length).replace(/^\s*,?\s*/, "");
+  }
+  return { patterns, rest: array ? rest.replace(/^\]\s*,?\s*/, "") : rest };
+}
+
+/** `{a,b}` alternatives expanded, nested ones included: `*.{ts,js}` gives `*.ts` and `*.js`. */
+export function expandBraces(pattern: string): string[] {
+  const open = pattern.search(/\{[^{}]*\}/);
+  if (open < 0) return [pattern];
+  const close = pattern.indexOf("}", open);
+  return pattern.slice(open + 1, close).split(",").flatMap((choice) => expandBraces(pattern.slice(0, open) + choice + pattern.slice(close + 1)));
+}
+
+/** `working-directory: <dir>` (GitHub Actions, Azure) and `cd <dir>` in a command. */
+const WORKING_DIR = /(?:\bworking[-_]directory\s*:\s*|(?<![\w-])cd\s+)["']?([\w@.][\w@./-]*)/g;
+
+/**
+ * The folders a file's commands run in, as written (relative): a CI step's `working-directory`, a `cd` before a
+ * command. The paths it writes may be relative to one of them. Absolute and templated folders are left out.
+ */
+export function writtenWorkingDirs(content: string): string[] {
+  return [...new Set([...content.matchAll(WORKING_DIR)].map((match) => match[1]).filter((dir) => dir !== "." && dir !== ".."))];
 }
 
 /** Python `if __name__ == "__main__":`, Node `require.main === module`, `import.meta.main`, a Rust `fn main()`. */

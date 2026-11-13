@@ -320,7 +320,8 @@ Options:
                     instead of unused exports. low (no-importer): nothing imports the file;
                     medium (test-only-use): only tests do. --minConfidence defaults to low.
                     Test files, manifest entry points, files named by path elsewhere (CI
-                    workflows, Makefile, scripts), JSX/Vue default exports, .d.ts, *.config.*
+                    workflows, Makefile, scripts), JSX/Vue default exports, framework routes
+                    (Next.js, SvelteKit, Nuxt...), import.meta.glob targets, .d.ts, *.config.*
                     and git-ignored files are left out (listed as excluded with --verbose).
                     Files only dead files and tests import follow (cascade, via), and each
                     dead file names its tests that import nothing else (tests).

@@ -7,7 +7,7 @@ import { normalizePath } from "../../shared/path";
 /** The tsconfig fields the analyzer reads; values stay `unknown` until checked. */
 export interface TsConfigJson {
   extends?: unknown;
-  compilerOptions?: { baseUrl?: unknown; paths?: unknown };
+  compilerOptions?: { baseUrl?: unknown; paths?: unknown; outDir?: unknown; declarationDir?: unknown };
 }
 
 /**
