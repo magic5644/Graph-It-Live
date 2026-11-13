@@ -267,6 +267,22 @@ npx @magic5644/graph-it-live scan
 
 On an existing codebase, start with `graph-it init`: it guards the architecture you have today (only new drift fails `graph-it check-architecture`) and lists the quick wins.
 
+With `--output <dir>`, `init` also writes `report.md`, SVG diagrams and `index.html`. This offline page groups the files by architecture unit and lists the report's findings beside the graph. Click a finding to centre the graph on its files.
+
+<div align="center">
+<img src="media/init-explorable-page.png" alt="index.html written by graph-it init --output on tests/demo/legacy-shop: the Findings panel lists the dead files and the cycles to cut, the graph shows the files grouped by unit, two dead files with a dashed border and the cycle edges in orange" width="800"/>
+</div>
+
+*`graph-it init --output report` on `tests/demo/legacy-shop`, then open `report/index.html`.*
+
+`--focus <unit|folder>` keeps one unit or folder and its direct neighbours, and adds a panel listing what it depends on and what uses it:
+
+<div align="center">
+<img src="media/init-focus.png" alt="index.html with --focus billing: only billing and its neighbour orders, the cycle-break and mutual-import findings for billing, and a Focus panel listing orders under Depends on and Used by, each with 1 file pair in a unit cycle" width="800"/>
+</div>
+
+*`graph-it init --focus billing --output report` on `tests/demo/legacy-shop`.*
+
 Common commands:
 
 ```text

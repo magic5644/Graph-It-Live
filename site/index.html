@@ -529,13 +529,15 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
     </div>
 
-    <div class="shot rv">
+    <div class="shot rv" style="margin-bottom:64px">
       <div class="shot-txt">
         <h3>Find what nobody uses</h3>
         <p>Hide or dim unused dependencies, then hunt unused exported symbols and dead files before a refactor.</p>
         <ul>
           <li>Unused dependency filter: hide or dim mode</li>
           <li>Unused exported symbol detection, each with a confidence (high, medium, low) and its reasons</li>
+          <li>Whole files nothing imports, with the files dead by cascade and the tests to delete with them</li>
+          <li>Framework routes, migrations and files run by CI or a bundler are left out</li>
           <li>Entry points declared by package.json, pyproject, setup and Cargo count as used</li>
           <li>Execution trace from any function</li>
           <li>Callers affected by a signature change</li>
@@ -544,6 +546,23 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       <div class="frame">
         <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Filter unused dependencies</span></div>
         <img src="media/demo-filter-hide-mode.gif" alt="Unused dependencies hidden from the graph" loading="lazy">
+      </div>
+    </div>
+
+    <div class="shot rev rv">
+      <div class="shot-txt">
+        <h3>An architecture report you can explore</h3>
+        <p><code>graph-it init --output report</code> writes <code>report.md</code>, SVG diagrams and <code>index.html</code>: one offline page grouped by architecture units, with the report's findings beside the graph.</p>
+        <ul>
+          <li>Summary first, then dead files, cycles to cut and quick wins ranked by gain / effort</li>
+          <li>Click a finding to centre the graph on its files</li>
+          <li>Dead files have a dashed border; cycle and upward edges in orange</li>
+          <li><code>--focus &lt;unit|folder&gt;</code>: one unit and its direct neighbours, with what it depends on and what uses it</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>graph-it init — index.html</span></div>
+        <img src="media/init-explorable-page.png" alt="index.html written by graph-it init on tests/demo/legacy-shop: the Findings panel lists the dead files and the cycles to cut, the graph shows the files grouped by unit, two dead files with a dashed border and the cycle edges in orange" loading="lazy">
       </div>
     </div>
   </div>
