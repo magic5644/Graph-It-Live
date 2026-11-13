@@ -146,7 +146,8 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     const dir = "docs/architecture";
     expect(result.diagrams.map((diagram) => diagram.file)).toEqual(expect.arrayContaining([`${dir}/units.svg`, `${dir}/matrix.svg`, `${dir}/folder-1-shared-ui.svg`]));
     expect(result.written).toEqual([CONFIG]);
-    expect(result.reportFiles).toEqual(expect.arrayContaining([`${dir}/units.svg`, `${dir}/report.md`]));
+    expect(result.reportFiles).toEqual(expect.arrayContaining([`${dir}/units.svg`, `${dir}/index.html`, `${dir}/report.md`]));
+    expect(result.page).toBe(`${dir}/index.html`);
     for (const diagram of result.diagrams) expect(read(diagram.file)).toMatch(/^<svg/);
     expect(read(`${dir}/matrix.svg`)).toContain("row imports column: N file pairs");
     // units.svg: every unit kept, the shared-ui / shared-utils cycle drawn by its cut only.
@@ -156,6 +157,15 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     const report = read(`${dir}/report.md`);
     expect(report).toContain("([diagram](units.svg))");
     expect(report).toContain("([diagram](folder-1-shared-ui.svg))");
+    expect(report).toContain("Explore: [index.html](index.html): units as groups");
+    // The page: one group per unit, the units of the report, its findings, and no absolute path.
+    const page = read(`${dir}/index.html`);
+    const groups = JSON.parse(page.split("const groupsData = ")[1].split(";\n")[0]) as { label: string; fileCount: number }[];
+    expect(groups.map((group) => group.label)).toEqual(expect.arrayContaining(["backend", "frontend", "shared/ui", "shared/utils", "(root)"]));
+    expect(groups).toHaveLength(result.assessment.totals.units);
+    expect(groups.reduce((sum, group) => sum + group.fileCount, 0)).toBe(result.assessment.totals.files);
+    expect(page).toContain(`"title":"Dead files"`);
+    expect(page).not.toContain(root);
     // On stdout the links are workspace-relative.
     expect(await run(["--dry-run"], runtime, "markdown", offline)).toContain("# Architecture report (graph-it init)");
   });
@@ -277,6 +287,10 @@ describe("graph-it init", { timeout: 60_000 }, () => {
       expect(folders[0]).toBe("report/folder-1-backend.svg");
       expect(read("report/units.svg").match(/<rect class="node"/g)).toHaveLength(5);
       expect(read("report/report.md")).toContain("- Focus: backend and its direct neighbours only");
+      const page = read("report/index.html");
+      expect(page).toContain("scope: backend and its direct neighbours");
+      expect(page).toContain('"focus":{"label":"backend","files":["backend/src/api.ts","backend/src/db.ts"]}');
+      expect(JSON.parse(page.split("const groupsData = ")[1].split(";\n")[0])).toHaveLength(result.assessment.totals.units);
     });
 
     it.each([

@@ -5,6 +5,7 @@ import { getRelativePath, normalizePath } from '../../shared/path';
 import { COMMUNITY_PALETTE } from '../../shared/communityPalette';
 import { FRAMEWORK_IDENTITIES } from '../../shared/constants';
 import { aggregateCommunityGroups } from '../community/groupAggregation';
+import { PALETTES } from '../diagram/diagramStyle';
 
 /** What was analysed and how it was grouped, stated in the page header. */
 export interface HtmlExportContext {
@@ -13,6 +14,50 @@ export interface HtmlExportContext {
   revision?: string;
   communityMode: string;
   failedFiles?: number;
+}
+
+/** A file pair the overlay colours; a violation wins over cycle and upward. */
+export type HtmlEdgeKind = 'cycle' | 'upward' | 'violation';
+
+/** One finding as report.md words it, with the units and files it names. */
+export interface HtmlFindingItem {
+  label: string;
+  subject: string;
+  note?: string;
+  details: string[];
+  next?: string;
+  /** Group labels to centre on when the item names no file. */
+  units: readonly string[];
+  /** File ids whose groups expand and that the page centres on. */
+  files: string[];
+}
+
+export interface HtmlFindingSection {
+  title: string;
+  intro?: string;
+  /** Items in the section; `items` holds the first ones, `more` says how many are left. */
+  total: number;
+  items: HtmlFindingItem[];
+  more: string[];
+}
+
+/** What the init page adds to the exported graph (#718). */
+export interface HtmlOverlay {
+  /** [importer, imported, kind] file pairs. */
+  edgeKinds: [string, string, HtmlEdgeKind][];
+  deadFiles: string[];
+  findings: HtmlFindingSection[];
+  /** The page opens expanded on these files, with the units they depend on and the units using them. */
+  focus?: { label: string; files: string[] };
+}
+
+/** The page without its output file: what renderHtmlPage needs. */
+export interface HtmlPageConfig {
+  graphData: GraphData;
+  context: HtmlExportContext;
+  workspaceName: string;
+  workspaceRoot?: string;
+  overlay?: HtmlOverlay;
 }
 
 export interface HtmlExporterConfig {
@@ -125,7 +170,15 @@ function buildHeader(workspaceName: string, context: HtmlExportContext, model: R
 const frameworkImage = (framework: Framework) =>
   `data:image/svg+xml;charset=utf-8,${encodeURIComponent(FRAMEWORK_IDENTITIES[framework].svg)}`;
 
-function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: ReadonlySet<Framework>): string {
+const OVERLAY = PALETTES.dark;
+
+const OVERLAY_LEGEND = [
+  `<div class="legend-item"><span class="swatch" style="background:${OVERLAY.accent};"></span><span>upward or cycle edge</span></div>`,
+  `<div class="legend-item"><span class="swatch" style="background:${OVERLAY.error};"></span><span>violation, accepted in the baseline (dashed)</span></div>`,
+  '<div class="legend-item"><span class="swatch" style="border:1px dashed #ccc;"></span><span>dead file: no production file imports it</span></div>',
+].join('\n');
+
+function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: ReadonlySet<Framework>, overlay = false): string {
   if (groups.length === 0) return '';
   const items = groups.toSorted((a, b) => b.fileCount - a.fileCount || a.id - b.id).map(group =>
     `<div class="legend-item"><span class="swatch" style="background:${group.color};"></span>` +
@@ -134,12 +187,160 @@ function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: Rea
   const framework = (Object.keys(FRAMEWORK_IDENTITIES) as Framework[]).filter(name => frameworks.has(name)).map(name =>
     `<div class="legend-item"><img alt="" width="20" height="20" src="${frameworkImage(name)}"><span>${FRAMEWORK_IDENTITIES[name].label} component files</span></div>`,
   ).join('\n');
-  return `<div id="legend"><div class="legend-title">Groups (${htmlEscape(communityMode)})</div>\n${items}\n${framework}` +
+  return `<div id="legend"><div class="legend-title">Groups (${htmlEscape(communityMode)})</div>\n${items}\n${framework}${overlay ? '\n' + OVERLAY_LEGEND : ''}` +
     '<div class="legend-hint">Ellipse = group, box = file. Double-click a group to expand it, a file to collapse its group. ' +
     'Click an edge to list the file pairs behind its count.</div></div>';
 }
 
+const OVERLAY_CSS = `
+    #findings { position: fixed; top: 44px; left: 8px; width: 360px; max-height: calc(55vh - 60px); overflow: auto; background: #252526; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; z-index: 1000; font-size: 12px; }
+    #findings summary { cursor: pointer; font-weight: 600; color: #aaa; text-transform: uppercase; letter-spacing: .05em; }
+    #findings h4 { font-size: 12px; margin: 10px 0 4px; color: #ddd; }
+    #findings p { margin: 4px 0; color: #999; }
+    .finding { padding: 4px 6px; margin: 2px -6px; border-radius: 4px; overflow-wrap: anywhere; }
+    .finding[role="button"] { cursor: pointer; }
+    .finding[role="button"]:hover, .finding[role="button"]:focus-visible { background: #37373d; }
+    .finding[role="button"]:focus-visible { outline: 1px solid #1177bb; }
+    .finding ul { margin: 2px 0 0; padding-left: 18px; font-family: monospace; color: #aaa; }
+    .finding code { color: #e6edf3; }`;
+
+/** Overlay data and the focus expansion, before the first render. */
+function overlayHead(overlay: HtmlOverlay): string {
+  return String.raw`
+    const overlay = ${jsonForScript(overlay)};
+    const OVERLAY = ${jsonForScript({ accent: OVERLAY.accent, error: OVERLAY.error })};
+    const pairKind = new Map(overlay.edgeKinds.map(([from, to, kind]) => [from + '\0' + to, kind]));
+    const deadFiles = new Set(overlay.deadFiles);
+    const focusFiles = new Set(overlay.focus ? overlay.focus.files.filter(id => fileById.has(id)) : []);
+    const groupByLabel = new Map(groupsData.map(g => [g.label, g.id]));
+    const KIND_TEXT = { violation: ' violation(s)', cycle: ' in a unit cycle', upward: ' upward' };
+    if (focusFiles.size > 0) {
+      expanded.clear();
+      focusFiles.forEach(id => expanded.add(fileById.get(id).group));
+    }`;
+}
+
+/** Overlay functions (hoisted, so the first render uses them), the findings panel and the focus view. */
+const OVERLAY_TAIL = String.raw`
+    function kindText(counts) {
+      return Object.keys(KIND_TEXT).filter(kind => counts[kind]).map(kind => counts[kind] + KIND_TEXT[kind]).join(', ');
+    }
+    function overlayFile(f, frameworkLabel) {
+      return {
+        ...(deadFiles.has(f.id) ? {
+          label: f.label.split('/').pop() + frameworkLabel + ' · dead',
+          title: f.label + frameworkLabel + ' (group: ' + groupById.get(f.group).label + '). Dead file: no production file imports it. Double-click to collapse the group.',
+          borderWidth: 2, shapeProperties: { useBorderWithImage: true, borderDashes: [4, 3] },
+        } : {}),
+        ...(focusFiles.size > 0 && !focusFiles.has(f.id) ? { opacity: 0.35 } : {}),
+      };
+    }
+    function overlayEdge(pairs) {
+      const counts = {};
+      for (const [from, to] of pairs) {
+        const kind = pairKind.get(from + '\0' + to);
+        if (kind) counts[kind] = (counts[kind] ?? 0) + 1;
+      }
+      const base = counts.violation ? OVERLAY.error : (counts.cycle || counts.upward ? OVERLAY.accent : undefined);
+      if (!base) return {};
+      return { base, dashes: Boolean(counts.violation), color: { color: base, opacity: 0.9 }, title: kindText(counts) + ' of ' + pairs.length + ' file pair(s). Click to list them.' };
+    }
+
+    // Expands the groups of the files, then selects and centres the files, or the units when it names no file.
+    function reveal(units, files, then) {
+      const ids = files.filter(id => fileById.has(id));
+      ids.forEach(id => expanded.add(fileById.get(id).group));
+      const groupIds = units.map(unit => groupByLabel.get(unit)).filter(g => g !== undefined && !expanded.has(g)).map(groupNodeId);
+      render();
+      network.once('stabilizationIterationsDone', () => {
+        const shown = [...ids, ...groupIds].filter(id => nodes.get(id));
+        if (shown.length > 0) {
+          network.selectNodes(shown);
+          network.fit({ nodes: shown, animation: true });
+        }
+        if (then) then();
+      });
+    }
+
+    function revealFocus() { reveal([], [...focusFiles], showFocus); }
+    // The focus boundary: units it depends on (orange) and units using it (blue), file pairs and overlay kinds.
+    function showFocus() {
+      const sides = { out: new Map(), in: new Map() };
+      for (const [from, to] of edgesData) {
+        const out = focusFiles.has(from);
+        if (out === focusFiles.has(to)) continue;
+        const unit = groupById.get(fileById.get(out ? to : from).group).label;
+        const side = out ? sides.out : sides.in;
+        const counts = side.get(unit) ?? { pairs: 0 };
+        counts.pairs++;
+        const kind = pairKind.get(from + '\0' + to);
+        if (kind) counts[kind] = (counts[kind] ?? 0) + 1;
+        side.set(unit, counts);
+      }
+      edges.update(edges.get().map(e => {
+        const out = e.pairs.some(([from, to]) => focusFiles.has(from) && !focusFiles.has(to));
+        const into = e.pairs.some(([from, to]) => !focusFiles.has(from) && focusFiles.has(to));
+        return { id: e.id, color: { color: out ? '#ffaa00' : (into ? '#4a9eff' : '#555'), opacity: out || into ? 1 : 0.25 } };
+      }));
+      const sorted = side => [...side].sort((a, b) => b[1].pairs - a[1].pairs || (a[0] < b[0] ? -1 : 1));
+      const describe = ([unit, counts]) => unit + ': ' + counts.pairs + ' file pair(s)' + (kindText(counts) ? ' (' + kindText(counts) + ')' : '');
+      showPanel([
+        el('h3', 'Focus: ' + overlay.focus.label + ' (' + focusFiles.size + ' file(s))'),
+        el('h4', 'Depends on → (orange): ' + sides.out.size + ' unit(s)'),
+        list(sorted(sides.out).map(describe)),
+        el('h4', 'Used by ← (blue): ' + sides.in.size + ' unit(s)'),
+        list(sorted(sides.in).map(describe)),
+      ]);
+    }
+
+    // The findings of report.md, same order and words; text only, as the details panel.
+    function findingEntry(item) {
+      const head = el('div');
+      head.append(el('strong', item.label), ': ', el('code', item.subject), ...(item.note ? [' ' + item.note] : []));
+      const entry = el('div');
+      entry.className = 'finding';
+      entry.append(head, ...(item.details.length > 0 ? [list(item.details)] : []));
+      if (item.next) {
+        const next = el('div', 'next: ');
+        next.append(el('code', item.next));
+        entry.append(next);
+      }
+      if (item.files.some(id => fileById.has(id)) || item.units.some(unit => groupByLabel.has(unit))) {
+        entry.tabIndex = 0;
+        entry.setAttribute('role', 'button');
+        entry.title = 'Expand its unit and centre the files it names';
+        const go = () => reveal(item.units, item.files);
+        entry.addEventListener('click', go);
+        entry.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          go();
+        });
+      }
+      return entry;
+    }
+    const findingsList = document.getElementById('findings-list');
+    for (const section of overlay.findings) {
+      findingsList.append(el('h4', section.title + ' (' + section.total + ')'), ...(section.intro ? [el('p', section.intro)] : []),
+        ...section.items.map(findingEntry), ...section.more.map(line => el('p', line)));
+    }
+    if (overlay.findings.length === 0) findingsList.append(el('p', 'No finding: nothing to clean up.'));
+    if (focusFiles.size > 0) {
+      network.once('stabilizationIterationsDone', () => {
+        const ids = [...focusFiles].filter(id => nodes.get(id));
+        if (ids.length > 0) network.fit({ nodes: ids });
+        showFocus();
+      });
+    }`;
+
 export function exportHtml(config: HtmlExporterConfig): void {
+  fs.mkdirSync(path.dirname(config.outputPath), { recursive: true });
+  fs.writeFileSync(config.outputPath, renderHtmlPage(config), 'utf-8');
+}
+
+/** The self-contained page; without an overlay, exactly what `graph-it export --format html` writes. */
+export function renderHtmlPage(config: HtmlPageConfig): string {
+  const { overlay } = config;
   const visPath = (require as { resolve(id: string): string }).resolve('vis-network/standalone/umd/vis-network.min.js');
   const visSource = fs.readFileSync(visPath, 'utf-8');
   const safeVisSource = visSource.replaceAll('</script>', String.raw`<\/script>`);
@@ -147,14 +348,15 @@ export function exportHtml(config: HtmlExporterConfig): void {
   const model = buildHtmlGraphModel(config.graphData, config.workspaceRoot);
   const header = buildHeader(config.workspaceName, config.context, model);
   const frameworkFiles = model.files.flatMap(file => file.framework ? [{ label: file.label, framework: file.framework }] : []);
-  const legend = buildLegend(model.groups, config.context.communityMode, new Set(frameworkFiles.map(file => file.framework)));
+  const legend = buildLegend(model.groups, config.context.communityMode, new Set(frameworkFiles.map(file => file.framework)), overlay !== undefined);
   const graphLabel = htmlEscape(['Dependency graph', ...frameworkFiles.map(file => `${FRAMEWORK_IDENTITIES[file.framework].label}: ${file.label}`)].join('. '));
   const title = htmlEscape(config.workspaceName);
 
   // Groups are collapsed by the page itself, not by vis-network clustering: a vis cluster
   // edge merges both directions, which would misreport directed file-pair counts.
   // Physics layout only: hierarchical layout would imply false layering on cyclic groups.
-  const html = String.raw`<!DOCTYPE html>
+  // Overlay parts are appended to existing lines only, so the page without overlay keeps its bytes.
+  return String.raw`<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -178,7 +380,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
     #panel h3 { font-size: 13px; margin: 0 0 8px; word-break: break-all; }
     #panel h4 { font-size: 12px; margin: 10px 0 4px; color: #aaa; }
     #panel ul { margin: 0; padding-left: 18px; }
-    #panel li { word-break: break-all; margin-bottom: 2px; }
+    #panel li { word-break: break-all; margin-bottom: 2px; }${overlay ? OVERLAY_CSS : ''}
   </style>
 </head>
 <body>
@@ -189,11 +391,11 @@ export function exportHtml(config: HtmlExporterConfig): void {
     <button onclick="setAllExpanded(false)">Collapse all</button>
     <button onclick="network.fit()">⊞ Fit</button>
     <button id="btn-physics" class="active" onclick="togglePhysics()">⚡ Physics</button>
-    <button onclick="resetLayout()">↺ Reset</button>
+    <button onclick="resetLayout()">↺ Reset</button>${overlay?.focus ? '\n    <button onclick="revealFocus()">◎ Focus</button>' : ''}
   </div>
   <div id="progress">Laying out graph…</div>
   <div id="graph" role="img" aria-label="${graphLabel}"></div>
-  <div id="panel" role="dialog" aria-live="polite"></div>
+  <div id="panel" role="dialog" aria-live="polite"></div>${overlay ? '\n  <details id="findings" open><summary>Findings</summary><div id="findings-list"></div></details>' : ''}
   <script>${safeVisSource}</script>
   <script>
     const groupsData = ${jsonForScript(model.groups)};
@@ -203,7 +405,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
     const PAGE_SIZE = 50;
     const groupById = new Map(groupsData.map(g => [g.id, g]));
     const fileById = new Map(filesData.map(f => [f.id, f]));
-    const expanded = new Set(${model.files.length <= EXPANDED_FILE_LIMIT} ? groupsData.map(g => g.id) : []);
+    const expanded = new Set(${model.files.length <= EXPANDED_FILE_LIMIT} ? groupsData.map(g => g.id) : []);${overlay ? overlayHead(overlay) : ''}
     let filterText = '';
 
     const nodes = new vis.DataSet([]);
@@ -265,7 +467,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
         id: f.id, label: f.label.split('/').pop() + frameworkLabel, ...position,
         title: f.label + frameworkLabel + ' (group: ' + groupById.get(f.group).label + '). Double-click to collapse the group.',
         color: f.color, borderWidth: f.borderWidth,
-        ...(framework ? { shape: 'image', image: framework.image, shapeProperties: { useBorderWithImage: true } } : {}),
+        ...(framework ? { shape: 'image', image: framework.image, shapeProperties: { useBorderWithImage: true } } : {}),${overlay ? ' ...overlayFile(f, frameworkLabel),' : ''}
       };
     }
 
@@ -296,7 +498,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
       edges.add([...byKey.values()].map(e => ({
         ...e,
         label: isGroupNode(e.from) || isGroupNode(e.to) ? String(e.pairs.length) : undefined,
-        width: Math.min(0.8 + Math.log2(e.pairs.length), 6),
+        width: Math.min(0.8 + Math.log2(e.pairs.length), 6),${overlay ? ' ...overlayEdge(e.pairs),' : ''}
       })));
       resetLayout();
     }
@@ -352,7 +554,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
     }
     function hidePanel() {
       panel.style.display = 'none';
-      edges.update(edges.get().map(e => ({ id: e.id, color: { color: '#555', opacity: 0.55 } })));
+      edges.update(edges.get().map(e => ({ id: e.id, color: { color: ${overlay ? 'e.base ?? ' : ''}'#555', opacity: ${overlay ? 'e.base ? 0.9 : ' : ''}0.55 } })));
     }
     function list(items) {
       const ul = el('ul');
@@ -365,7 +567,7 @@ export function exportHtml(config: HtmlExporterConfig): void {
       const outgoing = edges.get({ filter: e => e.from === id });
       edges.update(edges.get().map(e => ({
         id: e.id,
-        color: { color: e.from === id ? '#ffaa00' : (e.to === id ? '#4a9eff' : '#555'), opacity: e.from === id || e.to === id ? 1 : 0.25 },
+        color: { color: e.from === id ? '#ffaa00' : (e.to === id ? '#4a9eff' : ${overlay ? 'e.base ?? ' : ''}'#555'), opacity: e.from === id || e.to === id ? 1 : 0.25 },
       })));
       const describe = (e, otherEnd) => nodeLabel(otherEnd) + ' (' + e.pairs.length + ' file pair(s))';
       showPanel([
@@ -415,12 +617,9 @@ export function exportHtml(config: HtmlExporterConfig): void {
       render();
     });
 
-    render();
+    render();${overlay ? OVERLAY_TAIL : ''}
   </script>
   ${legend}
 </body>
 </html>`;
-
-  fs.mkdirSync(path.dirname(config.outputPath), { recursive: true });
-  fs.writeFileSync(config.outputPath, html, 'utf-8');
 }

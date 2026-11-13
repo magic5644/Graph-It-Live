@@ -5,7 +5,7 @@
  * allowOnly rule per unit, noCycles over the acyclic units, every current violation in the
  * baseline), so that `graph-it check-architecture` only fails on new drift. An existing config
  * or baseline is never overwritten without a confirmation. Then prints the guard snippets, the
- * quick wins and the reading of the dependency matrix, with diagrams under `--output <dir>` (#664).
+ * quick wins and the reading of the dependency matrix, with diagrams, report.md and an explorable index.html under `--output <dir>` (#664, #718).
  *
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
@@ -34,6 +34,7 @@ import { assignUnits, buildArchitectureUnits, byCodeUnit, directoryFolderKey, fo
 import type { UnitSource } from "../../analyzer/architecture/architectureView.js";
 import type { DrawOptions } from "../../analyzer/diagram/architectureDiagram.js";
 import { renderSourceDiagram } from "../../analyzer/diagram/workspaceDiagram.js";
+import { renderHtmlPage } from "../../analyzer/export/HtmlExporter";
 import { executeScanDeadCode } from "../../mcp/tools";
 import { workerState } from "../../mcp/shared/state";
 import { closestNames } from "../../analyzer/utils/SymbolLookup.js";
@@ -46,6 +47,7 @@ import { formatOutput } from "../formatter";
 import { readStringOption } from "../options";
 import type { CliRuntime } from "../runtime";
 import { writeBackup, writeWorkspaceFile } from "../workspaceFiles";
+import { initPage } from "./initPage";
 import { renderInitMarkdown, renderInitText, type InitDiagram, type InitResult, type InitStatus } from "./initReport";
 
 /** The commands that keep the guard on, printed as they are (checked against `check-architecture --help`). */
@@ -317,8 +319,11 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     diagrams,
   };
   if (outputDir !== undefined) {
+    const page = path.posix.join(outputDir, "index.html");
+    await writeWorkspaceFile(workspaceRoot, page, renderHtmlPage(initPage({ graph, units, assignment }, workspaceRoot, check.violations, result, scope)));
+    result.page = page;
     const reportFile = path.posix.join(outputDir, "report.md");
-    result.reportFiles.push(...diagrams.map((diagram) => diagram.file), reportFile);
+    result.reportFiles.push(...diagrams.map((diagram) => diagram.file), page, reportFile);
     await writeWorkspaceFile(workspaceRoot, reportFile, renderInitMarkdown(result, outputDir));
   }
   if (format === "text") return renderInitText(result);
