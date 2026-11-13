@@ -17,7 +17,7 @@ import * as fsSync from "node:fs";
 import * as osMod from "node:os";
 import * as pathMod from "node:path";
 import { CliError, ExitCode } from "../../src/cli/errors";
-import { commandWantsHelp, createReplRuntime, createRuntime, findCommandStart, stripGlobalOptions } from "../../src/cli/index";
+import { commandWantsHelp, createProgress, createReplRuntime, createRuntime, findCommandStart, stripGlobalOptions } from "../../src/cli/index";
 
 describe("findCommandStart", () => {
   it("finds the command when it is the first token", () => {
@@ -176,5 +176,19 @@ describe("createRuntime — index cache flags", () => {
     await runtime.dispose();
 
     expect(fsSync.existsSync(cacheDir)).toBe(false);
+  });
+});
+
+describe("createProgress (#717)", () => {
+  it.each(["init", "check", "check-architecture", "architecture", "export", "review-pr", "wiki", "scan"])(
+    "draws the phases of %s on a TTY only",
+    (command) => {
+      expect(createProgress(command, true).enabled).toBe(true);
+      expect(createProgress(command, false).enabled).toBe(false);
+    },
+  );
+
+  it.each(["tool", "serve", "trace", "summary", "query"])("never draws phases for %s, even on a TTY", (command) => {
+    expect(createProgress(command, true).enabled).toBe(false);
   });
 });

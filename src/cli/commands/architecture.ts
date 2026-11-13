@@ -87,11 +87,13 @@ export async function run(
 
   await runtime.ensureIndexed();
 
-  const graph = await buildArchitectureGraph(runtime.workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
+  const graph = await runtime.progress.phase("Analyzing architecture", (onProgress) =>
+    buildArchitectureGraph(runtime.workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
       maxFiles,
       communityMode,
       indexedAt: runtime.loadState()?.lastScanTimestamp,
-    });
+      onProgress,
+    }));
   const { graphData, nodes, edges, scannedFiles, analyzedFiles, failedFiles, context } = graph;
 
   const architecture = {

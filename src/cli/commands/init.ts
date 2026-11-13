@@ -45,6 +45,7 @@ import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import { readStringOption } from "../options";
+import type { CliProgress } from "../progress";
 import type { CliRuntime } from "../runtime";
 import { writeBackup, writeWorkspaceFile } from "../workspaceFiles";
 import { initPage } from "./initPage";
@@ -250,9 +251,11 @@ async function lineCount(workspaceRoot: string, relativePath: string): Promise<n
  * High-confidence unused exports, listed as quick wins, the counts of the other levels, and the files nothing
  * imports (#711). With focus files, every level is listed so the counts below high cover the focus only.
  */
-async function deadCodeFiles(workspaceRoot: string, focus?: ReadonlySet<string>) {
-  const scan = await executeScanDeadCode({ minConfidence: focus === undefined ? "high" : "low" });
-  const unreferenced = await executeScanDeadCode({ unreferencedFiles: true });
+async function deadCodeFiles(workspaceRoot: string, progress: CliProgress, focus?: ReadonlySet<string>) {
+  const scan = await progress.phase("Analyzing unused exports", (tick) =>
+    executeScanDeadCode({ minConfidence: focus === undefined ? "high" : "low" }, undefined, tick));
+  const unreferenced = await progress.phase("Finding unreferenced files", (tick) =>
+    executeScanDeadCode({ unreferencedFiles: true }, undefined, tick));
   const below = { medium: scan.byConfidence.medium, low: scan.byConfidence.low };
   if (focus !== undefined) {
     const symbols = scan.entries.filter((entry) => focus.has(entry.relativePath)).flatMap((entry) => entry.unusedSymbols);
@@ -277,10 +280,12 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   const current = await readCurrentFiles(workspaceRoot);
 
   await runtime.ensureIndexed();
-  const graph = await buildArchitectureGraph(workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
-    communityMode: "path",
-    indexedAt: runtime.loadState()?.lastScanTimestamp,
-  });
+  const graph = await runtime.progress.phase("Analyzing architecture", (onProgress) =>
+    buildArchitectureGraph(workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
+      communityMode: "path",
+      indexedAt: runtime.loadState()?.lastScanTimestamp,
+      onProgress,
+    }));
   const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
   const focus = flags.focus === undefined ? undefined : resolveFocus(assignment, flags.focus);
   const units = buildArchitectureUnits(graph, workspaceRoot, assignment, current.config?.roles);
@@ -294,16 +299,18 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     ? await writeRulesFiles(workspaceRoot, current, `${JSON.stringify(config, null, 2)}\n`, formatBaseline(baseline), baseline.length === 0)
     : [];
 
-  const assessment = assessArchitecture({
+  const deadCode = await deadCodeFiles(workspaceRoot, runtime.progress, focus?.files);
+  const assessment = await runtime.progress.phase("Assessing architecture", () => assessArchitecture({
     graph,
     units,
     unitOf: assignment.unitOf,
     matrix: unitMatrix(units),
-    ...(await deadCodeFiles(workspaceRoot, focus?.files)),
+    ...deadCode,
     acceptedViolations: baseline.length,
-  }, focus?.files);
+  }, focus?.files));
   const scope = focus === undefined ? undefined : { ...focus, units: focusUnits({ graph, unitOf: assignment.unitOf }, focus.files).withNeighbours };
-  const diagrams = outputDir === undefined ? [] : await writeDiagrams({ graph, units, assignment }, workspaceRoot, outputDir, check, assessment, scope);
+  const diagrams = outputDir === undefined ? [] : await runtime.progress.phase("Laying out diagrams", () =>
+    writeDiagrams({ graph, units, assignment }, workspaceRoot, outputDir, check, assessment, scope));
 
   const result: InitResult = {
     ...(focus === undefined ? {} : { focus: focus.key }),
@@ -320,7 +327,8 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   };
   if (outputDir !== undefined) {
     const page = path.posix.join(outputDir, "index.html");
-    await writeWorkspaceFile(workspaceRoot, page, renderHtmlPage(initPage({ graph, units, assignment }, workspaceRoot, check.violations, result, scope)));
+    await runtime.progress.phase("Writing the HTML page", () =>
+      writeWorkspaceFile(workspaceRoot, page, renderHtmlPage(initPage({ graph, units, assignment }, workspaceRoot, check.violations, result, scope))));
     result.page = page;
     const reportFile = path.posix.join(outputDir, "report.md");
     result.reportFiles.push(...diagrams.map((diagram) => diagram.file), page, reportFile);

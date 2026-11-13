@@ -1157,19 +1157,20 @@ export class SpiderSymbolService {
    * @param options.hasReverseIndex - Whether the reverse index is available.
    *   If false, throws INDEX_NOT_READY — we never fall back to O(n²) lookups.
    * @param options.signal - Aborts the scan between files.
+   * @param options.onProgress - Called after each file with the files done and the total.
    * @returns Array of { filePath, unusedSymbols } entries (only files that
    *   have at least one unused export are included).
    */
   async scanDeadCode(
     scopePath: string,
-    options: { maxFiles?: number; hasReverseIndex: boolean; signal?: AbortSignal }
+    options: { maxFiles?: number; hasReverseIndex: boolean; signal?: AbortSignal; onProgress?: (done: number, total: number) => void }
   ): Promise<{ entries: Array<{ filePath: string; unusedSymbols: UnusedSymbol[] }>; excluded: ExcludedExport[]; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
     const { filesToScan, filesBeyondLimit } = await this.collectScanFiles(scopePath, options);
     const context: DeadCodeContext = { reExportMemo: new Map(), excluded: [] };
     this.scanResolutions = new Map();
 
     try {
-      const { results, skippedFiles } = await this.scanEachFile(filesToScan, 'scanDeadCode', options.signal, async (filePath) => ({
+      const { results, skippedFiles } = await this.scanEachFile(filesToScan, 'scanDeadCode', options, async (filePath) => ({
         filePath,
         unusedSymbols: await this.findUnusedSymbols(filePath, context),
       }));
@@ -1195,13 +1196,13 @@ export class SpiderSymbolService {
    */
   async scanUnreferencedFiles(
     scopePath: string,
-    options: { maxFiles?: number; hasReverseIndex: boolean; signal?: AbortSignal }
+    options: { maxFiles?: number; hasReverseIndex: boolean; signal?: AbortSignal; onProgress?: (done: number, total: number) => void }
   ): Promise<{ files: UnreferencedFile[]; excluded: ExcludedFile[]; scannedFiles: number; skippedFiles: number; filesBeyondLimit: number }> {
     const { filesToScan, filesBeyondLimit } = await this.collectScanFiles(scopePath, options);
     const textFacts = this.workspaceTextFacts({ reExportMemo: new Map() });
     const isGitignored = createNestedGitignoreMatcher(this.getConfig().rootDir);
     const excluded: ExcludedFile[] = [];
-    const { results, skippedFiles } = await this.scanEachFile(filesToScan, 'scanUnreferencedFiles', options.signal, async (filePath) => {
+    const { results, skippedFiles } = await this.scanEachFile(filesToScan, 'scanUnreferencedFiles', options, async (filePath) => {
       const verdict = await this.unreferencedFile(normalizePath(filePath), textFacts, isGitignored);
       if (!verdict || !('reason' in verdict)) return verdict;
       excluded.push(verdict);
@@ -1219,14 +1220,16 @@ export class SpiderSymbolService {
   /**
    * `analyse` on each file, a few at a time; a file whose analysis fails is skipped (undefined) so the batch continues.
    * With a signal, yields to the event loop before each file so a pending cancel message can abort the scan.
+   * onProgress is called after each file, analysed or skipped.
    */
   private async scanEachFile<T>(
     files: string[],
     label: string,
-    signal: AbortSignal | undefined,
+    { signal, onProgress }: { signal?: AbortSignal; onProgress?: (done: number, total: number) => void },
     analyse: (filePath: string) => Promise<T | undefined>,
   ): Promise<{ results: Array<T | undefined>; skippedFiles: number }> {
     let skippedFiles = 0;
+    let done = 0;
     const results = await mapWithConcurrency(files, DEAD_CODE_SCAN_CONCURRENCY, async (filePath) => {
       if (signal) {
         await setImmediate();
@@ -1238,6 +1241,8 @@ export class SpiderSymbolService {
         log.warn(`${label}: skipping file due to error:`, filePath, SpiderError.fromError(error, filePath).message);
         skippedFiles++;
         return undefined;
+      } finally {
+        onProgress?.(++done, files.length);
       }
     });
     return { results, skippedFiles };

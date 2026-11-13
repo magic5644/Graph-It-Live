@@ -174,6 +174,34 @@ Indexing progress (`Indexing: n/m files...`) redraws in place only when stderr
 is a terminal. Piped or redirected stderr (agents, CI logs) gets a single
 summary line, such as `Indexed n/m files`.
 
+### Progress of long commands
+
+On a terminal, `init`, `check`, `check-architecture`, `architecture`, `export`,
+`review-pr`, `wiki` and `scan` also show each phase after indexing on stderr:
+one line per phase, with a counter when the total is known or the elapsed time
+otherwise, then the total duration.
+
+```text
+  Loaded 1056 files from cache (nothing changed)
+  Analyzing architecture 1056/1056 (8.2s)
+  Analyzing unused exports 1056/1056 (41.7s)
+  Finding unreferenced files 1056/1056 (6.3s)
+  Assessing architecture (0.4s)
+  Laying out diagrams (12.1s)
+  Writing the HTML page (1.9s)
+  Done in 1m 12s
+```
+
+A phase that fails ends with `failed after Ns`; Ctrl-C ends it with
+`interrupted after Ns`. A phase that runs without yielding (such as the
+architecture assessment) shows its elapsed time again only when it ends.
+
+Nothing is printed when stderr is not a terminal (piped, redirected, CI), and
+never by `tool` or `serve`; stdout is the same byte for byte either way. To hide
+the lines on a terminal, redirect stderr: `graph-it init 2>/dev/null`.
+`review-pr` stays silent off a terminal, indexing summary included, so a CI gate
+log holds only the review.
+
 The cache is invalidated automatically when the CLI version changes, when a
 language query file is updated, per file by modification time and size, and
 whenever more than 20% of the workspace changed — that last case triggers a full

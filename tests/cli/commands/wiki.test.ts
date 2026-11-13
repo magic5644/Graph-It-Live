@@ -21,6 +21,7 @@ vi.mock("../../../src/mcp/tools/wiki.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { run } from "../../../src/cli/commands/wiki.js";
+import { CliProgress } from "@/cli/progress";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -31,7 +32,7 @@ const WORKSPACE_ROOT = "/workspace";
 function makeRuntime(root = WORKSPACE_ROOT) {
   return {
     workspaceRoot: root,
-    ensureIndexed: vi.fn().mockResolvedValue(undefined),
+    progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined),
   } as never;
 }
 

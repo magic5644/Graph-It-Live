@@ -33,6 +33,7 @@ import {
 } from "../shared/logger";
 import { CliError, ExitCode } from "./errors";
 import { ErrorCollectorBackend, type CollectedLogEntry } from "./errorCollector";
+import { CliProgress } from "./progress";
 
 // Send all logs to stderr so stdout stays clean for data output
 setLoggerBackend({
@@ -104,6 +105,8 @@ export class CliRuntime {
   private _sourceFiles: string[] | null = null;
   private indexCache: IndexCache | null = null;
   private errorCollectorBackend: ErrorCollectorBackend | null = null;
+  /** Phase lines on stderr (#717); disabled until the CLI entry point enables it for a long command on a TTY. */
+  progress = new CliProgress(false);
 
   /**
    * `requireProject`: the root was not given explicitly, so init() refuses a
@@ -291,9 +294,7 @@ export class CliRuntime {
     const unsubscribe = spider.subscribeToIndexStatus((snapshot) => {
       // total === 0 means there is nothing to do — printing "0/0" reads as a bug.
       if (live && snapshot.state === "indexing" && snapshot.total > 0) {
-        process.stderr.write(
-          `\r  ${progressLabel}: ${snapshot.processed}/${snapshot.total} files...`,
-        );
+        this.progress.redraw(`  ${progressLabel}: ${snapshot.processed}/${snapshot.total} files...`);
       }
     });
 
@@ -302,12 +303,12 @@ export class CliRuntime {
         cache: this.indexCache,
         reverseIndexOptions: { excludeNodeModules: true, ignoreTypeImports: false },
         buildFullIndex: () => {
-          if (live) process.stderr.write("\r  Indexing workspace...");
+          if (live) this.progress.redraw("  Indexing workspace...");
           return spider.buildFullIndex();
         },
         onWait: (holderPid) => {
           if (!silent) {
-            process.stderr.write(`  Waiting for the index being built by process ${holderPid ?? "?"}...\n`);
+            this.progress.line(`  Waiting for the index being built by process ${holderPid ?? "?"}...`);
           }
         },
         onReindexStart: () => {
@@ -316,8 +317,9 @@ export class CliRuntime {
       });
 
       const durationMs = Date.now() - startTime;
-      if (!silent) {
-        process.stderr.write(`${live ? "\r" : ""}${this.describeOutcome(result)}\n`);
+      // A build cancelled by Ctrl-C (dispose) would report its partial count as the index.
+      if (!silent && !result.cancelled) {
+        this.progress.line(this.describeOutcome(result));
         const warning = this.describeOutOfRootImports();
         if (warning) process.stderr.write(`  Warning: ${warning}\n`);
       }

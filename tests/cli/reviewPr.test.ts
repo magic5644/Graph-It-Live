@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ReviewGateResult } from "@/analyzer/ReviewGateAnalyzer";
 import type { CliRuntime } from "@/cli/runtime";
+import { CliProgress } from "@/cli/progress";
 
 const analyze = vi.fn<() => Promise<ReviewGateResult>>();
 
@@ -16,7 +17,7 @@ vi.mock("@/mcp/shared/state", () => ({ workerState: { getSpider: vi.fn(), getCon
 
 const { run } = await import("@/cli/commands/reviewPr");
 
-const runtime = { workspaceRoot: "/workspace", ensureIndexed: vi.fn(async () => undefined) } as unknown as CliRuntime;
+const runtime = { workspaceRoot: "/workspace", progress: new CliProgress(false), ensureIndexed: vi.fn(async () => undefined) } as unknown as CliRuntime;
 const base: ReviewGateResult = {
   baseRef: "main", headRef: "HEAD", changedFiles: ["frontend/app.ts"], symbols: [], cycles: [],
   score: 50, risk: "high", isPartial: false, limitations: [],

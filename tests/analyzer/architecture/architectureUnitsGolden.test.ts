@@ -9,6 +9,7 @@ import { executeExploreArchitecture } from "../../../src/mcp/tools/architecture"
 import type { ArchitectureExtensionMessage, ArchitectureSummaryMessage } from "../../../src/shared/architecture-types";
 import { normalizePath } from "../../../src/shared/path";
 import { buildView } from "./viewHarness";
+import { CliProgress } from "@/cli/progress";
 
 // Golden output of `graph-it architecture --level units` on an npm-workspaces fixture: the CLI,
 // explore_architecture and the extension's view must report the same units, layers and edges.
@@ -38,7 +39,7 @@ describe("architecture units golden output: workspaces-project", () => {
   });
 
   it("matches the golden CLI, MCP and view units", async () => {
-    const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+    const runtime = { workspaceRoot: rootDir, progress: new CliProgress(false), ensureIndexed: async () => undefined, loadState: () => null };
     const cli = JSON.parse(await runArchitectureCli(["--level", "units"], runtime as never, "json"));
     const mcp = await executeExploreArchitecture({ level: "units", limit: 500 });
     const firstPage = await executeExploreArchitecture({ level: "units", limit: 2 });
@@ -64,7 +65,7 @@ describe("architecture units golden output: workspaces-project", () => {
   });
 
   it("lists the same file pairs behind every unit edge in the CLI, explore_architecture and the view", async () => {
-    const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+    const runtime = { workspaceRoot: rootDir, progress: new CliProgress(false), ensureIndexed: async () => undefined, loadState: () => null };
     const posted: ArchitectureExtensionMessage[] = [];
     const { service, summary } = await buildView(rootDir, posted);
     const packages = summary.units!.units.map((unit) => unit.key).filter((key) => key !== "(root)");
@@ -91,19 +92,19 @@ describe("architecture units golden output: workspaces-project", () => {
   });
 
   it("rejects --from without --to or --level units", async () => {
-    const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+    const runtime = { workspaceRoot: rootDir, progress: new CliProgress(false), ensureIndexed: async () => undefined, loadState: () => null };
     await expect(runArchitectureCli(["--level", "units", "--from", "apps/web"], runtime as never, "json")).rejects.toThrow("--from and --to");
     await expect(runArchitectureCli(["--from", "apps/web", "--to", "packages/core"], runtime as never, "json")).rejects.toThrow("with --level units");
     await expect(runArchitectureCli(["--level", "units", "--from", "--to", "x"], runtime as never, "json")).rejects.toThrow("--from must be a unit key");
   });
 
   it("rejects an unknown --level", async () => {
-    const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+    const runtime = { workspaceRoot: rootDir, progress: new CliProgress(false), ensureIndexed: async () => undefined, loadState: () => null };
     await expect(runArchitectureCli(["--level", "files"], runtime as never, "json")).rejects.toThrow("--level must be groups or units");
   });
 
   it("--level groups is the --groups output", async () => {
-    const runtime = { workspaceRoot: rootDir, ensureIndexed: async () => undefined, loadState: () => null };
+    const runtime = { workspaceRoot: rootDir, progress: new CliProgress(false), ensureIndexed: async () => undefined, loadState: () => null };
     const groups = await runArchitectureCli(["--groups"], runtime as never, "json");
     expect(await runArchitectureCli(["--level", "groups"], runtime as never, "json")).toBe(groups);
   });

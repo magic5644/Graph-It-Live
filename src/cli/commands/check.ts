@@ -31,7 +31,8 @@ export async function run(
   // No argument → full workspace scan for dead code
   if (positional.length === 0) {
     await runtime.ensureIndexed();
-    const result = await executeScanDeadCode({ minConfidence, verbose, unreferencedFiles });
+    const result = await runtime.progress.phase(scanLabel(unreferencedFiles), (tick) =>
+      executeScanDeadCode({ minConfidence, verbose, unreferencedFiles }, undefined, tick));
     return formatOutput(result, format, "check");
   }
 
@@ -54,7 +55,8 @@ export async function run(
   await runtime.ensureIndexed();
 
   if (isDirectory) {
-    const result = await executeScanDeadCode({ scopePath: candidatePath, minConfidence, verbose, unreferencedFiles });
+    const result = await runtime.progress.phase(scanLabel(unreferencedFiles), (tick) =>
+      executeScanDeadCode({ scopePath: candidatePath, minConfidence, verbose, unreferencedFiles }, undefined, tick));
     return formatOutput(result, format, "check");
   }
 
@@ -67,4 +69,8 @@ export async function run(
   });
 
   return formatOutput(result, format, "check");
+}
+
+function scanLabel(unreferencedFiles: boolean): string {
+  return unreferencedFiles ? "Finding unreferenced files" : "Analyzing unused exports";
 }

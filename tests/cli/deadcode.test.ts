@@ -14,6 +14,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { workerState } from "../../src/mcp/shared/state";
+import { CliProgress } from "@/cli/progress";
 
 // ---------------------------------------------------------------------------
 // Helper: tiny fixture project
@@ -57,7 +58,7 @@ describe("CLI check command", () => {
   let tmpDir: string;
 
   const runtimeStub = {
-    ensureIndexed: vi.fn(),
+    progress: new CliProgress(false), ensureIndexed: vi.fn(),
     workspaceRoot: "",
   };
 
@@ -105,7 +106,7 @@ describe("CLI check command", () => {
       await run([], runtimeStub as unknown as import("../../src/cli/runtime").CliRuntime, "text");
 
       expect(scanDeadCodeMock).toHaveBeenCalledOnce();
-      expect(scanDeadCodeMock).toHaveBeenCalledWith({ verbose: false, unreferencedFiles: false });
+      expect(scanDeadCodeMock).toHaveBeenCalledWith({ verbose: false, unreferencedFiles: false }, undefined, expect.any(Function));
     });
 
     it("does NOT call executeFindUnusedSymbols", async () => {
@@ -140,7 +141,7 @@ describe("CLI check command", () => {
       await run([srcDir], runtimeStub as unknown as import("../../src/cli/runtime").CliRuntime, "text");
 
       expect(scanDeadCodeMock).toHaveBeenCalledOnce();
-      expect(scanDeadCodeMock).toHaveBeenCalledWith({ scopePath: srcDir, verbose: false, unreferencedFiles: false });
+      expect(scanDeadCodeMock).toHaveBeenCalledWith({ scopePath: srcDir, verbose: false, unreferencedFiles: false }, undefined, expect.any(Function));
     });
 
     it("does NOT call executeFindUnusedSymbols", async () => {
