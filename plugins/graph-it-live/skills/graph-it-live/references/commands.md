@@ -130,8 +130,10 @@ No rules file yet: `graph-it init` (CLI 1.25.0 or later) writes `graphit.archite
 today's imports (one `allowOnly` rule per unit, `noCycles` over the units in no cycle) so the check
 passes now and only new drift fails, then prints a five-line summary, the dead files by unit (most
 lines first), the cycles to cut and other quick wins ranked by gain / effort (mutual imports grouped
-by hot spot file), hubs, a glossary, and the guard snippets last. `--dry-run` writes nothing; `--output
-<dir>` adds `report.md` and SVG diagrams. It never overwrites an existing config or baseline without
+by hot spot file), hubs, a glossary, and the guard snippets last (summary, dead files and ranking: CLI
+1.25.1 or later). `--dry-run` writes nothing; `--output <dir>` adds `report.md`, SVG diagrams and an
+explorable `index.html`; `--focus <unit|package|folder>` restricts the report and diagrams to it and
+its direct neighbours. It never overwrites an existing config or baseline without
 confirmation: outside a terminal (agent, CI) it then writes nothing unless `--yes`, and still prints
 the report.
 

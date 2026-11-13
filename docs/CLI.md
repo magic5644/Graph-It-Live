@@ -1017,7 +1017,7 @@ Every current violation goes to `graphit.architecture.baseline.json`; the file i
 
 An invalid config is reported, never replaced.
 
-**The report**, from the cheapest action to the setup: the rules line (what happened to the config and how many current violations the proposed baseline accepts) and the report files written, apart; a five-line summary (size, cycles, dead files, unused exports, top action: the first dead file with exports, an export-less one being most often an entry point, else the first item of the next sections); then these sections, each left out when empty. A finding is a lead for the architect, never a verdict.
+**The report**, from the cheapest action to the setup: the rules line (what happened to the config and how many current violations the proposed baseline accepts) and the report files written, apart; a five-line summary (size, cycles, dead files, unused exports, top action: the first dead file with exports, an export-less one being most often an entry point, as `check, then delete` when its confidence is `low` and `delete` otherwise, else the first item of the next sections); then these sections, each left out when empty. A finding is a lead for the architect, never a verdict.
 
 - **Dead files**: the files no production file imports ([`check --unreferencedFiles`](#check)), grouped by unit, the unit with the most lines first (the lines of the tests to delete with them included), each with its line count, exports, confidence and reasons, then the files dead by cascade with their dead importers (`via`), each with the tests to delete with it, and one `next:` command per unit. An entry point by convention (script, handler) is listed too: check before deleting.
 - **Cycles to cut** and **Other leads** list the quick wins, ranked by gain / effort (what the item removes over the imports or symbols to change), then by gain:
@@ -1137,8 +1137,9 @@ handlers and render props keep the proven target out of unused-export results, i
 same-file JSX and `createRoot(...).render(<App />)` at file scope. Self-reference alone
 does not establish a consumer. Function/class default exports in `.jsx`/`.tsx` are
 conservatively treated as possible external framework entry points even without an
-in-workspace importer; this can retain an unused default component. This does not infer
-framework routes. A named export without a proven consumer or this entry-point rule
+in-workspace importer; this can retain an unused default component. Files a framework
+loads by file name (`convention:framework-route`) and migration files (`convention:migration`)
+are left out too (see [Unreferenced files](#unreferenced-files)). A named export without a proven consumer or this entry-point rule
 may still be reported: no known consumer was found, which is not proof of runtime
 unreachability. Missing imports, shadowed names and ambiguous targets are never guessed.
 
@@ -1171,7 +1172,7 @@ Combines the reverse index with per-file symbol analysis to find exports no work
 | Confidence | Reason codes | Meaning |
 |------------|--------------|---------|
 | `high` | `importers-use-other-exports` | The file is imported, none of its importers (direct or through a barrel) uses this export, and nothing below applies. A deletion candidate. |
-| `medium` | `test-only-use` | Only test files use the export (`*.test.*`, `*.spec.*`, `test_*.py`, `*_test.py`, `conftest.py`, files under `test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`). |
+| `medium` | `test-only-use` | Only test files use the export (`*.test.*`, `*.spec.*`, `*.e2e.*`, `*.<kind>-test.*` like `.integration-test.ts`, `test_*.py`, `*_test.py`, `conftest.py`, files under `test/`, `tests/`, `__tests__/`, `spec/`, `e2e/`, `__fixtures__/`, `__mocks__/`, `playwright/`, `cypress/`). |
 | `medium` | `dynamic-import-in-workspace` | A workspace file loads modules by computed path and may reach this file: `` import(`./plugins/${name}`) `` or `'./x/' + name` reaches the files under that prefix; a bare or aliased prefix (`` `@/plugins/${name}` ``, Python `'plugins' + name`) reaches the whole workspace; a fully computed `import(name)`, `require(name)`, `importlib.import_module(name)` or `__import__(name)` reaches the files under the caller's folder; a Python importer reading attributes by computed name (`getattr(mod, name)`) reaches the module it imports. |
 | `medium` | `convention:decorated` | Python: a decorator may register the definition by reference (`@app.route`, `@click.command`, `@pytest.fixture`), and so may what it calls. |
 | `medium` | `named-in-own-file` | Its file writes the name again (comments aside): code of the file may use it, so removing the `export` may be the fix rather than deleting the code. |

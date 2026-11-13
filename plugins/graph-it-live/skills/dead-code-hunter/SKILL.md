@@ -111,11 +111,18 @@ graph-it check src --unreferencedFiles --format markdown   # a table for a human
 | `medium` | `test-only-use`: only tests import the file; `testImporters` lists them | Quick cleanup win: delete the file with those tests (or their cases on it) |
 | `low` | `no-importer` alone | Possible ghost file: delete unless it is run by name (script, config, tool entry) |
 | `low` | `no-importer` plus `dynamic-import-in-workspace`, `named-in-deploy-manifest`, `convention:generated` or `published-deep-import` | Review the reason before deleting |
+| `low` or `medium` | `cascade`: only dead files and tests import it; `via` lists the dead importers | Delete with (after) the files in `via` |
+
+Every dead file also has `tests`: the test files that import nothing but dead files, to delete with it.
+Dead cycles (two files importing each other, nothing else importing either) are listed by cascade.
 
 Test files, manifest entry points, files whose path a non-test file writes (`named-in:esbuild.js`,
-`named-in:package.json`), JSX/Vue default exports, `.d.ts` files, tool configs (`*.config.ts`), files a folder's `.gitignore`
+`named-in:package.json`, a CI workflow or task runner, `working-directory` and `cd` honoured), files a bundler loads
+(`import.meta.glob`, `new URL(..., import.meta.url)`, a Vite HTML entry), JSX/Vue default exports, framework route files
+(`convention:framework-route`: Next.js, SvelteKit, Remix / React Router, Nuxt, Astro, Expo Router, Gatsby, Storybook),
+migrations folders (`convention:migration`), `.d.ts` files, tool configs (`*.config.ts`, `.<tool>rc.ts`, `vercel.ts`), files a folder's `.gitignore`
 ignores and Python package `__init__.py` are left out (`excluded` with `--verbose`). A file a barrel re-exports counts as imported: delete an unreferenced
-barrel first, then scan again. Two dead files importing each other are not found.
+barrel first, then scan again.
 
 ---
 
