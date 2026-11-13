@@ -382,13 +382,20 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
      * Validates: Requirements 2.5
      */
 
+    // A keyword is no identifier: `def def():` is not Python (seed 1873422400 shrank to it).
+    const PYTHON_KEYWORDS = new Set([
+      'False', 'None', 'True', 'and', 'as', 'assert', 'async', 'await', 'break', 'class', 'continue', 'def', 'del', 'elif', 'else',
+      'except', 'finally', 'for', 'from', 'global', 'if', 'import', 'in', 'is', 'lambda', 'nonlocal', 'not', 'or', 'pass', 'raise',
+      'return', 'try', 'while', 'with', 'yield',
+    ]);
+    const pythonIdentifierArbitrary = () =>
+      fc.stringMatching(/^[a-zA-Z_]\w*$/).filter((name) => !PYTHON_KEYWORDS.has(name));
+
     // Arbitrary for generating valid Python function names
-    const pythonFunctionNameArbitrary = () =>
-      fc.stringMatching(/^[a-zA-Z_]\w*$/);
+    const pythonFunctionNameArbitrary = pythonIdentifierArbitrary;
 
     // Arbitrary for generating valid Python class names
-    const pythonClassNameArbitrary = () =>
-      fc.stringMatching(/^[a-zA-Z_]\w*$/);
+    const pythonClassNameArbitrary = pythonIdentifierArbitrary;
 
     // Arbitrary for generating Python symbol types
     const pythonSymbolTypeArbitrary = () =>
@@ -879,11 +886,8 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
               }
               seenNames.add(uniqueName);
 
-              // Replace only the symbol name, not all occurrences
-              // Use word boundary regex to avoid replacing parts of keywords
-              const escapedName = symbol.name.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
-              const namePattern = new RegExp(String.raw`\b${escapedName}\b`);
-              const symbolCode = symbol.code.replace(namePattern, uniqueName);
+              // Rename the declared name only: a name such as `decorator` also appears on the `@decorator` line.
+              const symbolCode = symbol.code.replace(/\b(def|class) \w+/, `$1 ${uniqueName}`);
               const symbolLines = symbolCode.split('\n');
 
               symbolLines.forEach((line) => {
@@ -921,7 +925,16 @@ describe('PythonSymbolAnalyzer Property-Based Tests', { timeout: 30_000 }, () =>
             }
           }
         ),
-        { numRuns: 100 }
+        {
+          numRuns: 100,
+          // Names that are a keyword (`def def():`, seed 1873422400) or also appear on the decorator line.
+          examples: [[[
+            { code: 'def def():\n    pass', name: 'def', expectedKind: 'FunctionDeclaration', expectedCategory: 'function', type: 'function' },
+            { code: 'class a:\n    pass', name: 'a', expectedKind: 'ClassDeclaration', expectedCategory: 'class', type: 'class' },
+            { code: '@decorator\ndef decorator():\n    pass', name: 'decorator', expectedKind: 'FunctionDeclaration', expectedCategory: 'function', type: 'decorated-function' },
+            { code: 'async def pass_():\n    pass', name: 'pass_', expectedKind: 'AsyncFunction', expectedCategory: 'function', type: 'async-function' },
+          ]]],
+        }
       );
     });
   });
