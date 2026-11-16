@@ -147,6 +147,15 @@ function copyWasmFiles() {
 }
 
 /**
+ * Copy vis-network next to the bundles: the CLI's HTML pages inline it at runtime,
+ * and the npm package does not install vis-network.
+ */
+function copyVisNetwork() {
+  fs.copyFileSync(require.resolve('vis-network/standalone/umd/vis-network.min.js'), path.join('dist', 'vis-network.min.js'));
+  stdout('✓ Copied vis-network.min.js');
+}
+
+/**
  * Copy Tree-sitter query files from resources/queries/ to dist/queries/
  * Required for runtime query file lookup via extensionPath
  */
@@ -287,6 +296,7 @@ async function rebuildAndDispose(ctxs) {
 async function main() {
   copyWasmFiles();
   copyQueryFiles();
+  copyVisNetwork();
   const ctxs = await createAllContexts();
   if (watch) {
     await watchContexts(ctxs);
