@@ -344,7 +344,11 @@ export function exportHtml(config: HtmlExporterConfig): void {
 /** The self-contained page; without an overlay, exactly what `graph-it export --format html` writes. */
 export function renderHtmlPage(config: HtmlPageConfig): string {
   const { overlay } = config;
-  const visPath = (require as { resolve(id: string): string }).resolve('vis-network/standalone/umd/vis-network.min.js');
+  // Bundles read the copy esbuild.js puts next to them (the npm package has no vis-network); source runs resolve it.
+  const bundledVis = path.join(__dirname, 'vis-network.min.js');
+  const visPath = fs.existsSync(bundledVis)
+    ? bundledVis
+    : (require as { resolve(id: string): string }).resolve('vis-network/standalone/umd/vis-network.min.js');
   const visSource = fs.readFileSync(visPath, 'utf-8');
   const safeVisSource = visSource.replaceAll('</script>', String.raw`<\/script>`);
 

@@ -68,6 +68,7 @@ dist/graph-it.js
 dist/graph-it.js.map
 dist/graph-it.mjs
 dist/graph-it.mjs.map
+dist/vis-network.min.js
 bin/**
 
 # Config files

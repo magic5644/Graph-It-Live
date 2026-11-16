@@ -1,15 +1,19 @@
+import * as path from 'node:path';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockReadFileSync = vi.hoisted(() => vi.fn(() => '// vis-network mock'));
 const mockWriteFileSync = vi.hoisted(() => vi.fn());
 const mockMkdirSync = vi.hoisted(() => vi.fn());
+const mockExistsSync = vi.hoisted(() => vi.fn((_file: string) => false));
 
 vi.mock('node:fs', () => ({
   default: {
     readFileSync: mockReadFileSync,
     writeFileSync: mockWriteFileSync,
     mkdirSync: mockMkdirSync,
+    existsSync: mockExistsSync,
   },
+  existsSync: mockExistsSync,
   readFileSync: mockReadFileSync,
   writeFileSync: mockWriteFileSync,
   mkdirSync: mockMkdirSync,
@@ -32,6 +36,8 @@ import { COMMUNITY_PALETTE } from '../../../src/shared/communityPalette';
 import type { GraphData } from '../../../src/shared/graph-types';
 import { normalizePath } from '../../../src/shared/path';
 import { REACT_IDENTITY, VUE_IDENTITY } from '../../../src/shared/constants';
+
+const VIS_NEXT_TO_CODE = path.join(__dirname, '..', '..', '..', 'src', 'analyzer', 'export', 'vis-network.min.js');
 
 /** Two path groups plus one unassigned file; a cycle between core and ui. */
 function sampleGraph(root = '/ws'): GraphData {
@@ -263,6 +269,8 @@ describe('exportHtml', () => {
     mockReadFileSync.mockReset();
     mockWriteFileSync.mockReset();
     mockMkdirSync.mockReset();
+    mockExistsSync.mockReset();
+    mockExistsSync.mockReturnValue(false);
     mockReadFileSync.mockReturnValue('// vis-network mock');
     const mockRequire = Object.assign(vi.fn(), {
       resolve: vi.fn().mockReturnValue('/mock/vis-network.min.js'),
@@ -286,6 +294,18 @@ describe('exportHtml', () => {
     exportHtml(config);
     return mockWriteFileSync.mock.calls[0][1] as string;
   }
+
+  it('inlines the vis-network copy shipped next to the bundle when present', () => {
+    mockExistsSync.mockReturnValue(true);
+    render();
+    expect(normalizePath(mockReadFileSync.mock.calls[0][0] as string)).toBe(normalizePath(VIS_NEXT_TO_CODE));
+  });
+
+  it('resolves vis-network from node_modules when no copy sits next to the code', () => {
+    render();
+    expect(normalizePath(mockExistsSync.mock.calls[0][0])).toBe(normalizePath(VIS_NEXT_TO_CODE));
+    expect(normalizePath(mockReadFileSync.mock.calls[0][0] as string)).toMatch(/\/node_modules\/vis-network\/standalone\/umd\/vis-network\.min\.c?js$/);
+  });
 
   /** Runs the page script against minimal vis-network and DOM fakes. */
   function runPage(html: string) {

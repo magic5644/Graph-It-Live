@@ -92,6 +92,10 @@ try {
   pass('graph-it --version');
   assert.match(run(bin, ['summary'], workspace), /indexedFiles: [1-9]/);
   pass('graph-it summary');
+  // The HTML page inlines vis-network from the package: no node_modules/vis-network in the install.
+  run(bin, ['export', '--format', 'html', '--output', 'graph.html'], workspace);
+  assert.match(readFileSync(path.join(workspace, 'graph.html'), 'utf8'), /vis-network/);
+  pass('graph-it export --format html (vis-network shipped in dist/)');
   // A .vue file loads the Vue compiler that esbuild bundles into the CLI (#644): not an npm runtime dependency.
   writeFileSync(path.join(workspace, 'util.ts'), 'export function add(a: number, b: number) {\n  return a + b;\n}\n');
   writeFileSync(path.join(workspace, 'App.vue'), '<template>\n  <p>{{ total() }}</p>\n</template>\n\n<script setup lang="ts">\nimport { add } from "./util";\nfunction total() {\n  return add(1, 2);\n}\n</script>\n');
