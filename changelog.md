@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.25.2
+
+Patch release for the npm CLI.
+
+### Fixed
+- **`graph-it init --output` and `graph-it export --format html` work from the npm package** (#736, PR #737): both failed with `Cannot find module 'vis-network'` because the npm package did not install it. The build now ships `vis-network` next to the CLI bundle, and the npm smoke check runs `export --format html`. The VS Code extension is unchanged.
+  ```bash
+  npm install -g @magic5644/graph-it-live
+  graph-it init --output report   # writes report/index.html
+  ```
+
 ## v1.25.1
 
 Patch release focused on dead code and the `graph-it init` report.
