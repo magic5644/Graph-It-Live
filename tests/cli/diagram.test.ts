@@ -10,7 +10,7 @@ import { startRulesWorker } from "../analyzer/architecture/rulesWorkspace";
 import { CliProgress } from "@/cli/progress";
 
 /** A drawn edge of that stroke: the legend samples carry no arrow. */
-const edgeOf = (stroke: string) => new RegExp(`class="edge ${stroke}"[^>]*marker-end`);
+const edgeOf = (stroke: string) => new RegExp(`class="edge s-${stroke}"[^>]*marker-end`);
 
 describe("graph-it diagram options", () => {
   it("defaults to the units as an HTML page in architecture.html, without rules", () => {
@@ -166,7 +166,7 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
   it("draws the matrix of the units, or of one folder's groups", async () => {
     const matrix = await run(["--view", "matrix", "--rules", "--output", "-"], runtime, "svg");
     expect(matrix).toContain('class="frame"');
-    expect(matrix).toContain('class="cell error"');
+    expect(matrix).toContain('class="cell s-error"');
     expect(matrix).not.toContain("width = file pairs");
     const folder = await run(["--view", "matrix", "--folder", "mfe/cart", "--output", "-"], runtime, "html");
     expect(folder).toContain("folder mfe/cart");

@@ -21,7 +21,7 @@ vi.mock("@/analyzer/diagram/workspaceDiagram", async (importOriginal) => {
 });
 
 /** A drawn edge of that stroke: the legend samples carry no arrow. */
-const edgeOf = (stroke: string) => new RegExp(`class="edge ${stroke}"[^>]*marker-end`);
+const edgeOf = (stroke: string) => new RegExp(`class="edge s-${stroke}"[^>]*marker-end`);
 
 describe("diagramLevel", () => {
   it("reads a folder alone as its groups, keeps an explicit view, and turns \\ into /", () => {

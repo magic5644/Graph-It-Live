@@ -63,6 +63,8 @@ export interface Palette {
   muted: string;
   line: string;
   accent: string;
+  /** Cycles, by kind: runtime solid, type-only and lazy dashed (#745). */
+  cycle: string;
   error: string;
 }
 
@@ -74,6 +76,7 @@ export const PALETTES: Record<DiagramTheme, Palette> = {
     muted: "#656d76",
     line: "#8c959f",
     accent: "#d4560b",
+    cycle: "#8250df",
     error: "#cf222e",
   },
   dark: {
@@ -83,6 +86,46 @@ export const PALETTES: Record<DiagramTheme, Palette> = {
     muted: "#8d96a0",
     line: "#6e7681",
     accent: "#f0883e",
+    cycle: "#bc8cff",
     error: "#ff7b72",
   },
 };
+
+/**
+ * The one visual vocabulary of the SVG diagrams and the init page (#745): each style's palette
+ * colour, dash pattern (SVG stroke-dasharray) and legend text. A colour never tells two kinds
+ * apart alone: the cycle kinds differ by their dashes too.
+ */
+export const LEGEND = {
+  down: { colour: "line", text: "dependency" },
+  upward: { colour: "accent", text: "upward" },
+  cycle: { colour: "cycle", text: "runtime cycle" },
+  "type-only": { colour: "cycle", dash: "2 3", text: "type-only cycle" },
+  lazy: { colour: "cycle", dash: "8 4", text: "lazy cycle (import())" },
+  cut: { colour: "cycle", text: "cell to cut" },
+  error: { colour: "error", text: "breaks a rule" },
+  accepted: { colour: "error", dash: "4 3", text: "accepted in baseline" },
+  dead: { colour: "muted", dash: "4 3", text: "dead file" },
+} as const satisfies Record<string, { colour: keyof Palette; dash?: string; text: string }>;
+
+export type LegendKind = keyof typeof LEGEND;
+
+/** Legend kinds in drawing order, the one order every legend lists them in. */
+export const LEGEND_KINDS = Object.keys(LEGEND) as LegendKind[];
+
+/** The dash pattern of a kind, or undefined for a solid line. */
+export const legendDash = (kind: LegendKind): string | undefined => (LEGEND[kind] as { dash?: string }).dash;
+
+/**
+ * The style of an edge or a file pair: a broken rule outranks its cycle or upward kind; a cycle
+ * is drawn by how it runs (buildArchitectureUnits' cycleKind), runtime when unknown.
+ */
+export function edgeStyle(
+  kind: "down" | "upward" | "cycle",
+  cycleKind: "runtime" | "type-only" | "lazy" | undefined,
+  rules: { broken: boolean; accepted?: boolean } = { broken: false },
+): LegendKind {
+  if (rules.broken) return rules.accepted ? "accepted" : "error";
+  if (kind !== "cycle") return kind;
+  return cycleKind === "type-only" || cycleKind === "lazy" ? cycleKind : "cycle";
+}

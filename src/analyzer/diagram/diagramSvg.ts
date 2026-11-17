@@ -6,30 +6,22 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { hasAccepted, legendLayout, legendNotes, sanitizeText, type DiagramLayout, type LegendOptions, type PlacedEdge } from "./architectureDiagram";
+import { drawnKinds, edgeLegendKind, legendLayout, legendNotes, sanitizeText, type DiagramLayout, type LegendOptions, type PlacedEdge } from "./architectureDiagram";
 import type { MatrixLayout } from "./diagramMatrix";
-import { FONT_MONO, PALETTES, SIZES, type DiagramTheme, type Palette } from "./diagramStyle";
+import { edgeStyle, FONT_MONO, LEGEND, LEGEND_KINDS, legendDash, PALETTES, SIZES, type DiagramTheme, type LegendKind, type Palette } from "./diagramStyle";
 
 const ENTITIES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 
 /** Text safe inside an XML element or a quoted attribute. */
 export const escapeXml = (text: string) => sanitizeText(text).replaceAll(/[&<>"']/g, (char) => ENTITIES[char]);
 
-/** Each stroke class and the palette colour it draws in; an accepted violation is a dashed error. */
-const STROKE_COLOURS = { down: "line", accent: "accent", error: "error", accepted: "error" } as const;
-const STROKES = Object.keys(STROKE_COLOURS) as (keyof typeof STROKE_COLOURS)[];
-type Stroke = (typeof STROKES)[number];
-
-/** A rule violation outranks the accent of an upward or cycle edge. */
-function strokeOf(edge: Pick<PlacedEdge, "kind" | "rules" | "accepted">): Stroke {
-  if (edge.rules.length > 0) return edge.accepted ? "accepted" : "error";
-  return edge.kind === "down" ? "down" : "accent";
-}
+/** One class per shared legend style (diagramStyle LEGEND): its colour, and its dashes on edges and cycle blocks. */
+const styleClass = (kind: LegendKind) => `s-${kind}`;
 
 /** The palette as CSS custom properties of `selector`. */
 const variables = (selector: string, palette: Palette) =>
   `${selector}{--bg:${palette.background};--surface:${palette.surface};--text:${palette.text};--muted:${palette.muted};` +
-  `--line:${palette.line};--accent:${palette.accent};--error:${palette.error}}`;
+  `--line:${palette.line};--accent:${palette.accent};--cycle:${palette.cycle};--error:${palette.error}}`;
 
 const CLASSES = [
   `svg{font-family:${FONT_MONO}}`,
@@ -40,28 +32,31 @@ const CLASSES = [
   `.title{fill:var(--text);font-size:${SIZES.title}px;font-weight:600}`,
   `.caption{fill:var(--muted);font-size:${SIZES.caption}px}`,
   ".edge{fill:none;stroke-linejoin:round}",
-  ...STROKES.map((stroke) => `.${stroke}{stroke:var(--${STROKE_COLOURS[stroke]})}.head-${stroke}{fill:var(--${STROKE_COLOURS[stroke]})}`),
-  ".accepted{stroke-dasharray:4 3}",
+  ...LEGEND_KINDS.map((kind) => {
+    const dash = legendDash(kind);
+    return `.${styleClass(kind)}{stroke:var(--${LEGEND[kind].colour})${dash ? `;stroke-dasharray:${dash}` : ""}}.head-${kind}{fill:var(--${LEGEND[kind].colour})}`;
+  }),
   `.cell{fill:var(--surface);stroke-width:${SIZES.hairline}px}.diagonal{fill:var(--line);fill-opacity:0.18}`,
   `.frame{fill:none;stroke:var(--line);stroke-width:${SIZES.hairline}px}`,
-  `.cycle{fill:none;stroke:var(--accent);stroke-width:${SIZES.hairline}px;stroke-dasharray:4 4}`,
+  `.cycle{fill:none;stroke-width:${SIZES.hairline}px}.cut{fill:none;stroke-width:2px}`,
   // A halo keeps the title readable where an edge crosses it.
-  `.cycle-title{fill:var(--accent);font-size:${SIZES.meta}px;paint-order:stroke;stroke:var(--bg);stroke-width:3px}`,
+  `.cycle-title{fill:var(--cycle);font-size:${SIZES.meta}px;paint-order:stroke;stroke:var(--bg);stroke-width:3px}`,
 ].join("");
 
-const markers = STROKES.map((stroke) =>
-  `<marker id="arrow-${stroke}" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">` +
-  `<path class="head-${stroke}" d="M0 0L8 4L0 8z"/></marker>`).join("");
+const markers = LEGEND_KINDS.map((kind) =>
+  `<marker id="arrow-${kind}" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">` +
+  `<path class="head-${kind}" d="M0 0L8 4L0 8z"/></marker>`).join("");
 
 const text = (x: number, y: number, className: string, content: string) =>
   `<text class="${className}" x="${x}" y="${y}">${escapeXml(content)}</text>`;
 
 function edgeMarkup(edge: PlacedEdge): string {
-  const stroke = strokeOf(edge);
+  const kind = edgeLegendKind(edge);
   const path = edge.points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x} ${point.y}`).join("");
   const rules = edge.rules.length > 0 ? `, breaks ${edge.rules.join(", ")}` : "";
-  const title = `${edge.from} → ${edge.to}: ${edge.fileEdgeCount} file pairs (${edge.kind}${rules})`;
-  return `<path class="edge ${stroke}" d="${path}" stroke-width="${edge.stroke}" marker-end="url(#arrow-${stroke})"><title>${escapeXml(title)}</title></path>`;
+  const typeOnly = edge.typeOnlyEdgeCount ? `, ${edge.typeOnlyEdgeCount} type-only` : "";
+  const title = `${edge.from} → ${edge.to}: ${edge.fileEdgeCount} file pairs (${edge.kind === "cycle" ? LEGEND[edgeStyle("cycle", edge.cycleKind)].text : edge.kind}${typeOnly}${rules})`;
+  return `<path class="edge ${styleClass(kind)}" d="${path}" stroke-width="${edge.stroke}" marker-end="url(#arrow-${kind})"><title>${escapeXml(title)}</title></path>`;
 }
 
 function legendMarkup(layout: DiagramLayout | MatrixLayout, options: LegendOptions): string {
@@ -70,8 +65,8 @@ function legendMarkup(layout: DiagramLayout | MatrixLayout, options: LegendOptio
   const samples = items.map(({ kind, text: label, x }) => {
     const left = SIZES.margin + x;
     const stroke = kind === "weight" ? "down" : kind;
-    const width = kind === "weight" ? 3 : SIZES.hairline;
-    return `<path class="edge ${stroke}" d="M${left} ${y - 4}L${left + 24} ${y - 4}" stroke-width="${width}"/>${text(left + 32, y, "caption", label)}`;
+    const width = kind === "weight" || kind === "cut" ? 3 : SIZES.hairline;
+    return `<path class="edge ${styleClass(stroke)}" d="M${left} ${y - 4}L${left + 24} ${y - 4}" stroke-width="${width}"/>${text(left + 32, y, "caption", label)}`;
   });
   const notes = legendNotes(layout.text);
   const noteMarkup = notes.map((note, index) => text(SIZES.margin, y - 20 * (notes.length - index), "caption", note));
@@ -81,14 +76,16 @@ function legendMarkup(layout: DiagramLayout | MatrixLayout, options: LegendOptio
 /** The graph: cycle blocks, edges, then nodes on top. */
 function graphMarkup(layout: DiagramLayout): string[] {
   const pad = SIZES.nodePaddingX;
-  const cycles = layout.cycles.map((cycle) =>
-    `<rect class="cycle" x="${cycle.x}" y="${cycle.y}" width="${cycle.width}" height="${cycle.height}" rx="${SIZES.radius}"/>` +
-    text(cycle.x + pad, cycle.y + 18, "cycle-title", `cycle · ${cycle.size}`));
+  const cycles = layout.cycles.map((cycle) => {
+    const kind = edgeStyle("cycle", cycle.kind);
+    return `<rect class="cycle ${styleClass(kind)}" x="${cycle.x}" y="${cycle.y}" width="${cycle.width}" height="${cycle.height}" rx="${SIZES.radius}"/>` +
+      text(cycle.x + pad, cycle.y + 18, "cycle-title", `${LEGEND[kind].text} · ${cycle.size}`);
+  });
   const nodes = layout.nodes.map((node) =>
     `<g><title>${escapeXml(node.key + ": " + node.meta)}</title>` +
     `<rect class="node" x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${SIZES.radius}"/>` +
     `${text(node.x + pad, node.y + 18, "label", node.text)}${text(node.x + pad, node.y + 34, "meta", node.meta)}</g>`);
-  return [...cycles, ...layout.edges.map(edgeMarkup), ...nodes, legendMarkup(layout, { accepted: hasAccepted(layout.edges) })];
+  return [...cycles, ...layout.edges.map(edgeMarkup), ...nodes, legendMarkup(layout, { kinds: drawnKinds(layout.edges, layout.cycles) })];
 }
 
 /** The matrix: column numbers, numbered row labels, the frame, the cells, cycle outlines on top. */
@@ -101,10 +98,12 @@ function matrixMarkup(layout: MatrixLayout): string[] {
     `<rect class="frame" x="${layout.grid.x}" y="${layout.grid.y}" width="${layout.grid.width}" height="${layout.grid.height}"/>`,
     ...layout.cells.map((cell) =>
       `<g><title>${escapeXml(cell.title)}</title>` +
-      `<rect class="cell ${cell.kind}" x="${cell.x + 1}" y="${cell.y + 1}" width="${cell.width - 2}" height="${cell.height - 2}"/>` +
+      `<rect class="cell ${cell.kind === "diagonal" ? "diagonal" : styleClass(cell.kind)}" x="${cell.x + 1}" y="${cell.y + 1}" width="${cell.width - 2}" height="${cell.height - 2}"/>` +
+      (cell.cut ? `<rect class="cut ${styleClass("cut")}" x="${cell.x + 2}" y="${cell.y + 2}" width="${cell.width - 4}" height="${cell.height - 4}"/>` : "") +
       `${text(cell.x + 4, middle(cell), "meta", String(cell.count))}</g>`),
-    ...layout.cycles.map((cycle) => `<rect class="cycle" x="${cycle.x}" y="${cycle.y}" width="${cycle.width}" height="${cycle.height}"/>`),
-    legendMarkup(layout, { accepted: layout.cells.some((cell) => cell.kind === "accepted"), weight: false }),
+    ...layout.cycles.map((cycle) =>
+      `<rect class="cycle ${styleClass(edgeStyle("cycle", cycle.kind))}" x="${cycle.x}" y="${cycle.y}" width="${cycle.width}" height="${cycle.height}"/>`),
+    legendMarkup(layout, { kinds: layout.kinds, weight: false }),
   ];
 }
 

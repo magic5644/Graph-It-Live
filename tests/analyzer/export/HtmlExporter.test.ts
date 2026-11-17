@@ -555,7 +555,7 @@ describe('exportHtml', () => {
     const item = (fields: Partial<HtmlOverlay['findings'][number]['items'][number]>) =>
       ({ label: 'kind', subject: 'subject', details: [], units: [], files: [], ...fields });
     const overlay = (fields: Partial<HtmlOverlay> = {}): HtmlOverlay => ({
-      edgeKinds: [[C, A, 'violation'], [B, C, 'cycle'], [MAIN, C, 'upward']],
+      edgeKinds: [[C, A, 'error'], [B, C, 'cycle'], [MAIN, C, 'upward']],
       deadFiles: [MAIN],
       findings: [],
       ...fields,
@@ -566,25 +566,37 @@ describe('exportHtml', () => {
       const { outputPath: _outputPath, ...config } = baseConfig;
       const html = renderHtmlPage(config);
       expect(html).toBe(render());
-      for (const part of ['findings', 'overlay', 'revealFocus', 'violation']) expect(html).not.toContain(part);
+      for (const part of ['findings', 'overlay', 'revealFocus', 'KIND_ORDER']) expect(html).not.toContain(part);
     });
 
     it('colours violation, cycle and upward file pairs, and restores them when the panel closes', () => {
       const view = page();
       const edge = (from: string, to: string) => view.edges.get(JSON.stringify([from, to]));
-      expect(edge(C, A)).toMatchObject({ base: '#ff7b72', dashes: true, title: '1 violation(s) of 1 file pair(s). Click to list them.' });
-      expect(edge(B, C)).toMatchObject({ base: '#f0883e', dashes: false, title: '1 in a unit cycle of 1 file pair(s). Click to list them.' });
-      expect(edge(MAIN, C)).toMatchObject({ base: '#f0883e', title: '1 upward of 1 file pair(s). Click to list them.' });
+      expect(edge(C, A)).toMatchObject({ base: '#ff7b72', dashes: false, title: 'breaks a rule: 1 of 1 file pair(s). Click to list them.' });
+      expect(edge(B, C)).toMatchObject({ base: '#bc8cff', dashes: false, title: 'runtime cycle: 1 of 1 file pair(s). Click to list them.' });
+      expect(edge(MAIN, C)).toMatchObject({ base: '#f0883e', title: 'upward: 1 of 1 file pair(s). Click to list them.' });
       expect(edge(A, B).base).toBeUndefined();
 
       // Collapsed: a violation among the pairs wins over the plain ones.
       view.setAllExpanded(false);
-      expect(view.edges.get('["group:2","group:1"]')).toMatchObject({ base: '#ff7b72', dashes: true, title: '1 violation(s) of 2 file pair(s). Click to list them.' });
+      expect(view.edges.get('["group:2","group:1"]')).toMatchObject({ base: '#ff7b72', dashes: false, title: 'breaks a rule: 1 of 2 file pair(s). Click to list them.' });
       view.handlers.click({ nodes: ['group:1'], edges: [] });
       expect(view.edges.get('["group:2","group:1"]').color.color).toBe('#4a9eff');
       view.handlers.click({ nodes: [], edges: [] });
       expect(view.edges.get('["group:2","group:1"]').color).toEqual({ color: '#ff7b72', opacity: 0.9 });
       expect(view.edges.get('["group:0","group:2"]').color).toEqual({ color: '#f0883e', opacity: 0.9 });
+    });
+
+    it('draws accepted, type-only and lazy pairs dashed in their shared legend style (#745)', () => {
+      const view = page({ edgeKinds: [[C, A, 'accepted'], [B, C, 'type-only'], [MAIN, C, 'lazy']] });
+      const edge = (from: string, to: string) => view.edges.get(JSON.stringify([from, to]));
+      expect(edge(C, A)).toMatchObject({ base: '#ff7b72', dashes: [4, 3], title: 'accepted in baseline: 1 of 1 file pair(s). Click to list them.' });
+      expect(edge(B, C)).toMatchObject({ base: '#bc8cff', dashes: [2, 3], title: 'type-only cycle: 1 of 1 file pair(s). Click to list them.' });
+      expect(edge(MAIN, C)).toMatchObject({ base: '#bc8cff', dashes: [8, 4], title: 'lazy cycle (import()): 1 of 1 file pair(s). Click to list them.' });
+      const legend = renderHtmlPage({ ...baseConfig, overlay: overlay({ edgeKinds: [[B, C, 'type-only']], deadFiles: [] }) }).split('<div id="legend">')[1];
+      expect(legend).toContain('stroke-dasharray="2 3"/></svg><span>type-only cycle</span>');
+      expect(legend).not.toContain('runtime cycle');
+      expect(legend).not.toContain('dead file');
     });
 
     it('marks dead files and lists the overlay in the legend', () => {
@@ -595,9 +607,9 @@ describe('exportHtml', () => {
       expect(view.nodes.get(A).label).toBe('a.ts');
       expect(view.nodes.get(A).opacity).toBeUndefined();
       const legend = html.split('<div id="legend">')[1];
-      expect(legend).toContain('upward or cycle edge');
-      expect(legend).toContain('violation, accepted in the baseline (dashed)');
-      expect(legend).toContain('dead file: no production file imports it');
+      // The legend lists the styles the overlay uses, in the order and words of the SVG legend.
+      const texts = [...legend.matchAll(/<\/svg><span>([^<]+)<\/span>/g)].map((match) => match[1]);
+      expect(texts).toEqual(['upward', 'runtime cycle', 'breaks a rule', 'dead file: no production file imports it']);
       expect(html).not.toContain('revealFocus()">');
     });
 
@@ -666,7 +678,7 @@ describe('exportHtml', () => {
       expect(view.calls.fit.at(-1)).toEqual({ nodes: [B] });
       const panel = view.panelText().replaceAll(/\s+/g, ' ');
       expect(panel).toContain('Focus: src/core/b.ts (1 file(s))');
-      expect(panel).toContain('Depends on → (orange): 1 unit(s) ui: 1 file pair(s) (1 in a unit cycle)');
+      expect(panel).toContain('Depends on → (orange): 1 unit(s) ui: 1 file pair(s) (runtime cycle: 1)');
       // Sorted by file pairs, then by unit; core counts a.ts, the same unit as the focus.
       expect(panel).toContain('Used by ← (blue): 2 unit(s) core: 1 file pair(s) ui: 1 file pair(s)');
       expect(view.edges.get(JSON.stringify([B, 'group:2'])).color.color).toBe('#ffaa00');

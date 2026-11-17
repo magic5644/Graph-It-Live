@@ -5,7 +5,7 @@ import { getRelativePath, normalizePath } from '../../shared/path';
 import { COMMUNITY_PALETTE } from '../../shared/communityPalette';
 import { FRAMEWORK_IDENTITIES } from '../../shared/constants';
 import { aggregateCommunityGroups } from '../community/groupAggregation';
-import { PALETTES } from '../diagram/diagramStyle';
+import { LEGEND, legendDash, PALETTES, type LegendKind } from '../diagram/diagramStyle';
 
 /** What was analysed and how it was grouped, stated in the page header. */
 export interface HtmlExportContext {
@@ -16,8 +16,11 @@ export interface HtmlExportContext {
   failedFiles?: number;
 }
 
-/** A file pair the overlay colours; a violation wins over cycle and upward. */
-export type HtmlEdgeKind = 'cycle' | 'upward' | 'violation';
+/** A file pair the overlay draws, in the shared legend's style (diagramStyle edgeStyle): a violation wins over a cycle or upward. */
+export type HtmlEdgeKind = Exclude<LegendKind, 'down' | 'cut' | 'dead'>;
+
+/** The overlay's kinds, strongest first: an edge of several file pairs takes the first one it holds. */
+const OVERLAY_KINDS: readonly HtmlEdgeKind[] = ['error', 'accepted', 'cycle', 'lazy', 'type-only', 'upward'];
 
 /** One finding as report.md words it, with the units and files it names. */
 export interface HtmlFindingItem {
@@ -172,13 +175,27 @@ const frameworkImage = (framework: Framework) =>
 
 const OVERLAY = PALETTES.dark;
 
-const OVERLAY_LEGEND = [
-  `<div class="legend-item"><span class="swatch" style="background:${OVERLAY.accent};"></span><span>upward or cycle edge</span></div>`,
-  `<div class="legend-item"><span class="swatch" style="background:${OVERLAY.error};"></span><span>violation, accepted in the baseline (dashed)</span></div>`,
-  '<div class="legend-item"><span class="swatch" style="border:1px dashed #ccc;"></span><span>dead file: no production file imports it</span></div>',
-].join('\n');
+/** Each overlay kind's colour, vis-network dashes and text, from the shared legend. */
+const overlayStyle = (kind: LegendKind) => {
+  const dash = legendDash(kind);
+  return { color: OVERLAY[LEGEND[kind].colour], dashes: dash === undefined ? false : dash.split(' ').map(Number), text: LEGEND[kind].text };
+};
 
-function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: ReadonlySet<Framework>, overlay = false): string {
+/** A legend line sample drawn as the SVG diagrams draw it. */
+function legendSample(kind: LegendKind): string {
+  const { color } = overlayStyle(kind);
+  const dash = legendDash(kind);
+  return `<svg class="sample" width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="${color}" stroke-width="2"${dash ? ` stroke-dasharray="${dash}"` : ''}/></svg>`;
+}
+
+/** The overlay's legend: the styles its file pairs use, in the shared order, then dead files when there are any. */
+function overlayLegend(overlay: HtmlOverlay): string {
+  const used = new Set(overlay.edgeKinds.map(([, , kind]) => kind));
+  const kinds = (Object.keys(LEGEND) as LegendKind[]).filter(kind => used.has(kind as HtmlEdgeKind) || (kind === 'dead' && overlay.deadFiles.length > 0));
+  return kinds.map(kind => `<div class="legend-item">${legendSample(kind)}<span>${htmlEscape(LEGEND[kind].text)}${kind === 'dead' ? ': no production file imports it' : ''}</span></div>`).join('\n');
+}
+
+function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: ReadonlySet<Framework>, overlay?: HtmlOverlay): string {
   if (groups.length === 0) return '';
   const items = groups.toSorted((a, b) => b.fileCount - a.fileCount || a.id - b.id).map(group =>
     `<div class="legend-item"><span class="swatch" style="background:${group.color};"></span>` +
@@ -187,7 +204,7 @@ function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: Rea
   const framework = (Object.keys(FRAMEWORK_IDENTITIES) as Framework[]).filter(name => frameworks.has(name)).map(name =>
     `<div class="legend-item"><img alt="" width="20" height="20" src="${frameworkImage(name)}"><span>${FRAMEWORK_IDENTITIES[name].label} component files</span></div>`,
   ).join('\n');
-  return `<div id="legend"><div class="legend-title">Groups (${htmlEscape(communityMode)})</div>\n${items}\n${framework}${overlay ? '\n' + OVERLAY_LEGEND : ''}` +
+  return `<div id="legend"><div class="legend-title">Groups (${htmlEscape(communityMode)})</div>\n${items}\n${framework}${overlay ? '\n' + overlayLegend(overlay) : ''}` +
     '<div class="legend-hint">Ellipse = group, box = file. Double-click a group to expand it, a file to collapse its group. ' +
     'Click an edge to list the file pairs behind its count.</div></div>';
 }
@@ -208,12 +225,12 @@ const OVERLAY_CSS = `
 function overlayHead(overlay: HtmlOverlay): string {
   return String.raw`
     const overlay = ${jsonForScript(overlay)};
-    const OVERLAY = ${jsonForScript({ accent: OVERLAY.accent, error: OVERLAY.error })};
+    const STYLES = ${jsonForScript(Object.fromEntries(OVERLAY_KINDS.map(kind => [kind, overlayStyle(kind)])))};
+    const KIND_ORDER = ${jsonForScript(OVERLAY_KINDS)};
     const pairKind = new Map(overlay.edgeKinds.map(([from, to, kind]) => [from + '\0' + to, kind]));
     const deadFiles = new Set(overlay.deadFiles);
     const focusFiles = new Set(overlay.focus ? overlay.focus.files.filter(id => fileById.has(id)) : []);
     const groupByLabel = new Map(groupsData.map(g => [g.label, g.id]));
-    const KIND_TEXT = { violation: ' violation(s)', cycle: ' in a unit cycle', upward: ' upward' };
     if (focusFiles.size > 0) {
       expanded.clear();
       focusFiles.forEach(id => expanded.add(fileById.get(id).group));
@@ -223,7 +240,7 @@ function overlayHead(overlay: HtmlOverlay): string {
 /** Overlay functions (hoisted, so the first render uses them), the findings panel and the focus view. */
 const OVERLAY_TAIL = String.raw`
     function kindText(counts) {
-      return Object.keys(KIND_TEXT).filter(kind => counts[kind]).map(kind => counts[kind] + KIND_TEXT[kind]).join(', ');
+      return KIND_ORDER.filter(kind => counts[kind]).map(kind => STYLES[kind].text + ': ' + counts[kind]).join(', ');
     }
     function overlayFile(f, frameworkLabel) {
       return {
@@ -241,9 +258,10 @@ const OVERLAY_TAIL = String.raw`
         const kind = pairKind.get(from + '\0' + to);
         if (kind) counts[kind] = (counts[kind] ?? 0) + 1;
       }
-      const base = counts.violation ? OVERLAY.error : (counts.cycle || counts.upward ? OVERLAY.accent : undefined);
-      if (!base) return {};
-      return { base, dashes: Boolean(counts.violation), color: { color: base, opacity: 0.9 }, title: kindText(counts) + ' of ' + pairs.length + ' file pair(s). Click to list them.' };
+      const kind = KIND_ORDER.find(candidate => counts[candidate]);
+      if (!kind) return {};
+      const base = STYLES[kind].color;
+      return { base, dashes: STYLES[kind].dashes, color: { color: base, opacity: 0.9 }, title: kindText(counts) + ' of ' + pairs.length + ' file pair(s). Click to list them.' };
     }
 
     // Expands the groups of the files, then selects and centres the files, or the units when it names no file.
@@ -355,7 +373,7 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
   const model = buildHtmlGraphModel(config.graphData, config.workspaceRoot);
   const header = buildHeader(config.workspaceName, config.context, model);
   const frameworkFiles = model.files.flatMap(file => file.framework ? [{ label: file.label, framework: file.framework }] : []);
-  const legend = buildLegend(model.groups, config.context.communityMode, new Set(frameworkFiles.map(file => file.framework)), overlay !== undefined);
+  const legend = buildLegend(model.groups, config.context.communityMode, new Set(frameworkFiles.map(file => file.framework)), overlay);
   const graphLabel = htmlEscape(['Dependency graph', ...frameworkFiles.map(file => `${FRAMEWORK_IDENTITIES[file.framework].label}: ${file.label}`)].join('. '));
   const title = htmlEscape(config.workspaceName);
 
@@ -383,6 +401,7 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
     .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
     .legend-hint { margin-top: 8px; color: #888; }
     .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
+    .sample { flex-shrink: 0; }
     #panel { position: fixed; top: 80px; right: 8px; width: 380px; max-height: calc(100vh - 100px); overflow: auto; background: #252526; border: 1px solid #444; border-radius: 6px; padding: 10px 14px; z-index: 1000; font-size: 12px; display: none; }
     #panel h3 { font-size: 13px; margin: 0 0 8px; word-break: break-all; }
     #panel h4 { font-size: 12px; margin: 10px 0 4px; color: #aaa; }

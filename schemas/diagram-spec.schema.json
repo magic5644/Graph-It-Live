@@ -83,6 +83,8 @@
           "to": { "type": "string" },
           "fileEdgeCount": { "type": "integer", "minimum": 1, "description": "Distinct importing file pairs: the edge weight" },
           "kind": { "enum": ["down", "upward", "cycle"], "description": "down: to a lower layer; upward: to the same or a higher layer; cycle: both ends in one cycle" },
+          "cycleKind": { "enum": ["runtime", "type-only", "lazy"], "description": "Cycle edges: runtime, type-only (every import between the cycle's nodes is type-only) or lazy (no cycle is left without its import() pairs)" },
+          "typeOnlyEdgeCount": { "type": "integer", "minimum": 1, "description": "File pairs whose every import is type-only; absent when none" },
           "rules": { "type": "array", "items": { "type": "string" }, "description": "Names of the rules its file pairs break" },
           "accepted": { "type": "boolean", "description": "Every violating pair of the edge is in the baseline" }
         }
