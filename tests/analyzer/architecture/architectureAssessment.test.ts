@@ -4,7 +4,7 @@ import { unitMatrix } from "@/analyzer/architecture/architectureMatrix";
 import type { ArchitectureUnitEdge, ArchitectureUnits } from "@/shared/architecture-model";
 
 /** `key:files:internal` units and `from>to=pairs` unit edges; `cycles` lists the units in a cycle. */
-function input(unitSpecs: string[], edgeSpecs: string[], options: { cycles?: string[]; files?: [string, string, number?, boolean?][]; deadCode?: DeadCodeFile[]; deadFiles?: DeadFile[] } = {}): AssessmentInput {
+function input(unitSpecs: string[], edgeSpecs: string[], options: { cycles?: string[]; files?: [string, string, number?, boolean?, boolean?][]; deadCode?: DeadCodeFile[]; deadFiles?: DeadFile[] } = {}): AssessmentInput {
   const cycles = new Set(options.cycles ?? []);
   const unitList = unitSpecs.map((spec) => {
     const [key, files, internal] = spec.split(":");
@@ -16,7 +16,7 @@ function input(unitSpecs: string[], edgeSpecs: string[], options: { cycles?: str
     return { from, to, fileEdgeCount: Number(count), kind: cycles.has(from) && cycles.has(to) ? "cycle" : "down" };
   });
   const units = { units: unitList, unitEdges, cycles: 0 } as unknown as Pick<ArchitectureUnits, "units" | "unitEdges" | "cycles">;
-  const edges = (options.files ?? []).map(([sourceRelative, targetRelative, line, typeOnly]) => ({ sourceRelative, targetRelative, line, ...(typeOnly ? { typeOnly } : {}) }));
+  const edges = (options.files ?? []).map(([sourceRelative, targetRelative, line, typeOnly, dynamic]) => ({ sourceRelative, targetRelative, line, ...(typeOnly ? { typeOnly } : {}), ...(dynamic ? { dynamic } : {}) }));
   const unitOf = new Map(edges.flatMap((edge) => [edge.sourceRelative, edge.targetRelative]).map((file) => [file, file.split("/")[0]]));
   for (const file of [...(options.deadCode ?? []), ...(options.deadFiles ?? [])]) unitOf.set(file.relativePath, file.relativePath.split("/")[0]);
   return {
@@ -173,7 +173,7 @@ describe("assessArchitecture: matrix reading", () => {
     expect(result.matrixFindings).toEqual([]);
     expect(result.deadFiles).toEqual([]);
     expect(result.totals).toEqual({
-      files: 0, units: 0, unitEdges: 0, unitCycles: 0, mutualImports: 0, typeOnlyUnitCycles: 0, typeOnlyMutualImports: 0, acceptedViolations: 0,
+      files: 0, units: 0, unitEdges: 0, unitCycles: 0, mutualImports: 0, typeOnlyUnitCycles: 0, typeOnlyMutualImports: 0, lazyUnitCycles: 0, lazyMutualImports: 0, acceptedViolations: 0,
       deadFiles: 0, deadFileLines: 0, deadCodeFiles: 0, unusedExports: 0, unusedExportsMedium: 0, unusedExportsLow: 0,
     });
     expect(Object.keys(result.glossary)).toEqual(expect.arrayContaining(["Ca", "Ce", "I", "C", "cut"]));
@@ -305,5 +305,45 @@ describe("assessArchitecture: type-only cycles (#740)", () => {
     }), new Set(["c/a.ts"]));
     expect(result.totals).toMatchObject({ mutualImports: 0, typeOnlyMutualImports: 1 });
     expect(result.typeOnlyCycles.evidence).toEqual(["c/a.ts <-> c/b.ts"]);
+  });
+});
+
+describe("assessArchitecture: lazy cycles (#741)", () => {
+  const withCycles = (spec: AssessmentInput, cycles: number) => ({ ...spec, units: { ...spec.units, cycles } });
+
+  it("calls a unit cycle lazy only when no cycle is left without its import() pairs", () => {
+    // a -> b -> c -> a, the closing pair lazy; a second, static c -> a pair keeps it runtime.
+    const cycle = (staticBack: boolean) => withCycles(input(["a:2:0", "b:1:0", "c:1:0"], ["a>b=1", "b>c=1", "c>a=" + (staticBack ? 2 : 1)], {
+      cycles: ["a", "b", "c"],
+      files: [["a/x.ts", "b/y.ts", 1], ["b/y.ts", "c/z.ts", 1], ["c/z.ts", "a/x.ts", 1, false, true], ...(staticBack ? [["c/z.ts", "a/w.ts", 2] as [string, string, number]] : [])],
+    }), 1);
+    expect(assessArchitecture(cycle(false)).totals).toMatchObject({ unitCycles: 0, lazyUnitCycles: 1, typeOnlyUnitCycles: 0 });
+    expect(assessArchitecture(cycle(false)).lazyCycles.evidence).toEqual(["units a, b, c"]);
+    expect(assessArchitecture(cycle(false)).quickWins).toEqual([]);
+    expect(assessArchitecture(cycle(true)).totals).toMatchObject({ unitCycles: 1, lazyUnitCycles: 0 });
+    expect(assessArchitecture(cycle(true)).quickWins.map((win) => win.kind)).toEqual(["cycle-break"]);
+  });
+
+  it("keeps a cycle runtime when a static cycle remains inside it beside a lazy pair", () => {
+    // a <-> b static, b -> c and c -> a lazy: the block of three still holds the static a <-> b cycle.
+    const result = assessArchitecture(withCycles(input(["a:1:0", "b:1:0", "c:1:0"], ["a>b=1", "b>a=1", "b>c=1", "c>a=1"], {
+      cycles: ["a", "b", "c"],
+      files: [["a/x.ts", "b/y.ts", 1], ["b/y.ts", "a/x.ts", 1], ["b/y.ts", "c/z.ts", 2, false, true], ["c/z.ts", "a/x.ts", 1, false, true]],
+    }), 1));
+    expect(result.totals).toMatchObject({ unitCycles: 1, lazyUnitCycles: 0, mutualImports: 1, lazyMutualImports: 0 });
+  });
+
+  it("calls a mutual pair lazy when one import is import(), type-only beside import() included, and keeps it out of the hot spot", () => {
+    const result = assessArchitecture(input(["c:5:5"], [], {
+      files: [
+        ["c/r.ts", "c/p.ts", 1, false, true], ["c/p.ts", "c/r.ts", 1],
+        ["c/r.ts", "c/q.ts", 2, false, true], ["c/q.ts", "c/r.ts", 1, true],
+        ["c/s.ts", "c/t.ts", 1], ["c/t.ts", "c/s.ts", 1],
+      ],
+    }));
+    expect(result.totals).toMatchObject({ mutualImports: 1, lazyMutualImports: 2, typeOnlyMutualImports: 0 });
+    expect(result.totals.mutualHotSpot).toBeUndefined();
+    expect(result.lazyCycles).toEqual({ unitCycles: 0, mutualImports: 2, evidence: ["c/p.ts <-> c/r.ts", "c/q.ts <-> c/r.ts"], totalEvidence: 2, units: ["c"] });
+    expect(result.quickWins.map((win) => win.subject)).toEqual([expect.stringContaining("c/s.ts")]);
   });
 });

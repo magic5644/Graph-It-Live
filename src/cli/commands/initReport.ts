@@ -10,7 +10,7 @@
  */
 
 import * as path from "node:path";
-import { ASSESSMENT_THRESHOLDS, type ArchitectureAssessment, type DeadFileGroup, type MatrixFinding, type QuickWin, type TypeOnlyCycles } from "../../analyzer/architecture/architectureAssessment.js";
+import { ASSESSMENT_THRESHOLDS, type ArchitectureAssessment, type DeadFileGroup, type MatrixFinding, type GroupedCycles, type QuickWin } from "../../analyzer/architecture/architectureAssessment.js";
 import { ROOT_UNIT } from "../../analyzer/architecture/architectureUnits.js";
 
 /** What happened to the config and baseline files. */
@@ -117,15 +117,15 @@ function quickWinItem(win: QuickWin): ReportItem {
   };
 }
 
-/** Label of the grouped type-only cycles item: listed after the runtime cycles, never the top action. */
-const TYPE_ONLY = "type-only";
+/** Labels of the grouped cycle items: listed after the runtime cycles, never the top action. */
+const GROUPED = { "type-only": "whose every import is type-only: design coupling", lazy: "that close through lazy import(s): loaded on demand" };
 
-function typeOnlyItem(cycles: TypeOnlyCycles): ReportItem[] {
+function groupedItem(label: keyof typeof GROUPED, cycles: GroupedCycles): ReportItem[] {
   if (cycles.unitCycles + cycles.mutualImports === 0) return [];
   return [{
-    label: TYPE_ONLY,
+    label,
     subject: [...cycles.units.slice(0, ITEM_LIMIT), ...moreLine(ITEM_LIMIT, cycles.units.length, "")].join(", "),
-    note: `${plural(cycles.unitCycles, "unit cycle")} and ${plural(cycles.mutualImports, "mutual file import")} whose every import is type-only: design coupling, no init-order risk.`,
+    note: `${plural(cycles.unitCycles, "unit cycle")} and ${plural(cycles.mutualImports, "mutual file import")} ${GROUPED[label]}, no init-order risk.`,
     details: [...cycles.evidence, ...moreLine(cycles.evidence.length, cycles.totalEvidence, "")],
     units: cycles.units,
     fallback: "units",
@@ -152,7 +152,7 @@ function entryItem(entries: readonly MatrixFinding[], deadFiles: readonly DeadFi
 }
 
 function sections(assessment: ArchitectureAssessment): ReportSection[] {
-  const { deadFiles, quickWins, matrixFindings, typeOnlyCycles } = assessment;
+  const { deadFiles, quickWins, matrixFindings, typeOnlyCycles, lazyCycles } = assessment;
   const wins = (...kinds: QuickWin["kind"][]) => quickWins.filter((win) => kinds.includes(win.kind)).map(quickWinItem);
   const findings = (...kinds: MatrixFinding["kind"][]) => matrixFindings.filter((finding) => kinds.includes(finding.kind));
   return [
@@ -163,8 +163,8 @@ function sections(assessment: ArchitectureAssessment): ReportSection[] {
     },
     {
       title: "Cycles to cut",
-      intro: "Runtime cycles ranked by gain / effort, then the type-only ones in one item (see Glossary).",
-      items: [...wins("cycle-break", "mutual-import"), ...typeOnlyItem(typeOnlyCycles)],
+      intro: "Runtime cycles ranked by gain / effort, then the type-only and the lazy ones, one item each (see Glossary).",
+      items: [...wins("cycle-break", "mutual-import"), ...groupedItem("type-only", typeOnlyCycles), ...groupedItem("lazy", lazyCycles)],
     },
     { title: "Hubs", items: findings("hub-at-risk", "wide-row").map(findingItem) },
     {
@@ -203,7 +203,7 @@ function summaryLines(result: InitResult, all: readonly ReportSection[]): string
     focus === undefined
       ? `Size: ${plural(t.files, "file")} in ${plural(t.units, "unit")}, ${plural(t.unitEdges, "unit edge")}`
       : `Size: ${plural(t.files, "file")} in ${focus}, ${plural(t.units, "unit")} with its neighbours, ${plural(t.unitEdges, "unit edge")} through it`,
-    `Cycles: ${plural(t.unitCycles, "runtime unit cycle")}, ${plural(t.mutualImports, "runtime mutual file import")}${hotSpotText}; type-only: ${plural(t.typeOnlyUnitCycles, "unit cycle")}, ${plural(t.typeOnlyMutualImports, "mutual file import")}`,
+    `Cycles: ${plural(t.unitCycles, "runtime unit cycle")}, ${plural(t.mutualImports, "runtime mutual file import")}${hotSpotText}; type-only: ${plural(t.typeOnlyUnitCycles, "unit cycle")}, ${plural(t.typeOnlyMutualImports, "mutual file import")}; lazy: ${plural(t.lazyUnitCycles, "unit cycle")}, ${plural(t.lazyMutualImports, "mutual file import")}`,
     `Dead files: ${plural(t.deadFiles, "file")} no production file imports, ${plural(t.deadFileLines, "line")} with their tests${testOnlyText}`,
     `Unused exports: ${t.unusedExports} high-confidence in ${plural(t.deadCodeFiles, "file")} (${t.unusedExportsMedium} medium, ${t.unusedExportsLow} low not listed: graph-it check --minConfidence low)`,
     `Top action: ${topText}`,
@@ -221,7 +221,7 @@ function topAction(assessment: ArchitectureAssessment, all: readonly ReportSecti
     const verb = file.confidence === "low" ? "check, then delete" : "delete";
     return `${verb} ${file.relativePath} (dead file: ${file.lines === undefined ? "lines unknown" : plural(file.lines, "line")}, ${plural(file.exports, "export")}, ${file.confidence})`;
   }
-  const actionable = (item: ReportItem) => item.label !== TYPE_ONLY;
+  const actionable = (item: ReportItem) => !Object.hasOwn(GROUPED, item.label);
   const section = [...all.slice(1), all[0]].find((candidate) => candidate.items.some(actionable));
   const top = section?.items.find(actionable);
   return top === undefined ? "none, nothing to clean up" : `${top.subject} (${section!.title.toLowerCase()}: ${top.label})`;

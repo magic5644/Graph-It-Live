@@ -49,8 +49,7 @@ export async function resolveFileImports(
     const normalizedResolved = normalizePath(resolvedPath);
     const previous = seenResolvedPaths.get(normalizedResolved);
     if (previous) {
-      // Two specifiers of one file: it stays type-only only while every import of it is.
-      if (!imp.typeOnly) delete previous.typeOnly;
+      mergeImport(previous, imp);
       continue;
     }
 
@@ -66,6 +65,24 @@ export async function resolveFileImports(
   }
 
   return { dependencies, outOfRootImports: [...outOfRootImports], unresolvedImports: [...unresolvedImports] };
+}
+
+/** What loading the target costs: type-only (erased) < dynamic `import()` (lazy) < static (#740, #741). */
+function importStrength(imp: Pick<Dependency, "type" | "typeOnly">): number {
+  if (imp.typeOnly) return 0;
+  return imp.type === "dynamic" ? 1 : 2;
+}
+
+/**
+ * Folds a second import of one target into the first: the strongest kind wins, so a target stays
+ * type-only or lazy only while every import of it is; the first line and specifier stay.
+ */
+export function mergeImport(previous: Pick<Dependency, "type" | "typeOnly">, next: Pick<Dependency, "type" | "typeOnly">): void {
+  if (importStrength(next) <= importStrength(previous)) return;
+  // A static import replaces a lazy one; a lazy one replaces an `import type`, never an `export type`:
+  // re-export lookups read `export` (SpiderSymbolService.directReexports), so that one stays runtime.
+  if (previous.type === "dynamic" || (next.type === "dynamic" && previous.type === "import")) previous.type = next.type;
+  delete previous.typeOnly;
 }
 
 /** Boundary check for analyzers without resolveImport(), which apply none themselves. */

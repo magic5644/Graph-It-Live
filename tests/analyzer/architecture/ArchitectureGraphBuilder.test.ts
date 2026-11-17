@@ -53,6 +53,21 @@ describe("buildArchitectureGraph", () => {
     expect(graph.context).toMatchObject({ communityMode: "path", indexedAt: "2026-10-15T00:00:00Z", truncated: false, maxFiles: undefined });
   });
 
+  it("keeps the strongest kind of repeated edges: static, then import(), then type-only (#741)", async () => {
+    const kinds = async (...deps: Partial<Dependency>[]) => {
+      const graph = await buildArchitectureGraph(root, async (filePath) =>
+        filePath === normalizePath(fileA) ? deps.map((dep) => ({ ...dependency(fileB), ...dep })) : []);
+      const [edge] = graph.edges;
+      return [edge.typeOnly === true, edge.dynamic === true];
+    };
+    expect(await kinds({ type: "dynamic" })).toEqual([false, true]);
+    expect(await kinds({ typeOnly: true }, { type: "dynamic" })).toEqual([false, true]);
+    expect(await kinds({ type: "dynamic" }, { typeOnly: true })).toEqual([false, true]);
+    expect(await kinds({ type: "dynamic" }, {})).toEqual([false, false]);
+    expect(await kinds({}, { type: "dynamic" })).toEqual([false, false]);
+    expect(await kinds({ typeOnly: true }, { typeOnly: true })).toEqual([true, false]);
+  });
+
   it("drops dependencies resolved into an installed package or a build output, whatever the root's own path", async () => {
     // The workspace itself under a folder named like an ignored one: only the relative path counts.
     const nested = path.join(root, "build", "app");

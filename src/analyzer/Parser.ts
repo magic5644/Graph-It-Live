@@ -3,6 +3,7 @@ import type { Dependency, ILanguageAnalyzer, ImportResolution, ParsedImport } fr
 import { maskNonCode } from "./utils/maskNonCode";
 import { extractFilePath } from "./utils/PathExtractor";
 import { PathResolver } from "./utils/PathResolver";
+import { mergeImport } from "./utils/resolveFileImports";
 import { isSfcFile, parseSfc } from "./sfc/sfcBlocks";
 
 /**
@@ -159,10 +160,10 @@ export class Parser implements ILanguageAnalyzer {
         continue;
       }
 
-      // Already processed: the module stays type-only only while every statement importing it is.
+      // Already processed: the module stays type-only or lazy only while every statement importing it is.
       const previous = seen.get(module);
       if (previous) {
-        if (!typeOnly) delete previous.typeOnly;
+        mergeImport(previous, { type, typeOnly });
         continue;
       }
 

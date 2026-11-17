@@ -29,8 +29,9 @@ const log = getLogger('ReverseIndex');
  * v5: Vue/Svelte import lines are those of the SFC, not of its concatenated script blocks (#644).
  * v6: Python `from pkg import sub` and `import a.b as c` depend on the submodule file; `src/` layouts resolve (#695).
  * v7: entries carry `typeOnly` for type-only imports (#740).
+ * v8: a target imported statically and through import() is static; `import type` plus import() is dynamic (#741).
  */
-const INDEX_VERSION = 7;
+const INDEX_VERSION = 8;
 
 /**
  * ReverseIndex - Maintains a mapping from target files to their referencing files
