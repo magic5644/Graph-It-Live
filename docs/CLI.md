@@ -1091,7 +1091,7 @@ graph-it diagram [<dir>] [--view units|folder|matrix] [--folder <key>] [--format
 
 At most 60 units or groups are drawn, the largest ones; a note counts the others, and the header counts cover the whole level. Under the matrix, a note says how to read it: row imports column, N file pairs per cell, the greyed diagonal counting the pairs inside each row. The output has no script, no external resource and no `foreignObject`. Labels are escaped, and paths are workspace-relative.
 
-<img src="../media/cli-diagram-units.svg" alt="graph-it diagram on tests/fixtures/workspaces-project: seven units in three layers, the cycle between @ws/core and @ws/types outlined, edge widths by file pairs, and a legend" width="648"/>
+<img src="../media/cli-diagram-units.svg" alt="graph-it diagram on tests/fixtures/workspaces-project: seven units in three layers, the cycle between @ws/core and @ws/types outlined, edge widths by file pairs, and a legend" width="596"/>
 
 *`graph-it diagram --format svg` on `tests/fixtures/workspaces-project`.*
 

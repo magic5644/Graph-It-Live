@@ -103,7 +103,13 @@ Supported projects include TypeScript, JavaScript, Python, Rust, C#, Go, Java, V
 ### File dependency graph
 
 - Visualize file-to-file imports across a workspace.
-- Detect circular dependencies and highlight cycles.
+- Detect circular dependencies and highlight cycles. A cycle whose every import is type-only (`import type`, Python `if TYPE_CHECKING:`) is drawn dotted and labelled `type-only`, apart from runtime cycles; `graph-it-live.ignoreTypeImports` hides type-only edges at once.
+
+<div align="center">
+<img src="media/file-graph-type-only-cycle.png" alt="File graph from main.ts: cart.ts and pricing.ts import each other at runtime, a red dashed edge labelled cycle with red cycle badges; order.ts and customer.ts import only types from each other, a grey dotted edge labelled type-only without a badge" width="800"/>
+</div>
+
+*Graph-It-Live: Show Dependency Graph on a file, then Expand All.*
 - Expand and collapse nodes as you explore.
 - Open files directly from graph nodes.
 - Find reverse dependencies with an indexed lookup.
@@ -270,10 +276,18 @@ On an existing codebase, start with `graph-it init`: it guards the architecture 
 With `--output <dir>`, `init` also writes `report.md`, SVG diagrams and `index.html`. This offline page groups the files by architecture unit and lists the report's findings beside the graph. Click a finding to centre the graph on its files.
 
 <div align="center">
-<img src="media/init-explorable-page.png" alt="index.html written by graph-it init --output on tests/demo/legacy-shop: the Findings panel lists the dead files and the cycles to cut, the graph shows the files grouped by unit, two dead files with a dashed border and the cycle edges in orange" width="800"/>
+<img src="media/init-cycle-kinds.png" alt="index.html written by graph-it init --output: the Findings panel lists the dead file and the cycles to cut, each with its next command; the graph groups the files by unit, a runtime cycle as solid purple edges, a type-only cycle dotted, a lazy import() cycle dashed, and the shared legend under the groups" width="800"/>
 </div>
 
-*`graph-it init --output report` on `tests/demo/legacy-shop`, then open `report/index.html`.*
+*`graph-it init --output report`, then open `report/index.html`. The legend is the same in the SVG diagrams and on the page.*
+
+The **Dependency matrix** panel, inside Findings, shows the units' matrix with the cells to cut marked, cycles outlined by kind, and a guide to reading it:
+
+<div align="center">
+<img src="media/init-matrix-panel.png" alt="The Dependency matrix panel of index.html: seven units in layer order, a runtime cycle outlined solid, a type-only cycle dotted and a lazy cycle dashed, the cell to cut in each framed, and under it How to read the matrix with one line per pattern" width="800"/>
+</div>
+
+*Open Findings, then Dependency matrix; click a cell to list its file pairs.*
 
 `--focus <unit|folder>` keeps one unit or folder and its direct neighbours, and adds a panel listing what it depends on and what uses it:
 
