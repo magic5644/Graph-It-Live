@@ -16,7 +16,7 @@ vi.mock("@/mcp/tools", async (importOriginal) => ({
   // The real scan needs the reverse index of a full CLI run (covered by the E2E test).
   executeScanDeadCode: vi.fn().mockImplementation(async ({ unreferencedFiles, minConfidence }: { unreferencedFiles?: boolean; minConfidence?: string }) => {
     const symbol = (name: string, confidence: string) => ({ name, line: 2, id: name, kind: "VariableDeclaration", isExported: true, confidence });
-    const high = { relativePath: "backend/src/api.ts", unusedSymbols: [symbol("api", "high")] };
+    const high = { relativePath: "backend/src/api.ts", unusedSymbols: [{ ...symbol("api", "high"), endLine: 5 }] };
     // Listed with --focus only (minConfidence low): a medium export in backend, a low one outside it.
     const below = [
       { relativePath: "backend/src/db.ts", unusedSymbols: [symbol("query", "medium")] },
@@ -70,6 +70,8 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     expect(check).toMatchObject({ passed: true, totals: { violations: 0, unmatchedFiles: 0 }, configWarnings: [] });
     // Quick wins and matrix reading come with it.
     expect(result.assessment.quickWins.map((win) => win.kind)).toEqual(expect.arrayContaining(["cycle-break", "dead-code"]));
+    // #742: the scan's endLine reaches the ranking: lines 2 to 5 of an imported file, one file to edit.
+    expect(result.assessment.quickWins.find((win) => win.kind === "dead-code")).toMatchObject({ gain: 4, effort: 1 });
     expect(result.assessment.matrixFindings.map((finding) => finding.kind)).toEqual(expect.arrayContaining(["entry-row"]));
   });
 
