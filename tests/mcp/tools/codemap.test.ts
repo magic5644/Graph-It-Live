@@ -59,9 +59,10 @@ describe("codemap tools", () => {
         })),
         analyze: vi.fn(async () => [
           { path: path.join(tempDir, "helper.ts"), type: "import", line: 1, module: "./helper" },
+          { path: path.join(tempDir, "types.ts"), type: "import", line: 2, module: "./types", typeOnly: true },
         ]),
         findReferencingFiles: vi.fn(async () => [
-          { path: path.join(tempDir, "index.ts"), type: "import", line: 5, module: "./service" },
+          { path: path.join(tempDir, "index.ts"), type: "import", line: 5, module: "./service", typeOnly: true },
         ]),
       };
 
@@ -77,10 +78,12 @@ describe("codemap tools", () => {
       expect(result.exports[0].name).toBe("main");
       expect(result.internals).toHaveLength(1);
       expect(result.internals[0].name).toBe("internal");
-      expect(result.dependencies).toHaveLength(1);
+      expect(result.dependencies).toHaveLength(2);
       expect(result.dependencies[0].module).toBe("./helper");
+      expect(result.dependencies.map((dep) => dep.typeOnly)).toEqual([undefined, true]);
       expect(result.dependents).toHaveLength(1);
       expect(result.dependents[0].relativePath).toBe("index.ts");
+      expect(result.dependents[0].typeOnly).toBe(true);
       expect(result.analysisTimeMs).toBeGreaterThanOrEqual(0);
     });
 

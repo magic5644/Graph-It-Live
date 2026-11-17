@@ -35,17 +35,20 @@ export async function run(
     maxDepth: 50,
   });
 
-  const confirmedCycles = graph.circularDependencies.filter((cycle) =>
-    cycle.includes(targetFile),
+  const confirmed = graph.circularDependencies.flatMap((cycle, index) =>
+    cycle.includes(targetFile) ? [{ cycle, kind: graph.circularDependencyKinds[index] }] : [],
   );
 
   const result = {
     filePath: targetFile,
     relativePath: normalizePath(path.relative(runtime.workspaceRoot, targetFile)),
-    cycleCount: confirmedCycles.length,
-    confirmedCycles: confirmedCycles.map((cycle) =>
+    cycleCount: confirmed.length,
+    typeOnlyCycleCount: confirmed.filter(({ kind }) => kind === 'type-only').length,
+    confirmedCycles: confirmed.map(({ cycle }) =>
       cycle.map((absPath) => normalizePath(path.relative(runtime.workspaceRoot, absPath))),
     ),
+    // Same order as confirmedCycles: `type-only` when every import closing the cycle is type-only (#745).
+    cycleKinds: confirmed.map(({ kind }) => kind),
   };
 
   return formatOutput(result, format, 'cycles');

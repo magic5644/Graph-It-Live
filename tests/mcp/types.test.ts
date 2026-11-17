@@ -121,6 +121,12 @@ describe('enrichDependency', () => {
     expect(result.line).toBe(5);
     expect(result.module).toBe('./utils/helper');
     expect(result.extension).toBe('ts');
+    expect(result).not.toHaveProperty('typeOnly');
+  });
+
+  it('keeps the type-only flag of a dependency (#745)', () => {
+    const dep: Dependency = { path: '/project/src/types.ts', type: 'import', line: 1, module: './types', typeOnly: true };
+    expect(enrichDependency(dep, workspaceRoot).typeOnly).toBe(true);
   });
 
   it('handles paths outside workspace', () => {

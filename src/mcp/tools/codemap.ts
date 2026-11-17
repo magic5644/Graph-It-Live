@@ -50,6 +50,8 @@ interface CodemapDependency {
   relativePath: string | null;
   type: string;
   line: number;
+  /** Every import of the target is type-only: erased at runtime (#745) */
+  typeOnly?: true;
 }
 
 interface CodemapDependent {
@@ -57,6 +59,8 @@ interface CodemapDependent {
   relativePath: string;
   type: string;
   line: number;
+  /** Every import of this file in the dependent is type-only (#745) */
+  typeOnly?: true;
 }
 
 interface CodemapCallEdge {
@@ -107,6 +111,7 @@ export async function executeGenerateCodemap(
     relativePath: d.path ? getRelativePath(d.path, config.rootDir) : null,
     type: d.type,
     line: d.line,
+    ...(d.typeOnly ? { typeOnly: true as const } : {}),
   }));
 
   // --- 4. Reverse dependencies (who imports this file) ---
@@ -118,6 +123,7 @@ export async function executeGenerateCodemap(
       relativePath: getRelativePath(r.path, config.rootDir),
       type: r.type,
       line: r.line,
+      ...(r.typeOnly ? { typeOnly: true as const } : {}),
     }));
   } catch {
     // Reverse index may not be ready yet — non-fatal

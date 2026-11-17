@@ -9,6 +9,8 @@ export interface GraphEdge {
   target: string;
   /** `containment`: a Rust `mod x;` declaration; drawn like a dependency, never part of a cycle. */
   relationType?: "dependency" | "call" | "reference" | "containment";
+  /** Every import of `target` in `source` is type-only (`import type`, Python `if TYPE_CHECKING:`): erased at runtime (#745). */
+  typeOnly?: boolean;
 }
 
 /** File-graph community detection: `path` groups by folder (default), `louvain` by import structure. */

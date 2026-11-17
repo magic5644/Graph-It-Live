@@ -74,8 +74,8 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       `WHEN: "what does this file import", "what are this file's dependencies".`,
       "WHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.",
       {
-        mcp: "RETURNS: per statement - module specifier, resolved absolute path, workspace-relative path, import type (import, require, export, dynamic, side-effect, mod = Rust `mod x;` declaration), line number.",
-        lm: "RETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic, side-effect, mod = Rust `mod x;` declaration), line number. Unresolved and external imports are left out.",
+        mcp: "RETURNS: per statement - module specifier, resolved absolute path, workspace-relative path, import type (import, require, export, dynamic, side-effect, mod = Rust `mod x;` declaration), line number, typeOnly: true when every import of the target is type-only (TypeScript import type, Python if TYPE_CHECKING:).",
+        lm: "RETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic, side-effect, mod = Rust `mod x;` declaration), line number, typeOnly: true when every import of the target is type-only (TypeScript import type, Python if TYPE_CHECKING:). Unresolved and external imports are left out.",
       },
       "SUPPORTS: TypeScript, JavaScript, Vue 3 (<script src> and <template src> are dependencies), Svelte, GraphQL.",
     ],
@@ -89,8 +89,8 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       },
       "WHY: crawls real import edges across the workspace rather than inferring structure from file names.",
       {
-        mcp: "RETURNS: nodes (path, extension, dependency count, dependent count, circular flag, communityId/communityKey: by folder, or by import structure with communityMode 'louvain') and edges (import relations); paginated via offset/limit.",
-        lm: "RETURNS: nodes (workspace-relative path) and edges (import relations, source and target). maxDepth defaults to the configured graph-it-live.maxDepth, else 3.",
+        mcp: "RETURNS: nodes (path, extension, dependency count, dependent count, circular flag, communityId/communityKey: by folder, or by import structure with communityMode 'louvain'), edges (import relations) and circularDependencies with circularDependencyKinds in the same order (type-only when every import closing the cycle is type-only, else runtime); paginated via offset/limit.",
+        lm: "RETURNS: nodes (workspace-relative path) and edges (import relations, source and target, typeOnly: true for a type-only import). maxDepth defaults to the configured graph-it-live.maxDepth, else 3.",
       },
       { mcp: `LIMITS: ${TOKEN_BUDGET_LIMIT}` },
       OPEN_ENDED_HINT,
@@ -103,8 +103,8 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       `WHEN: impact analysis, "who uses this file", refactoring-safety checks before changing or deleting a file.`,
       "WHY: served from a prebuilt reverse index, so it covers the whole workspace rather than the files already in context.",
       {
-        mcp: "RETURNS: absolute and workspace-relative path of each referencing file.",
-        lm: "RETURNS: workspace-relative path, import type, line and module specifier of each referencing file.",
+        mcp: "RETURNS: absolute and workspace-relative path of each referencing file, typeOnly: true when its imports of the target are all type-only.",
+        lm: "RETURNS: workspace-relative path, import type, line and module specifier of each referencing file, typeOnly: true when its imports of the target are all type-only.",
       },
       "BARRELS: files that import the target's exports through re-export barrels (export { x } from, export *, chained) are listed after the direct importers, with via = the barrel they import.",
       OPEN_ENDED_HINT,
@@ -297,7 +297,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       "WHEN: getting oriented in an unfamiliar file, or gathering the full context of a file before refactoring it.",
       "WHY: one call in place of analyze_dependencies, get_symbol_graph and find_referencing_files together, plus the calls between the file's own symbols.",
-      "RETURNS: path, language, line count, exported and internal symbols, dependencies, dependents, intra-file call flow, cycle detection.",
+      "RETURNS: path, language, line count, exported and internal symbols, dependencies and dependents (typeOnly: true for a type-only import), intra-file call flow, cycle detection.",
       "SUPPORTS: TypeScript, JavaScript, Python, Rust, Vue 3, Svelte.",
     ],
   },

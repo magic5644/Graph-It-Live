@@ -6,6 +6,7 @@ import { normalizePath } from "../../shared/path";
 import { FileReader } from "../FileReader";
 import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
 import { extractFilePath } from "../utils/PathExtractor";
+import { mergeImport } from "../utils/resolveFileImports";
 import { WasmParserFactory } from "./WasmParserFactory";
 
 /** A `from module import names` statement, whose names may be submodules of a package. */
@@ -13,9 +14,15 @@ interface FromImport {
   module: string;
   names: string[];
   line: number;
+  typeOnly: boolean;
 }
 
+/** Module-level dependencies by specifier: a repeated import folds into the first (mergeImport). */
+type SeenImports = Map<string, Dependency>;
+
 const PACKAGE_INIT = /[\\/]__init__\.pyi?$/;
+/** `if TYPE_CHECKING:` (typing.TYPE_CHECKING, or any `x.TYPE_CHECKING`): read by type checkers only. */
+const TYPE_CHECKING = /^(?:\w+\.)?TYPE_CHECKING$/;
 
 /**
  * Python import parser backed by tree-sitter WASM.
@@ -120,17 +127,17 @@ export class PythonParser implements ILanguageAnalyzer {
         throw new Error(`Failed to parse Python file: ${actualPath}`);
       }
       const dependencies: Dependency[] = [];
-      const seen = new Set<string>();
+      const seen: SeenImports = new Map();
       const fromImports: FromImport[] = [];
 
-      this.traverseTree(tree.rootNode, (node) => {
+      this.traverseTree(tree.rootNode, content, false, (node, typeOnly) => {
         // Handle: import module [as alias]
         if (node.type === "import_statement") {
-          this.extractImportStatement(node, dependencies, seen, content);
+          this.extractImportStatement(node, dependencies, seen, content, typeOnly);
         }
         // Handle: from module import name [as alias]
         else if (node.type === "import_from_statement") {
-          const fromImport = this.extractImportFromStatement(node, dependencies, seen, content);
+          const fromImport = this.extractImportFromStatement(node, dependencies, seen, content, typeOnly);
           if (fromImport) fromImports.push(fromImport);
         }
       });
@@ -176,8 +183,9 @@ export class PythonParser implements ILanguageAnalyzer {
   private extractImportStatement(
     node: Node,
     dependencies: Dependency[],
-    seen: Set<string>,
+    seen: SeenImports,
     content: string,
+    typeOnly: boolean,
   ): void {
     // The modules imported: `import a.b` (dotted_name) or `import a.b as c` (aliased_import).
     const dottedNames = node.children.flatMap((child) => {
@@ -188,15 +196,7 @@ export class PythonParser implements ILanguageAnalyzer {
 
     for (const dottedName of dottedNames) {
       const module = this.getNodeText(dottedName, content);
-      if (module && !seen.has(module)) {
-        seen.add(module);
-        dependencies.push({
-          path: "",
-          type: "import",
-          line: dottedName.startPosition.row + 1,
-          module,
-        });
-      }
+      if (module) addImport(dependencies, seen, { path: "", type: "import", line: dottedName.startPosition.row + 1, module }, typeOnly);
     }
   }
 
@@ -207,8 +207,9 @@ export class PythonParser implements ILanguageAnalyzer {
   private extractImportFromStatement(
     node: Node,
     dependencies: Dependency[],
-    seen: Set<string>,
+    seen: SeenImports,
     content: string,
+    typeOnly: boolean,
   ): FromImport | null {
     // Find the module path (can be dotted_name or relative_import)
     let module: string | null = null;
@@ -225,16 +226,8 @@ export class PythonParser implements ILanguageAnalyzer {
       }
     }
 
-    if (module && !seen.has(module)) {
-      seen.add(module);
-      dependencies.push({
-        path: "",
-        type: "import",
-        line: node.startPosition.row + 1,
-        module,
-      });
-    }
     if (!module) return null;
+    addImport(dependencies, seen, { path: "", type: "import", line: node.startPosition.row + 1, module }, typeOnly);
     // The imported names follow the `import` keyword: dotted_name or aliased_import.
     const importKeyword = node.children.findIndex((child) => child.type === "import");
     const imported = importKeyword < 0 ? [] : node.children.slice(importKeyword + 1);
@@ -243,7 +236,7 @@ export class PythonParser implements ILanguageAnalyzer {
       const text = dotted ? this.getNodeText(dotted, content) : "";
       return /^[A-Za-z_]\w*$/.test(text) ? [text] : [];
     });
-    return names.length > 0 ? { module, names, line: node.startPosition.row + 1 } : null;
+    return names.length > 0 ? { module, names, line: node.startPosition.row + 1, typeOnly } : null;
   }
 
   /**
@@ -254,19 +247,17 @@ export class PythonParser implements ILanguageAnalyzer {
     fromFile: string,
     fromImports: readonly FromImport[],
     dependencies: Dependency[],
-    seen: Set<string>,
+    seen: SeenImports,
   ): Promise<void> {
-    const found = await Promise.all(fromImports.map(async ({ module, names, line }) => {
+    const found = await Promise.all(fromImports.map(async ({ module, names, line, typeOnly }) => {
       const resolved = await this.resolvePath(fromFile, module);
       if (!resolved || !PACKAGE_INIT.test(resolved)) return [];
       const specifiers = names.map((name) => (module.endsWith(".") ? `${module}${name}` : `${module}.${name}`));
       const files = await Promise.all(specifiers.map((specifier) => this.resolvePath(fromFile, specifier)));
-      return specifiers.filter((_, i) => files[i] !== null).map((specifier) => ({ specifier, line }));
+      return specifiers.filter((_, i) => files[i] !== null).map((specifier) => ({ specifier, line, typeOnly }));
     }));
-    for (const { specifier, line } of found.flat()) {
-      if (seen.has(specifier)) continue;
-      seen.add(specifier);
-      dependencies.push({ path: "", type: "import", line, module: specifier });
+    for (const { specifier, line, typeOnly } of found.flat()) {
+      addImport(dependencies, seen, { path: "", type: "import", line, module: specifier }, typeOnly);
     }
   }
 
@@ -363,16 +354,19 @@ export class PythonParser implements ILanguageAnalyzer {
     }
   }
 
-  /**
-   * Traverse tree and call visitor for each node
-   */
+  /** Visits every node; `typeOnly` is true inside the body of an `if TYPE_CHECKING:` (not its else / elif). */
   private traverseTree(
     node: Node,
-    visitor: (node: Node) => void,
+    content: string,
+    typeOnly: boolean,
+    visitor: (node: Node, typeOnly: boolean) => void,
   ): void {
-    visitor(node);
+    visitor(node, typeOnly);
+    const condition = node.type === "if_statement" ? node.childForFieldName("condition") : null;
+    const typeChecking = condition !== null && TYPE_CHECKING.test(this.getNodeText(condition, content));
+    const body = typeChecking ? node.childForFieldName("consequence") : null;
     for (const child of node.children) {
-      this.traverseTree(child, visitor);
+      this.traverseTree(child, content, typeOnly || child.id === body?.id, visitor);
     }
   }
 
@@ -398,6 +392,18 @@ export class PythonParser implements ILanguageAnalyzer {
   private getNodeText(node: Node, content: string): string {
     return content.slice(node.startIndex, node.endIndex);
   }
+}
+
+/** Records one import of `dependency.module`; a repeat folds into the first, so it stays type-only only while every import is. */
+function addImport(dependencies: Dependency[], seen: SeenImports, dependency: Dependency, typeOnly: boolean): void {
+  const flagged = typeOnly ? { ...dependency, typeOnly } : dependency;
+  const previous = seen.get(dependency.module);
+  if (previous) {
+    mergeImport(previous, flagged);
+    return;
+  }
+  seen.set(dependency.module, flagged);
+  dependencies.push(flagged);
 }
 
 /** Files a Python module path can live in under `dir`, in lookup order. */

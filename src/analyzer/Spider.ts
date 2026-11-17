@@ -20,6 +20,7 @@ import { SymbolDependencyHelper } from './SymbolDependencyHelper';
 import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types';
 import { RESOLVER_CONFIG_FILE_REGEX } from '@/shared/constants';
 import { normalizePath } from '@/shared/path';
+import type { GraphEdge } from '@/shared/graph-types';
 import { YIELD_INTERVAL_MS, yieldToEventLoop } from './utils/EventLoopYield';
 import { PathResolver } from './utils/PathResolver';
 import type { OutOfRootImports } from './utils/workspaceBoundary';
@@ -705,7 +706,7 @@ export class Spider {
   async crawl(
     startPath: string,
     options?: { maxDepth?: number; signal?: AbortSignal },
-  ): Promise<{ nodes: string[]; edges: { source: string; target: string }[]; nodeLabels?: Record<string, string> }> {
+  ): Promise<{ nodes: string[]; edges: GraphEdge[]; nodeLabels?: Record<string, string> }> {
     return this.graphCrawler.crawl(startPath, options);
   }
 
@@ -717,18 +718,18 @@ export class Spider {
     filePath: string,
   ): Promise<{
     nodes: string[];
-    edges: { source: string; target: string; sourceLine?: number }[];
+    edges: (GraphEdge & { sourceLine?: number })[];
     nodeLabels?: Record<string, string>;
   }> {
     const normalizedFilePath = normalizePath(filePath);
     const nodes = new Set<string>([normalizedFilePath]);
-    const edges: Array<{ source: string; target: string; sourceLine?: number }> = [];
+    const edges: Array<GraphEdge & { sourceLine?: number }> = [];
     const nodeLabels: Record<string, string> = {};
 
     try {
       const analyzer = this.languageService.getAnalyzer(filePath);
       const parsedImports = await analyzer.parseImports(filePath);
-      const seenResolvedPaths = new Set<string>();
+      const seenResolvedPaths = new Map<string, GraphEdge>();
 
       const resolvedPaths = await Promise.all(parsedImports.map((imported) => analyzer.resolvePath(filePath, imported.module)));
       for (const [i, imported] of parsedImports.entries()) {
@@ -736,13 +737,19 @@ export class Spider {
         if (!resolvedPath || !this.resolver.isWithinWorkspace(resolvedPath)) continue;
 
         const dependencyPath = normalizePath(resolvedPath);
-        if (seenResolvedPaths.has(dependencyPath)) continue;
-        seenResolvedPaths.add(dependencyPath);
+        const seen = seenResolvedPaths.get(dependencyPath);
+        if (seen) {
+          // A runtime import of a target also imported as a type keeps the edge runtime.
+          if (!imported.typeOnly) delete seen.typeOnly;
+          continue;
+        }
         nodes.add(dependencyPath);
-        edges.push({
-          ...fileEdge(normalizedFilePath, dependencyPath, imported.type),
+        const edge = {
+          ...fileEdge(normalizedFilePath, dependencyPath, imported),
           ...(imported.line > 0 ? { sourceLine: imported.line } : {}),
-        });
+        };
+        seenResolvedPaths.set(dependencyPath, edge);
+        edges.push(edge);
 
         if (imported.module.startsWith('@') && imported.module.includes('/') && !imported.module.startsWith('@/')) {
           nodeLabels[dependencyPath] = imported.module;

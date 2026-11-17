@@ -131,7 +131,7 @@ export class NodeInteractionService {
     }));
 
     const nodes = referencingFiles.map((d) => d.path);
-    const edges = referencingFiles.map((d) => fileEdge(d.path, nodeId, d.type));
+    const edges = referencingFiles.map((d) => fileEdge(d.path, nodeId, d));
 
     const parentCounts = await this.populateParentCounts(nodes);
 

@@ -69,6 +69,11 @@ export function withoutContainment<E extends CycleEdge>(edges: readonly E[]): E[
 export function detectCycleEdges(
   edges: Array<{ source: string; target: string }>,
 ): Set<string> {
+  return new Set(edgesInCycles(edges).cycleEdges.map(({ source, target }) => `${source}->${target}`));
+}
+
+/** The usage edges inside a strongly connected component, with each node's component. */
+function edgesInCycles<E extends CycleEdge>(edges: readonly E[]): { cycleEdges: E[]; components: Map<string, number> } {
   const usage = withoutContainment(edges);
   const adjacency = new Map<string, string[]>();
   const reverse = new Map<string, string[]>();
@@ -83,10 +88,26 @@ export function detectCycleEdges(
   const finishOrder = getFinishOrder(adjacency);
   finishOrder.reverse();
   const components = findComponents(reverse, finishOrder);
+  return { cycleEdges: usage.filter(({ source, target }) => components.get(source) === components.get(target)), components };
+}
 
-  return new Set(usage
-    .filter(({ source, target }) => components.get(source) === components.get(target))
-    .map(({ source, target }) => `${source}->${target}`));
+/** Whether a cycle runs at runtime: `type-only` only when every import closing it is type-only (#740). */
+export type CycleKind = "runtime" | "type-only";
+
+/**
+ * Cycle edges (`source->target`) of the components whose every edge is type-only (#745):
+ * erased at runtime, drawn apart from runtime cycles. A component with one runtime edge stays runtime.
+ */
+export function typeOnlyCycleEdges(edges: ReadonlyArray<CycleEdge & { typeOnly?: boolean }>): Set<string> {
+  const { cycleEdges, components } = edgesInCycles(edges);
+  const runtime = new Set(cycleEdges.filter((edge) => !edge.typeOnly).map(({ source }) => components.get(source)));
+  return new Set(cycleEdges.filter(({ source }) => !runtime.has(components.get(source))).map(({ source, target }) => `${source}->${target}`));
+}
+
+/** Kind of each cycle (files in order, the first repeated last) over `edges` (#745). */
+export function cycleKinds(cycles: readonly (readonly string[])[], edges: ReadonlyArray<CycleEdge & { typeOnly?: boolean }>): CycleKind[] {
+  const typeOnly = new Set(edges.filter((edge) => edge.typeOnly).map(({ source, target }) => `${source}\0${target}`));
+  return cycles.map((cycle) => (cycle.slice(1).every((file, index) => typeOnly.has(`${cycle[index]}\0${file}`)) ? "type-only" : "runtime"));
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { detectCycleEdges, detectCycles, getCyclicEdgeIds, withoutContainment } from '@/shared/cycleUtils';
+import { cycleKinds, detectCycleEdges, detectCycles, getCyclicEdgeIds, typeOnlyCycleEdges, withoutContainment } from '@/shared/cycleUtils';
 
 describe('cycle detection', () => {
   const overlapping = [
@@ -94,5 +94,26 @@ describe('cycle detection', () => {
       expect(withoutContainment(overlapping)).toEqual(overlapping);
       expect(withoutContainment([])).toEqual([]);
     });
+  });
+});
+
+describe('type-only cycles (#745)', () => {
+  const edge = (source: string, target: string, typeOnly?: boolean) => ({ source, target, ...(typeOnly ? { typeOnly } : {}) });
+
+  it('marks the edges of a component whose every edge is type-only', () => {
+    const edges = [edge('a', 'b', true), edge('b', 'a', true), edge('c', 'd', true), edge('d', 'c'), edge('a', 'c')];
+    expect(typeOnlyCycleEdges(edges)).toEqual(new Set(['a->b', 'b->a']));
+  });
+
+  it('returns nothing without cycles, or when every cycle has a runtime edge', () => {
+    expect(typeOnlyCycleEdges([])).toEqual(new Set());
+    expect(typeOnlyCycleEdges([edge('a', 'b', true)])).toEqual(new Set());
+    expect(typeOnlyCycleEdges([edge('a', 'b'), edge('b', 'a', true)])).toEqual(new Set());
+  });
+
+  it('tags each listed cycle type-only only when every edge closing it is', () => {
+    const edges = [edge('a', 'b', true), edge('b', 'a', true), edge('b', 'c'), edge('c', 'b', true)];
+    expect(cycleKinds([['a', 'b', 'a'], ['b', 'c', 'b']], edges)).toEqual(['type-only', 'runtime']);
+    expect(cycleKinds([], edges)).toEqual([]);
   });
 });
