@@ -30,7 +30,8 @@ export const ASSESSMENT_THRESHOLDS = {
 /** One file of the dead-code scan (scan_dead_code, `graph-it check`) with its unused exports. */
 export interface DeadCodeFile {
   relativePath: string;
-  unusedSymbols: readonly { name: string; line: number }[];
+  /** `endLine`: last line of the declaration, when the analyzer can tell. */
+  unusedSymbols: readonly { name: string; line: number; endLine?: number }[];
 }
 
 /** A file no production file imports (scan_dead_code `unreferencedFiles`, #711), with its line count. */
@@ -60,9 +61,9 @@ export type QuickWinKind = "cycle-break" | "mutual-import" | "weak-dependency" |
 
 export interface QuickWin {
   kind: QuickWinKind;
-  /** What it removes: units layered again (cycle-break), file cycles (mutual-import), unit edges (weak-dependency), exports (dead-code). */
+  /** What it removes: units layered again (cycle-break), runtime file cycles (mutual-import), unit edges (weak-dependency), lines (dead-code). */
   gain: number;
-  /** Imports or symbols to change. */
+  /** What it costs: file pairs to remove or move (cycle-break, weak-dependency), files to edit (mutual-import, dead-code); 0 ranks first. */
   effort: number;
   subject: string;
   /** `file:line -> file` import lines, or `file:line symbol` unused exports; at most `evidence`. */
@@ -159,7 +160,7 @@ function glossary(matrix: ArchitectureMatrix<string>): Record<string, string> {
     C: "Cohesion. C = diagonal / (diagonal + Ce): the share of the unit's file pairs that stay inside it.",
     matrix: `${matrix.formulas.cell} ${matrix.formulas.order} ${matrix.formulas.upward}`,
     cut: "The cells of a cycle that go against one order of its units (the matrix order, its reverse or a greedy Eades–Lin–Smyth order, the cheapest); without them the units are layered again.",
-    "gain / effort": "Quick wins are ranked by what they remove over the imports or symbols to change, then by gain.",
+    "gain / effort": "Quick wins are ranked by gain over effort (effort 0 first), then by gain. cycle-break: units layered again over file pairs to remove or move. mutual-import: runtime file cycles broken over files to edit (1: the hub, which drops its import of each partner). weak-dependency: 1 unit edge over its file pairs. dead-code: lines removed (the whole file when nothing imports it, else the unused declarations) over files to edit (0: delete a file nothing imports, else 1).",
     "type-only": "An import erased at runtime (import type, every specifier type, export type). A cycle is type-only when all its imports are: design coupling, no init-order risk. One runtime import makes it a runtime cycle.",
     lazy: "A dynamic import() loads its target on demand. A cycle is lazy when it is no longer a cycle without its import() calls: no init-order risk, still a dependency (rules, impact).",
   };
@@ -346,7 +347,8 @@ function mutualImports(input: AssessmentInput, mutual: readonly Edge[]): { wins:
     wins.push({
       kind: "mutual-import",
       gain: mine.size,
-      effort: mine.size,
+      // One file to edit: the hub drops its import of each partner.
+      effort: 1,
       subject: mine.size === 1
         ? `${hub} and ${partners[0]} import each other: remove or move one import`
         : `${hub} and ${mine.size} files import each other (${partners.join(", ")}): remove or move one import of each pair`,
@@ -374,14 +376,19 @@ function weakDependencies(input: AssessmentInput, pairs: Map<string, Edge[]>, sc
 
 function deadCode(input: AssessmentInput, files: readonly DeadCodeFile[]): QuickWin[] {
   const imported = new Set(input.graph.edges.map((edge) => edge.targetRelative));
+  const fileLines = new Map((input.deadFiles ?? []).map((file) => [file.relativePath, file.lines]));
   return files.filter((file) => file.unusedSymbols.length > 0).map((file) => {
     const unit = input.unitOf.get(file.relativePath);
-    const unreferenced = imported.has(file.relativePath) ? "" : "; no file imports it";
+    const unreferenced = !imported.has(file.relativePath);
+    // A declaration whose end the analyzer cannot tell counts one line.
+    const declared = file.unusedSymbols.reduce((total, symbol) => total + Math.max(1, (symbol.endLine ?? symbol.line) - symbol.line + 1), 0);
     return {
       kind: "dead-code" as const,
-      gain: file.unusedSymbols.length,
-      effort: file.unusedSymbols.length,
-      subject: `${file.relativePath}: ${file.unusedSymbols.length} unused export(s)${unreferenced}`,
+      // Nothing imports the file: deleting it removes all its lines (unread: its unused declarations).
+      gain: (unreferenced ? fileLines.get(file.relativePath) : undefined) ?? declared,
+      // Files to edit: none to delete a file nothing imports, else the file itself.
+      effort: unreferenced ? 0 : 1,
+      subject: `${file.relativePath}: ${file.unusedSymbols.length} unused export(s)${unreferenced ? "; no file imports it" : ""}`,
       ...capped(file.unusedSymbols.map((symbol) => `${file.relativePath}:${symbol.line} ${symbol.name}`)),
       units: unit === undefined ? [] : [unit],
       next: `graph-it check ${JSON.stringify(file.relativePath)}`,
@@ -508,7 +515,7 @@ export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<s
   const cuts = scopedCuts.filter((cut) => !typeOnlyCuts.includes(cut) && !lazyCuts.includes(cut));
   const deadCodeFiles = input.deadCode.filter((file) => focus?.has(file.relativePath) ?? true);
   const quickWins = [...cycleBreaks(input, cuts, pairs), ...mutualWins, ...weakDependencies(input, pairs, scope), ...deadCode(input, deadCodeFiles)]
-    // Cross products compare gain / effort without rounding.
+    // Cross products compare gain / effort without rounding; effort 0 ranks first.
     .sort((left, right) => right.gain * left.effort - left.gain * right.effort || right.gain - left.gain
       || KIND_ORDER.indexOf(left.kind) - KIND_ORDER.indexOf(right.kind) || byCodeUnit(left.subject, right.subject));
   const deadFileList = (input.deadFiles ?? []).filter((file) => scope.file(file.relativePath));

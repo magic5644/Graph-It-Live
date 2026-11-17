@@ -265,7 +265,7 @@ async function deadCodeFiles(workspaceRoot: string, progress: CliProgress, focus
   return {
     deadCode: scan.entries.map((entry) => ({
       relativePath: entry.relativePath,
-      unusedSymbols: entry.unusedSymbols.filter((symbol) => symbol.confidence === "high").map(({ name, line }) => ({ name, line })),
+      unusedSymbols: entry.unusedSymbols.filter((symbol) => symbol.confidence === "high").map(({ name, line, endLine }) => ({ name, line, endLine })),
     })),
     deadCodeBelowHigh: below,
     deadFiles: await Promise.all(unreferenced.unreferencedFiles.map(async ({ relativePath, exports, confidence, reasons, via, tests }) => ({

@@ -79,7 +79,8 @@ describe("assessArchitecture: quick wins", () => {
       ],
     }));
     expect(result.quickWins.map((win) => [win.subject, win.gain, win.effort, win.totalEvidence, win.next])).toEqual([
-      ["c/hub.ts and 3 files import each other (c/a.ts, c/b.ts, c/d.ts): remove or move one import of each pair", 3, 3, 6, 'graph-it cycles "c/hub.ts"'],
+      // gain: runtime file cycles broken; effort: one file to edit, the hub.
+      ["c/hub.ts and 3 files import each other (c/a.ts, c/b.ts, c/d.ts): remove or move one import of each pair", 3, 1, 6, 'graph-it cycles "c/hub.ts"'],
       ["c/x.ts and c/y.ts import each other: remove or move one import", 1, 1, 2, 'graph-it cycles "c/x.ts"'],
     ]);
     expect(result.totals).toMatchObject({ mutualImports: 4, mutualHotSpot: { file: "c/hub.ts", pairs: 3 } });
@@ -93,18 +94,63 @@ describe("assessArchitecture: quick wins", () => {
     expect(weak).toEqual([expect.objectContaining({ gain: 1, effort: 2, evidence: ["app/a.ts -> core/c.ts", "app/b.ts:9 -> core/c.ts"], units: ["app", "core"] })]);
   });
 
-  it("ranks dead code by unused exports removed, flags unreferenced files and caps the evidence", () => {
+  it("flags unreferenced dead-code files first and caps the evidence", () => {
     const symbols = Array.from({ length: ASSESSMENT_THRESHOLDS.evidence + 2 }, (_, index) => ({ name: `s${index}`, line: index + 1 }));
     const result = assessArchitecture(input(["core:2:1"], [], {
       files: [["core/used.ts", "core/big.ts", 1]],
       deadCode: [{ relativePath: "core/big.ts", unusedSymbols: symbols }, { relativePath: "core/orphan.ts", unusedSymbols: [{ name: "x", line: 3 }] }, { relativePath: "core/clean.ts", unusedSymbols: [] }],
     }));
-    expect(result.quickWins.map((win) => [win.kind, win.effort, win.subject])).toEqual([
-      ["dead-code", 7, "core/big.ts: 7 unused export(s)"],
-      ["dead-code", 1, "core/orphan.ts: 1 unused export(s); no file imports it"],
+    expect(result.quickWins.map((win) => [win.gain, win.effort, win.subject])).toEqual([
+      [1, 0, "core/orphan.ts: 1 unused export(s); no file imports it"],
+      [7, 1, "core/big.ts: 7 unused export(s)"],
     ]);
-    expect(result.quickWins[0]).toMatchObject({ evidence: symbols.slice(0, 5).map((s) => `core/big.ts:${s.line} ${s.name}`), totalEvidence: 7, next: 'graph-it check "core/big.ts"' });
+    expect(result.quickWins[1]).toMatchObject({ evidence: symbols.slice(0, 5).map((s) => `core/big.ts:${s.line} ${s.name}`), totalEvidence: 7, next: 'graph-it check "core/big.ts"' });
     expect(result.totals).toMatchObject({ deadCodeFiles: 2, unusedExports: 8 });
+  });
+
+  // #742: gain = lines removed, effort = files to edit (0 to delete a file nothing imports).
+  const legacy: DeadFile = { relativePath: "lib/legacy.ts", lines: 300, exports: 1, confidence: "low", reasons: ["no-importer"] };
+  const oneLiners = Array.from({ length: 5 }, (_, index) => ({ name: `h${index}`, line: index + 1, endLine: index + 1 }));
+
+  it("ranks a 300-line unreferenced file above a file with 5 unused one-line exports", () => {
+    const result = assessArchitecture(input(["app:1:0", "lib:2:0"], [], {
+      files: [["app/main.ts", "lib/helpers.ts", 1]],
+      deadCode: [{ relativePath: "lib/helpers.ts", unusedSymbols: oneLiners }, { relativePath: "lib/legacy.ts", unusedSymbols: [{ name: "run", line: 1, endLine: 3 }] }],
+      deadFiles: [legacy],
+    }));
+    expect(result.quickWins.map((win) => [win.subject, win.gain, win.effort])).toEqual([
+      ["lib/legacy.ts: 1 unused export(s); no file imports it", 300, 0],
+      ["lib/helpers.ts: 5 unused export(s)", 5, 1],
+    ]);
+  });
+
+  it("counts the lines of the unused declarations of an imported file, one when the end is unknown or before the start", () => {
+    const result = assessArchitecture(input(["app:1:0", "lib:2:0"], [], {
+      files: [["app/main.ts", "lib/big.ts", 1], ["app/main.ts", "lib/helpers.ts", 2]],
+      deadCode: [
+        { relativePath: "lib/helpers.ts", unusedSymbols: oneLiners },
+        { relativePath: "lib/big.ts", unusedSymbols: [{ name: "Big", line: 10, endLine: 49 }, { name: "noEnd", line: 60 }, { name: "bad", line: 70, endLine: 65 }] },
+      ],
+      // An imported file is never deleted whole, even when the scan lists its lines.
+      deadFiles: [{ ...legacy, relativePath: "lib/big.ts" }],
+    }));
+    expect(result.quickWins.map((win) => `${win.subject.split(":")[0]}:${win.gain}/${win.effort}`)).toEqual(["lib/big.ts:42/1", "lib/helpers.ts:5/1"]);
+  });
+
+  it("breaks an effort-0 tie by gain, an unread unreferenced file counting its unused declarations", () => {
+    const result = assessArchitecture(input(["lib:2:0"], [], {
+      deadCode: [{ relativePath: "lib/unread.ts", unusedSymbols: [{ name: "u", line: 1, endLine: 20 }] }, { relativePath: "lib/legacy.ts", unusedSymbols: [{ name: "run", line: 1 }] }],
+      deadFiles: [legacy, { ...legacy, relativePath: "lib/unread.ts", lines: undefined }],
+    }));
+    expect(result.quickWins.map((win) => `${win.subject.split(":")[0]}:${win.gain}/${win.effort}`)).toEqual(["lib/legacy.ts:300/0", "lib/unread.ts:20/0"]);
+  });
+
+  it("keeps the line count of a focused unreferenced file", () => {
+    const result = assessArchitecture(input(["lib:2:0"], [], {
+      deadCode: [{ relativePath: "lib/legacy.ts", unusedSymbols: [{ name: "run", line: 1 }] }, { relativePath: "lib/other.ts", unusedSymbols: [{ name: "o", line: 1 }] }],
+      deadFiles: [legacy],
+    }), new Set(["lib/legacy.ts"]));
+    expect(result.quickWins.map((win) => [win.subject, win.gain, win.effort])).toEqual([["lib/legacy.ts: 1 unused export(s); no file imports it", 300, 0]]);
   });
 
   it("orders quick wins by gain / effort, then gain, then kind", () => {
@@ -113,8 +159,17 @@ describe("assessArchitecture: quick wins", () => {
       files: [["a/x.ts", "b/y.ts"], ["b/y.ts", "a/x.ts"]],
       deadCode: [{ relativePath: "c/z.ts", unusedSymbols: [{ name: "z", line: 1 }] }],
     }));
-    // cycle-break 2/1, then mutual-import and dead-code 1/1 by kind, then weak-dependency 1/2.
-    expect(result.quickWins.map((win) => `${win.kind}:${win.gain}/${win.effort}`)).toEqual(["cycle-break:2/1", "mutual-import:1/1", "dead-code:1/1", "weak-dependency:1/2"]);
+    // dead-code 1/0 (nothing imports c/z.ts), cycle-break 2/1, mutual-import 1/1, then weak-dependency 1/2.
+    expect(result.quickWins.map((win) => `${win.kind}:${win.gain}/${win.effort}`)).toEqual(["dead-code:1/0", "cycle-break:2/1", "mutual-import:1/1", "weak-dependency:1/2"]);
+  });
+
+  it("breaks an equal gain / effort by gain, then by kind", () => {
+    const result = assessArchitecture(input(["a:1:0", "b:1:0", "c:2:0"], ["a>b=1", "b>a=1"], {
+      cycles: ["a", "b"],
+      files: [["a/x.ts", "b/y.ts"], ["b/y.ts", "a/x.ts"], ["c/hub.ts", "c/p.ts"], ["c/p.ts", "c/hub.ts"], ["c/hub.ts", "c/q.ts"], ["c/q.ts", "c/hub.ts"]],
+    }));
+    // mutual-import 2/1 and cycle-break 2/1 tie on ratio and gain: kind order; the single pair 1/1 last.
+    expect(result.quickWins.map((win) => `${win.kind}:${win.gain}/${win.effort}`)).toEqual(["cycle-break:2/1", "mutual-import:2/1", "mutual-import:1/1"]);
   });
 });
 
