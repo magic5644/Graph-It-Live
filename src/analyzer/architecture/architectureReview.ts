@@ -207,7 +207,7 @@ export async function readTreeImports(root: string, ref: string, analyzeFile: An
     for (const dependency of dependencies) {
       const target = relative(dependency.path);
       // Same in-root guard as the graph's own edges.
-      if (dependency.type === "mod" && !target.startsWith("..") && !path.isAbsolute(target)) containment.push(fileEdge(relative(filePath), target, "mod"));
+      if (dependency.type === "mod" && !target.startsWith("..") && !path.isAbsolute(target)) containment.push(fileEdge(relative(filePath), target, { type: "mod" }));
     }
     return dependencies;
   });

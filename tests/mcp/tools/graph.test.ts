@@ -69,6 +69,27 @@ describe("graph tools", () => {
       expect(result.nodes).toHaveLength(2);
       expect(result.edges).toHaveLength(1);
       expect(result.circularDependencies).toEqual([]);
+      expect(result.circularDependencyKinds).toEqual([]);
+    });
+
+    it("tags each cycle runtime or type-only (#745)", async () => {
+      const a = normalizePath(await createTempFile(tempDir, "a.ts", ""));
+      const b = normalizePath(path.join(tempDir, "b.ts"));
+      const c = normalizePath(path.join(tempDir, "c.ts"));
+      setupWorkerState({
+        crawl: vi.fn(async () => ({
+          nodes: [a, b, c],
+          edges: [
+            { source: a, target: b, typeOnly: true }, { source: b, target: a, typeOnly: true },
+            { source: b, target: c }, { source: c, target: b, typeOnly: true },
+          ],
+        })),
+      });
+
+      const result = await executeCrawlDependencyGraph({ entryFile: a });
+
+      const kinds = Object.fromEntries(result.circularDependencies.map((cycle, index) => [cycle.map((file) => path.basename(file)).join(">"), result.circularDependencyKinds[index]]));
+      expect(kinds).toEqual({ "a.ts>b.ts>a.ts": "type-only", "b.ts>c.ts>b.ts": "runtime" });
     });
 
     it("should populate hubScore on each returned node", async () => {
@@ -367,6 +388,7 @@ describe("graph tools", () => {
             type: "import",
             line: 1,
             module: "./target",
+            typeOnly: true,
           },
           { path: path.join(tempDir, "main.ts"), type: "import", line: 2, module: "./ref", via: refFile },
         ]),
@@ -378,7 +400,7 @@ describe("graph tools", () => {
 
       expect(result.referencingFileCount).toBe(2);
       expect(result.referencingFiles).toEqual([
-        { path: refFile, relativePath: "ref.ts", type: "import", line: 1, module: "./target" },
+        { path: refFile, relativePath: "ref.ts", type: "import", line: 1, module: "./target", typeOnly: true },
         { path: path.join(tempDir, "main.ts"), relativePath: "main.ts", type: "import", line: 2, module: "./ref", via: "ref.ts" },
       ]);
     });

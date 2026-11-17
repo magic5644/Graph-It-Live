@@ -30,8 +30,9 @@ const log = getLogger('ReverseIndex');
  * v6: Python `from pkg import sub` and `import a.b as c` depend on the submodule file; `src/` layouts resolve (#695).
  * v7: entries carry `typeOnly` for type-only imports (#740).
  * v8: a target imported statically and through import() is static; `import type` plus import() is dynamic (#741).
+ * v9: Python imports under `if TYPE_CHECKING:` carry `typeOnly` (#745).
  */
-const INDEX_VERSION = 8;
+const INDEX_VERSION = 9;
 
 /**
  * ReverseIndex - Maintains a mapping from target files to their referencing files

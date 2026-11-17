@@ -1357,7 +1357,7 @@ describe('LmToolsService', () => {
 
   describe('analyze_dependencies and parse_imports', () => {
     const deps = [
-      { module: './b', path: B, type: 'import', line: 1 },
+      { module: './b', path: B, type: 'import', line: 1, typeOnly: true },
       { module: 'lodash', path: undefined, type: 'import', line: 2 },
     ];
 
@@ -1370,7 +1370,7 @@ describe('LmToolsService', () => {
         filePath: 'src/a.ts',
         dependencyCount: 2,
         dependencies: [
-          { module: './b', path: 'src/b.ts', relativePath: 'src/b.ts', type: 'import', line: 1 },
+          { module: './b', path: 'src/b.ts', relativePath: 'src/b.ts', type: 'import', line: 1, typeOnly: true },
           { module: 'lodash', relativePath: null, type: 'import', line: 2 },
         ],
       });

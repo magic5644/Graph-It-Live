@@ -26,6 +26,7 @@ describe('cycles command', () => {
         [target, fileB, target],
         [fileB, target],
       ],
+      circularDependencyKinds: ['runtime', 'type-only'],
     });
 
     const runtime = {
@@ -37,9 +38,13 @@ describe('cycles command', () => {
     const parsed = JSON.parse(output) as {
       cycleCount: number;
       confirmedCycles: string[][];
+      cycleKinds: string[];
+      typeOnlyCycleCount: number;
     };
 
     expect(parsed.cycleCount).toBe(2);
+    expect(parsed.cycleKinds).toEqual(['runtime', 'type-only']);
+    expect(parsed.typeOnlyCycleCount).toBe(1);
     expect(parsed.confirmedCycles[0][0]).toBe('src/index.ts');
   });
 });

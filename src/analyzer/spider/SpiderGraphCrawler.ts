@@ -1,4 +1,4 @@
-import type { Dependency, DependencyType, SpiderConfig } from '../types';
+import type { Dependency, SpiderConfig } from '../types';
 import { normalizePath } from '../types';
 import { isInIgnoredDirectory } from '../utils/PathPredicates';
 import { SpiderDependencyAnalyzer } from './SpiderDependencyAnalyzer';
@@ -8,8 +8,9 @@ import type { GraphEdge } from '../../shared/graph-types';
 const log = getLogger('SpiderGraphCrawler');
 
 /** A file edge; a Rust `mod x;` one is marked containment, so cycle detection skips it (#595). */
-export function fileEdge(source: string, target: string, type: DependencyType): GraphEdge {
-  return type === 'mod' ? { source, target, relationType: 'containment' } : { source, target };
+export function fileEdge(source: string, target: string, { type, typeOnly }: Pick<Dependency, 'type' | 'typeOnly'>): GraphEdge {
+  if (type === 'mod') return { source, target, relationType: 'containment' };
+  return typeOnly ? { source, target, typeOnly } : { source, target };
 }
 
 /**
@@ -68,7 +69,7 @@ export class SpiderGraphCrawler {
           const edgeId = `${normalizedFile}->${dep.path}`;
           if (!edgeIds.has(edgeId)) {
             edgeIds.add(edgeId);
-            edges.push(fileEdge(normalizedFile, dep.path, dep.type));
+            edges.push(fileEdge(normalizedFile, dep.path, dep));
             log.debug(`Added edge: ${normalizedFile} -> ${dep.path}`);
           }
 
@@ -153,8 +154,8 @@ export class SpiderGraphCrawler {
       const edgeId = `${normalizedFile}->${dep.path}`;
       if (!edgeIds.has(edgeId)) {
         edgeIds.add(edgeId);
-        newEdges.push(fileEdge(normalizedFile, dep.path, dep.type));
-        batchEdges.push(fileEdge(normalizedFile, dep.path, dep.type));
+        newEdges.push(fileEdge(normalizedFile, dep.path, dep));
+        batchEdges.push(fileEdge(normalizedFile, dep.path, dep));
       }
 
       if (!visited.has(dep.path) && !normalizedExisting.has(dep.path)) {

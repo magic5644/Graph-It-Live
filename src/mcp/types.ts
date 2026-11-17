@@ -11,6 +11,7 @@
 import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import { COMMUNITY_MODES } from "../shared/graph-types";
+import type { CycleKind } from "../shared/cycleUtils";
 import { DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel } from "../analyzer/diagram/diagramStyle";
 import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
@@ -1166,6 +1167,8 @@ export interface DependencyInfo {
   module: string;
   /** File extension of the dependency */
   extension: string;
+  /** Every import of the target is type-only (`import type`, Python `if TYPE_CHECKING:`): erased at runtime (#745) */
+  typeOnly?: true;
 }
 
 /**
@@ -1186,6 +1189,8 @@ export interface CrawlDependencyGraphResult {
   edges: EdgeInfo[];
   /** Circular dependencies detected (if any) */
   circularDependencies: string[][];
+  /** Kind of each circular dependency, same order: `type-only` when every import closing it is type-only (#745) */
+  circularDependencyKinds: CycleKind[];
   /** Offset of the next page when nodes remain; pass it back as offset */
   nextOffset?: number;
   /** Set when a tokenBudget was applied: true if nodes or edges were cut */
@@ -1255,6 +1260,8 @@ export interface ReferencingFileInfo {
   line: number;
   /** Original module specifier */
   module: string;
+  /** Every import of the target is type-only (`import type`, Python `if TYPE_CHECKING:`): erased at runtime (#745) */
+  typeOnly?: true;
   /** Workspace-relative re-export barrel this file imports the target through; absent for a direct import */
   via?: string;
 }
@@ -1848,6 +1855,7 @@ export function enrichDependency(
     line: dep.line,
     module: dep.module,
     extension,
+    ...(dep.typeOnly ? { typeOnly: true } : {}),
   };
 }
 

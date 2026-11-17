@@ -671,7 +671,7 @@
         "displayName": "Graph-It-Live: Find Files Referencing",
         "icon": "$(references)",
         "userDescription": "Find all files that import or depend on a specific file",
-        "modelDescription": "Lists every file that imports or references a given file (reverse dependency lookup).\n\nWHEN: impact analysis, \"who uses this file\", refactoring-safety checks before changing or deleting a file.\nWHY: served from a prebuilt reverse index, so it covers the whole workspace rather than the files already in context.\nRETURNS: workspace-relative path, import type, line and module specifier of each referencing file.\nBARRELS: files that import the target's exports through re-export barrels (export { x } from, export *, chained) are listed after the direct importers, with via = the barrel they import.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
+        "modelDescription": "Lists every file that imports or references a given file (reverse dependency lookup).\n\nWHEN: impact analysis, \"who uses this file\", refactoring-safety checks before changing or deleting a file.\nWHY: served from a prebuilt reverse index, so it covers the whole workspace rather than the files already in context.\nRETURNS: workspace-relative path, import type, line and module specifier of each referencing file, typeOnly: true when its imports of the target are all type-only.\nBARRELS: files that import the target's exports through re-export barrels (export { x } from, export *, chained) are listed after the direct importers, with via = the barrel they import.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -707,7 +707,7 @@
         "displayName": "Graph-It-Live: Analyze Dependencies",
         "icon": "$(package)",
         "userDescription": "List all dependencies and imports of a file, with resolved paths and metadata",
-        "modelDescription": "Lists the import/export statements of one file, with each specifier resolved to a path on disk.\n\nWHEN: \"what does this file import\", \"what are this file's dependencies\".\nWHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.\nRETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic, side-effect, mod = Rust `mod x;` declaration), line number. Unresolved and external imports are left out.\nSUPPORTS: TypeScript, JavaScript, Vue 3 (<script src> and <template src> are dependencies), Svelte, GraphQL.",
+        "modelDescription": "Lists the import/export statements of one file, with each specifier resolved to a path on disk.\n\nWHEN: \"what does this file import\", \"what are this file's dependencies\".\nWHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.\nRETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic, side-effect, mod = Rust `mod x;` declaration), line number, typeOnly: true when every import of the target is type-only (TypeScript import type, Python if TYPE_CHECKING:). Unresolved and external imports are left out.\nSUPPORTS: TypeScript, JavaScript, Vue 3 (<script src> and <template src> are dependencies), Svelte, GraphQL.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -743,7 +743,7 @@
         "displayName": "Graph-It-Live: Crawl Dependency Graph",
         "icon": "$(type-hierarchy)",
         "userDescription": "Traverse the full transitive dependency graph from an entry file",
-        "modelDescription": "Builds the transitive file dependency graph reachable from one entry file.\n\nWHEN: project architecture, full dependency tree from an entry point.\nWHY: crawls real import edges across the workspace rather than inferring structure from file names.\nRETURNS: nodes (workspace-relative path) and edges (import relations, source and target). maxDepth defaults to the configured graph-it-live.maxDepth, else 3.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
+        "modelDescription": "Builds the transitive file dependency graph reachable from one entry file.\n\nWHEN: project architecture, full dependency tree from an entry point.\nWHY: crawls real import edges across the workspace rather than inferring structure from file names.\nRETURNS: nodes (workspace-relative path) and edges (import relations, source and target, typeOnly: true for a type-only import). maxDepth defaults to the configured graph-it-live.maxDepth, else 3.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1024,7 +1024,7 @@
         "displayName": "Graph-It-Live: Generate Code Map",
         "icon": "$(file-code)",
         "userDescription": "Generate an AI-friendly code map summarizing a file's structure, symbols, and call flow",
-        "modelDescription": "Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.\n\nWHEN: getting oriented in an unfamiliar file, or gathering the full context of a file before refactoring it.\nWHY: one call in place of analyze_dependencies, get_symbol_graph and find_referencing_files together, plus the calls between the file's own symbols.\nRETURNS: path, language, line count, exported and internal symbols, dependencies, dependents, intra-file call flow, cycle detection.\nSUPPORTS: TypeScript, JavaScript, Python, Rust, Vue 3, Svelte.",
+        "modelDescription": "Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.\n\nWHEN: getting oriented in an unfamiliar file, or gathering the full context of a file before refactoring it.\nWHY: one call in place of analyze_dependencies, get_symbol_graph and find_referencing_files together, plus the calls between the file's own symbols.\nRETURNS: path, language, line count, exported and internal symbols, dependencies and dependents (typeOnly: true for a type-only import), intra-file call flow, cycle detection.\nSUPPORTS: TypeScript, JavaScript, Python, Rust, Vue 3, Svelte.",
         "inputSchema": {
           "type": "object",
           "properties": {

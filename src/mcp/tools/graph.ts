@@ -1,5 +1,6 @@
 import { mapWithConcurrency } from "../../shared/concurrency";
 import { getLogger } from "../../shared/logger";
+import { cycleKinds } from "../../shared/cycleUtils";
 import { normalizePath } from "../../shared/path";
 import { computeNodeMetadata } from "../../analyzer/NodeMetadataBuilder";
 import type { GraphData } from "../../shared/graph-types";
@@ -73,6 +74,7 @@ export async function executeCrawlDependencyGraph(
     // Build initial counts and detect cycles
     const { dependencyCount, dependentCount } = buildEdgeCounts(graph.edges);
     const circularDependencies = detectCircularDependencies(graph.edges);
+    const circularDependencyKinds = cycleKinds(circularDependencies, graph.edges);
 
     // Compute hubScore + communityId — same logic as CLI and extension
     const parentCounts: Record<string, number> = {};
@@ -117,6 +119,7 @@ export async function executeCrawlDependencyGraph(
       nodes: nodes.slice(start, end),
       edges: edges.filter((_, index) => owners[index] >= start && owners[index] < end),
       circularDependencies,
+      circularDependencyKinds,
       ...(end < nodes.length ? { nextOffset: end } : {}),
     };
   };
@@ -165,6 +168,7 @@ export async function executeFindReferencingFiles(
       type: ref.type,
       line: ref.line,
       module: ref.module,
+      ...(ref.typeOnly ? { typeOnly: true } : {}),
       ...(ref.via ? { via: getRelativePath(ref.via, config.rootDir) } : {}),
     })),
   };
