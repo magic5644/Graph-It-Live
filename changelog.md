@@ -1,5 +1,96 @@
 # Changelog
 
+## v1.25.3
+
+Patch release on the relevance of the `graph-it init` report, after an audit of a real legacy codebase: cycles are told apart by how they run, quick wins get real gain and effort, deployment manifests and generated code stop showing as dead code, and the report, its diagrams and its page now agree.
+
+- A cycle made only of type imports (`import type`, Python `if TYPE_CHECKING:`) is tagged **type-only**, and one that closes only through `import()` is **lazy**. Neither is ranked as a runtime cycle (#740, #741, #745).
+- Each quick-win kind has its own gain and effort (#742).
+- Serverless and SAM handlers are entry points, and graphql-codegen outputs are generated files (#743).
+- The summary counts the medium unused exports by reason (#744).
+- The report, the SVG diagrams and `index.html` share one legend; a matrix reading guide, a matrix panel on the page and a `next` command on each finding are new (#745).
+
+Read *Breaking / Behavior changes* first if a script reads the JSON of `graph-it init`, or if you turned `graph-it-live.ignoreTypeImports` on.
+
+[![index.html written by graph-it init --output: the Findings panel lists the dead file and the cycles to cut, each with its next command; the graph groups the files by unit, a runtime cycle as solid purple edges, a type-only cycle dotted, a lazy import() cycle dashed, and the shared legend under the groups](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/init-cycle-kinds.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/init-cycle-kinds.png)
+
+*`graph-it init --output report`, then open `report/index.html`.*
+
+### Breaking / Behavior changes
+
+- **`graph-it-live.ignoreTypeImports` is now a view filter** (#745, PR #751). Before, it left type-only imports out of the index and needed a restart. Now:
+  - the index always keeps them, flagged type-only;
+  - the setting only hides, at once, the file graph edges whose every import is type-only;
+  - impact analysis, dependents and `find_referencing_files` count type-only importers even with the setting on.
+- **`graph-it init` JSON** (#740, #741, #742, #745):
+  - `totals.unitCycles` counts runtime unit cycles only. The type-only and lazy ones are counted apart in `typeOnlyUnitCycles`, `typeOnlyMutualImports`, `lazyUnitCycles` and `lazyMutualImports`, and listed in the new `typeOnlyCycles` and `lazyCycles` sections. A type-only or lazy cycle is never the top action and never the hot spot.
+  - The `gain` and `effort` values change:
+    - `dead-code`: gain = lines removed (the whole file when nothing imports it), effort = files to edit (0 to delete an unreferenced file, else 1).
+    - `mutual-import`: gain = runtime file cycles broken, effort = 1 (the hub file).
+
+    So the order of *Cycles to cut* and *Other leads* can change.
+- **The index is rebuilt once** (reverse index v6 to v9): the first command, MCP server or extension start after the update re-indexes the workspace. v7 records TypeScript type-only imports, v8 tells static imports from `import()`, v9 records Python `if TYPE_CHECKING:` imports.
+
+### Changed
+
+- **Cycles tagged runtime or type-only everywhere** (#740, #745, PRs #746 and #751). A cycle is type-only when every import in it is erased at runtime: `import type`, specifiers that are all `type`, `export type`, and Python imports under `if TYPE_CHECKING:`. `export *` counts as runtime.
+  - `graph-it cycles` adds `cycleKinds` (one entry per cycle) and `typeOnlyCycleCount`.
+  - MCP `crawl_dependency_graph` and `graph-it path` add `circularDependencyKinds`.
+  - `analyze_dependencies`, `find_referencing_files`, `generate_codemap` and the Copilot tools mark type-only links with `typeOnly: true`.
+
+  ```bash
+  graph-it cycles src/index.ts --format json | jq '{cycleCount, typeOnlyCycleCount, cycleKinds}'
+  ```
+
+- **Lazy cycles** (#741, PR #747): a cycle that disappears without its dynamic `import()` calls (a router loading its pages on demand that import it back) is reported apart as lazy, with no init-order risk. A file imported both statically and through `import()` counts as static. `check-architecture` rules and impact analysis still see dynamic imports. Lazy cycles are told apart in `init`, `graph-it architecture`, the diagrams and the Architecture view; `graph-it cycles` and `crawl_dependency_graph` tag cycles `runtime` or `type-only` only.
+- **Type-only cycles in the views** (#745, PR #751):
+  - File graph: a type-only cycle edge is dotted, with a grey `type-only` label and without the cycle badge.
+  - Architecture view: type-only unit cycles are dotted and lazy ones dashed; the edge tooltip names the kind. A dependency edge whose every file pair is type-only is dotted too.
+  - `check-architecture` and `review-pr` reports mark a type-only unit cycle (`type-only cycle`).
+
+  [![File graph from main.ts: cart.ts and pricing.ts import each other at runtime, a red dashed edge labelled cycle with red cycle badges; order.ts and customer.ts import only types from each other, a grey dotted edge labelled type-only without a badge](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/file-graph-type-only-cycle.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/file-graph-type-only-cycle.png)
+
+- **`noCycles` can treat type-only cycles apart** (#745, PR #751). An object form reports them as warnings (`"typeOnly": "warning"`) or skips them (`"ignore"`). Each `noCycles` violation and each `review-pr` unit cycle carries `cycle: "runtime"` or `"type-only"`.
+
+  ```json
+  { "name": "no-unit-cycles", "noCycles": { "between": "units", "typeOnly": "warning" } }
+  ```
+
+- **Type-only pairs counted apart** (#745): `graph-it architecture` unit edges and matrix cells, and diagram-spec edges, add `typeOnlyEdgeCount`. Unit and diagram cycle edges add `cycleKind` (`runtime`, `type-only` or `lazy`).
+- **One legend for the report, the diagrams and the page** (#745, PR #751). `units.svg`, the folder SVGs, `matrix.svg` and `index.html` share the same colours and dash patterns:
+  - dependency and upward edges;
+  - runtime, type-only and lazy cycles;
+  - the cells to cut;
+  - broken and accepted rules;
+  - dead files.
+
+  Each draws only the styles it uses, and `matrix.svg` marks the cells to cut.
+- **Matrix reading guide, `next` commands and a matrix panel** (#745, PR #751). `report.md` gains *How to read the matrix*: reading lines and a table of patterns with their action. The JSON adds `matrixGuide`. Each matrix finding and quick win gives a `next` command to run. `index.html` adds a *Dependency matrix* panel under Findings, with the guide; clicking a cell lists its file pairs.
+
+  [![The Dependency matrix panel of index.html: seven units in layer order, a runtime cycle outlined solid, a type-only cycle dotted and a lazy cycle dashed, the cell to cut in each framed, and under it How to read the matrix with one line per pattern](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/init-matrix-panel.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/init-matrix-panel.png)
+
+### Fixed
+
+- **Gain and effort were equal for the `mutual-import` and `dead-code` quick wins** (#742, PR #748). Each kind now has its own formula, stated in the report's glossary and in `docs/CLI.md`.
+- **Serverless and SAM handlers were reported dead** (#743, PR #749):
+  - `serverless.yml` `functions.<name>.handler` and SAM `template.yaml` `AWS::Serverless::Function` `Handler` (under `CodeUri`, with the `Globals.Function` fallback) are entry points, for Node and Python handlers (`declared:<manifest>#<field>`).
+  - Files a graphql-codegen config (`codegen.yml`, `.yaml`, `.json`, `.ts`) generates are left out as generated (`generated:<config>#generates[...]`). `generatedFiles` counts them in `scan_dead_code` and the CLI summary.
+  - A handler path outside the workspace is rejected, and a malformed manifest gives a warning.
+
+  ```yaml
+  # serverless.yml: src/orders.ts export `create` is an entry point, not dead code
+  functions:
+    createOrder:
+      handler: src/orders.create
+  ```
+
+- **The summary gave one medium count without its reasons** (#744, PR #750): the *Unused exports* line counts the medium ones by reason code, with the command listing each level. `totals.unusedExportsMediumByReason` holds the counts.
+- **A change event for a deleted file threw** (PR #750): a change or create event queued before the file was deleted raised `Dependency index could not analyze changed file`. It is now skipped, since the delete event updates the index.
+
+### Security
+
+- `picomatch` GHSA-fc5q-39xc-vjpf (ReDoS through repeated extglobs) has no patched release yet: every version up to the latest, 4.0.7, is affected. It reaches the runtime through `ts-morph` (`@ts-morph/common` → `tinyglobby`), with glob patterns from the analyzed repository's `tsconfig.json`. No fixed release exists yet; it will be updated as soon as one ships.
+
 ## v1.25.2
 
 Patch release for the npm CLI.
