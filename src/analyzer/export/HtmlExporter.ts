@@ -52,6 +52,17 @@ export interface HtmlOverlay {
   findings: HtmlFindingSection[];
   /** The page opens expanded on these files, with the units they depend on and the units using them. */
   focus?: { label: string; files: string[] };
+  /** matrix.svg (renderDiagramSvg, escaped, no script) and how to read it: the Dependency matrix panel (#745). */
+  matrix?: { svg: string; guide: { reading: string[]; patterns: { pattern: string; meaning: string; action: string }[] } };
+}
+
+/** The Dependency matrix panel: the SVG as matrix.svg draws it, then the reading guide. */
+function matrixPanel(matrix: NonNullable<HtmlOverlay['matrix']>): string {
+  const reading = matrix.guide.reading.map(line => `<li>${htmlEscape(line)}</li>`).join('');
+  const patterns = matrix.guide.patterns.map(({ pattern, meaning, action }) =>
+    `<li><strong>${htmlEscape(pattern)}</strong>: ${htmlEscape(meaning)} <em>${htmlEscape(action)}</em></li>`).join('');
+  return '\n  <details id="matrix-view"><summary>Dependency matrix</summary><div class="matrix-body">' +
+    `<p>Click a cell to list its file pairs.</p>${matrix.svg}<h4>How to read the matrix</h4><ul>${reading}</ul><ul>${patterns}</ul></div></details>`;
 }
 
 /** The page without its output file: what renderHtmlPage needs. */
@@ -219,7 +230,11 @@ const OVERLAY_CSS = `
     .finding[role="button"]:hover, .finding[role="button"]:focus-visible { background: #37373d; }
     .finding[role="button"]:focus-visible { outline: 1px solid #1177bb; }
     .finding ul { margin: 2px 0 0; padding-left: 18px; font-family: monospace; color: #aaa; }
-    .finding code { color: #e6edf3; }`;
+    .finding code { color: #e6edf3; }
+    #matrix-view summary { cursor: pointer; color: #ddd; margin: 6px 0; }
+    #matrix-view[open] .matrix-body { position: fixed; top: 44px; left: 384px; right: 8px; max-height: calc(100vh - 60px); overflow: auto; background: #252526; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; z-index: 999; }
+    #matrix-view .matrix-cell { cursor: pointer; }
+    #matrix-view li { margin-bottom: 4px; color: #bbb; }`;
 
 /** Overlay data and the focus expansion, before the first render. */
 function overlayHead(overlay: HtmlOverlay): string {
@@ -340,6 +355,39 @@ const OVERLAY_TAIL = String.raw`
       }
       return entry;
     }
+    // A matrix cell: the file pairs from its row's unit to its column's, with their kind; their files centred.
+    const unitOfFile = id => fileById.has(id) ? groupById.get(fileById.get(id).group).label : undefined;
+    function showCell(from, to) {
+      const pairs = edgesData.filter(([source, target]) => unitOfFile(source) === from && unitOfFile(target) === to);
+      const describe = ([source, target]) => {
+        const kind = pairKind.get(source + '\0' + target);
+        return source + ' → ' + target + (kind ? ' (' + STYLES[kind].text + ')' : '');
+      };
+      reveal([from, to], pairs.flat(), () => showPanel([
+        el('h3', (from === to ? from + ', inside' : from + ' → ' + to) + ': ' + pairs.length + ' file pair(s)'),
+        list(pairs.map(describe)),
+      ]));
+    }
+    const matrixView = document.getElementById('matrix-view');
+    if (matrixView) {
+      const open = cell => {
+        matrixView.open = false;
+        showCell(cell.dataset.from, cell.dataset.to);
+      };
+      for (const cell of matrixView.querySelectorAll('.matrix-cell')) {
+        cell.setAttribute('tabindex', '0');
+        cell.setAttribute('role', 'button');
+        cell.addEventListener('keydown', event => {
+          if (event.key !== 'Enter' && event.key !== ' ') return;
+          event.preventDefault();
+          open(cell);
+        });
+      }
+      matrixView.addEventListener('click', event => {
+        const cell = event.target.closest('.matrix-cell');
+        if (cell) open(cell);
+      });
+    }
     const findingsList = document.getElementById('findings-list');
     for (const section of overlay.findings) {
       findingsList.append(el('h4', section.title + ' (' + section.total + ')'), ...(section.intro ? [el('p', section.intro)] : []),
@@ -421,7 +469,7 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
   </div>
   <div id="progress">Laying out graph…</div>
   <div id="graph" role="img" aria-label="${graphLabel}"></div>
-  <div id="panel" role="dialog" aria-live="polite"></div>${overlay ? '\n  <details id="findings" open><summary>Findings</summary><div id="findings-list"></div></details>' : ''}
+  <div id="panel" role="dialog" aria-live="polite"></div>${overlay ? '\n  <details id="findings" open><summary>Findings</summary>' + (overlay.matrix ? matrixPanel(overlay.matrix) : '') + '<div id="findings-list"></div></details>' : ''}
   <script>${safeVisSource}</script>
   <script>
     const groupsData = ${jsonForScript(model.groups)};

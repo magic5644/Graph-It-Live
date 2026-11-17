@@ -216,7 +216,7 @@ interface Focus {
  * The units, matrix and hot-spot diagrams as SVG files in `outputDir`. With a focus, the units and
  * matrix diagrams draw its units and their direct neighbours only, and its folder diagram comes first.
  */
-async function writeDiagrams(source: UnitSource, workspaceRoot: string, outputDir: string, check: ArchitectureCheck, assessment: ArchitectureAssessment, focus?: Focus): Promise<InitDiagram[]> {
+async function writeDiagrams(source: UnitSource, workspaceRoot: string, outputDir: string, check: ArchitectureCheck, assessment: ArchitectureAssessment, focus?: Focus): Promise<{ diagrams: InitDiagram[]; matrixSvg: string }> {
   // Every violation is in the proposed baseline: drawn as accepted.
   const violations = check.violations.map((violation) => ({ ...violation, new: false }));
   // The units level draws the units of source.units only, as with the view's role filter.
@@ -229,11 +229,13 @@ async function writeDiagrams(source: UnitSource, workspaceRoot: string, outputDi
     ...folders.map((unit, index) => ({ file: path.posix.join(outputDir, `folder-${index + 1}-${elementName(unit)}.svg`), view: "folder" as const, unit })),
   ];
   // At most 2 + MAX_FOLDER_DIAGRAMS independent files.
-  await Promise.all(diagrams.map(async (diagram) => {
+  const markups = await Promise.all(diagrams.map(async (diagram) => {
     const { markup } = await renderSourceDiagram(diagram.view === "folder" ? source : level, workspaceRoot, { view: diagram.view, folder: diagram.unit, draw: DRAW[diagram.view], format: "svg", theme: "light", violations });
     await writeWorkspaceFile(workspaceRoot, diagram.file, markup);
+    return markup;
   }));
-  return diagrams;
+  // The page shows matrix.svg itself, so the two never differ.
+  return { diagrams, matrixSvg: markups[diagrams.findIndex((diagram) => diagram.view === "matrix")] };
 }
 
 /** Lines of a workspace file; undefined when it cannot be read (too large, binary, gone). */
@@ -312,8 +314,9 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     acceptedViolations: baseline.length,
   }, focus?.files));
   const scope = focus === undefined ? undefined : { ...focus, units: focusUnits({ graph, unitOf: assignment.unitOf }, focus.files).withNeighbours };
-  const diagrams = outputDir === undefined ? [] : await runtime.progress.phase("Laying out diagrams", () =>
+  const drawn = outputDir === undefined ? undefined : await runtime.progress.phase("Laying out diagrams", () =>
     writeDiagrams({ graph, units, assignment }, workspaceRoot, outputDir, check, assessment, scope));
+  const diagrams = drawn?.diagrams ?? [];
 
   const result: InitResult = {
     ...(focus === undefined ? {} : { focus: focus.key }),
@@ -331,7 +334,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   if (outputDir !== undefined) {
     const page = path.posix.join(outputDir, "index.html");
     await runtime.progress.phase("Writing the HTML page", () =>
-      writeWorkspaceFile(workspaceRoot, page, renderHtmlPage(initPage({ graph, units, assignment }, workspaceRoot, check.violations, result, scope))));
+      writeWorkspaceFile(workspaceRoot, page, renderHtmlPage(initPage({ graph, units, assignment }, workspaceRoot, check.violations, result, scope, drawn?.matrixSvg))));
     result.page = page;
     const reportFile = path.posix.join(outputDir, "report.md");
     result.reportFiles.push(...diagrams.map((diagram) => diagram.file), page, reportFile);

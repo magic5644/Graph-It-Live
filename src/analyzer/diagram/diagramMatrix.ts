@@ -32,6 +32,9 @@ const MIN_CELL = 28;
 export type CellKind = "diagonal" | "down" | "upward" | "error" | "accepted";
 
 export interface PlacedCell extends Box {
+  /** Row and column keys: the page lists the file pairs of a clicked cell. */
+  from: string;
+  to: string;
   count: number;
   kind: CellKind;
   /** One of the cells whose imports cut a cycle at the least cost (cycleCuts). */
@@ -111,6 +114,8 @@ export function layoutMatrix(input: DiagramInput, options: DrawOptions = {}): Ma
       y: gridY + matrixCell.row * cell,
       width: cell,
       height: cell,
+      from,
+      to,
       count: matrixCell.fileEdgeCount,
       kind: cellKind(matrixCell.row, matrixCell.column, edge),
       cut,

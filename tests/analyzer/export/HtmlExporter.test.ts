@@ -347,6 +347,7 @@ describe('exportHtml', () => {
         replaceChildren: (...children: unknown[]) => { node.children = children; },
         setAttribute: (name: string, value: string) => { (node.attributes as Record<string, string>)[name] = value; },
         addEventListener: (event: string, listener: () => void) => { listeners[event] = listener; },
+        querySelectorAll: () => [],
       };
       return node;
     };
@@ -361,7 +362,8 @@ describe('exportHtml', () => {
       [node.textContent, ...(node.children as Record<string, unknown>[]).map(text)].join(' ');
     const stabilized = () => pending.splice(0).forEach(callback => callback());
     const findings = () => (document.getElementById('findings-list')!.children as Record<string, unknown>[]);
-    return { ...page, handlers, calls, stabilized, findings, text, panelText: () => text(document.getElementById('panel')!) };
+    const matrixListeners = () => (document.getElementById('matrix-view')!.listeners as Record<string, (event: unknown) => void>);
+    return { ...page, handlers, calls, stabilized, findings, text, matrixListeners, panelText: () => text(document.getElementById('panel')!) };
   }
 
   it('creates output directory and writes to outputPath', () => {
@@ -597,6 +599,28 @@ describe('exportHtml', () => {
       expect(legend).toContain('stroke-dasharray="2 3"/></svg><span>type-only cycle</span>');
       expect(legend).not.toContain('runtime cycle');
       expect(legend).not.toContain('dead file');
+    });
+
+    it('shows matrix.svg and its reading guide, and lists the file pairs of a clicked cell (#745)', () => {
+      const matrix = {
+        svg: '<svg><g class="matrix-cell" data-from="ui" data-to="core"><rect/></g></svg>',
+        guide: { reading: ['Each row imports the columns <where> it has a number.'], patterns: [{ pattern: 'wide-row', meaning: 'imports many', action: 'Put a facade.' }] },
+      };
+      const html = renderHtmlPage({ ...baseConfig, overlay: overlay({ matrix }) });
+      expect(html).toContain('<details id="matrix-view"><summary>Dependency matrix</summary>');
+      expect(html).toContain(matrix.svg);
+      expect(html).toContain('<li>Each row imports the columns &lt;where&gt; it has a number.</li>');
+      expect(html).toContain('<li><strong>wide-row</strong>: imports many <em>Put a facade.</em></li>');
+      const view = runPage(html);
+      const listeners = (view as unknown as { matrixListeners: () => Record<string, (event: unknown) => void> }).matrixListeners();
+      listeners.click({ target: { closest: () => ({ dataset: { from: 'ui', to: 'core' } }) } });
+      view.stabilized();
+      const panel = view.panelText().replaceAll(/\s+/g, ' ');
+      expect(panel).toContain('ui → core: 2 file pair(s)');
+      expect(panel).toContain('/ws/src/ui/c.ts → /ws/src/core/a.ts (breaks a rule)');
+      // A click outside a cell does nothing.
+      expect(() => listeners.click({ target: { closest: () => null } })).not.toThrow();
+      expect(renderHtmlPage({ ...baseConfig, overlay: overlay() })).not.toContain('<details id="matrix-view"');
     });
 
     it('marks dead files and lists the overlay in the legend', () => {

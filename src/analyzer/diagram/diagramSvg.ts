@@ -97,7 +97,7 @@ function matrixMarkup(layout: MatrixLayout): string[] {
     ...layout.rows.map((row) => text(row.x, middle({ y: row.y, height: cellSize }), "label", row.text)),
     `<rect class="frame" x="${layout.grid.x}" y="${layout.grid.y}" width="${layout.grid.width}" height="${layout.grid.height}"/>`,
     ...layout.cells.map((cell) =>
-      `<g><title>${escapeXml(cell.title)}</title>` +
+      `<g class="matrix-cell" data-from="${escapeXml(cell.from)}" data-to="${escapeXml(cell.to)}"><title>${escapeXml(cell.title)}</title>` +
       `<rect class="cell ${cell.kind === "diagonal" ? "diagonal" : styleClass(cell.kind)}" x="${cell.x + 1}" y="${cell.y + 1}" width="${cell.width - 2}" height="${cell.height - 2}"/>` +
       (cell.cut ? `<rect class="cut ${styleClass("cut")}" x="${cell.x + 2}" y="${cell.y + 2}" width="${cell.width - 4}" height="${cell.height - 4}"/>` : "") +
       `${text(cell.x + 4, middle(cell), "meta", String(cell.count))}</g>`),
