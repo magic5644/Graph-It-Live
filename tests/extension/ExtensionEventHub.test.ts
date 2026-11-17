@@ -143,16 +143,29 @@ describe("ExtensionEventHub", () => {
     expect(options.updateGraph).not.toHaveBeenCalled();
   });
 
-  it("throws when the changed file cannot be analysed, and ignores unsupported files", async () => {
+  it("throws when an existing changed file cannot be analysed, and ignores unsupported files", async () => {
     const options = createOptions();
     vi.mocked(options.spider!.reanalyzeFile).mockResolvedValueOnce(null);
     const hub = new ExtensionEventHub(options);
 
-    await expect(hub.handleFileChange("/workspace/src/broken.ts", "change" as EventType)).rejects.toThrow(/broken\.ts/);
+    // This test file exists on disk: its analysis failure is real.
+    await expect(hub.handleFileChange(__filename, "change" as EventType)).rejects.toThrow(/ExtensionEventHub\.test\.ts/);
     await hub.handleFileChange("/workspace/README.md", "change" as EventType);
     await hub.handleFileSaved("/workspace/README.md");
 
     expect(options.spider?.reanalyzeFile).toHaveBeenCalledTimes(1);
+    expect(options.updateGraph).not.toHaveBeenCalled();
+  });
+
+  // A change or create event queued before the file was deleted: its delete event follows.
+  it.each(["change", "create"])("skips a %s event for a file deleted before it ran", async (eventType) => {
+    const options = createOptions();
+    vi.mocked(options.spider!.reanalyzeFile).mockResolvedValueOnce(null);
+    const hub = new ExtensionEventHub(options);
+
+    await expect(hub.handleFileChange("/workspace/src/gone.ts", eventType as EventType)).resolves.toBeUndefined();
+
+    expect(options.spider?.reanalyzeUnresolvedImporters).not.toHaveBeenCalled();
     expect(options.updateGraph).not.toHaveBeenCalled();
   });
 
