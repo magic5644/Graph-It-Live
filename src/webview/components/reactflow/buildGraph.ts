@@ -1,5 +1,5 @@
 import type { Edge, Node } from "reactflow";
-import { detectCycleEdges, typeOnlyCycleEdges } from "../../../shared/cycleUtils";
+import { cycleEdgesByKind } from "../../../shared/cycleUtils";
 import { getLogger } from "../../../shared/logger";
 import type {
   GraphData,
@@ -434,8 +434,7 @@ export function buildReactFlowGraph(params: {
     ...rest, source: normalizePath(source), target: normalizePath(target),
   }));
   // Runtime cycles keep the error style and the node badge; a cycle whose every import is type-only is drawn apart (#745).
-  const typeOnlyCycles = typeOnlyCycleEdges(normalizedEdges);
-  const cycleEdges = new Set([...detectCycleEdges(normalizedEdges)].filter((id) => !typeOnlyCycles.has(id)));
+  const { runtime: cycleEdges, typeOnly: typeOnlyCycles } = cycleEdgesByKind(normalizedEdges);
   const cycles = new Set<string>();
   for (const { source, target } of normalizedEdges) {
     if (cycleEdges.has(`${source}->${target}`)) {

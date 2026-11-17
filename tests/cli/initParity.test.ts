@@ -42,7 +42,7 @@ function pageValue<T>(page: string, name: string): T {
 /** Unit keys of the edges drawn in each cycle style of an SVG (edge titles start "from → to:"). */
 function svgCycleUnits(svg: string): Record<Kind, Set<string>> {
   const units: Record<Kind, Set<string>> = { cycle: new Set(), "type-only": new Set(), lazy: new Set() };
-  for (const [, kind, from, to] of svg.matchAll(/class="edge s-(cycle|type-only|lazy)"[^>]*><title>([^<]+?) → ([^<]+?): /g)) {
+  for (const [, kind, from, to] of svg.matchAll(/class="edge s-(cycle|type-only|lazy)"[^>]*><title>([^<→]+) → ([^<:]+): /g)) {
     units[kind as Kind].add(from).add(to);
   }
   return units;

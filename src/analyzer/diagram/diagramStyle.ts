@@ -123,9 +123,9 @@ export const legendDash = (kind: LegendKind): string | undefined => (LEGEND[kind
 export function edgeStyle(
   kind: "down" | "upward" | "cycle",
   cycleKind: "runtime" | "type-only" | "lazy" | undefined,
-  rules: { broken: boolean; accepted?: boolean } = { broken: false },
+  rules?: { broken: boolean; accepted?: boolean },
 ): LegendKind {
-  if (rules.broken) return rules.accepted ? "accepted" : "error";
+  if (rules?.broken) return rules.accepted ? "accepted" : "error";
   if (kind !== "cycle") return kind;
   return cycleKind === "type-only" || cycleKind === "lazy" ? cycleKind : "cycle";
 }
