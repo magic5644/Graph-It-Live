@@ -10,7 +10,7 @@
  */
 
 import * as path from "node:path";
-import { ASSESSMENT_THRESHOLDS, type ArchitectureAssessment, type DeadFileGroup, type MatrixFinding, type GroupedCycles, type QuickWin } from "../../analyzer/architecture/architectureAssessment.js";
+import { ASSESSMENT_THRESHOLDS, matrixAction, type ArchitectureAssessment, type DeadFileGroup, type MatrixFinding, type GroupedCycles, type QuickWin } from "../../analyzer/architecture/architectureAssessment.js";
 import { ROOT_UNIT } from "../../analyzer/architecture/architectureUnits.js";
 
 /** What happened to the config and baseline files. */
@@ -133,7 +133,7 @@ function groupedItem(label: keyof typeof GROUPED, cycles: GroupedCycles): Report
 }
 
 function findingItem(finding: MatrixFinding): ReportItem {
-  return { label: finding.kind, subject: finding.rows.join(", "), note: finding.action, details: finding.evidence, units: finding.rows, fallback: "matrix" };
+  return { label: finding.kind, subject: finding.rows.join(", "), note: finding.action, details: finding.evidence, next: finding.next, units: finding.rows, fallback: "matrix" };
 }
 
 /** Every entry row in one item: on a serverless or multi-app workspace they are expected and many. */
@@ -145,8 +145,9 @@ function entryItem(entries: readonly MatrixFinding[], deadFiles: readonly DeadFi
   return [{
     label: "entry-row",
     subject: [...rows.slice(0, ITEM_LIMIT), ...moreLine(ITEM_LIMIT, rows.length, "")].join(", "),
-    note: `${plural(rows.length, "unit")} no other unit imports: entry points, or units nothing uses; ${dead} of them hold dead files.`,
+    note: `${plural(rows.length, "unit")} no other unit imports, ${dead} of them with dead files. ${matrixAction("entry-row")}`,
     details: [],
+    next: entries.length === 1 ? entries[0].next : "graph-it check --unreferencedFiles",
     units: [],
   }];
 }
@@ -268,6 +269,9 @@ export function renderInitText(result: InitResult): string {
     lines.push("", `${section.title} (${section.total}):`, ...(section.intro === undefined ? [] : [`  ${section.intro}`]),
       ...section.items.flatMap(textItem), ...section.more);
   }
+  const guide = result.assessment.matrixGuide;
+  lines.push("", "How to read the matrix:", ...guide.reading.map((line) => `  ${line}`),
+    ...guide.patterns.map(({ pattern, meaning, action }) => `  ${pattern}: ${meaning} ${action}`));
   lines.push("", "Glossary:", ...Object.entries(result.assessment.glossary).map(([term, meaning]) => `  ${term}: ${meaning}`));
   if (result.diagrams.length > 0) lines.push("", "Diagrams:", ...result.diagrams.map((diagram) => `  ${diagram.file}`));
   if (result.changes.length > 0) {
@@ -320,6 +324,12 @@ export function renderInitMarkdown(result: InitResult, base?: string): string {
     lines.push("", `## ${section.title} (${section.total})`, "", ...(section.intro === undefined ? [] : [section.intro, ""]),
       ...section.items.flatMap((item) => markdownItem(item, result.diagrams, base)), ...section.more);
   }
+  const guide = result.assessment.matrixGuide;
+  const matrixDiagram = result.diagrams.find((diagram) => diagram.view === "matrix");
+  lines.push("", "## How to read the matrix", "", ...guide.reading.map((line) => `- ${line}`), "",
+    "| Pattern | What it means | What to do |", "| --- | --- | --- |",
+    ...guide.patterns.map(({ pattern, meaning, action }) => `| ${pattern} | ${meaning} | ${action} |`),
+    ...(matrixDiagram === undefined ? [] : ["", `The matrix:${link(matrixDiagram, base)}; on the page, the Dependency matrix panel lists the file pairs of a clicked cell.`]));
   lines.push("", "## Glossary", "", ...Object.entries(result.assessment.glossary).map(([term, meaning]) => `- **${term}**: ${meaning}`));
   if (result.diagrams.length > 0) {
     lines.push("", "## Diagrams", "", ...result.diagrams.map((diagram) => `- ${diagram.view}${diagram.unit === undefined ? "" : " " + code(diagram.unit)}${link(diagram, base)}`));

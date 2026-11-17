@@ -147,15 +147,35 @@ describe("initReport", () => {
     expect(text).toContain("      ... 2 more\n      next: graph-it check \"cli\" --unreferencedFiles");
     // A file outside every unit: the whole-workspace command.
     expect(text).toContain("next: graph-it check --unreferencedFiles");
-    expect(text.match(/next: /g)).toHaveLength(5);
+    // Two dead-file units, the workspace one, two quick wins and the entry rows' check (#745).
+    expect(text.match(/next: /g)).toHaveLength(6);
   });
 
   it("collapses the entry rows into one line cross-referenced with the dead files", () => {
     const markdown = renderInitMarkdown(result({ assessment: assessArchitecture(rich()) }));
-    expect(markdown).toContain("- **entry-row**: `app, cli` 2 units no other unit imports: entry points, or units nothing uses; 2 of them hold dead files.");
-    expect(markdown.match(/entry-row/g)).toHaveLength(1);
+    expect(markdown).toContain("- **entry-row**: `app, cli` 2 units no other unit imports, 2 of them with dead files. Expected for apps, handlers and scripts; otherwise its files are dead: check them, then delete.");
+    expect(markdown.match(/\*\*entry-row\*\*/g)).toHaveLength(1);
+    expect(markdown).toContain("  - next: `graph-it check --unreferencedFiles`");
     expect(markdown.indexOf("## Summary")).toBeLessThan(markdown.indexOf("## Dead files"));
     expect(markdown.indexOf("## Glossary")).toBeLessThan(markdown.indexOf("## Guard"));
+  });
+
+  it("explains how to read the matrix and the action of each pattern, in text and markdown (#745)", () => {
+    const assessment = assessArchitecture(rich());
+    const markdown = renderInitMarkdown(result({ assessment }));
+    expect(markdown.indexOf("## How to read the matrix")).toBeLessThan(markdown.indexOf("## Glossary"));
+    for (const { pattern, action } of assessment.matrixGuide.patterns) {
+      expect(markdown).toContain(`| ${pattern} | `);
+      expect(markdown).toContain(`| ${action} |`);
+    }
+    expect(markdown).toContain("- The diagonal counts the file pairs inside a unit: its internal coupling.");
+    // No matrix diagram written: no link to it.
+    expect(markdown).not.toContain("The matrix: ([diagram]");
+    const linked = renderInitMarkdown(result({ assessment, diagrams: [{ file: "out/matrix.svg", view: "matrix" }] }), "out");
+    expect(linked).toContain("The matrix: ([diagram](matrix.svg)); on the page, the Dependency matrix panel lists the file pairs of a clicked cell.");
+    const text = renderInitText(result({ assessment }));
+    expect(text).toContain("How to read the matrix:\n  Each row imports the columns");
+    expect(text).toContain("  hub-at-risk: many units depend on");
   });
 
   it("shows hubs in plain words linked to the matrix, and a dead file it could not read", () => {

@@ -85,7 +85,37 @@ export interface MatrixFinding {
   evidence: string[];
   totalEvidence: number;
   action: string;
+  /** The command that shows what to change (#745). */
+  next: string;
 }
+
+/** One pattern of the matrix: what it means and what to do about it (#745). */
+export interface MatrixPattern {
+  pattern: string;
+  meaning: string;
+  action: string;
+}
+
+/**
+ * How to read the dependency matrix, in plain words, and the action each pattern calls for: the
+ * report's "How to read the matrix" section and the page's matrix panel (#745).
+ */
+export const MATRIX_GUIDE: { reading: string[]; patterns: MatrixPattern[] } = {
+  reading: [
+    "Each row imports the columns where it has a number: the file pairs from the row's unit to the column's.",
+    "Rows and columns share the layering graph-it inferred: layer 0 (depends on no other unit) first, the rows of a cycle together.",
+    "The diagonal counts the file pairs inside a unit: its internal coupling.",
+    "Below the diagonal a dependency goes down the layers, as layering wants. A cell above it goes up: it is part of a cycle.",
+    "An outlined block holds the units of one cycle, drawn by how it runs (runtime, type-only, lazy); the cells to cut to break it are marked.",
+  ],
+  patterns: [
+    { pattern: "upward cell (cycle)", meaning: "units that import each other, directly or through others: none can change or ship alone.", action: "Cut the marked cells: move or invert those imports (see Cycles to cut)." },
+    { pattern: "hub-at-risk", meaning: "many units depend on a unit that itself depends on others (high Ca and I): every change there ripples.", action: "Split out its stable part (what the others import), or invert its dependencies so it depends on less." },
+    { pattern: "wide-row", meaning: "a unit that imports many others (high Ce): it knows too much.", action: "Put a facade in front of what it imports, or split it by the units it talks to." },
+    { pattern: "cohesion", meaning: "a unit whose files import other units more than each other (low C): it may be several units.", action: "Split it along its folders, or move its files to the units they use." },
+    { pattern: "entry-row", meaning: "no other unit imports it (empty column).", action: "Expected for apps, handlers and scripts; otherwise its files are dead: check them, then delete." },
+  ],
+};
 
 /**
  * Cycles kept out of the quick wins as one item, no init-order risk: those whose every import is
@@ -107,6 +137,8 @@ export interface ArchitectureAssessment {
   typeOnlyCycles: GroupedCycles;
   lazyCycles: GroupedCycles;
   matrixFindings: MatrixFinding[];
+  /** How to read the matrix and the action per pattern (MATRIX_GUIDE). */
+  matrixGuide: typeof MATRIX_GUIDE;
   /** The terms and formulas the findings use, stated once. */
   glossary: Record<string, string>;
   totals: {
@@ -401,6 +433,9 @@ function deadFileGroups(input: AssessmentInput, files: readonly DeadFile[]): Dea
   })).sort((left, right) => right.lines - left.lines || right.files.length - left.files.length || byCodeUnit(left.unit, right.unit));
 }
 
+/** What to do about a matrix finding, as MATRIX_GUIDE words it. */
+export const matrixAction = (kind: MatrixFindingKind) => MATRIX_GUIDE.patterns.find((pattern) => pattern.pattern === kind)!.action;
+
 function rowFindings(input: AssessmentInput): MatrixFinding[] {
   const { matrix } = input;
   const fileCount = new Map(input.units.units.map((unit) => [unit.key, unit.fileCount]));
@@ -410,27 +445,38 @@ function rowFindings(input: AssessmentInput): MatrixFinding[] {
     deadFiles.set(unit, (deadFiles.get(unit) ?? 0) + 1);
   }
   const t = ASSESSMENT_THRESHOLDS;
-  const row = (kind: MatrixFindingKind, key: string, action: string): MatrixFinding =>
-    ({ kind, rows: [key], cells: [], evidence: [], totalEvidence: 0, action });
+  const row = (kind: MatrixFindingKind, key: string, facts: string, next: string): MatrixFinding =>
+    ({ kind, rows: [key], cells: [], evidence: [], totalEvidence: 0, action: `${facts} ${matrixAction(kind)}`, next });
+  // The heaviest cell into (or out of) a row: the unit edge to look at first.
+  const heaviest = (index: number, side: "row" | "column") => matrix.cells
+    .filter((cell) => cell.row !== cell.column && cell[side] === index)
+    .reduce<MatrixCell | undefined>((best, cell) => (best === undefined || cell.fileEdgeCount > best.fileEdgeCount ? cell : best), undefined);
+  const edgeNext = (cell: MatrixCell | undefined, fallback: string) =>
+    (cell === undefined ? fallback : unitEdgeCommand(matrix.rows[cell.row].key, matrix.rows[cell.column].key));
+  const folderMatrix = (key: string) => `graph-it architecture --folder ${JSON.stringify(key)} --matrix`;
   return [
     ...matrix.rows
-      .filter((r) => r.incomingPairs >= t.hubIncomingPairs && (r.instability ?? 0) >= t.hubInstability)
-      .map((r) => row("hub-at-risk", r.key,
-        `${r.incomingPairs} file pairs from ${r.incomingGroups} unit(s) import it (Ca), and it depends on others too (I = ${r.instability}): a change here ripples. Make it depend on less, or split it.`)),
+      .flatMap((r, index) => (r.incomingPairs >= t.hubIncomingPairs && (r.instability ?? 0) >= t.hubInstability ? [{ r, index }] : []))
+      .map(({ r, index }) => row("hub-at-risk", r.key,
+        `${r.incomingPairs} file pairs from ${r.incomingGroups} unit(s) import it (Ca), and it depends on others too (I = ${r.instability}): a change here ripples.`,
+        edgeNext(heaviest(index, "column"), folderMatrix(r.key)))),
     ...matrix.rows
-      .filter((r) => r.outgoingGroups >= t.wideOutgoingUnits)
-      .toSorted((left, right) => right.outgoingPairs - left.outgoingPairs || byCodeUnit(left.key, right.key))
-      .map((r) => row("wide-row", r.key,
-        `It imports ${r.outgoingGroups} other units through ${r.outgoingPairs} file pairs (Ce): split it, or put it behind an interface.`)),
+      .flatMap((r, index) => (r.outgoingGroups >= t.wideOutgoingUnits ? [{ r, index }] : []))
+      .toSorted((left, right) => right.r.outgoingPairs - left.r.outgoingPairs || byCodeUnit(left.r.key, right.r.key))
+      .map(({ r, index }) => row("wide-row", r.key,
+        `It imports ${r.outgoingGroups} other units through ${r.outgoingPairs} file pairs (Ce).`,
+        edgeNext(heaviest(index, "row"), folderMatrix(r.key)))),
     ...matrix.rows
       .filter((r) => r.incomingPairs === 0)
       .map((r) => row("entry-row", r.key,
-        `No other unit imports it: an entry point, or a unit nothing uses (${deadFiles.get(r.key) ?? 0} dead file(s)).`)),
+        `No other unit imports it (${deadFiles.get(r.key) ?? 0} dead file(s)).`,
+        `graph-it check${r.key === ROOT_UNIT ? "" : " " + JSON.stringify(r.key)} --unreferencedFiles`)),
     ...matrix.rows
       .filter((r) => (fileCount.get(r.key) ?? 0) >= t.cohesionMinFiles && r.outgoingPairs > 0
         && r.internalEdgeCount / (r.internalEdgeCount + r.outgoingPairs) < t.cohesionRatio)
       .map((r) => row("cohesion", r.key,
-        `Only ${r.internalEdgeCount} of its ${r.internalEdgeCount + r.outgoingPairs} file pairs stay inside it (C = ${r.internalEdgeCount}/${r.internalEdgeCount + r.outgoingPairs}): its files depend more on other units than on each other. Merge it or re-cut it.`)),
+        `Only ${r.internalEdgeCount} of its ${r.internalEdgeCount + r.outgoingPairs} file pairs stay inside it (C = ${r.internalEdgeCount}/${r.internalEdgeCount + r.outgoingPairs}).`,
+        folderMatrix(r.key))),
   ];
 }
 
@@ -509,6 +555,7 @@ export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<s
     lazyCycles: groupedCycles(input, lazyCuts, lazyMutual),
     matrixFindings: rowFindings(input).filter((finding) => rows === undefined || finding.rows.some((row) => rows.has(row))),
     glossary: glossary(input.matrix),
+    matrixGuide: MATRIX_GUIDE,
     totals: {
       files: focus?.size ?? input.unitOf.size,
       units: rows?.size ?? input.units.units.length,

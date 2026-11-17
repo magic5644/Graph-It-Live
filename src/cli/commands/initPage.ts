@@ -22,13 +22,14 @@ function namedFiles(texts: readonly string[], files: ReadonlySet<string>): strin
   return [...new Set(tokens.filter((token) => files.has(token)))];
 }
 
-/** `focus`: the files of `--focus` and the units of the page (its units and their direct neighbours). */
+/** `focus`: the files of `--focus` and the units of the page (its units and their direct neighbours); `matrixSvg`: matrix.svg, shown in the page's matrix panel. */
 export function initPage(
   { graph, units, assignment }: UnitSource,
   workspaceRoot: string,
   violations: readonly ArchitectureViolation[],
   result: InitResult,
   focus?: { files: ReadonlySet<string>; units: ReadonlySet<string> },
+  matrixSvg?: string,
 ): HtmlPageConfig {
   // Group id = unit index + 1, group label = unit key: the page groups by unit, nothing else.
   const ids = new Map(units.units.filter((unit) => focus === undefined || focus.units.has(unit.key)).map((unit, index) => [unit.key, index + 1]));
@@ -80,6 +81,7 @@ export function initPage(
         items: section.items.map((item) => ({ ...item, files: namedFiles([item.subject, ...item.details], files) })),
       })),
       ...(result.focus === undefined || focus === undefined ? {} : { focus: { label: result.focus, files: [...focus.files].filter((file) => files.has(file)) } }),
+      ...(matrixSvg === undefined ? {} : { matrix: { svg: matrixSvg, guide: result.assessment.matrixGuide } }),
     },
   };
 }
