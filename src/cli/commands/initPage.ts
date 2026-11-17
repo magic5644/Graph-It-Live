@@ -10,6 +10,7 @@
 import type { ArchitectureViolation } from "../../analyzer/architecture/architectureRules.js";
 import type { UnitSource } from "../../analyzer/architecture/architectureView.js";
 import { workspaceName } from "../../analyzer/diagram/architectureDiagram.js";
+import { edgeStyle } from "../../analyzer/diagram/diagramStyle.js";
 import type { HtmlEdgeKind, HtmlPageConfig } from "../../analyzer/export/HtmlExporter";
 import type { GraphNodeMetadata } from "../../shared/graph-types";
 import { reportSections, type InitResult } from "./initReport";
@@ -47,11 +48,19 @@ export function initPage(
     return source === undefined || target === undefined ? [] : [{ source, target }];
   });
 
-  const unitKind = new Map(units.unitEdges.map((edge) => [`${edge.from}\0${edge.to}`, edge.kind]));
-  const violating = new Set(violations.map(({ source, target }) => `${source}\0${target}`));
+  // Each file pair in the style of its unit edge, as units.svg draws it (one shared legend, #745).
+  const unitEdge = new Map(units.unitEdges.map((edge) => [`${edge.from}\0${edge.to}`, edge]));
+  // A pair is accepted only when the baseline accepts each of its violations.
+  const violating = new Map<string, boolean>();
+  for (const { source, target, new: isNew } of violations) {
+    const key = `${source}\0${target}`;
+    violating.set(key, (violating.get(key) ?? true) && isNew === false);
+  }
   const edgeKinds = edges.flatMap(({ source, target }): [string, string, HtmlEdgeKind][] => {
-    const kind = violating.has(`${source}\0${target}`) ? "violation" : unitKind.get(`${unitOf(source)}\0${unitOf(target)}`);
-    return kind === undefined || kind === "down" ? [] : [[source, target, kind]];
+    const unit = unitEdge.get(`${unitOf(source)}\0${unitOf(target)}`);
+    const accepted = violating.get(`${source}\0${target}`);
+    const kind = edgeStyle(unit?.kind ?? "down", unit?.cycleKind, { broken: accepted !== undefined, accepted });
+    return kind === "down" ? [] : [[source, target, kind as HtmlEdgeKind]];
   });
 
   return {

@@ -76,8 +76,8 @@ export function assignUnits(workspaceRoot: string, files: readonly string[]): Un
   return { unitOf, names };
 }
 
-/** One unit pair: its file pairs, those whose every import is type-only, those loaded only through import(). */
-interface UnitPair {
+/** One unit (or group) pair: its file pairs, those whose every import is type-only, those loaded only through import(). */
+export interface UnitPair {
   from: string;
   to: string;
   fileEdgeCount: number;
@@ -85,16 +85,29 @@ interface UnitPair {
   dynamicEdgeCount: number;
 }
 
+/** Adds one file pair (`from` and `to` its unit or group keys, distinct) to `pairs`. */
+export function countPair(pairs: Map<string, UnitPair>, from: string, to: string, edge: { typeOnly?: boolean; dynamic?: boolean }): void {
+  const key = `${from}\0${to}`;
+  const pair = pairs.get(key) ?? { from, to, fileEdgeCount: 0, typeOnlyEdgeCount: 0, dynamicEdgeCount: 0 };
+  pair.fileEdgeCount += 1;
+  if (edge.typeOnly) pair.typeOnlyEdgeCount += 1;
+  if (edge.dynamic) pair.dynamicEdgeCount += 1;
+  pairs.set(key, pair);
+}
+
 /**
  * How the cycle of `members` (one strongly connected component) runs: type-only when every pair
  * between them is (#740), lazy when it no longer cycles without its import() pairs (#741).
  */
-function cycleKind(members: readonly string[], pairs: ReadonlyMap<string, UnitPair>): UnitCycleKind {
+export function cycleKind(members: readonly string[], pairs: ReadonlyMap<string, UnitPair>): UnitCycleKind {
   const inside = members.flatMap((from) => members.flatMap((to) => (from === to ? [] : pairs.get(`${from}\0${to}`) ?? [])));
   if (inside.every((pair) => pair.typeOnlyEdgeCount === pair.fileEdgeCount)) return "type-only";
   if (!inside.some((pair) => pair.dynamicEdgeCount > 0)) return "runtime";
   // Peel the units no eager pair (a static or type-only import) enters: the cycle is what can never be peeled.
-  const eager = (from: string, to: string) => from !== to && (pairs.get(`${from}\0${to}`)?.dynamicEdgeCount ?? 0) < (pairs.get(`${from}\0${to}`)?.fileEdgeCount ?? 0);
+  const eager = (from: string, to: string) => {
+    const pair = from === to ? undefined : pairs.get(`${from}\0${to}`);
+    return pair !== undefined && pair.dynamicEdgeCount < pair.fileEdgeCount;
+  };
   let left: readonly string[] = members;
   let before: number;
   do {
@@ -139,12 +152,7 @@ export function buildArchitectureUnits(
       internal.set(from, internal.get(from)! + 1);
       continue;
     }
-    const key = `${from}\0${to}`;
-    const pair = pairs.get(key) ?? { from, to, fileEdgeCount: 0, typeOnlyEdgeCount: 0, dynamicEdgeCount: 0 };
-    pair.fileEdgeCount += 1;
-    if (edge.typeOnly) pair.typeOnlyEdgeCount += 1;
-    if (edge.dynamic) pair.dynamicEdgeCount += 1;
-    pairs.set(key, pair);
+    countPair(pairs, from, to, edge);
   }
 
   const successors = new Map<string, string[]>();

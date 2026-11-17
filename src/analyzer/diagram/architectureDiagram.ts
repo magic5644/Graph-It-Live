@@ -9,16 +9,16 @@
  */
 
 import ELK, { type ElkExtendedEdge, type ElkNode } from "elkjs/lib/elk.bundled.js";
-import type { ArchitectureUnitEdgeKind, UnitRole } from "../../shared/architecture-model";
+import type { ArchitectureUnitEdgeKind, UnitCycleKind, UnitRole } from "../../shared/architecture-model";
 import { ELK_LAYERED_OPTIONS, layerPartition } from "../../shared/elkLayered";
 import { normalizePath } from "../../shared/path";
 import { cycleCuts } from "../architecture/architectureAssessment";
 import { buildMatrix } from "../architecture/architectureMatrix";
 import { rulesByEdge, type ArchitectureViolation } from "../architecture/architectureRules";
-import { byCodeUnit } from "../architecture/architectureUnits";
+import { byCodeUnit, countPair, cycleKind, type UnitPair } from "../architecture/architectureUnits";
 import { viewUnitLevel, type UnitSource } from "../architecture/architectureView";
 import { stronglyConnectedComponents } from "../architecture/stronglyConnectedComponents";
-import { CYCLE_PADDING, SIZES, snap } from "./diagramStyle";
+import { CYCLE_PADDING, edgeStyle, LEGEND, LEGEND_KINDS, SIZES, snap, type LegendKind } from "./diagramStyle";
 
 /** Nodes drawn at most: the largest are kept, a note counts the others. */
 export const MAX_DIAGRAM_NODES = 60;
@@ -41,6 +41,10 @@ export interface DiagramEdge {
   /** Distinct directed file pairs: the stroke width. */
   fileEdgeCount: number;
   kind: ArchitectureUnitEdgeKind;
+  /** Cycle edges: how their cycle runs (#745). */
+  cycleKind?: UnitCycleKind;
+  /** File pairs whose every import is type-only; absent when none. */
+  typeOnlyEdgeCount?: number;
   /** Names of the rules its file pairs break. */
   rules: string[];
   /** Every violating pair of the edge is in the baseline. */
@@ -91,6 +95,7 @@ export interface PlacedCycle extends Box {
   members: string[];
   /** Members of the cycle in the whole level. */
   size: number;
+  kind: UnitCycleKind;
 }
 
 export interface DiagramText {
@@ -196,7 +201,12 @@ function levelInput(source: UnitSource, workspaceRoot: string, { folder, violati
       nodes: units.map(({ key, name, layer, fileCount, internalEdgeCount, role: unitRole }) => ({ key, label: name, layer, fileCount, internalEdgeCount, role: unitRole })),
       edges: unitEdges
         .filter(({ from, to }) => kept.has(from) && kept.has(to))
-        .map(({ from, to, fileEdgeCount, kind }) => ({ from, to, fileEdgeCount, kind, ...edge(from, to) })),
+        .map(({ from, to, fileEdgeCount, kind, cycleKind: runs, typeOnlyEdgeCount }) => ({
+          from, to, fileEdgeCount, kind,
+          ...(runs === undefined ? {} : { cycleKind: runs }),
+          ...(typeOnlyEdgeCount === undefined ? {} : { typeOnlyEdgeCount }),
+          ...edge(from, to),
+        })),
     };
   }
   const level = viewUnitLevel(source, Number.POSITIVE_INFINITY, folder);
@@ -207,13 +217,22 @@ function levelInput(source: UnitSource, workspaceRoot: string, { folder, violati
   const groupOf = new Map(level.graph.nodes.map((node) => [node.relativePath, node.communityKey]));
   const { edge, count, accepted } = edgeRules(violations, (file) => groupOf.get(file));
   const { groupLayers, groupEdgeKinds } = level.units;
+  // The group pairs by kind of import, to tell how each cycle of groups runs as units do.
+  const pairs = new Map<string, UnitPair>();
+  for (const fileEdge of level.graph.edges) {
+    const [from, to] = [groupOf.get(fileEdge.sourceRelative), groupOf.get(fileEdge.targetRelative)];
+    if (from !== undefined && to !== undefined && from !== to) countPair(pairs, from, to, fileEdge);
+  }
+  const edges: DiagramEdge[] = level.groupEdges.filter((groupEdge) => keys.has(groupEdge.from) && keys.has(groupEdge.to)).map(({ from, to, fileEdgeCount }) => {
+    const [fromKey, toKey] = [keys.get(from)!, keys.get(to)!];
+    const typeOnlyEdgeCount = pairs.get(`${fromKey}\0${toKey}`)?.typeOnlyEdgeCount ?? 0;
+    return { from: fromKey, to: toKey, fileEdgeCount, kind: groupEdgeKinds[`${from}>${to}`] ?? "down", ...(typeOnlyEdgeCount > 0 ? { typeOnlyEdgeCount } : {}), ...edge(fromKey, toKey) };
+  });
+  const runs = new Map(cyclesOf([...keys.values()], edges).flatMap((members) => members.map((key) => [key, cycleKind(members, pairs)] as const)));
   return {
     workspace, scope: folder, noun: "groups", revision: level.revision, date, violations: count, acceptedViolations: accepted,
     nodes: level.groups.map(({ id, key, label, fileCount, internalEdgeCount }) => ({ key, label, layer: groupLayers[id] ?? 0, fileCount, internalEdgeCount })),
-    edges: level.groupEdges.filter((groupEdge) => keys.has(groupEdge.from) && keys.has(groupEdge.to)).map(({ from, to, fileEdgeCount }) => {
-      const [fromKey, toKey] = [keys.get(from)!, keys.get(to)!];
-      return { from: fromKey, to: toKey, fileEdgeCount, kind: groupEdgeKinds[`${from}>${to}`] ?? "down", ...edge(fromKey, toKey) };
-    }),
+    edges: edges.map((groupEdge) => (groupEdge.kind === "cycle" ? { ...groupEdge, cycleKind: runs.get(groupEdge.from) ?? "runtime" } : groupEdge)),
   };
 }
 
@@ -353,33 +372,31 @@ export function capNodes(input: DiagramInput, options: DrawOptions = {}) {
   return { nodes, edges, hidden: input.nodes.length - nodes.length, notes };
 }
 
-/** Legend samples, left to right: a 24 px line sample, 8 px, the text, 16 px to the next. */
-export const LEGEND_ITEMS = [
-  { kind: "down", text: "dependency" },
-  { kind: "accent", text: "upward or cycle" },
-  { kind: "error", text: "breaks a rule" },
-  { kind: "weight", text: "width = file pairs" },
-] as const;
-
-const ACCEPTED_ITEM = { kind: "accepted", text: "accepted in baseline" } as const;
-
-/** Which legend items a drawing needs: the baseline one when an edge is accepted, the width one for the graph only. */
+/** Which legend items a drawing needs: the styles it draws (dependency always), and the width one for the graph only. */
 export interface LegendOptions {
-  accepted?: boolean;
+  kinds?: readonly LegendKind[];
   weight?: boolean;
 }
 
-/** Each legend item's x offset from the legend's start, and the legend's width. */
-export function legendLayout({ accepted = false, weight = true }: LegendOptions = {}) {
+/** Legend samples, left to right: a 24 px line sample, 8 px, the text, 16 px to the next; kinds in the shared LEGEND order. */
+export function legendLayout({ kinds = [], weight = true }: LegendOptions = {}) {
   let x = 0;
-  const shown = LEGEND_ITEMS.filter((item) => weight || item.kind !== "weight");
-  const items = [...shown, ...(accepted ? [ACCEPTED_ITEM] : [])].map((item) => {
+  const shown = LEGEND_KINDS.filter((kind) => kind === "down" || kinds.includes(kind)).map((kind): { kind: LegendKind | "weight"; text: string } => ({ kind, text: LEGEND[kind].text }));
+  const items = [...shown, ...(weight ? [{ kind: "weight" as const, text: "width = file pairs" }] : [])].map((item) => {
     const placed = { ...item, x };
     x += snap(32 + textWidth(item.text, SIZES.caption) + 16);
     return placed;
   });
   return { items, width: x - 16 };
 }
+
+/** The style an edge is drawn in (diagramStyle edgeStyle). */
+export const edgeLegendKind = (edge: Pick<DiagramEdge, "kind" | "cycleKind" | "rules" | "accepted">): LegendKind =>
+  edgeStyle(edge.kind, edge.cycleKind, { broken: edge.rules.length > 0, accepted: edge.accepted });
+
+/** The styles a drawing uses: its edges' and its cycle blocks'. */
+export const drawnKinds = (edges: readonly DiagramEdge[], cycles: readonly { kind: UnitCycleKind }[]): LegendKind[] =>
+  [...edges.map(edgeLegendKind), ...cycles.map((cycle) => edgeStyle("cycle", cycle.kind))];
 
 const plural = (count: number, noun: string) => `${count} ${count === 1 ? noun.replace(/s$/, "") : noun}`;
 
@@ -424,9 +441,6 @@ export function textBound(text: DiagramText, legend: LegendOptions): number {
   return Math.max(legendLayout(legend).width, ...lines.map(([line, size]) => textWidth(line, size)));
 }
 
-/** Whether any edge of the level is drawn as accepted. */
-export const hasAccepted = (edges: readonly DiagramEdge[]) => edges.some((edge) => edge.accepted === true);
-
 /** The view's options; the margins lie outside the graph, so the root needs no padding. */
 const ELK_OPTIONS = { ...ELK_LAYERED_OPTIONS, "elk.padding": "[top=0,left=0,bottom=0,right=0]" };
 
@@ -444,8 +458,9 @@ export async function layoutDiagram(input: DiagramInput, options: DrawOptions = 
   const { nodes, edges, hidden, notes } = capNodes(input, options);
   const kept = new Set(nodes.map((node) => node.key));
   // The cycles of the whole level: a cut view draws no cycle edge back, its block still holds the members.
+  const kindOf = new Map(input.edges.filter((edge) => edge.kind === "cycle").map((edge) => [edge.from, edge.cycleKind ?? "runtime"]));
   const levelCycles = cyclesOf(input.nodes.map((node) => node.key), input.edges)
-    .map((members) => ({ members: members.filter((key) => kept.has(key)), size: members.length }))
+    .map((members) => ({ members: members.filter((key) => kept.has(key)), size: members.length, kind: kindOf.get(members[0]) ?? "runtime" }))
     .filter(({ members }) => members.length > 1);
   const cycles = levelCycles.map(({ members }) => members);
   const cycleOf = new Map(cycles.flatMap((members, index) => members.map((key) => [key, index])));
@@ -485,10 +500,11 @@ export async function layoutDiagram(input: DiagramInput, options: DrawOptions = 
   const shift = (point: { x: number; y: number }) => ({ x: round(SIZES.margin + point.x), y: round(header + point.y) });
   const routes = new Map((result.edges ?? []).map((edge) => [edge.id, edge.sections ?? []]));
   const { counts, text } = diagramHeader(input, notes);
+  const cycleBoxes = levelCycles.map(({ members, size, kind }, index) => ({ members, size, kind, ...at(placed.get(`c${index}`)) }));
   return {
     input,
     text,
-    width: snap(SIZES.margin * 2 + Math.max(result.width ?? 0, textBound(text, { accepted: hasAccepted(edges) }))),
+    width: snap(SIZES.margin * 2 + Math.max(result.width ?? 0, textBound(text, { kinds: drawnKinds(edges, cycleBoxes) }))),
     height: snap(header + (result.height ?? 0) + SIZES.margin + legendHeight(text)),
     top: header,
     nodes: sized.map((node) => ({ ...node, ...at(placed.get(id.get(node.key)!)), width: node.width, height: node.height })),
@@ -497,7 +513,7 @@ export async function layoutDiagram(input: DiagramInput, options: DrawOptions = 
       stroke: strokeWidth(edge.fileEdgeCount),
       points: (routes.get(`e${index}`) ?? []).flatMap((section) => [section.startPoint, ...(section.bendPoints ?? []), section.endPoint]).map(shift),
     })),
-    cycles: levelCycles.map(({ members, size }, index) => ({ members, size, ...at(placed.get(`c${index}`)) })),
+    cycles: cycleBoxes,
     hidden,
     counts,
   };

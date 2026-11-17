@@ -9,6 +9,7 @@ import {
   architectureDiagramInput,
   fitLabel,
   layoutDiagram,
+  drawnKinds,
   legendLayout,
   strokeWidth,
   textWidth,
@@ -97,7 +98,7 @@ function expectSoundGeometry(layout: DiagramLayout): void {
       }
     }
   }
-  expectTextInCanvas(layout, { accepted: layout.edges.some((edge) => edge.accepted) });
+  expectTextInCanvas(layout, { kinds: drawnKinds(layout.edges, layout.cycles) });
 }
 
 /** Header lines, notes and legend within the margins. */
@@ -126,7 +127,7 @@ function expectSoundMatrix(layout: MatrixLayout): void {
     expect(4 + textWidth(layout.columns[index].text, SIZES.meta)).toBeLessThanOrEqual(size);
   }
   for (const cycle of layout.cycles) expect(contains(layout.grid, cycle)).toBe(true);
-  expectTextInCanvas(layout, { accepted: layout.cells.some((cell) => cell.kind === "accepted"), weight: false });
+  expectTextInCanvas(layout, { kinds: layout.kinds, weight: false });
 }
 
 /** No script, no foreignObject, no URL but the SVG namespace. */
@@ -187,8 +188,8 @@ describe("architecture diagram: workspaces-project", () => {
 
     const svg = renderDiagramSvg(layout);
     expectSafeMarkup(svg);
-    expect(svg).toContain('class="edge error"');
-    expect(svg).toContain('class="edge accent"');
+    expect(svg).toContain('class="edge s-error"');
+    expect(svg).toContain('class="edge s-cycle"');
     expect(svg).not.toContain(rootDir.replaceAll("\\", "/"));
     await expect(svg).toMatchFileSnapshot("__snapshots__/workspaces-project.units.svg");
     // Same revision, same file.
@@ -204,7 +205,7 @@ describe("architecture diagram: workspaces-project", () => {
     const layout = await layoutDiagram(diagram);
     expectSoundGeometry(layout);
     expect(layout.text.caption).toContain("folder apps/web");
-    expect(renderDiagramSvg(layout)).toContain('class="edge error"');
+    expect(renderDiagramSvg(layout)).toContain('class="edge s-error"');
     const source = await fixtureSource();
     expect(() => architectureDiagramInput(source, rootDir, { folder: "nowhere" })).toThrow('No file below folder "nowhere"');
   }, 60_000);
@@ -220,13 +221,16 @@ describe("architecture diagram: workspaces-project", () => {
       layout.cells.find((cell) => cell.y === layout.rows[row(from)].y && cell.x === layout.grid.x + row(to) * cell.width);
     expect(cellAt("packages/ui", "packages/core")).toMatchObject({ kind: "error", title: expect.stringContaining("breaks ui-without-core") });
     // A cycle's upward cell is the accent, the diagonal holds the pairs inside a unit.
-    expect(layout.cells.filter((cell) => cell.kind === "accent").length).toBeGreaterThan(0);
+    expect(layout.cells.filter((cell) => cell.kind === "upward").length).toBeGreaterThan(0);
     expect(layout.cells.filter((cell) => cell.kind === "diagonal").every((cell) => cell.title.endsWith("file pairs inside"))).toBe(true);
     // The graph's lines, plus how to read a cell.
-    expect(layout.text).toEqual({ ...(await layoutDiagram(diagram)).text, reading: "row imports column: N file pairs · grey diagonal: pairs inside" });
+    expect(layout.text).toEqual({ ...(await layoutDiagram(diagram)).text, reading: "row imports column: N file pairs · grey diagonal: pairs inside · a cell above it is upward, part of a cycle" });
+    // The cheapest cut of the core <-> types cycle is marked, and the legend names the styles drawn.
+    expect(layout.cells.filter((cell) => cell.cut).map((cell) => cell.title)).toEqual([expect.stringContaining("cut it to break the cycle")]);
+    expect(new Set(layout.kinds)).toEqual(new Set(["down", "upward", "error", "cycle", "cut"]));
     const svg = renderDiagramSvg(layout);
     expectSafeMarkup(svg);
-    expect(svg).toContain('class="cell error"');
+    expect(svg).toContain('class="cell s-error"');
     expect(svg).toContain("row imports column: N file pairs");
     expect(svg).not.toContain("width = file pairs");
     await expect(svg).toMatchFileSnapshot("__snapshots__/workspaces-project.matrix.svg");
@@ -292,7 +296,7 @@ describe("architecture diagram: workspaces-project", () => {
     expectSoundGeometry(layout);
     expect(layout.text.counts).toMatch(/· 1 violation \(1 accepted\)$/);
     const svg = renderDiagramSvg(layout);
-    expect(svg).toMatch(/class="edge accepted"[^>]*marker-end="url\(#arrow-accepted\)"/);
+    expect(svg).toMatch(/class="edge s-accepted"[^>]*marker-end="url\(#arrow-accepted\)"/);
     expect(svg).toContain("accepted in baseline");
     expect(layoutMatrix(diagram).cells.filter((cell) => cell.kind === "accepted")).toHaveLength(1);
     // A pair outside the baseline keeps its edge an error.
@@ -486,8 +490,11 @@ describe("architecture diagram rendering", () => {
     expect(layout.cycles.map((cycle) => cycle.members)).toEqual([["x", "y"]]);
     expect(layout.text.counts).toBe("3 units · 2 layers · 1 cycle · 0 violations");
     const svg = renderDiagramSvg(layout);
-    expect(svg.match(/class="edge accent"/g)).toHaveLength(3 + 1);
-    expect(svg).toContain("cycle · 2");
+    // Two runtime cycle edges, one upward edge; each style once more in the legend.
+    expect(svg.match(/class="edge s-cycle"/g)).toHaveLength(2 + 1);
+    expect(svg.match(/class="edge s-upward"/g)).toHaveLength(1 + 1);
+    expect(svg).toContain('class="cycle s-cycle"');
+    expect(svg).toContain("runtime cycle · 2");
   });
 
   it("draws an empty level and an edge-less one", async () => {
@@ -565,9 +572,13 @@ describe("diagram legend", () => {
 
   it("drops the width item for the matrix and adds the baseline item when an edge is accepted", () => {
     const base = legendLayout().width;
+    expect(legendLayout().items.map((item) => item.kind)).toEqual(["down", "weight"]);
     expect(legendLayout({ weight: false }).width).toBeLessThan(base);
-    expect(legendLayout({ accepted: true }).width).toBeGreaterThan(base);
-    expect(legendLayout({ accepted: true }).items.at(-1)).toMatchObject({ kind: "accepted", text: "accepted in baseline" });
+    expect(legendLayout({ kinds: ["accepted"] }).width).toBeGreaterThan(base);
+    expect(legendLayout({ kinds: ["accepted"], weight: false }).items.at(-1)).toMatchObject({ kind: "accepted", text: "accepted in baseline" });
+    // The shared LEGEND order, each kind once, whatever order and repeats the drawing gives.
+    expect(legendLayout({ kinds: ["error", "type-only", "upward", "error", "cycle"], weight: false }).items.map((item) => item.kind))
+      .toEqual(["down", "upward", "cycle", "type-only", "error"]);
   });
 });
 

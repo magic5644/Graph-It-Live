@@ -75,11 +75,13 @@ describe("initPage", () => {
   });
 
   it("marks cycle and upward pairs from the unit edges, a violation over both, never a down edge", () => {
-    const page = initPage(source(), ROOT, [violation("orders/service.ts", "billing/invoice.ts"), violation("app/main.ts", "app/view.ts")], result());
+    const fresh = { ...violation("app/main.ts", "app/view.ts"), new: true };
+    const page = initPage(source(), ROOT, [violation("orders/service.ts", "billing/invoice.ts"), fresh, violation("app/main.ts", "app/view.ts")], result());
+    // A pair the baseline accepts is drawn accepted; one with a new violation breaks a rule.
     expect(page.overlay?.edgeKinds).toEqual([
-      ["app/main.ts", "app/view.ts", "violation"],
+      ["app/main.ts", "app/view.ts", "error"],
       ["billing/invoice.ts", "orders/service.ts", "cycle"],
-      ["orders/service.ts", "billing/invoice.ts", "violation"],
+      ["orders/service.ts", "billing/invoice.ts", "accepted"],
       ["lib/util.ts", "app/view.ts", "upward"],
     ]);
   });
