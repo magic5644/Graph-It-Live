@@ -86,9 +86,24 @@ export interface MatrixFinding {
   action: string;
 }
 
+/**
+ * The cycles whose every import is type-only (#740), kept out of the quick wins as one item: design
+ * coupling, no init-order risk.
+ */
+export interface TypeOnlyCycles {
+  unitCycles: number;
+  mutualImports: number;
+  /** `a <-> b` file pairs, then `units a, b` unit cycles; at most `evidence`. */
+  evidence: string[];
+  totalEvidence: number;
+  units: string[];
+}
+
 export interface ArchitectureAssessment {
   deadFiles: DeadFileGroup[];
+  /** Runtime cycles only: a cycle with at least one runtime import. */
   quickWins: QuickWin[];
+  typeOnlyCycles: TypeOnlyCycles;
   matrixFindings: MatrixFinding[];
   /** The terms and formulas the findings use, stated once. */
   glossary: Record<string, string>;
@@ -96,9 +111,12 @@ export interface ArchitectureAssessment {
     files: number;
     units: number;
     unitEdges: number;
+    /** Runtime unit cycles and mutual imports: at least one of their imports is a runtime import. */
     unitCycles: number;
     mutualImports: number;
-    /** The file in the most mutual imports, when it is in more than one. */
+    typeOnlyUnitCycles: number;
+    typeOnlyMutualImports: number;
+    /** The file in the most runtime mutual imports, when it is in more than one. */
     mutualHotSpot?: { file: string; pairs: number };
     acceptedViolations: number;
     deadFiles: number;
@@ -139,6 +157,7 @@ function glossary(matrix: ArchitectureMatrix<string>): Record<string, string> {
     matrix: `${matrix.formulas.cell} ${matrix.formulas.order} ${matrix.formulas.upward}`,
     cut: "The cells of a cycle that go against one order of its units (the matrix order, its reverse or a greedy Eades–Lin–Smyth order, the cheapest); without them the units are layered again.",
     "gain / effort": "Quick wins are ranked by what they remove over the imports or symbols to change, then by gain.",
+    "type-only": "An import erased at runtime (import type, every specifier type, export type). A cycle is type-only when all its imports are: design coupling, no init-order risk. One runtime import makes it a runtime cycle.",
   };
 }
 
@@ -245,11 +264,34 @@ function cycleBreaks(input: AssessmentInput, cuts: readonly CycleCut[], pairs: M
   });
 }
 
-/** Two files importing each other: removing one import breaks the file cycle. */
-function mutualPairs(input: AssessmentInput): Edge[] {
+/**
+ * Two files importing each other: removing one import breaks the file cycle. Type-only when both
+ * imports are, runtime otherwise.
+ */
+function mutualPairs(input: AssessmentInput): { runtime: Edge[]; typeOnly: Edge[] } {
   const byPair = new Map(input.graph.edges.map((edge) => [`${edge.sourceRelative}\0${edge.targetRelative}`, edge]));
+  const backOf = (edge: Edge) => byPair.get(`${edge.targetRelative}\0${edge.sourceRelative}`);
   // One edge per file pair, from the first file in code-unit order.
-  return [...byPair.values()].filter((edge) => edge.sourceRelative < edge.targetRelative && byPair.has(`${edge.targetRelative}\0${edge.sourceRelative}`));
+  const mutual = [...byPair.values()].filter((edge) => edge.sourceRelative < edge.targetRelative && backOf(edge) !== undefined);
+  const typeOnly = (edge: Edge) => edge.typeOnly === true && backOf(edge)?.typeOnly === true;
+  return { runtime: mutual.filter((edge) => !typeOnly(edge)), typeOnly: mutual.filter(typeOnly) };
+}
+
+/** A unit cycle is type-only when every file pair between its units is. */
+function isTypeOnlyCycle(cut: CycleCut, pairs: Map<string, Edge[]>): boolean {
+  const edges = cut.members.flatMap((from) => cut.members.flatMap((to) => (from === to ? [] : pairs.get(`${from}>${to}`) ?? [])));
+  return edges.length > 0 && edges.every((edge) => edge.typeOnly === true);
+}
+
+function typeOnlyCycles(input: AssessmentInput, cuts: readonly CycleCut[], mutual: readonly Edge[]): TypeOnlyCycles {
+  const files = mutual.flatMap((edge) => [edge.sourceRelative, edge.targetRelative]);
+  const units = new Set([...cuts.flatMap((cut) => cut.members), ...files.flatMap((file) => input.unitOf.get(file) ?? [])]);
+  return {
+    unitCycles: cuts.length,
+    mutualImports: mutual.length,
+    ...capped([...mutual.map((edge) => `${edge.sourceRelative} <-> ${edge.targetRelative}`), ...cuts.map((cut) => `units ${cut.members.join(", ")}`)]),
+    units: [...units].sort(byCodeUnit),
+  };
 }
 
 /**
@@ -425,9 +467,14 @@ function focusScope(input: AssessmentInput, focus: ReadonlySet<string> | undefin
 export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<string>): ArchitectureAssessment {
   const scope = focusScope(input, focus);
   const pairs = pairsByUnitEdge(input);
-  const mutual = mutualPairs(input).filter(scope.edge);
+  const mutualByKind = mutualPairs(input);
+  const mutual = mutualByKind.runtime.filter(scope.edge);
+  const typeOnlyMutual = mutualByKind.typeOnly.filter(scope.edge);
+  // The hot spot and the ranking count runtime cycles only (#740).
   const { wins: mutualWins, hotSpot } = mutualImports(input, mutual);
-  const cuts = cycleCuts(input.matrix).filter((cut) => cut.members.some(scope.unit));
+  const scopedCuts = cycleCuts(input.matrix).filter((cut) => cut.members.some(scope.unit));
+  const typeOnlyCuts = scopedCuts.filter((cut) => isTypeOnlyCycle(cut, pairs));
+  const cuts = scopedCuts.filter((cut) => !typeOnlyCuts.includes(cut));
   const deadCodeFiles = input.deadCode.filter((file) => focus?.has(file.relativePath) ?? true);
   const quickWins = [...cycleBreaks(input, cuts, pairs), ...mutualWins, ...weakDependencies(input, pairs, scope), ...deadCode(input, deadCodeFiles)]
     // Cross products compare gain / effort without rounding.
@@ -439,14 +486,17 @@ export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<s
   return {
     deadFiles,
     quickWins,
+    typeOnlyCycles: typeOnlyCycles(input, typeOnlyCuts, typeOnlyMutual),
     matrixFindings: rowFindings(input).filter((finding) => rows === undefined || finding.rows.some((row) => rows.has(row))),
     glossary: glossary(input.matrix),
     totals: {
       files: focus?.size ?? input.unitOf.size,
       units: rows?.size ?? input.units.units.length,
       unitEdges: input.units.unitEdges.filter((edge) => scope.unitEdge(pairs, edge)).length,
-      unitCycles: focus === undefined ? input.units.cycles : cuts.length,
+      unitCycles: (focus === undefined ? input.units.cycles : scopedCuts.length) - typeOnlyCuts.length,
       mutualImports: mutual.length,
+      typeOnlyUnitCycles: typeOnlyCuts.length,
+      typeOnlyMutualImports: typeOnlyMutual.length,
       ...(hotSpot === undefined ? {} : { mutualHotSpot: hotSpot }),
       acceptedViolations: input.acceptedViolations,
       deadFiles: deadFileList.length,

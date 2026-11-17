@@ -66,7 +66,7 @@ export class Parser implements ILanguageAnalyzer {
     }
 
     // Track processed modules to avoid duplicates
-    const seen = new Set<string>();
+    const seen = new Map<string, ParsedImport>();
 
     // GraphQL files use #import syntax (don't strip comments as # is the import directive)
     const isGraphQL =
@@ -129,7 +129,7 @@ export class Parser implements ILanguageAnalyzer {
       this.patterns.sideEffectImport,
       "side-effect",
       imports,
-      new Set<string>(),
+      new Map<string, ParsedImport>(),
     );
 
     return imports;
@@ -140,7 +140,7 @@ export class Parser implements ILanguageAnalyzer {
     pattern: RegExp,
     type: ParsedImport["type"],
     imports: ParsedImport[],
-    seen: Set<string>,
+    seen: Map<string, ParsedImport>,
   ): void {
     let match: RegExpExecArray | null;
 
@@ -151,31 +151,35 @@ export class Parser implements ILanguageAnalyzer {
       // Patterns carry the `d` flag: the specifier is read back from the unmasked source.
       const [start, end] = match.indices?.[1] ?? [0, 0];
       const module = text.source.slice(start, end);
-
-      // Skip if already processed
-      if (seen.has(module)) {
-        continue;
-      }
+      // require(), import() and bare imports always load the module.
+      const typeOnly = (type === "import" || type === "export") && Parser.isTypeOnlyImport(match[0].trim());
 
       // Skip type-only imports if configured to ignore them
-      if (this.ignoreTypeImports && Parser.isTypeOnlyImport(match[0].trim())) {
+      if (this.ignoreTypeImports && typeOnly) {
         continue;
       }
 
-      seen.add(module);
+      // Already processed: the module stays type-only only while every statement importing it is.
+      const previous = seen.get(module);
+      if (previous) {
+        if (!typeOnly) delete previous.typeOnly;
+        continue;
+      }
 
       // Find line number
       const line = this.getLineNumber(text.scan, match.index);
 
-      imports.push({
-        module,
-        type,
-        line,
-      });
+      const parsed: ParsedImport = { module, type, line, ...(typeOnly ? { typeOnly } : {}) };
+      seen.set(module, parsed);
+      imports.push(parsed);
     }
   }
 
-  /** `import type ...`, or TS 5+ named imports/exports whose specifiers are all `type`. */
+  /**
+   * `import type ...`, or TS 5+ named imports/exports whose specifiers are all `type`.
+   * shortcut: syntax only, so `export * from` and a re-export of an interface without `type` count as runtime
+   * (isolatedModules requires `export type` there); read the target's declarations if audits show such barrels.
+   */
   private static isTypeOnlyImport(fullMatch: string): boolean {
     // `import type ...` / `export type ...`
     if (/^(import|export)\s+type\b/.test(fullMatch)) {
@@ -213,6 +217,7 @@ export class Parser implements ILanguageAnalyzer {
       type: p.type,
       line: p.line,
       module: p.module,
+      ...(p.typeOnly ? { typeOnly: true } : {}),
     }));
   }
 

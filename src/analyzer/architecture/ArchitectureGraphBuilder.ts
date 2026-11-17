@@ -41,6 +41,8 @@ export interface ArchitectureEdge {
   targetRelative: string;
   /** Line of the first import of `target` in `source`, when the analysis knows it. */
   line?: number;
+  /** Every import of `target` in `source` is type-only: erased at runtime, no init-order risk (#740). */
+  typeOnly?: boolean;
 }
 
 interface ArchitectureAccumulator {
@@ -108,12 +110,15 @@ function registerEdge(
   sourcePath: string,
   targetPath: string,
   workspaceRoot: string,
-  line?: number,
+  dependency: Pick<Dependency, "line" | "typeOnly">,
 ): void {
   const normalizedSource = normalizePath(sourcePath);
   const normalizedTarget = normalizePath(targetPath);
   const edgeKey = `${normalizedSource}=>${normalizedTarget}`;
-  if (acc.edgesByKey.has(edgeKey)) {
+  const { line, typeOnly } = dependency;
+  const existing = acc.edgesByKey.get(edgeKey);
+  if (existing) {
+    if (!typeOnly) delete existing.typeOnly;
     return;
   }
 
@@ -123,6 +128,7 @@ function registerEdge(
     sourceRelative: normalizePath(path.relative(workspaceRoot, normalizedSource)),
     targetRelative: normalizePath(path.relative(workspaceRoot, normalizedTarget)),
     ...(line ? { line } : {}),
+    ...(typeOnly ? { typeOnly } : {}),
   });
   acc.dependencyCount.set(normalizedSource, (acc.dependencyCount.get(normalizedSource) ?? 0) + 1);
   acc.dependentCount.set(normalizedTarget, (acc.dependentCount.get(normalizedTarget) ?? 0) + 1);
@@ -162,7 +168,7 @@ function registerArchitectureFile(
     }
     const normalizedDependencyPath = normalizePath(dep.path);
     registerNode(acc, workspaceRoot, normalizedDependencyPath);
-    registerEdge(acc, normalizedPath, normalizedDependencyPath, workspaceRoot, dep.line);
+    registerEdge(acc, normalizedPath, normalizedDependencyPath, workspaceRoot, dep);
   }
 }
 

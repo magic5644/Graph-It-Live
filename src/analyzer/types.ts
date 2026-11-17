@@ -154,6 +154,8 @@ export interface Dependency {
   type: DependencyType;
   line: number;
   module: string; // Original module specifier
+  /** Every import of the target is type-only (`import type`, all `type` specifiers, `export type`): erased at runtime (#740) */
+  typeOnly?: boolean;
 }
 
 /** A referencer of a file; `via` is the re-export barrel it imports the file through, absent for a direct import. */
@@ -185,6 +187,8 @@ export interface ParsedImport {
   module: string;
   type: DependencyType;
   line: number;
+  /** Type-only statement, erased at runtime (#740) */
+  typeOnly?: boolean;
 }
 
 /**
@@ -199,6 +203,8 @@ export interface ReverseIndexEntry {
   line: number;
   /** Original module specifier */
   module: string;
+  /** Type-only import, erased at runtime (#740) */
+  typeOnly?: boolean;
 }
 
 /**

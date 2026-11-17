@@ -28,8 +28,9 @@ const log = getLogger('ReverseIndex');
  * Increment when making breaking changes to the format
  * v5: Vue/Svelte import lines are those of the SFC, not of its concatenated script blocks (#644).
  * v6: Python `from pkg import sub` and `import a.b as c` depend on the submodule file; `src/` layouts resolve (#695).
+ * v7: entries carry `typeOnly` for type-only imports (#740).
  */
-const INDEX_VERSION = 6;
+const INDEX_VERSION = 7;
 
 /**
  * ReverseIndex - Maintains a mapping from target files to their referencing files
@@ -121,6 +122,7 @@ export class ReverseIndex {
         type: dep.type,
         line: dep.line,
         module: dep.module,
+        ...(dep.typeOnly ? { typeOnly: true } : {}),
       };
 
       let targetMap = this.reverseMap.get(normalizedTargetPath);
@@ -183,6 +185,7 @@ export class ReverseIndex {
       type: entry.type,
       line: entry.line,
       module: entry.module,
+      ...(entry.typeOnly ? { typeOnly: true } : {}),
     }));
   }
 
@@ -226,7 +229,7 @@ export class ReverseIndex {
     const dependencies: Dependency[] = [];
     for (const targetPath of this.forwardMap.get(normalizedSourcePath) ?? []) {
       const entry = this.reverseMap.get(targetPath)?.get(normalizedSourcePath);
-      if (entry) dependencies.push({ path: targetPath, type: entry.type, line: entry.line, module: entry.module });
+      if (entry) dependencies.push({ path: targetPath, type: entry.type, line: entry.line, module: entry.module, ...(entry.typeOnly ? { typeOnly: true } : {}) });
     }
     // A restored index lists targets in serialized order; analyze() lists them in import order.
     dependencies.sort((left, right) => left.line - right.line);

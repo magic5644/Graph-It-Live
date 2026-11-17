@@ -10,6 +10,20 @@ const imp = (module: string, line = 1): Dependency => ({ path: "", type: "import
 
 /** Regression tests for #264: imports dropped by the root boundary are counted, not lost. */
 describe("resolveFileImports", () => {
+  it("keeps a target type-only only while every import of it is (#740)", async () => {
+    const analyzer: ILanguageAnalyzer = {
+      parseImports: async () => [],
+      resolvePath: async () => null,
+      resolveImport: async (_from, specifier) => ({ path: `/repo/apps/worker/src/${specifier.replaceAll(/^\.\/|\.ts$/g, "")}.ts`, outsideRoot: false }),
+    };
+    const typed = (module: string, line: number): Dependency => ({ ...imp(module, line), typeOnly: true });
+    const result = await resolveFileImports(analyzer, from, [typed("./a", 1), typed("./a.ts", 2), typed("./b", 3), imp("./b.ts", 4)], insideRoot);
+    expect(result.dependencies).toEqual([
+      { path: "/repo/apps/worker/src/a.ts", type: "import", line: 1, module: "./a", typeOnly: true },
+      { path: "/repo/apps/worker/src/b.ts", type: "import", line: 3, module: "./b" },
+    ]);
+  });
+
   const from = "/repo/apps/worker/src/a.ts";
   const insideRoot = (p: string) => normalizePath(p).startsWith("/repo/apps/worker/");
 
