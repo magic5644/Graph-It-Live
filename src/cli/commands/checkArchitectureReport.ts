@@ -12,7 +12,7 @@ import { normalizePath } from "../../shared/path.js";
 type Check = WorkspaceArchitectureCheck;
 
 /** A file (with its import line and target) or a free sentence of the config. */
-type Item = { file: string; line?: number; target?: string; rule?: string } | { text: string };
+type Item = { file: string; line?: number; target?: string; rule?: string; typeOnlyCycle?: boolean } | { text: string };
 
 interface Group {
   /** Rule name: a markdown code span, so config text never renders as markdown. */
@@ -55,7 +55,7 @@ function violationGroups(check: Check, isNew: boolean): Group[] {
   return check.rules.flatMap((rule) => {
     const items = check.violations
       .filter((violation) => violation.rule === rule.name && violation.new === isNew)
-      .map(({ source, line, target }) => ({ file: source, line, target }));
+      .map(({ source, line, target, cycle }) => ({ file: source, line, target, typeOnlyCycle: cycle === "type-only" }));
     return items.length === 0 ? [] : [{ heading: rule.name, severity: rule.severity, note: rule.reason, items }];
   });
 }
@@ -107,7 +107,7 @@ function itemText(item: Item, path: (value: string) => string): string {
   const location = path(item.line === undefined ? normalizePath(item.file) : `${normalizePath(item.file)}:${item.line}`);
   const target = item.target === undefined ? "" : ` → ${path(normalizePath(item.target))}`;
   const rule = item.rule === undefined ? "" : ` (${path(item.rule)})`;
-  return `${location}${target}${rule}`;
+  return `${location}${target}${rule}${item.typeOnlyCycle ? " (type-only cycle)" : ""}`;
 }
 
 function textTable(rows: string[][]): string[] {

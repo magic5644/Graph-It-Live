@@ -32,7 +32,7 @@ import {
 import { byCodeUnit } from "./architectureUnits";
 
 /** One import between two files, as a violation or a unit cycle reports it. */
-export type ArchitecturePair = Pick<ArchitectureViolation, "source" | "target" | "line" | "from" | "to">;
+export type ArchitecturePair = Pick<ArchitectureViolation, "source" | "target" | "line" | "from" | "to" | "cycle">;
 
 export interface ArchitecturePairDiff<T extends ArchitecturePair = ArchitecturePair> {
   /** File pairs found at the head, not at the base. */
@@ -107,8 +107,8 @@ export interface ArchitectureReviewHost {
 
 const pairKey = (pair: ArchitecturePair) => `${normalizePath(pair.source)}\0${normalizePath(pair.target)}`;
 const entryKey = (entry: BaselineEntry) => `${entry.rule}\0${normalizePath(entry.source)}\0${normalizePath(entry.target)}`;
-const toPair = ({ source, target, line, from, to }: ArchitecturePair): ArchitecturePair =>
-  ({ source, target, ...(line === undefined ? {} : { line }), from, to });
+const toPair = ({ source, target, line, from, to, cycle }: ArchitecturePair): ArchitecturePair =>
+  ({ source, target, ...(line === undefined ? {} : { line }), from, to, ...(cycle === undefined ? {} : { cycle }) });
 
 /** `renewed`: a head pair also at the base that still counts as new (its baseline acceptance was dropped). */
 function diffPairs<T extends ArchitecturePair>(base: readonly ArchitecturePair[], head: readonly T[], renewed: (pair: T) => boolean = () => false): ArchitecturePairDiff<T> {
@@ -279,8 +279,8 @@ const MAX_MARKDOWN_ITEMS = 20;
 
 /** The architecture section of the review-pr markdown report; `safe` sanitizes table cells and list items. */
 export function renderArchitectureMarkdown(review: ArchitectureReview, safe: (value: string) => string): string[] {
-  const pair = (rule: string, { source, target, line, from, to }: ArchitecturePair) =>
-    `- ${safe(rule)}: ${safe(source)}${line === undefined ? "" : ":" + line} -> ${safe(target)} (${safe(from)} -> ${safe(to)})`;
+  const pair = (rule: string, { source, target, line, from, to, cycle }: ArchitecturePair) =>
+    `- ${safe(rule)}: ${safe(source)}${line === undefined ? "" : ":" + line} -> ${safe(target)} (${safe(from)} -> ${safe(to)}${cycle === "type-only" ? ", type-only cycle" : ""})`;
   const rows = review.rules.map((rule) =>
     `| ${safe(rule.name)} | ${rule.severity} | ${rule.newViolations.length} | ${rule.resolvedViolations.length} | ${rule.unchanged} |`);
   const added = review.rules.flatMap((rule) => rule.newViolations.map((violation) =>

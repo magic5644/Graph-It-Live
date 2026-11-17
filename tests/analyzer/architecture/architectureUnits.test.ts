@@ -29,12 +29,14 @@ function write(relative: string, content = ""): void {
 
 const manifest = (name?: string, extra: Record<string, unknown> = {}) => JSON.stringify({ ...(name ? { name } : {}), ...extra });
 
-/** Files with their imports (workspace-relative); imports are resolved by the fake analyzer. */
+/** Files with their imports (workspace-relative, `|type` or `|dynamic` suffixed); imports are resolved by the fake analyzer. */
 function workspace(files: Record<string, string[]>): AnalyzeFile {
   for (const relative of Object.keys(files)) write(relative);
   return async (filePath) =>
-    (files[normalizePath(path.relative(root, filePath))] ?? []).map((relative) =>
-      ({ path: path.join(root, relative), type: "import" as const, line: 1, module: relative }));
+    (files[normalizePath(path.relative(root, filePath))] ?? []).map((spec) => {
+      const [relative, flag] = spec.split("|");
+      return { path: path.join(root, relative), type: flag === "dynamic" ? "dynamic" as const : "import" as const, line: 1, module: relative, ...(flag === "type" ? { typeOnly: true } : {}) };
+    });
 }
 
 async function unitsOf(files: Record<string, string[]>) {
@@ -448,5 +450,32 @@ describe("folder levels", () => {
     expect(() => folderLevel(graph, root, "nowhere")).toThrow('No file below folder "nowhere"');
     const louvain = { ...graph, context: { ...graph.context, communityMode: "louvain" as const } };
     expect(() => folderLevel(louvain, root, "app")).toThrow("communityMode 'path' only");
+  });
+});
+
+describe("unit cycle kinds (#745)", () => {
+  const kinds = (units: Awaited<ReturnType<typeof unitsOf>>["units"]) =>
+    units.unitEdges.map((edge) => `${edge.from}>${edge.to} ${edge.kind}${edge.cycleKind ? ` ${edge.cycleKind}` : ""}${edge.typeOnlyEdgeCount ? ` type=${edge.typeOnlyEdgeCount}` : ""}`).sort((a, b) => a.localeCompare(b));
+
+  it("calls a cycle type-only only when every file pair between its units is", async () => {
+    const typeOnly = await unitsOf({ "a/x.ts": ["b/y.ts|type"], "a/w.ts": ["b/y.ts|type"], "b/y.ts": ["a/x.ts|type"] });
+    expect(kinds(typeOnly.units)).toEqual(["a>b cycle type-only type=2", "b>a cycle type-only type=1"]);
+    const runtime = await unitsOf({ "a/x.ts": ["b/y.ts|type"], "a/w.ts": ["b/y.ts"], "b/y.ts": ["a/x.ts|type"] });
+    expect(kinds(runtime.units)).toEqual(["a>b cycle runtime type=1", "b>a cycle runtime type=1"]);
+  });
+
+  it("calls a cycle lazy only when no cycle is left without its import() pairs", async () => {
+    const lazy = await unitsOf({ "a/x.ts": ["b/y.ts"], "b/y.ts": ["c/z.ts"], "c/z.ts": ["a/x.ts|dynamic"] });
+    expect(kinds(lazy.units)).toEqual(["a>b cycle lazy", "b>c cycle lazy", "c>a cycle lazy"]);
+    const staticBack = await unitsOf({ "a/x.ts": ["b/y.ts"], "b/y.ts": ["c/z.ts"], "c/z.ts": ["a/x.ts|dynamic", "a/w.ts"] });
+    expect(kinds(staticBack.units)).toEqual(["a>b cycle runtime", "b>c cycle runtime", "c>a cycle runtime"]);
+    // a <-> b static inside a three-unit block whose other pairs are lazy: still runtime.
+    const inner = await unitsOf({ "a/x.ts": ["b/y.ts"], "b/y.ts": ["a/x.ts", "c/z.ts|dynamic"], "c/z.ts": ["a/x.ts|dynamic"] });
+    expect(kinds(inner.units)).toEqual(["a>b cycle runtime", "b>a cycle runtime", "b>c cycle runtime", "c>a cycle runtime"]);
+  });
+
+  it("leaves acyclic edges without a cycle kind, type-only pairs still counted", async () => {
+    const { units } = await unitsOf({ "a/x.ts": ["b/y.ts|type", "b/z.ts"] });
+    expect(kinds(units)).toEqual(["a>b down type=1"]);
   });
 });

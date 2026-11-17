@@ -16,6 +16,7 @@ import {
   type ArchitectureUnitEdge,
   type ArchitectureUnitEdgeKind,
   type ArchitectureUnits,
+  type UnitCycleKind,
   type UnitRole,
 } from "../../shared/architecture-model";
 import { normalizePath } from "../../shared/path";
@@ -75,6 +76,35 @@ export function assignUnits(workspaceRoot: string, files: readonly string[]): Un
   return { unitOf, names };
 }
 
+/** One unit pair: its file pairs, those whose every import is type-only, those loaded only through import(). */
+interface UnitPair {
+  from: string;
+  to: string;
+  fileEdgeCount: number;
+  typeOnlyEdgeCount: number;
+  dynamicEdgeCount: number;
+}
+
+/**
+ * How the cycle of `members` (one strongly connected component) runs: type-only when every pair
+ * between them is (#740), lazy when it no longer cycles without its import() pairs (#741).
+ */
+function cycleKind(members: readonly string[], pairs: ReadonlyMap<string, UnitPair>): UnitCycleKind {
+  const inside = members.flatMap((from) => members.flatMap((to) => (from === to ? [] : pairs.get(`${from}\0${to}`) ?? [])));
+  if (inside.every((pair) => pair.typeOnlyEdgeCount === pair.fileEdgeCount)) return "type-only";
+  if (!inside.some((pair) => pair.dynamicEdgeCount > 0)) return "runtime";
+  // Peel the units no eager pair (a static or type-only import) enters: the cycle is what can never be peeled.
+  const eager = (from: string, to: string) => from !== to && (pairs.get(`${from}\0${to}`)?.dynamicEdgeCount ?? 0) < (pairs.get(`${from}\0${to}`)?.fileEdgeCount ?? 0);
+  let left: readonly string[] = members;
+  let before: number;
+  do {
+    before = left.length;
+    const kept = left;
+    left = kept.filter((to) => kept.some((from) => eager(from, to)));
+  } while (left.length < before);
+  return left.length === 0 ? "lazy" : "runtime";
+}
+
 /** Same-component edges are cycles; any other edge not going down a layer goes upward. */
 export function classifyUnitEdge(fromLayer: number, toLayer: number, sameComponent: boolean): ArchitectureUnitEdgeKind {
   if (sameComponent) return "cycle";
@@ -101,7 +131,7 @@ export function buildArchitectureUnits(
   const internal = new Map<string, number>(unitKeys.map((key) => [key, 0]));
   for (const node of graph.nodes) files.get(unitOf.get(node.relativePath)!)!.push(node.relativePath);
 
-  const pairs = new Map<string, { from: string; to: string; fileEdgeCount: number }>();
+  const pairs = new Map<string, UnitPair>();
   for (const edge of graph.edges) {
     const from = unitOf.get(edge.sourceRelative)!;
     const to = unitOf.get(edge.targetRelative)!;
@@ -110,8 +140,10 @@ export function buildArchitectureUnits(
       continue;
     }
     const key = `${from}\0${to}`;
-    const pair = pairs.get(key) ?? { from, to, fileEdgeCount: 0 };
+    const pair = pairs.get(key) ?? { from, to, fileEdgeCount: 0, typeOnlyEdgeCount: 0, dynamicEdgeCount: 0 };
     pair.fileEdgeCount += 1;
+    if (edge.typeOnly) pair.typeOnlyEdgeCount += 1;
+    if (edge.dynamic) pair.dynamicEdgeCount += 1;
     pairs.set(key, pair);
   }
 
@@ -131,11 +163,17 @@ export function buildArchitectureUnits(
       ...unitRole(workspaceRoot, { key, name: names.get(key)!, folder: key === ROOT_UNIT ? "" : key, files: files.get(key)!, importers: importers(key) }, declaredRoles),
     }))
     .sort((left, right) => right.layer - left.layer || right.fileCount - left.fileCount || byCodeUnit(left.key, right.key));
+  const cycleKinds = components.filter((members) => members.length > 1).map((members) => cycleKind(members, pairs));
+  const cycleKindOf = new Map(components.filter((members) => members.length > 1).flatMap((members, index) => members.map((key) => [key, cycleKinds[index]] as const)));
   const unitEdges: ArchitectureUnitEdge[] = [...pairs.values()]
-    .map((pair) => ({
-      ...pair,
-      kind: classifyUnitEdge(layerOf.get(pair.from)!, layerOf.get(pair.to)!, componentOf.get(pair.from) === componentOf.get(pair.to)),
-    }))
+    .map(({ from, to, fileEdgeCount, typeOnlyEdgeCount }) => {
+      const kind = classifyUnitEdge(layerOf.get(from)!, layerOf.get(to)!, componentOf.get(from) === componentOf.get(to));
+      return {
+        from, to, fileEdgeCount, kind,
+        ...(typeOnlyEdgeCount > 0 ? { typeOnlyEdgeCount } : {}),
+        ...(kind === "cycle" ? { cycleKind: cycleKindOf.get(from)! } : {}),
+      };
+    })
     .sort((left, right) => right.fileEdgeCount - left.fileEdgeCount || byCodeUnit(left.from, right.from) || byCodeUnit(left.to, right.to));
   const interUnitEdges = unitEdges.reduce((total, edge) => total + edge.fileEdgeCount, 0);
 

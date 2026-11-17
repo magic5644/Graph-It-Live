@@ -7,7 +7,7 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import type { ArchitectureMatrix, ArchitectureUnits, MatrixCell } from "../../shared/architecture-model";
+import type { ArchitectureMatrix, ArchitectureUnits, MatrixCell, UnitCycleKind } from "../../shared/architecture-model";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { byCodeUnit, ROOT_UNIT } from "./architectureUnits";
 
@@ -289,30 +289,9 @@ function mutualPairs(input: AssessmentInput): { runtime: Edge[]; typeOnly: Edge[
   };
 }
 
-/** A unit cycle is type-only when every file pair between its units is. */
-function isTypeOnlyCycle(cut: CycleCut, pairs: Map<string, Edge[]>): boolean {
-  const edges = cyclePairs(cut, pairs);
-  return edges.length > 0 && edges.every((edge) => edge.typeOnly === true);
-}
-
-/** The file pairs between the units of a cycle. */
-function cyclePairs(cut: CycleCut, pairs: Map<string, Edge[]>): Edge[] {
-  return cut.members.flatMap((from) => cut.members.flatMap((to) => (from === to ? [] : pairs.get(`${from}>${to}`) ?? [])));
-}
-
-/** A unit cycle is lazy when its units no longer form a cycle without the import() file pairs (#741). */
-function isLazyCycle(cut: CycleCut, pairs: Map<string, Edge[]>): boolean {
-  if (!cyclePairs(cut, pairs).some((edge) => edge.dynamic === true)) return false;
-  const eager = (from: string, to: string) => from !== to && (pairs.get(`${from}>${to}`) ?? []).some((edge) => edge.dynamic !== true);
-  // Peel the units no eager pair enters: a cycle is what can never be peeled.
-  let left = cut.members;
-  let before: number;
-  do {
-    before = left.length;
-    const kept = left;
-    left = kept.filter((to) => kept.some((from) => eager(from, to)));
-  } while (left.length < before);
-  return left.length === 0;
+/** How the unit cycle of a cut runs, as buildArchitectureUnits classified it (#745: one source for every view). */
+function cutKind(input: AssessmentInput, cut: CycleCut): UnitCycleKind {
+  return input.units.unitEdges.find((edge) => edge.kind === "cycle" && edge.from === cut.members[0])?.cycleKind ?? "runtime";
 }
 
 function groupedCycles(input: AssessmentInput, cuts: readonly CycleCut[], mutual: readonly Edge[]): GroupedCycles {
@@ -512,9 +491,9 @@ export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<s
   // The hot spot and the ranking count runtime cycles only (#740, #741).
   const { wins: mutualWins, hotSpot } = mutualImports(input, mutual);
   const scopedCuts = cycleCuts(input.matrix).filter((cut) => cut.members.some(scope.unit));
-  const typeOnlyCuts = scopedCuts.filter((cut) => isTypeOnlyCycle(cut, pairs));
-  const lazyCuts = scopedCuts.filter((cut) => !typeOnlyCuts.includes(cut) && isLazyCycle(cut, pairs));
-  const cuts = scopedCuts.filter((cut) => !typeOnlyCuts.includes(cut) && !lazyCuts.includes(cut));
+  const typeOnlyCuts = scopedCuts.filter((cut) => cutKind(input, cut) === "type-only");
+  const lazyCuts = scopedCuts.filter((cut) => cutKind(input, cut) === "lazy");
+  const cuts = scopedCuts.filter((cut) => cutKind(input, cut) === "runtime");
   const deadCodeFiles = input.deadCode.filter((file) => focus?.has(file.relativePath) ?? true);
   const quickWins = [...cycleBreaks(input, cuts, pairs), ...mutualWins, ...weakDependencies(input, pairs, scope), ...deadCode(input, deadCodeFiles)]
     // Cross products compare gain / effort without rounding; effort 0 ranks first.

@@ -125,12 +125,22 @@ export interface ArchitectureUnit {
 /** `upward`: to a unit at the same or a higher layer; `cycle`: both units in one cycle. */
 export type ArchitectureUnitEdgeKind = "down" | "upward" | "cycle";
 
+/**
+ * How a unit cycle runs: `type-only` when every import between its units is type-only (#740),
+ * `lazy` when the units no longer form a cycle without their dynamic import() pairs (#741).
+ */
+export type UnitCycleKind = "runtime" | "type-only" | "lazy";
+
 export interface ArchitectureUnitEdge {
   from: string;
   to: string;
   /** Distinct directed file pairs from a file of `from` to a file of `to`. */
   fileEdgeCount: number;
   kind: ArchitectureUnitEdgeKind;
+  /** File pairs whose every import is type-only (#745); absent when none. */
+  typeOnlyEdgeCount?: number;
+  /** Cycle edges only: how the cycle the edge belongs to runs (#745). */
+  cycleKind?: UnitCycleKind;
 }
 
 /** Units, layers and unit → unit edges of an architecture graph (buildArchitectureUnits). */
@@ -187,6 +197,8 @@ export interface MatrixCell {
   row: number;
   column: number;
   fileEdgeCount: number;
+  /** Of `fileEdgeCount`, the pairs whose every import is type-only (#745); absent when none. */
+  typeOnlyEdgeCount?: number;
   /** Above the diagonal: the row imports a row placed after it. */
   upward: boolean;
 }

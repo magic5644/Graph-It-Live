@@ -147,13 +147,15 @@
         "from": "packages/core",
         "to": "packages/types",
         "fileEdgeCount": 1,
-        "kind": "cycle"
+        "kind": "cycle",
+        "cycleKind": "runtime"
       },
       {
         "from": "packages/types",
         "to": "packages/core",
         "fileEdgeCount": 1,
-        "kind": "cycle"
+        "kind": "cycle",
+        "cycleKind": "runtime"
       },
       {
         "from": "packages/ui",

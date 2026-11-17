@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { ASSESSMENT_THRESHOLDS, assessArchitecture, cycleCuts, type AssessmentInput, type DeadCodeFile, type DeadFile } from "@/analyzer/architecture/architectureAssessment";
 import { unitMatrix } from "@/analyzer/architecture/architectureMatrix";
-import type { ArchitectureUnitEdge, ArchitectureUnits } from "@/shared/architecture-model";
+import type { ArchitectureUnitEdge, ArchitectureUnits, UnitCycleKind } from "@/shared/architecture-model";
 
 /** `key:files:internal` units and `from>to=pairs` unit edges; `cycles` lists the units in a cycle. */
-function input(unitSpecs: string[], edgeSpecs: string[], options: { cycles?: string[]; files?: [string, string, number?, boolean?, boolean?][]; deadCode?: DeadCodeFile[]; deadFiles?: DeadFile[] } = {}): AssessmentInput {
+function input(unitSpecs: string[], edgeSpecs: string[], options: { cycles?: string[]; cycleKind?: UnitCycleKind; files?: [string, string, number?, boolean?, boolean?][]; deadCode?: DeadCodeFile[]; deadFiles?: DeadFile[] } = {}): AssessmentInput {
   const cycles = new Set(options.cycles ?? []);
   const unitList = unitSpecs.map((spec) => {
     const [key, files, internal] = spec.split(":");
@@ -13,7 +13,10 @@ function input(unitSpecs: string[], edgeSpecs: string[], options: { cycles?: str
   const unitEdges = edgeSpecs.map((spec): ArchitectureUnitEdge => {
     const [pair, count] = spec.split("=");
     const [from, to] = pair.split(">");
-    return { from, to, fileEdgeCount: Number(count), kind: cycles.has(from) && cycles.has(to) ? "cycle" : "down" };
+    // The cycle kind is buildArchitectureUnits' (architectureUnits.test.ts); here it is given.
+    return cycles.has(from) && cycles.has(to)
+      ? { from, to, fileEdgeCount: Number(count), kind: "cycle", cycleKind: options.cycleKind ?? "runtime" }
+      : { from, to, fileEdgeCount: Number(count), kind: "down" };
   });
   const units = { units: unitList, unitEdges, cycles: 0 } as unknown as Pick<ArchitectureUnits, "units" | "unitEdges" | "cycles">;
   const edges = (options.files ?? []).map(([sourceRelative, targetRelative, line, typeOnly, dynamic]) => ({ sourceRelative, targetRelative, line, ...(typeOnly ? { typeOnly } : {}), ...(dynamic ? { dynamic } : {}) }));
@@ -340,9 +343,10 @@ describe("assessArchitecture: type-only cycles (#740)", () => {
     });
   });
 
-  it("keeps a unit cycle runtime when one file pair between its units is runtime", () => {
+  it("lists a type-only unit cycle apart and ranks a runtime one", () => {
     const cycle = (typeOnly: boolean) => input(["a:2:0", "b:2:0"], ["a>b=2", "b>a=1"], {
       cycles: ["a", "b"],
+      cycleKind: typeOnly ? "type-only" : "runtime",
       files: [["a/x.ts", "b/y.ts", 1, true], ["a/w.ts", "b/y.ts", 2, typeOnly], ["b/y.ts", "a/x.ts", 3, true]],
     });
     const typeOnly = { ...cycle(true), units: { ...cycle(true).units, cycles: 1 } };
@@ -366,10 +370,11 @@ describe("assessArchitecture: type-only cycles (#740)", () => {
 describe("assessArchitecture: lazy cycles (#741)", () => {
   const withCycles = (spec: AssessmentInput, cycles: number) => ({ ...spec, units: { ...spec.units, cycles } });
 
-  it("calls a unit cycle lazy only when no cycle is left without its import() pairs", () => {
+  it("lists a lazy unit cycle apart and ranks a runtime one", () => {
     // a -> b -> c -> a, the closing pair lazy; a second, static c -> a pair keeps it runtime.
     const cycle = (staticBack: boolean) => withCycles(input(["a:2:0", "b:1:0", "c:1:0"], ["a>b=1", "b>c=1", "c>a=" + (staticBack ? 2 : 1)], {
       cycles: ["a", "b", "c"],
+      cycleKind: staticBack ? "runtime" : "lazy",
       files: [["a/x.ts", "b/y.ts", 1], ["b/y.ts", "c/z.ts", 1], ["c/z.ts", "a/x.ts", 1, false, true], ...(staticBack ? [["c/z.ts", "a/w.ts", 2] as [string, string, number]] : [])],
     }), 1);
     expect(assessArchitecture(cycle(false)).totals).toMatchObject({ unitCycles: 0, lazyUnitCycles: 1, typeOnlyUnitCycles: 0 });
