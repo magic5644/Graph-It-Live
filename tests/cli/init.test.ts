@@ -15,13 +15,12 @@ vi.mock("@/mcp/tools", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/mcp/tools")>()),
   // The real scan needs the reverse index of a full CLI run (covered by the E2E test).
   executeScanDeadCode: vi.fn().mockImplementation(async ({ unreferencedFiles, minConfidence }: { unreferencedFiles?: boolean; minConfidence?: string }) => {
-    const symbol = (name: string, confidence: string) => ({ name, line: 2, id: name, kind: "VariableDeclaration", isExported: true, confidence });
-    const high = { relativePath: "backend/src/api.ts", unusedSymbols: [{ ...symbol("api", "high"), endLine: 5 }] };
-    // Listed with --focus only (minConfidence low): a medium export in backend, a low one outside it.
-    const below = [
-      { relativePath: "backend/src/db.ts", unusedSymbols: [symbol("query", "medium")] },
-      { relativePath: "mfe/cart/src/view.ts", unusedSymbols: [symbol("unusedView", "low")] },
-    ];
+    const symbol = (name: string, confidence: string, reasons: string[]) => ({ name, line: 2, id: name, kind: "VariableDeclaration", isExported: true, confidence, reasons });
+    const high = { relativePath: "backend/src/api.ts", unusedSymbols: [{ ...symbol("api", "high", ["importers-use-other-exports"]), endLine: 5 }] };
+    // Medium exports in backend, one with two reasons (minConfidence medium); a low one outside it (low: --focus only).
+    const medium = { relativePath: "backend/src/db.ts", unusedSymbols: [symbol("query", "medium", ["test-only-use"]), symbol("schema", "medium", ["convention:generated", "test-only-use"])] };
+    const low = { relativePath: "mfe/cart/src/view.ts", unusedSymbols: [symbol("unusedView", "low", ["no-importer"])] };
+    const byLevel: Record<string, unknown[]> = { high: [high], medium: [high, medium], low: [high, medium, low] };
     return unreferencedFiles
       ? {
         // A file gone since the scan has no line count.
@@ -30,7 +29,7 @@ vi.mock("@/mcp/tools", async (importOriginal) => ({
           { relativePath: "backend/src/gone.ts", exports: 0, confidence: "medium", reasons: ["test-only-use"] },
         ],
       }
-      : { entries: minConfidence === "low" ? [high, ...below] : [high], byConfidence: { high: 1, medium: 2, low: 3 } };
+      : { entries: byLevel[minConfidence ?? "high"], byConfidence: { high: 1, medium: 2, low: 3 } };
   }),
 }));
 
@@ -276,7 +275,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     expect(text).toMatch(/Cycles to cut \(\d+\):/);
     expect(text.indexOf("Summary:")).toBeLessThan(text.indexOf("Guard:"));
     expect(await run(["--dry-run"], runtime, "toon", offline)).toContain("dry-run");
-    expect(text).toContain("Unused exports: 1 high-confidence in 1 file (2 medium, 3 low not listed: graph-it check --minConfidence low)");
+    expect(text).toContain("Unused exports: 1 high-confidence in 1 file listed; not listed: 2 medium (by reason: test-only-use 2, convention:generated 1), graph-it check --minConfidence medium; 3 low, graph-it check --minConfidence low");
   });
 
   describe("--focus", () => {
@@ -285,7 +284,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
       const result = await init(["--dry-run", "--focus", "backend"]);
       expect(result.focus).toBe("backend");
       // backend/src/{api,db}.ts; neighbours: functions/billing, frontend, (root) scripts, shared/utils.
-      expect(result.assessment.totals).toMatchObject({ files: 2, units: 5, unitEdges: 4, unitCycles: 0, unusedExports: 1, unusedExportsMedium: 1, unusedExportsLow: 0, deadFiles: 1 });
+      expect(result.assessment.totals).toMatchObject({ files: 2, units: 5, unitEdges: 4, unitCycles: 0, unusedExports: 1, unusedExportsMedium: 2, unusedExportsLow: 0, deadFiles: 1 });
       expect(result.assessment.quickWins.map((win) => win.kind)).not.toContain("cycle-break");
       expect(result.assessment.quickWins.every((win) => win.units.includes("backend"))).toBe(true);
       const neighbours = ["backend", "functions/billing", "frontend", "(root)", "shared/utils"];
@@ -343,12 +342,17 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     });
   });
 
-  it("lists only high-confidence dead code as quick wins and counts the other levels", async () => {
+  it("lists only high-confidence dead code as quick wins and counts the other levels, medium ones by reason", async () => {
     const { executeScanDeadCode } = await import("@/mcp/tools");
     const result = await init(["--dry-run"]);
-    expect(executeScanDeadCode).toHaveBeenCalledWith({ minConfidence: "high" }, undefined, expect.any(Function));
+    expect(executeScanDeadCode).toHaveBeenCalledWith({ minConfidence: "medium" }, undefined, expect.any(Function));
     expect(executeScanDeadCode).toHaveBeenCalledWith({ unreferencedFiles: true }, undefined, expect.any(Function));
-    expect(result.assessment.totals).toMatchObject({ deadCodeFiles: 1, unusedExports: 1, unusedExportsMedium: 2, unusedExportsLow: 3, deadFiles: 2 });
+    expect(result.assessment.totals).toMatchObject({
+      deadCodeFiles: 1, unusedExports: 1, unusedExportsMedium: 2, unusedExportsLow: 3, deadFiles: 2,
+      unusedExportsMediumByReason: { "test-only-use": 2, "convention:generated": 1 },
+    });
+    // backend/src/db.ts holds medium exports only: no quick win.
+    expect(result.assessment.quickWins.filter((win) => win.kind === "dead-code").map((win) => win.subject)).toEqual(["backend/src/api.ts: 1 unused export(s)"]);
     const lines = fs.readFileSync(file("backend/src/api.ts"), "utf8").trimEnd().split("\n").length;
     expect(result.assessment.deadFiles.flatMap((group) => group.files)).toEqual([
       expect.objectContaining({ relativePath: "backend/src/api.ts", lines }),

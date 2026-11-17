@@ -1027,7 +1027,7 @@ An invalid config is reported, never replaced.
 | `cycle-break` | A unit cycle; its cut = the cells against the matrix order, its reverse or a greedy (Eades–Lin–Smyth) order, the cheapest | units layered again | file pairs to remove or move |
 | `mutual-import` | Files importing each other, grouped by hot spot: a file in six mutual imports is one item | runtime file cycles broken | files to edit: 1, the hub, which drops its import of each partner |
 | `weak-dependency` | A unit edge (not in a cycle) of at most 2 file pairs: remove it before freezing it in `allowOnly` | 1 | file pairs |
-| `dead-code` | A file with `high`-confidence unused exports, as [`check`](#check) reports them; the summary counts the `medium` and `low` items it leaves out | lines removed: the whole file when no file imports it, else the lines of its unused declarations | files to edit: 0 to delete a file no file imports, else 1 |
+| `dead-code` | A file with `high`-confidence unused exports, as [`check`](#check) reports them; the summary counts the `medium` items it leaves out by reason code (`test-only-use 2, convention:generated 1`; one export may have several) with `graph-it check --minConfidence medium` to list them, and the `low` ones with `graph-it check --minConfidence low` | lines removed: the whole file when no file imports it, else the lines of its unused declarations | files to edit: 0 to delete a file no file imports, else 1 |
 
 - **Hubs** and **Other leads** also read the [unit matrix](#architecture) (`--level units --matrix`) in plain sentences:
 
@@ -1040,7 +1040,7 @@ An invalid config is reported, never replaced.
 
 The **Glossary** then defines Ca, Ce, I, C, the matrix order and the cut once; **Diagrams**, the **Config changes** and the **Guard** come last: the commands that keep the guard on, `graph-it check-architecture` for a pre-commit hook, a CI step, and the SARIF upload for code scanning (see [check-architecture](#check-architecture)).
 
-The totals (files, units, unit edges, runtime unit cycles and mutual imports with their hot spot, type-only and lazy unit cycles and mutual imports, accepted violations, dead files and their lines, dead-code files and unused exports) are the debt baseline to compare release after release.
+The totals (files, units, unit edges, runtime unit cycles and mutual imports with their hot spot, type-only and lazy unit cycles and mutual imports, accepted violations, dead files and their lines, dead-code files and unused exports, the `medium` ones by reason under `unusedExportsMediumByReason`) are the debt baseline to compare release after release.
 
 `json` and `toon` list every item and the `thresholds`; `text` and `markdown` list the first 20 of each section.
 

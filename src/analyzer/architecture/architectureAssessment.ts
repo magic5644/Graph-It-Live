@@ -129,6 +129,8 @@ export interface ArchitectureAssessment {
     unusedExports: number;
     /** Unused exports below the high confidence the quick wins list (`graph-it check --minConfidence`) */
     unusedExportsMedium: number;
+    /** Medium ones per reason code (`test-only-use`, `convention:generated`…); one export may have several reasons */
+    unusedExportsMediumByReason: Record<string, number>;
     unusedExportsLow: number;
   };
   thresholds: typeof ASSESSMENT_THRESHOLDS;
@@ -144,7 +146,7 @@ export interface AssessmentInput {
   /** Files no production file imports */
   deadFiles?: readonly DeadFile[];
   /** Unused exports below high confidence, counted and never listed */
-  deadCodeBelowHigh?: { medium: number; low: number };
+  deadCodeBelowHigh?: { medium: number; low: number; mediumByReason?: Record<string, number> };
   acceptedViolations: number;
 }
 
@@ -545,6 +547,7 @@ export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<s
       deadCodeFiles: deadCodeFiles.filter((file) => file.unusedSymbols.length > 0).length,
       unusedExports: deadCodeFiles.reduce((total, file) => total + file.unusedSymbols.length, 0),
       unusedExportsMedium: input.deadCodeBelowHigh?.medium ?? 0,
+      unusedExportsMediumByReason: input.deadCodeBelowHigh?.mediumByReason ?? {},
       unusedExportsLow: input.deadCodeBelowHigh?.low ?? 0,
     },
     thresholds: ASSESSMENT_THRESHOLDS,

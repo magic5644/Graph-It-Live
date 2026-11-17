@@ -248,26 +248,26 @@ async function lineCount(workspaceRoot: string, relativePath: string): Promise<n
 }
 
 /**
- * High-confidence unused exports, listed as quick wins, the counts of the other levels, and the files nothing
- * imports (#711). With focus files, every level is listed so the counts below high cover the focus only.
+ * High-confidence unused exports, listed as quick wins, the counts of the other levels (medium ones by reason,
+ * #744), and the files nothing imports (#711). With focus files, every level is listed so the counts below high
+ * cover the focus only.
  */
 async function deadCodeFiles(workspaceRoot: string, progress: CliProgress, focus?: ReadonlySet<string>) {
   const scan = await progress.phase("Analyzing unused exports", (tick) =>
-    executeScanDeadCode({ minConfidence: focus === undefined ? "high" : "low" }, undefined, tick));
+    executeScanDeadCode({ minConfidence: focus === undefined ? "medium" : "low" }, undefined, tick));
   const unreferenced = await progress.phase("Finding unreferenced files", (tick) =>
     executeScanDeadCode({ unreferencedFiles: true }, undefined, tick));
-  const below = { medium: scan.byConfidence.medium, low: scan.byConfidence.low };
-  if (focus !== undefined) {
-    const symbols = scan.entries.filter((entry) => focus.has(entry.relativePath)).flatMap((entry) => entry.unusedSymbols);
-    below.medium = symbols.filter((symbol) => symbol.confidence === "medium").length;
-    below.low = symbols.filter((symbol) => symbol.confidence === "low").length;
-  }
+  const symbols = scan.entries.filter((entry) => focus?.has(entry.relativePath) ?? true).flatMap((entry) => entry.unusedSymbols);
+  const medium = symbols.filter((symbol) => symbol.confidence === "medium");
+  const mediumByReason: Record<string, number> = {};
+  for (const reason of medium.flatMap((symbol) => symbol.reasons)) mediumByReason[reason] = (mediumByReason[reason] ?? 0) + 1;
+  const low = focus === undefined ? scan.byConfidence.low : symbols.filter((symbol) => symbol.confidence === "low").length;
   return {
     deadCode: scan.entries.map((entry) => ({
       relativePath: entry.relativePath,
       unusedSymbols: entry.unusedSymbols.filter((symbol) => symbol.confidence === "high").map(({ name, line, endLine }) => ({ name, line, endLine })),
     })),
-    deadCodeBelowHigh: below,
+    deadCodeBelowHigh: { medium: medium.length, low, mediumByReason },
     deadFiles: await Promise.all(unreferenced.unreferencedFiles.map(async ({ relativePath, exports, confidence, reasons, via, tests }) => ({
       relativePath, lines: await lineCount(workspaceRoot, relativePath), exports, confidence, reasons,
       ...(via ? { via } : {}),
