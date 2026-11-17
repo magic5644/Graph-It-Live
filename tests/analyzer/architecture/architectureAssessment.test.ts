@@ -229,7 +229,7 @@ describe("assessArchitecture: matrix reading", () => {
     expect(result.deadFiles).toEqual([]);
     expect(result.totals).toEqual({
       files: 0, units: 0, unitEdges: 0, unitCycles: 0, mutualImports: 0, typeOnlyUnitCycles: 0, typeOnlyMutualImports: 0, lazyUnitCycles: 0, lazyMutualImports: 0, acceptedViolations: 0,
-      deadFiles: 0, deadFileLines: 0, deadCodeFiles: 0, unusedExports: 0, unusedExportsMedium: 0, unusedExportsLow: 0,
+      deadFiles: 0, deadFileLines: 0, deadCodeFiles: 0, unusedExports: 0, unusedExportsMedium: 0, unusedExportsMediumByReason: {}, unusedExportsLow: 0,
     });
     expect(Object.keys(result.glossary)).toEqual(expect.arrayContaining(["Ca", "Ce", "I", "C", "cut"]));
   });

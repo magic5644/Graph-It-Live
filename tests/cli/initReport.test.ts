@@ -108,7 +108,7 @@ describe("initReport", () => {
       "  Size: 11 files in 3 units, 2 unit edges",
       "  Cycles: 0 runtime unit cycles, 1 runtime mutual file import; type-only: 0 unit cycles, 0 mutual file imports; lazy: 0 unit cycles, 0 mutual file imports",
       "  Dead files: 9 files no production file imports, 21 lines with their tests (7 only imported by tests)",
-      "  Unused exports: 0 high-confidence in 0 files (0 medium, 0 low not listed: graph-it check --minConfidence low)",
+      "  Unused exports: 0 high-confidence in 0 files listed; not listed: 0 medium, graph-it check --minConfidence medium; 0 low, graph-it check --minConfidence low",
       "  Top action: check, then delete app/old.ts (dead file: 12 lines, 1 export, low)",
     ]);
     expect(renderInitText(result())).toContain("Top action: none, nothing to clean up");

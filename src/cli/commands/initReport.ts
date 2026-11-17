@@ -195,6 +195,10 @@ function summaryLines(result: InitResult, all: readonly ReportSection[]): string
     .filter(Boolean).join(", ");
   const testOnlyText = importedBy === "" ? "" : ` (${importedBy})`;
   const topText = topAction(result.assessment, all);
+  const byReason = Object.entries(t.unusedExportsMediumByReason)
+    .sort(([a, countA], [b, countB]) => countB - countA || a.localeCompare(b))
+    .map(([reason, count]) => `${reason} ${count}`).join(", ");
+  const mediumText = byReason === "" ? "" : ` (by reason: ${byReason})`;
   const { focus } = result;
   return [
     ...(focus === undefined ? [] : [
@@ -205,7 +209,7 @@ function summaryLines(result: InitResult, all: readonly ReportSection[]): string
       : `Size: ${plural(t.files, "file")} in ${focus}, ${plural(t.units, "unit")} with its neighbours, ${plural(t.unitEdges, "unit edge")} through it`,
     `Cycles: ${plural(t.unitCycles, "runtime unit cycle")}, ${plural(t.mutualImports, "runtime mutual file import")}${hotSpotText}; type-only: ${plural(t.typeOnlyUnitCycles, "unit cycle")}, ${plural(t.typeOnlyMutualImports, "mutual file import")}; lazy: ${plural(t.lazyUnitCycles, "unit cycle")}, ${plural(t.lazyMutualImports, "mutual file import")}`,
     `Dead files: ${plural(t.deadFiles, "file")} no production file imports, ${plural(t.deadFileLines, "line")} with their tests${testOnlyText}`,
-    `Unused exports: ${t.unusedExports} high-confidence in ${plural(t.deadCodeFiles, "file")} (${t.unusedExportsMedium} medium, ${t.unusedExportsLow} low not listed: graph-it check --minConfidence low)`,
+    `Unused exports: ${t.unusedExports} high-confidence in ${plural(t.deadCodeFiles, "file")} listed; not listed: ${t.unusedExportsMedium} medium${mediumText}, graph-it check --minConfidence medium; ${t.unusedExportsLow} low, graph-it check --minConfidence low`,
     `Top action: ${topText}`,
   ];
 }
