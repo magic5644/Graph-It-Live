@@ -846,4 +846,10 @@ describe("check --unreferencedFiles markdown (#711)", () => {
     expect(md).toContain("| src/main.ts | declared:package.json#main |");
     expect(formatOutput({ ...result, excluded: [] }, "markdown", "check")).toContain("_None._");
   });
+
+  it("counts the generated files left out in the summary, only when there are some (#743)", () => {
+    const note = "2 generated file(s) left out (a graphql-codegen config writes them).";
+    expect(formatOutput({ ...result, generatedFiles: 2 }, "markdown", "check")).toContain(`1 medium (only tests import them). ${note}`);
+    expect(formatOutput({ ...result, generatedFiles: 0 }, "markdown", "check")).not.toContain("generated file(s)");
+  });
 });

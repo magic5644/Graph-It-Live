@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { ExcludedExport, UnusedSymbol } from "@/analyzer/deadcode/deadCodeConfidence";
+import { scanDeadCode, scanUnreferencedFiles, type UnreferencedFilesScanResult } from "@/analyzer/deadcode/DeadCodeScanner";
 import type { Spider } from "@/analyzer/Spider";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
 
@@ -49,6 +50,33 @@ const FILES: Record<string, string> = {
   "rsc/src/api.rs": "pub fn rs_api() {}\n",
   "rsc/src/hidden.rs": "pub fn hidden_fn() {}\n",
   "rsc/src/main.rs": "use rsc::api;\nfn main() { hidden(); }\n",
+  // Serverless and SAM handlers, Node and Python (#743)
+  "fn/serverless.yml": "service: fn\nfunctions:\n  orders:\n    handler: src/orders.main\n  report:\n    handler: report.run\n",
+  "fn/src/orders.ts": "export function main() { return 1; }\nexport function ordersDead() { return 2; }\n",
+  "fn/report.py": "def run():\n    return 1\n",
+  "sam/template.yaml": [
+    "Resources:",
+    "  NodeFn:",
+    "    Type: AWS::Serverless::Function",
+    "    Properties:",
+    "      CodeUri: node/",
+    "      Handler: index.handler",
+    "  PyFn:",
+    "    Type: AWS::Serverless::Function",
+    "    Properties:",
+    "      CodeUri: py/",
+    "      Handler: app.lambda_handler",
+    "",
+  ].join("\n"),
+  "sam/node/index.mjs": "export async function handler() { return 1; }\n",
+  "sam/py/app.py": "def lambda_handler(event, context):\n    return 1\n",
+  // graphql-codegen outputs, a yml config naming a file and a ts config naming a preset folder (#743)
+  "gql/codegen.yml": "schema: schema.graphql\ngenerates:\n  src/types.ts:\n    plugins:\n      - typescript\n",
+  "gql/src/types.ts": "export type Query = { a: number };\nexport type UnusedType = { b: number };\n",
+  "gql/src/app.ts": "import type { Query } from './types';\nexport const q: Query = { a: 1 };\n",
+  "gqlts/codegen.ts": "import type { CodegenConfig } from '@graphql-codegen/cli';\nconst config: CodegenConfig = { generates: { 'src/gql/': { preset: 'client' } } };\nexport default config;\n",
+  "gqlts/src/gql/graphql.ts": "export const used = 1;\nexport const unusedGen = 2;\n",
+  "gqlts/src/main.ts": "import { used } from './gql/graphql';\nconsole.log(used);\n",
 };
 
 const key = (root: string, filePath: string, name: string): string => `${path.relative(root, filePath).replaceAll("\\", "/")}#${name}`;
@@ -58,6 +86,8 @@ describe("Spider - declared entry points (#696)", { timeout: 60_000 }, () => {
   let spider: Spider;
   let items: Map<string, UnusedSymbol>;
   let excluded: Map<string, ExcludedExport>;
+  let generatedExportFiles: number;
+  let unreferenced: UnreferencedFilesScanResult;
 
   beforeAll(async () => {
     root = await fs.mkdtemp(path.join(tmpdir(), "gitl-declared-"));
@@ -70,6 +100,8 @@ describe("Spider - declared entry points (#696)", { timeout: 60_000 }, () => {
     const result = await spider.scanDeadCode();
     items = new Map(result.entries.flatMap((entry) => entry.unusedSymbols.map((symbol) => [key(root, entry.filePath, symbol.name), symbol] as const)));
     excluded = new Map(result.excluded.map((item) => [key(root, item.filePath, item.name), item] as const));
+    generatedExportFiles = (await scanDeadCode(spider, root, {})).generatedFiles;
+    unreferenced = await scanUnreferencedFiles(spider, root, { verbose: true });
   });
 
   afterAll(async () => {
@@ -128,6 +160,32 @@ describe("Spider - declared entry points (#696)", { timeout: 60_000 }, () => {
     expect(reasonOf("rsc/src/api.rs#rs_api")).toBe("declared:rsc/Cargo.toml#lib");
     expect(excluded.has("rsc/src/lib.rs#crate_only")).toBe(false);
     expect(excluded.has("rsc/src/hidden.rs#hidden_fn")).toBe(false);
+  });
+
+  it("excludes Serverless and SAM handlers, Node and Python, with the manifest field (#743)", () => {
+    expect(reasonOf("fn/src/orders.ts#main")).toBe("declared:fn/serverless.yml#functions.orders.handler");
+    expect(reasonOf("fn/report.py#run")).toBe("declared:fn/serverless.yml#functions.report.handler");
+    expect(reasonOf("sam/node/index.mjs#handler")).toBe("declared:sam/template.yaml#Resources.NodeFn.Properties.Handler");
+    expect(reasonOf("sam/py/app.py#lambda_handler")).toBe("declared:sam/template.yaml#Resources.PyFn.Properties.Handler");
+    // Only the declared handler: the file's other exports are still reported.
+    expect(items.has("fn/src/orders.ts#ordersDead")).toBe(true);
+  });
+
+  it("lists no handler as an unreferenced file, each excluded with its manifest field (#743)", () => {
+    const listed = new Set(unreferenced.unreferencedFiles.map((file) => file.relativePath));
+    const excludedFiles = new Map((unreferenced.excluded ?? []).map((file) => [file.relativePath, file.reason]));
+    for (const handler of ["fn/src/orders.ts", "fn/report.py", "sam/node/index.mjs", "sam/py/app.py"]) expect(listed.has(handler)).toBe(false);
+    expect(excludedFiles.get("sam/py/app.py")).toBe("declared:sam/template.yaml#Resources.PyFn.Properties.Handler");
+    expect(excludedFiles.get("gqlts/codegen.ts")).toBe("convention:config-file");
+  });
+
+  it("leaves graphql-codegen outputs out of the unused exports and counts them (#743)", () => {
+    expect(reasonOf("gql/src/types.ts#UnusedType")).toBe('generated:gql/codegen.yml#generates["src/types.ts"]');
+    expect(reasonOf("gqlts/src/gql/graphql.ts#unusedGen")).toBe('generated:gqlts/codegen.ts#generates["src/gql/"]');
+    expect(items.has("gql/src/types.ts#UnusedType")).toBe(false);
+    expect(items.has("gqlts/src/gql/graphql.ts#unusedGen")).toBe(false);
+    expect(generatedExportFiles).toBe(2);
+    expect(unreferenced.generatedFiles).toBe(0);
   });
 
   it("applies the same exclusions to a single-file check", async () => {

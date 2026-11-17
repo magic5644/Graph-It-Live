@@ -48,6 +48,7 @@ describe("deadcode tools", () => {
 
       const spiderMock = {
         scanDeadCode: vi.fn(async () => ({
+          excluded: [],
           entries: [
             {
               filePath: fileA,
@@ -89,6 +90,7 @@ describe("deadcode tools", () => {
       const fileB = path.join(tempDir, "src", "b.ts");
       setupWorkerState({
         scanDeadCode: vi.fn(async () => ({
+          excluded: [],
           entries: [
             { filePath: fileA, unusedSymbols: [makeSymbol("keep"), makeSymbol("maybe", undefined, undefined, "medium")] },
             { filePath: fileB, unusedSymbols: [makeSymbol("entry", undefined, undefined, "low")] },
@@ -113,6 +115,7 @@ describe("deadcode tools", () => {
 
       const spiderMock = {
         scanDeadCode: vi.fn(async () => ({
+          excluded: [],
           entries: [
             {
               filePath: fileA,
@@ -150,6 +153,7 @@ describe("deadcode tools", () => {
 
       const spiderMock = {
         scanDeadCode: vi.fn(async () => ({
+          excluded: [],
           entries: [],
           scannedFiles: 0,
           skippedFiles: 0,
@@ -169,6 +173,7 @@ describe("deadcode tools", () => {
     it("should pass maxFiles option to spider", async () => {
       const spiderMock = {
         scanDeadCode: vi.fn(async () => ({
+          excluded: [],
           entries: [],
           scannedFiles: 0,
           skippedFiles: 0,
@@ -184,7 +189,7 @@ describe("deadcode tools", () => {
 
     it("reports truncation when maxFiles left files unscanned (#231)", async () => {
       setupWorkerState({
-        scanDeadCode: vi.fn(async () => ({ entries: [], scannedFiles: 2, skippedFiles: 0, filesBeyondLimit: 3 })),
+        scanDeadCode: vi.fn(async () => ({ entries: [], excluded: [], scannedFiles: 2, skippedFiles: 0, filesBeyondLimit: 3 })),
       });
 
       const result = await executeScanDeadCode({ maxFiles: 2 });
@@ -197,7 +202,7 @@ describe("deadcode tools", () => {
 
     it("reports no truncation when every file was scanned (#231)", async () => {
       setupWorkerState({
-        scanDeadCode: vi.fn(async () => ({ entries: [], scannedFiles: 4, skippedFiles: 0, filesBeyondLimit: 0 })),
+        scanDeadCode: vi.fn(async () => ({ entries: [], excluded: [], scannedFiles: 4, skippedFiles: 0, filesBeyondLimit: 0 })),
       });
 
       const result = await executeScanDeadCode({});
@@ -211,6 +216,7 @@ describe("deadcode tools", () => {
 
       const spiderMock = {
         scanDeadCode: vi.fn(async () => ({
+          excluded: [],
           entries: [{ filePath: fileA, unusedSymbols: [makeSymbol("unusedFn")] }],
           scannedFiles: 1,
           skippedFiles: 0,
@@ -230,6 +236,8 @@ describe("deadcode tools", () => {
         { filePath: path.join(tempDir, "src", "b.ts"), name: "late", kind: "Function", line: 9, reason: "declared:package.json#main" },
         { filePath: path.join(tempDir, "src", "b.ts"), name: "early", kind: "Function", line: 2, reason: "declared:package.json#main" },
         { filePath: path.join(tempDir, "src", "a.tsx"), name: "View", kind: "Function", line: 1, reason: "convention:framework-default-export" },
+        { filePath: path.join(tempDir, "src", "gql.ts"), name: "A", kind: "Type", line: 1, reason: 'generated:codegen.yml#generates["src/gql.ts"]' },
+        { filePath: path.join(tempDir, "src", "gql.ts"), name: "B", kind: "Type", line: 2, reason: 'generated:codegen.yml#generates["src/gql.ts"]' },
       ];
       setupWorkerState({ scanDeadCode: vi.fn(async () => ({ entries: [], excluded, scannedFiles: 3, skippedFiles: 0, filesBeyondLimit: 0 })) });
 
@@ -238,7 +246,12 @@ describe("deadcode tools", () => {
         { relativePath: "src/a.tsx", name: "View", kind: "Function", line: 1, reason: "convention:framework-default-export" },
         { relativePath: "src/b.ts", name: "early", kind: "Function", line: 2, reason: "declared:package.json#main" },
         { relativePath: "src/b.ts", name: "late", kind: "Function", line: 9, reason: "declared:package.json#main" },
+        { relativePath: "src/gql.ts", name: "A", kind: "Type", line: 1, reason: 'generated:codegen.yml#generates["src/gql.ts"]' },
+        { relativePath: "src/gql.ts", name: "B", kind: "Type", line: 2, reason: 'generated:codegen.yml#generates["src/gql.ts"]' },
       ]);
+      // One generated file, counted with or without verbose (#743).
+      expect(verbose.generatedFiles).toBe(1);
+      expect((await executeScanDeadCode({})).generatedFiles).toBe(1);
       expect((await executeScanDeadCode({})).excluded).toBeUndefined();
       expect((await executeScanDeadCode({ verbose: false })).excluded).toBeUndefined();
     });
@@ -254,7 +267,10 @@ describe("deadcode tools", () => {
       const scanDeadCode = vi.fn();
       const scanUnreferencedFiles = vi.fn(async () => ({
         files: [file("z.ts", "low"), file("a.ts", "medium")],
-        excluded: [{ filePath: path.join(tempDir, "src", "main.ts"), reason: "declared:package.json#main" }],
+        excluded: [
+          { filePath: path.join(tempDir, "src", "main.ts"), reason: "declared:package.json#main" },
+          { filePath: path.join(tempDir, "src", "gql.ts"), reason: 'generated:codegen.ts#generates["src/gql.ts"]' },
+        ],
         scannedFiles: 5,
         skippedFiles: 0,
         filesBeyondLimit: 0,
@@ -271,7 +287,8 @@ describe("deadcode tools", () => {
         minConfidence: "low",
         byConfidence: { high: 0, medium: 1, low: 1 },
         unreferencedFiles: [{ relativePath: "src/a.ts" }, { relativePath: "src/z.ts" }],
-        excluded: [{ relativePath: "src/main.ts", reason: "declared:package.json#main" }],
+        excluded: [{ relativePath: "src/gql.ts" }, { relativePath: "src/main.ts", reason: "declared:package.json#main" }],
+        generatedFiles: 1,
         truncated: false,
       });
     });
@@ -289,6 +306,7 @@ describe("deadcode tools", () => {
     it("should return empty result when no dead code found", async () => {
       const spiderMock = {
         scanDeadCode: vi.fn(async () => ({
+          excluded: [],
           entries: [],
           scannedFiles: 42,
           skippedFiles: 0,

@@ -79,8 +79,11 @@ graph-it tool scan_dead_code --verbose=true --format toon         # also what wa
 
 Declared entry points are never listed (package.json `main` / `exports` / `bin` / `types`, npm's
 default `index.js`, Python scripts, `__main__.py`, `__all__`, a Cargo lib crate's `pub` items, Rust
-`#[no_mangle]`), nor JSX/Vue default exports. `--verbose=true` lists them under `excluded` with the
-`reason` (`declared:package.json#exports["./x"]`, `convention:framework-default-export`).
+`#[no_mangle]`, `serverless.yml` and SAM `template.yaml` handlers), nor JSX/Vue default exports, nor
+the files a graphql-codegen config generates (`generatedFiles` counts them). `--verbose=true` lists
+them under `excluded` with the `reason` (`declared:package.json#exports["./x"]`,
+`declared:template.yaml#Resources.Fn.Properties.Handler`, `generated:codegen.yml#generates["src/types.ts"]`,
+`convention:framework-default-export`).
 
 Every item carries `confidence`, `reasons` and `evidence` (importer count and first importers). The
 default lists `high` items only; `byConfidence` counts the others and `hint` says how to list them:
@@ -89,7 +92,7 @@ default lists `high` items only; `byConfidence` counts the others and `hint` say
 |---|---|---|
 | `high` | `importers-use-other-exports`: the file is imported, no importer uses the export | Deletion candidate; still run Step 3 for public API and monorepo use |
 | `medium` | `test-only-use`, `dynamic-import-in-workspace`, `convention:decorated`, `named-in-own-file` (drop `export` rather than delete), `name-written-elsewhere` (Rust), `convention:test-file`, `named-in-deploy-manifest` (a Dockerfile, serverless, SAM or Procfile names it: a Lambda handler), `convention:generated` (edit the generator's input, not the file), `published-deep-import` (a published package without `exports` the workspace imports by deep path: outside projects may too) | Review; never delete without the evidence of Step 3 |
-| `low` | `no-importer`: nothing imports the file | Entry point by convention as often as dead (Lambda handler, Dockerfile `CMD`, `serverless.yml` / SAM handler: these manifests declare nothing): review only |
+| `low` | `no-importer`: nothing imports the file | Entry point by convention as often as dead (Lambda handler of another deploy tool, Dockerfile `CMD`: these manifests declare nothing): review only |
 
 Methods, nested functions and Rust `impl` members are never reported. Go, Java and C# are not scanned.
 

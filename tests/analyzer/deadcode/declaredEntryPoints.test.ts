@@ -5,6 +5,7 @@ import {
   declaredReason,
   deepImportablePackageName,
   deepSpecifierPackages,
+  isGeneratedReason,
   pythonAllNames,
   rustAttributedFunctions,
   rustPublicModules,
@@ -322,6 +323,168 @@ describe("declaredEntryPoints - Rust (#696)", () => {
 
   it("reads public module declarations only", () => {
     expect(rustPublicModules("pub mod a;\n  pub mod b ;\nmod c;\npub(crate) mod d;\npub mod e { }\n// pub mod f;\n")).toEqual(["a", "b"]);
+  });
+});
+
+describe("declaredEntryPoints - Serverless, SAM and graphql-codegen (#743)", () => {
+  const one = (file: string, text: string, files: string[]): ReturnType<typeof entriesOf> => entriesOf(sources(files, [{ file, text }]));
+
+  it("reads serverless.yml function handlers, Node and Python, relative to the manifest folder", () => {
+    const yml = [
+      "service: shop # a comment",
+      "provider:",
+      "  name: aws",
+      "functions:",
+      "  orders:",
+      "    handler: src/orders.main",
+      "    events:",
+      "    - http:",
+      "        path: orders",
+      "        handler: src/notAHandler.main",
+      "  'report':",
+      "    description: |",
+      "      handler: src/inBlock.main",
+      '    handler: "py/report.run"',
+      "  dotted:",
+      "    handler: pkg.jobs.nightly",
+      "  missing:",
+      "    handler: src/gone.main",
+      "  noDot:",
+      "    handler: main",
+    ].join("\n");
+    const files = ["api/src/orders.ts", "api/py/report.py", "api/pkg/jobs.py", "api/src/notAHandler.ts", "api/src/inBlock.ts"];
+    expect(one("api/serverless.yml", yml, files)).toEqual({
+      entries: [
+        "api/pkg/jobs.py#nightly declared:api/serverless.yml#functions.dotted.handler",
+        "api/py/report.py#run declared:api/serverless.yml#functions.report.handler",
+        "api/src/orders.ts#main declared:api/serverless.yml#functions.orders.handler",
+      ],
+      warnings: [],
+    });
+  });
+
+  it("reads SAM functions: CodeUri + Handler, Globals as fallback, Node and Python", () => {
+    const template = [
+      "AWSTemplateFormatVersion: '2010-09-09'",
+      "Transform: AWS::Serverless-2016-10-31",
+      "Globals:",
+      "  Function:",
+      "    Runtime: python3.12",
+      "    Handler: app.lambda_handler",
+      "Resources:",
+      "  NodeFn:",
+      "    Type: AWS::Serverless::Function",
+      "    Properties:",
+      "      CodeUri: node-fn/",
+      "      Handler: src/index.handler",
+      "  PyFn:",
+      '    Type: "AWS::Serverless::Function"',
+      "    Properties:",
+      "      CodeUri: py_fn",
+      "  RootFn:",
+      "    Type: AWS::Serverless::Function",
+      "    Properties:",
+      "      Handler: root.handler",
+      "  S3Fn:",
+      "    Type: AWS::Serverless::Function",
+      "    Properties:",
+      "      CodeUri:",
+      "        Bucket: b",
+      "        Key: k",
+      "      Handler: s3.handler",
+      "  Table:",
+      "    Type: AWS::DynamoDB::Table",
+      "    Properties:",
+      "      Handler: table.handler",
+    ].join("\n");
+    const files = ["node-fn/src/index.js", "py_fn/app.py", "root.py", "s3.py", "table.py"];
+    expect(one("template.yaml", template, files).entries).toEqual([
+      "node-fn/src/index.js#handler declared:template.yaml#Resources.NodeFn.Properties.Handler",
+      "py_fn/app.py#lambda_handler declared:template.yaml#Resources.PyFn.Properties.Handler",
+      "root.py#handler declared:template.yaml#Resources.RootFn.Properties.Handler",
+    ]);
+  });
+
+  it("reads Globals.Function CodeUri, unless the resource's own CodeUri is an S3 map", () => {
+    const template = [
+      "Globals:",
+      "  Function:",
+      "    CodeUri: shared/",
+      "Resources:",
+      "  Inherits:",
+      "    Type: AWS::Serverless::Function",
+      "    Properties:",
+      "      Handler: a.handler",
+      "  FromS3:",
+      "    Type: AWS::Serverless::Function",
+      "    Properties:",
+      "      CodeUri: { Bucket: b, Key: k }",
+      "      Handler: b.handler",
+    ].join("\n");
+    expect(one("template.yaml", template, ["shared/a.ts", "shared/b.ts"]).entries).toEqual([
+      "shared/a.ts#handler declared:template.yaml#Resources.Inherits.Properties.Handler",
+    ]);
+  });
+
+  it("rejects a handler or CodeUri that is absolute or leaves the workspace", () => {
+    const outside = ["/ws/../other/x.ts", "/x.ts"];
+    const serverless = "functions:\n  up:\n    handler: ../../other/x.main\n  abs:\n    handler: /x.main\n";
+    expect(one("api/serverless.yml", serverless, outside).entries).toEqual([]);
+    const sam = "Resources:\n  Fn:\n    Type: AWS::Serverless::Function\n    Properties:\n      CodeUri: ../escape\n      Handler: x.main\n";
+    expect(one("template.yml", sam, ["../escape/x.ts"]).entries).toEqual([]);
+    const absolute = "Resources:\n  Fn:\n    Type: AWS::Serverless::Function\n    Properties:\n      CodeUri: /etc\n      Handler: x.main\n";
+    expect(one("template.yml", absolute, ["etc/x.ts"]).entries).toEqual([]);
+  });
+
+  it("warns on malformed YAML, never crashes", () => {
+    expect(one("serverless.yml", "functions:\n\thello:\n\t\thandler: a.b\n", ["a.ts"])).toEqual({
+      entries: [],
+      warnings: ["serverless.yml: not valid YAML, its entry points are ignored"],
+    });
+    expect(one("template.yaml", "AWS::Serverless::Function is not yaml\n", []).warnings).toEqual(["template.yaml: not valid YAML, its entry points are ignored"]);
+    // A template.yaml of another tool (Jinja) is no SAM template: no warning.
+    expect(one("template.yaml", "{{ project_name }}\n", [])).toEqual({ entries: [], warnings: [] });
+    expect(one("codegen.yml", "{{ broken", []).warnings).toEqual(["codegen.yml: not valid YAML, its generated files are ignored"]);
+    expect(one("codegen.json", "{ nope", []).warnings).toEqual(["codegen.json: not a JSON object, its generated files are ignored"]);
+    expect(one("codegen.ts", "export default { generates: { 'a.ts': {} ", []).warnings).toEqual(["codegen.ts: generates never closes, its generated files are ignored"]);
+  });
+
+  it("marks graphql-codegen outputs as generated: yml, json and ts, a folder key covering its files", () => {
+    const files = ["web/src/gql/graphql.ts", "web/src/gql/fragments/index.ts", "web/src/types.ts", "web/src/hand.ts"];
+    const yml = "schema: schema.graphql\ngenerates:\n  src/types.ts:\n    plugins:\n      - typescript\n  \"src/gql/\":\n    preset: client\n";
+    expect(one("web/codegen.yml", yml, files).entries).toEqual([
+      'web/src/gql/fragments/index.ts#* generated:web/codegen.yml#generates["src/gql/"]',
+      'web/src/gql/graphql.ts#* generated:web/codegen.yml#generates["src/gql/"]',
+      'web/src/types.ts#* generated:web/codegen.yml#generates["src/types.ts"]',
+    ]);
+    const json = JSON.stringify({ schema: "s.graphql", generates: { "./src/types.ts": { plugins: ["typescript"] } } });
+    expect(one("web/codegen.json", json, files).entries).toEqual(['web/src/types.ts#* generated:web/codegen.json#generates["./src/types.ts"]']);
+    const ts = [
+      "import type { CodegenConfig } from '@graphql-codegen/cli';",
+      "// generates: { 'src/hand.ts': {} } is a comment",
+      "const config: CodegenConfig = {",
+      "  schema: 'schema.graphql',",
+      "  generates: {",
+      "    'src/types.ts': { plugins: ['typescript'], config: { 'nested.ts': 1 } },",
+      '    "src/gql/": { preset: "client" },',
+      "  },",
+      "};",
+      "export default config;",
+    ].join("\n");
+    expect(one("web/codegen.ts", ts, files)).toEqual({
+      entries: [
+        'web/src/gql/fragments/index.ts#* generated:web/codegen.ts#generates["src/gql/"]',
+        'web/src/gql/graphql.ts#* generated:web/codegen.ts#generates["src/gql/"]',
+        'web/src/types.ts#* generated:web/codegen.ts#generates["src/types.ts"]',
+      ],
+      warnings: [],
+    });
+    expect(one("codegen.ts", "export default { schema: 's.graphql' };", files)).toEqual({ entries: [], warnings: [] });
+  });
+
+  it("names the generated reason apart from declared ones", () => {
+    expect(isGeneratedReason('generated:codegen.yml#generates["a.ts"]')).toBe(true);
+    expect(isGeneratedReason("declared:package.json#main")).toBe(false);
   });
 });
 

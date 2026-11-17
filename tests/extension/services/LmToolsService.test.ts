@@ -1666,6 +1666,7 @@ describe('LmToolsService', () => {
     it('scans the requested scope and reports unused symbols per file', async () => {
       const scanDeadCode = vi.fn().mockResolvedValue({
         entries: [{ filePath: A, unusedSymbols: [{ name: 'old', kind: 'function', line: 3, confidence: 'high' }, { name: 'tool', kind: 'function', line: 8, confidence: 'medium' }] }],
+        excluded: [],
         scannedFiles: 4,
         skippedFiles: [],
         filesBeyondLimit: 0,
@@ -1712,7 +1713,7 @@ describe('LmToolsService', () => {
       expect(scanDeadCode).not.toHaveBeenCalled();
     });
 
-    const emptyScan = { entries: [], scannedFiles: 0, skippedFiles: 0, filesBeyondLimit: 0 };
+    const emptyScan = { entries: [], excluded: [], scannedFiles: 0, skippedFiles: 0, filesBeyondLimit: 0 };
     /** Registers the tools over a spider whose scan is `scanDeadCode`, and returns that mock. */
     const withScan = <T extends (...args: never[]) => unknown>(scanDeadCode: T): T => {
       new LmToolsService({ provider: createProvider({ spider: { scanDeadCode } }), logger }).registerAll();

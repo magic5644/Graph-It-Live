@@ -1816,6 +1816,8 @@ export interface ScanDeadCodeResult {
   hint?: string;
   /** Per-file entries (only files with dead code are included) */
   entries: DeadCodeFileEntry[];
+  /** Files a graphql-codegen config generates whose unused exports are left out */
+  generatedFiles: number;
   /** verbose only: unused exports left out, each with why (a manifest field, a Rust attribute, a framework convention) */
   excluded?: ExcludedDeadCodeItem[];
   /** Number of files skipped (unsupported language / parse error) */

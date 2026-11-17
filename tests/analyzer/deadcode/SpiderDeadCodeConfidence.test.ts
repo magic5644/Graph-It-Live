@@ -56,7 +56,8 @@ const FILES: Record<string, string> = {
   // Lambda handlers in files imported for their other exports, named only by deployment manifests (#698)
   "lambda/handler.ts": "export function shared() { return 1; }\nexport async function main() { return 2; }\nexport function unusedHere() { return 3; }\n",
   "lambda/consumer.ts": "import { shared } from './handler';\nshared();\n",
-  "serverless.yml": "functions:\n  api:\n    handler: lambda/handler.main\n",
+  // A Dockerfile is read as text only: serverless.yml and SAM handlers are declared entry points instead (#743).
+  "lambda/Dockerfile": "FROM public.ecr.aws/lambda/nodejs:22\nCMD [\"handler.main\"]\n",
   "pyfn/__init__.py": "",
   "pyfn/app.py": "def util():\n    return 1\n\ndef lambda_handler(event, context):\n    return 2\n\ndef app_dead():\n    return 3\n",
   "pyfn/main.py": "from pyfn.app import util\nutil()\n",

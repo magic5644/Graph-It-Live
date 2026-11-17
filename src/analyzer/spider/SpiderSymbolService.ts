@@ -107,8 +107,8 @@ export interface TraceCallEntry {
 const JS_TS_MODULE = /\.[cm]?[jt]sx?$/i;
 const VUE_FILE = /\.vue$/i;
 const SVELTE_FILE = /\.svelte$/i;
-// `vercel.ts` (Vercel) and `.<tool>rc.ts` files are configs loaded by name like a `*.config.ts`.
-const CONFIG_FILE = /(?:\.config|(?:^|\/)(?:vercel|\.[\w-]+rc))\.[cm]?[jt]s$/i;
+// `vercel.ts` (Vercel), `codegen.ts` (graphql-codegen), `serverless.ts` and `.<tool>rc.ts` files are configs loaded by name like a `*.config.ts`.
+const CONFIG_FILE = /(?:\.config|(?:^|\/)(?:vercel|codegen|serverless|\.[\w-]+rc))\.[cm]?[jt]s$/i;
 const MIGRATION = 'convention:migration';
 const TYPE_DECLARATION = /\.d\.[cm]?ts$/i;
 const PYTHON_FILE = /\.pyi?$/i;

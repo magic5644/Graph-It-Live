@@ -2,6 +2,7 @@ import type { Spider } from "../Spider";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { countByConfidence, meetsConfidence, type DeadCodeConfidence, type ExcludedExport, type UnreferencedFile, type UnusedSymbol } from "./deadCodeConfidence";
+import { isGeneratedReason } from "./declaredEntryPoints";
 
 export interface DeadCodeScanOptions {
   scopePath?: string;
@@ -35,6 +36,8 @@ export interface DeadCodeScanResult {
   /** How to list the items below minConfidence, when there are some */
   hint?: string;
   entries: DeadCodeScanEntry[];
+  /** Files a graphql-codegen config generates whose unused exports are left out (reason `generated:<config>#generates[...]`) */
+  generatedFiles: number;
   /** verbose only: unused exports left out, and why */
   excluded?: Array<Omit<ExcludedExport, "filePath"> & { relativePath: string }>;
   skippedFiles: number;
@@ -94,12 +97,18 @@ export async function scanDeadCode(
     byConfidence,
     ...(hint ? { hint } : {}),
     entries,
+    generatedFiles: generatedFiles(rawResult.excluded),
     ...(options.verbose ? { excluded: excludedItems(rawResult.excluded, rootDir) } : {}),
     skippedFiles: rawResult.skippedFiles,
     truncated: rawResult.filesBeyondLimit > 0,
     filesBeyondLimit: rawResult.filesBeyondLimit,
     analysisTimeMs: Date.now() - startTime,
   };
+}
+
+/** The distinct files left out because a codegen config generates them. */
+function generatedFiles(excluded: ReadonlyArray<{ filePath: string; reason: string }>): number {
+  return new Set(excluded.filter((item) => isGeneratedReason(item.reason)).map((item) => item.filePath)).size;
 }
 
 /** Workspace-relative, sorted by file then line. */
@@ -122,7 +131,9 @@ export interface UnreferencedFilesScanResult {
   hint?: string;
   /** Sorted by path, the files dead by cascade (`via`) last */
   unreferencedFiles: Array<UnreferencedFile & { relativePath: string }>;
-  /** verbose only: unreferenced files left out, and why (test file, manifest entry point, framework default export) */
+  /** Unreferenced files left out because a graphql-codegen config generates them */
+  generatedFiles: number;
+  /** verbose only: unreferenced files left out, and why (test file, manifest entry point, generated file, framework default export) */
   excluded?: Array<{ relativePath: string; reason: string }>;
   skippedFiles: number;
   /** True when maxFiles stopped the scan: unscanned files may be unreferenced too. */
@@ -158,6 +169,7 @@ export async function scanUnreferencedFiles(
     byConfidence,
     ...(hint ? { hint } : {}),
     unreferencedFiles,
+    generatedFiles: generatedFiles(raw.excluded),
     ...(options.verbose
       ? { excluded: raw.excluded.map(({ filePath, reason }) => ({ relativePath: getRelativePath(filePath, rootDir), reason })).sort((a, b) => a.relativePath.localeCompare(b.relativePath)) }
       : {}),

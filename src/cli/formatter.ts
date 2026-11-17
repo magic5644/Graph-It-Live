@@ -343,6 +343,11 @@ function testsOf(file: Record<string, unknown>): { tests: unknown[]; cleanUp: un
   return { tests, cleanUp: importers.filter((test) => !tests.includes(test)) };
 }
 
+/** ` N generated file(s) left out...`, or nothing when no codegen config generates a file of the scope. */
+function generatedNote(count: unknown): string {
+  return typeof count === "number" && count > 0 ? ` ${count} generated file(s) left out (a graphql-codegen config writes them).` : "";
+}
+
 /** `check --unreferencedFiles`: a table a human reads, with workspace-relative paths only. */
 function formatUnreferencedFilesMarkdown(data: Record<string, unknown>, command: string): string {
   const cell = (value: unknown): string => valueToMermaidString(value, "").replaceAll("|", ESCAPED_PIPE);
@@ -353,7 +358,7 @@ function formatUnreferencedFilesMarkdown(data: Record<string, unknown>, command:
   const lines = [
     `## graph-it ${command} --unreferencedFiles`,
     "",
-    `${files.length} file(s) listed out of ${cell(data["scannedFiles"])} scanned, ${cascade} of them dead by cascade (only dead files import them): ${cell(counts["low"])} low, ${cell(counts["medium"])} medium (only tests import them).`,
+    `${files.length} file(s) listed out of ${cell(data["scannedFiles"])} scanned, ${cascade} of them dead by cascade (only dead files import them): ${cell(counts["low"])} low, ${cell(counts["medium"])} medium (only tests import them).${generatedNote(data["generatedFiles"])}`,
   ];
   if (data["truncated"] === true) lines.push("", `**Partial result:** maxFiles left ${cell(data["filesBeyondLimit"])} file(s) unscanned.`);
   if (typeof data["hint"] === "string") lines.push("", cell(data["hint"]));

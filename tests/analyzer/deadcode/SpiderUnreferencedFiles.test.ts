@@ -40,7 +40,7 @@ const FILES: Record<string, string> = {
   "py/run.py": "from py.mod import f\nf()\n",
   // a Lambda handler only a deployment manifest names
   "lambda/fn.ts": "export async function main() { return 1; }\n",
-  "serverless.yml": "functions:\n  api:\n    handler: lambda/fn.main\n",
+  "lambda/Dockerfile": "FROM public.ecr.aws/lambda/nodejs:22\nCMD [\"fn.main\"]\n",
   // a package's build output, git-ignored by the package, and a git-ignored generated file importing src/lazy.ts
   "pkg/.gitignore": "/dist-tsc\nindex.generated.ts\n",
   "pkg/dist-tsc/out.js": "module.exports = 1;\n",

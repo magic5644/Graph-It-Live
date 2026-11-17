@@ -71,8 +71,9 @@ export interface UnusedSymbol extends SymbolInfo {
 
 /**
  * An unused export the scan does not report, and why: `declared:<manifest>#<field>` (a language manifest declares it,
- * its file, or a barrel re-exporting it), `attribute:#[...]` (Rust), or `convention:framework-default-export` (a JSX
- * or Vue default export a framework may load). What such an export calls inherits its reason.
+ * its file, or a barrel re-exporting it), `generated:<config>#generates[...]` (a graphql-codegen config writes the
+ * file), `attribute:#[...]` (Rust), or `convention:framework-default-export` (a JSX or Vue default export a framework
+ * may load). What such an export calls inherits its reason.
  */
 export interface ExcludedExport {
   filePath: string;

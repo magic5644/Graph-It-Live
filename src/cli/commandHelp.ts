@@ -314,7 +314,9 @@ Options:
   --verbose         Workspace or folder scan: also list as excluded the unused exports left
                     out, with why: the manifest field that declares them
                     (declared:package.json#main, #exports["./x"], pyproject.toml#project.scripts.x,
-                    Cargo.toml#lib, ...), a Rust attribute, or convention:framework-default-export.
+                    Cargo.toml#lib, serverless.yml / SAM template.yaml handlers, ...), a
+                    graphql-codegen output (generated:codegen.yml#generates[...]), a Rust
+                    attribute, or convention:framework-default-export.
   --unreferencedFiles
                     Workspace or folder scan: list whole files no production file imports
                     instead of unused exports. low (no-importer): nothing imports the file;
