@@ -271,8 +271,8 @@ export function renderInitText(result: InitResult): string {
   }
   const guide = result.assessment.matrixGuide;
   lines.push("", "How to read the matrix:", ...guide.reading.map((line) => `  ${line}`),
-    ...guide.patterns.map(({ pattern, meaning, action }) => `  ${pattern}: ${meaning} ${action}`));
-  lines.push("", "Glossary:", ...Object.entries(result.assessment.glossary).map(([term, meaning]) => `  ${term}: ${meaning}`));
+    ...guide.patterns.map(({ pattern, meaning, action }) => `  ${pattern}: ${meaning} ${action}`),
+    "", "Glossary:", ...Object.entries(result.assessment.glossary).map(([term, meaning]) => `  ${term}: ${meaning}`));
   if (result.diagrams.length > 0) lines.push("", "Diagrams:", ...result.diagrams.map((diagram) => `  ${diagram.file}`));
   if (result.changes.length > 0) {
     lines.push("", `Config changes (${result.changes.length}):`, ...result.changes.slice(0, REPORT_LIMIT).map((change) => `  ${change}`), ...more(result.changes.length));
@@ -329,8 +329,8 @@ export function renderInitMarkdown(result: InitResult, base?: string): string {
   lines.push("", "## How to read the matrix", "", ...guide.reading.map((line) => `- ${line}`), "",
     "| Pattern | What it means | What to do |", "| --- | --- | --- |",
     ...guide.patterns.map(({ pattern, meaning, action }) => `| ${pattern} | ${meaning} | ${action} |`),
-    ...(matrixDiagram === undefined ? [] : ["", `The matrix:${link(matrixDiagram, base)}; on the page, the Dependency matrix panel lists the file pairs of a clicked cell.`]));
-  lines.push("", "## Glossary", "", ...Object.entries(result.assessment.glossary).map(([term, meaning]) => `- **${term}**: ${meaning}`));
+    ...(matrixDiagram === undefined ? [] : ["", `The matrix:${link(matrixDiagram, base)}; on the page, the Dependency matrix panel lists the file pairs of a clicked cell.`]),
+    "", "## Glossary", "", ...Object.entries(result.assessment.glossary).map(([term, meaning]) => `- **${term}**: ${meaning}`));
   if (result.diagrams.length > 0) {
     lines.push("", "## Diagrams", "", ...result.diagrams.map((diagram) => `- ${diagram.view}${diagram.unit === undefined ? "" : " " + code(diagram.unit)}${link(diagram, base)}`));
   }
