@@ -109,6 +109,7 @@ export function layoutMatrix(input: DiagramInput, options: DrawOptions = {}): Ma
     const rules = edge && edge.rules.length > 0 ? `, breaks ${edge.rules.join(", ")}${accepted}` : "";
     const typeOnly = edge?.typeOnlyEdgeCount ? ` (${edge.typeOnlyEdgeCount} type-only)` : "";
     const cut = cuts.has(`${matrixCell.row}>${matrixCell.column}`);
+    const cutNote = cut ? ", cut it to break the cycle" : "";
     return {
       x: gridX + matrixCell.column * cell,
       y: gridY + matrixCell.row * cell,
@@ -121,7 +122,7 @@ export function layoutMatrix(input: DiagramInput, options: DrawOptions = {}): Ma
       cut,
       title: from === to
         ? `${from}: ${matrixCell.fileEdgeCount} file pairs inside`
-        : `${from} → ${to}: ${matrixCell.fileEdgeCount} file pairs${typeOnly}${rules}${cut ? ", cut it to break the cycle" : ""}`,
+        : `${from} → ${to}: ${matrixCell.fileEdgeCount} file pairs${typeOnly}${rules}${cutNote}`,
     };
   });
   const kinds: LegendKind[] = [

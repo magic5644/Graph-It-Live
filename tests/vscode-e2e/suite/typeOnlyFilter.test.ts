@@ -8,15 +8,12 @@ type TypeOnlyState = { hide: boolean; edges: string[] };
 suite('Type-only import filter', () => {
   const config = () => vscode.workspace.getConfiguration('graph-it-live');
 
-  async function waitForState(check: (state: TypeOnlyState) => boolean, message: string): Promise<TypeOnlyState> {
-    const deadline = Date.now() + 15000;
-    let state: TypeOnlyState | undefined;
-    while (Date.now() < deadline) {
-      state = await getContextKey<TypeOnlyState>('graph-it-live.fileGraphTypeOnly');
-      if (state && check(state)) return state;
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    assert.fail(`${message}: ${JSON.stringify(state)}`);
+  async function waitForState(check: (state: TypeOnlyState) => boolean, message: string, deadline = Date.now() + 15000): Promise<TypeOnlyState> {
+    const state = await getContextKey<TypeOnlyState>('graph-it-live.fileGraphTypeOnly');
+    if (state && check(state)) return state;
+    if (Date.now() > deadline) assert.fail(`${message}: ${JSON.stringify(state)}`);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    return waitForState(check, message, deadline);
   }
 
   test('keeps the type-only edge in the graph and toggles the filter without a restart', async function () {

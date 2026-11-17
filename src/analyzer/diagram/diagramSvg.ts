@@ -34,7 +34,8 @@ const CLASSES = [
   ".edge{fill:none;stroke-linejoin:round}",
   ...LEGEND_KINDS.map((kind) => {
     const dash = legendDash(kind);
-    return `.${styleClass(kind)}{stroke:var(--${LEGEND[kind].colour})${dash ? `;stroke-dasharray:${dash}` : ""}}.head-${kind}{fill:var(--${LEGEND[kind].colour})}`;
+    const dashRule = dash ? `;stroke-dasharray:${dash}` : "";
+    return `.${styleClass(kind)}{stroke:var(--${LEGEND[kind].colour})${dashRule}}.head-${kind}{fill:var(--${LEGEND[kind].colour})}`;
   }),
   `.cell{fill:var(--surface);stroke-width:${SIZES.hairline}px}.diagonal{fill:var(--line);fill-opacity:0.18}`,
   `.frame{fill:none;stroke:var(--line);stroke-width:${SIZES.hairline}px}`,

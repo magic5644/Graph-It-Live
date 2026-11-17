@@ -56,8 +56,9 @@ export interface HtmlOverlay {
   matrix?: { svg: string; guide: { reading: string[]; patterns: { pattern: string; meaning: string; action: string }[] } };
 }
 
-/** The Dependency matrix panel: the SVG as matrix.svg draws it, then the reading guide. */
-function matrixPanel(matrix: NonNullable<HtmlOverlay['matrix']>): string {
+/** The Dependency matrix panel: the SVG as matrix.svg draws it, then the reading guide; empty without a matrix. */
+function matrixPanel(matrix: HtmlOverlay['matrix']): string {
+  if (!matrix) return '';
   const reading = matrix.guide.reading.map(line => `<li>${htmlEscape(line)}</li>`).join('');
   const patterns = matrix.guide.patterns.map(({ pattern, meaning, action }) =>
     `<li><strong>${htmlEscape(pattern)}</strong>: ${htmlEscape(meaning)} <em>${htmlEscape(action)}</em></li>`).join('');
@@ -196,7 +197,8 @@ const overlayStyle = (kind: LegendKind) => {
 function legendSample(kind: LegendKind): string {
   const { color } = overlayStyle(kind);
   const dash = legendDash(kind);
-  return `<svg class="sample" width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="${color}" stroke-width="2"${dash ? ` stroke-dasharray="${dash}"` : ''}/></svg>`;
+  const dashAttribute = dash ? ` stroke-dasharray="${dash}"` : '';
+  return `<svg class="sample" width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="${color}" stroke-width="2"${dashAttribute}/></svg>`;
 }
 
 /** The overlay's legend: the styles its file pairs use, in the shared order, then dead files when there are any. */
@@ -469,7 +471,7 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
   </div>
   <div id="progress">Laying out graph…</div>
   <div id="graph" role="img" aria-label="${graphLabel}"></div>
-  <div id="panel" role="dialog" aria-live="polite"></div>${overlay ? '\n  <details id="findings" open><summary>Findings</summary>' + (overlay.matrix ? matrixPanel(overlay.matrix) : '') + '<div id="findings-list"></div></details>' : ''}
+  <div id="panel" role="dialog" aria-live="polite"></div>${overlay ? '\n  <details id="findings" open><summary>Findings</summary>' + matrixPanel(overlay.matrix) + '<div id="findings-list"></div></details>' : ''}
   <script>${safeVisSource}</script>
   <script>
     const groupsData = ${jsonForScript(model.groups)};

@@ -708,6 +708,7 @@ function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitL
     }
     const edge = edgeOf.get(String(element.data.id));
     if (!edge) return element;
+    const cycleNote = edge.cycleKind === "type-only" || edge.cycleKind === "lazy" ? ` · ${edge.cycleKind} cycle` : "";
     return {
       ...element,
       data: {
@@ -715,7 +716,7 @@ function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitL
         ...(edge.cycleKind === undefined ? {} : { cycleKind: edge.cycleKind }),
         ...(edge.typeOnlyEdgeCount !== undefined && edge.typeOnlyEdgeCount === edge.fileEdgeCount ? { typeOnly: true } : {}),
         capped: capped.has(`${edge.from}\0${edge.to}`),
-        tooltip: `${element.data.tooltip}${edge.cycleKind === "type-only" || edge.cycleKind === "lazy" ? ` · ${edge.cycleKind} cycle` : ""} · click files`,
+        tooltip: `${element.data.tooltip}${cycleNote} · click files`,
       },
     };
   });
