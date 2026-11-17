@@ -22,7 +22,7 @@ export async function resolveFileImports(
   isWithinWorkspace: (resolvedPath: string) => boolean,
 ): Promise<ResolvedFileImports> {
   const dependencies: Dependency[] = [];
-  const seenResolvedPaths = new Set<string>();
+  const seenResolvedPaths = new Map<string, Dependency>();
   const outOfRootImports = new Set<string>();
   const unresolvedImports = new Set<string>();
 
@@ -47,15 +47,22 @@ export async function resolveFileImports(
     }
 
     const normalizedResolved = normalizePath(resolvedPath);
-    if (seenResolvedPaths.has(normalizedResolved)) continue;
-    seenResolvedPaths.add(normalizedResolved);
+    const previous = seenResolvedPaths.get(normalizedResolved);
+    if (previous) {
+      // Two specifiers of one file: it stays type-only only while every import of it is.
+      if (!imp.typeOnly) delete previous.typeOnly;
+      continue;
+    }
 
-    dependencies.push({
+    const dependency: Dependency = {
       path: normalizedResolved,
       type: imp.type,
       line: imp.line,
       module: imp.module,
-    });
+      ...(imp.typeOnly ? { typeOnly: true } : {}),
+    };
+    seenResolvedPaths.set(normalizedResolved, dependency);
+    dependencies.push(dependency);
   }
 
   return { dependencies, outOfRootImports: [...outOfRootImports], unresolvedImports: [...unresolvedImports] };

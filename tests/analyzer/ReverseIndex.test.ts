@@ -337,7 +337,7 @@ describe('ReverseIndex', () => {
             // Serialize
             const serialized = index.serialize();
             
-            expect(serialized.version).toBe(6);
+            expect(serialized.version).toBe(7);
             expect(serialized.rootDir).toBe(rootDir);
             expect(serialized.timestamp).toBeGreaterThan(0);
 
@@ -654,6 +654,22 @@ describe('ReverseIndex', () => {
                 { path: target('b.ts'), type: 'import', line: 1, module: './b' },
                 { path: target('c.ts'), type: 'dynamic', line: 3, module: './c' },
             ]);
+        });
+
+        it('keeps the typeOnly flag in lookups and through a round trip (#740)', async () => {
+            const typed = path.join(tmpDir, 't.ts');
+            index.addDependencies(source, [
+                { path: typed, type: 'import', line: 2, module: './t', typeOnly: true },
+                { path: path.join(tmpDir, 'b.ts'), type: 'import', line: 1, module: './b' },
+            ], (await ReverseIndex.getFileHashFromDisk(source)) ?? undefined);
+            const expected = [
+                { path: target('b.ts'), type: 'import', line: 1, module: './b' },
+                { path: target('t.ts'), type: 'import', line: 2, module: './t', typeOnly: true },
+            ];
+            expect(await index.getFreshDependencies(source)).toEqual(expected);
+            expect(index.getReferencingFiles(typed)).toEqual([{ path: normalizePath(source), type: 'import', line: 2, module: './t', typeOnly: true }]);
+            const restored = ReverseIndex.deserialize(index.serialize(), tmpDir);
+            expect(await restored?.getFreshDependencies(source)).toEqual(expected);
         });
 
         it('keeps the dependencies after a serialize/deserialize round trip', async () => {

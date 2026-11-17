@@ -4,7 +4,7 @@ import { unitMatrix } from "@/analyzer/architecture/architectureMatrix";
 import type { ArchitectureUnitEdge, ArchitectureUnits } from "@/shared/architecture-model";
 
 /** `key:files:internal` units and `from>to=pairs` unit edges; `cycles` lists the units in a cycle. */
-function input(unitSpecs: string[], edgeSpecs: string[], options: { cycles?: string[]; files?: [string, string, number?][]; deadCode?: DeadCodeFile[]; deadFiles?: DeadFile[] } = {}): AssessmentInput {
+function input(unitSpecs: string[], edgeSpecs: string[], options: { cycles?: string[]; files?: [string, string, number?, boolean?][]; deadCode?: DeadCodeFile[]; deadFiles?: DeadFile[] } = {}): AssessmentInput {
   const cycles = new Set(options.cycles ?? []);
   const unitList = unitSpecs.map((spec) => {
     const [key, files, internal] = spec.split(":");
@@ -16,7 +16,7 @@ function input(unitSpecs: string[], edgeSpecs: string[], options: { cycles?: str
     return { from, to, fileEdgeCount: Number(count), kind: cycles.has(from) && cycles.has(to) ? "cycle" : "down" };
   });
   const units = { units: unitList, unitEdges, cycles: 0 } as unknown as Pick<ArchitectureUnits, "units" | "unitEdges" | "cycles">;
-  const edges = (options.files ?? []).map(([sourceRelative, targetRelative, line]) => ({ sourceRelative, targetRelative, line }));
+  const edges = (options.files ?? []).map(([sourceRelative, targetRelative, line, typeOnly]) => ({ sourceRelative, targetRelative, line, ...(typeOnly ? { typeOnly } : {}) }));
   const unitOf = new Map(edges.flatMap((edge) => [edge.sourceRelative, edge.targetRelative]).map((file) => [file, file.split("/")[0]]));
   for (const file of [...(options.deadCode ?? []), ...(options.deadFiles ?? [])]) unitOf.set(file.relativePath, file.relativePath.split("/")[0]);
   return {
@@ -173,7 +173,7 @@ describe("assessArchitecture: matrix reading", () => {
     expect(result.matrixFindings).toEqual([]);
     expect(result.deadFiles).toEqual([]);
     expect(result.totals).toEqual({
-      files: 0, units: 0, unitEdges: 0, unitCycles: 0, mutualImports: 0, acceptedViolations: 0,
+      files: 0, units: 0, unitEdges: 0, unitCycles: 0, mutualImports: 0, typeOnlyUnitCycles: 0, typeOnlyMutualImports: 0, acceptedViolations: 0,
       deadFiles: 0, deadFileLines: 0, deadCodeFiles: 0, unusedExports: 0, unusedExportsMedium: 0, unusedExportsLow: 0,
     });
     expect(Object.keys(result.glossary)).toEqual(expect.arrayContaining(["Ca", "Ce", "I", "C", "cut"]));
@@ -262,5 +262,48 @@ describe("assessArchitecture: focus", () => {
   it("keeps the whole workspace without a focus", () => {
     expect(assessArchitecture(workspace())).toEqual(assessArchitecture(workspace(), undefined));
     expect(assessArchitecture(workspace()).totals).toMatchObject({ files: 9, units: 4, unitEdges: 4, mutualImports: 2, deadFiles: 2 });
+  });
+});
+
+describe("assessArchitecture: type-only cycles (#740)", () => {
+  it("computes the hot spot on runtime pairs only, and groups the type-only pairs", () => {
+    const result = assessArchitecture(input(["c:6:6"], [], {
+      files: [
+        // h is in three type-only pairs: no hot spot for it.
+        ["c/h.ts", "c/x.ts", 1, true], ["c/x.ts", "c/h.ts", 1, true],
+        ["c/h.ts", "c/y.ts", 2, true], ["c/y.ts", "c/h.ts", 1, true],
+        ["c/h.ts", "c/z.ts", 3, true], ["c/z.ts", "c/h.ts", 1, true],
+        // p is in two runtime pairs, one of them with a single runtime import.
+        ["c/p.ts", "c/q.ts", 1], ["c/q.ts", "c/p.ts", 1, true],
+        ["c/p.ts", "c/r.ts", 2], ["c/r.ts", "c/p.ts", 1],
+      ],
+    }));
+    expect(result.totals).toMatchObject({ mutualImports: 2, typeOnlyMutualImports: 3, mutualHotSpot: { file: "c/p.ts", pairs: 2 } });
+    expect(result.quickWins.map((win) => win.subject)).toEqual(["c/p.ts and 2 files import each other (c/q.ts, c/r.ts): remove or move one import of each pair"]);
+    expect(result.typeOnlyCycles).toEqual({
+      unitCycles: 0, mutualImports: 3, evidence: ["c/h.ts <-> c/x.ts", "c/h.ts <-> c/y.ts", "c/h.ts <-> c/z.ts"], totalEvidence: 3, units: ["c"],
+    });
+  });
+
+  it("keeps a unit cycle runtime when one file pair between its units is runtime", () => {
+    const cycle = (typeOnly: boolean) => input(["a:2:0", "b:2:0"], ["a>b=2", "b>a=1"], {
+      cycles: ["a", "b"],
+      files: [["a/x.ts", "b/y.ts", 1, true], ["a/w.ts", "b/y.ts", 2, typeOnly], ["b/y.ts", "a/x.ts", 3, true]],
+    });
+    const typeOnly = { ...cycle(true), units: { ...cycle(true).units, cycles: 1 } };
+    expect(assessArchitecture(typeOnly).quickWins).toEqual([]);
+    expect(assessArchitecture(typeOnly).totals).toMatchObject({ unitCycles: 0, typeOnlyUnitCycles: 1 });
+    expect(assessArchitecture(typeOnly).typeOnlyCycles.evidence).toEqual(["a/x.ts <-> b/y.ts", "units a, b"]);
+    const runtime = { ...cycle(false), units: { ...cycle(false).units, cycles: 1 } };
+    expect(assessArchitecture(runtime).quickWins.map((win) => win.kind)).toEqual(["cycle-break"]);
+    expect(assessArchitecture(runtime).totals).toMatchObject({ unitCycles: 1, typeOnlyUnitCycles: 0 });
+  });
+
+  it("keeps only the type-only pairs a focus touches", () => {
+    const result = assessArchitecture(input(["c:4:4"], [], {
+      files: [["c/a.ts", "c/b.ts", 1, true], ["c/b.ts", "c/a.ts", 1, true], ["c/m.ts", "c/n.ts", 1, true], ["c/n.ts", "c/m.ts", 1, true]],
+    }), new Set(["c/a.ts"]));
+    expect(result.totals).toMatchObject({ mutualImports: 0, typeOnlyMutualImports: 1 });
+    expect(result.typeOnlyCycles.evidence).toEqual(["c/a.ts <-> c/b.ts"]);
   });
 });
