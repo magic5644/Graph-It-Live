@@ -43,6 +43,8 @@ export interface ArchitectureEdge {
   line?: number;
   /** Every import of `target` in `source` is type-only: erased at runtime, no init-order risk (#740). */
   typeOnly?: boolean;
+  /** Every runtime import of `target` in `source` is a dynamic `import()`: loaded on demand, no init-order risk (#741). */
+  dynamic?: boolean;
 }
 
 interface ArchitectureAccumulator {
@@ -110,15 +112,21 @@ function registerEdge(
   sourcePath: string,
   targetPath: string,
   workspaceRoot: string,
-  dependency: Pick<Dependency, "line" | "typeOnly">,
+  dependency: Pick<Dependency, "line" | "type" | "typeOnly">,
 ): void {
   const normalizedSource = normalizePath(sourcePath);
   const normalizedTarget = normalizePath(targetPath);
   const edgeKey = `${normalizedSource}=>${normalizedTarget}`;
   const { line, typeOnly } = dependency;
+  const dynamic = dependency.type === "dynamic";
   const existing = acc.edgesByKey.get(edgeKey);
   if (existing) {
-    if (!typeOnly) delete existing.typeOnly;
+    // The strongest import wins: static, then import(), then type-only (#740, #741).
+    if (!typeOnly) {
+      if (existing.typeOnly && dynamic) existing.dynamic = true;
+      else if (!dynamic) delete existing.dynamic;
+      delete existing.typeOnly;
+    }
     return;
   }
 
@@ -129,6 +137,7 @@ function registerEdge(
     targetRelative: normalizePath(path.relative(workspaceRoot, normalizedTarget)),
     ...(line ? { line } : {}),
     ...(typeOnly ? { typeOnly } : {}),
+    ...(dynamic ? { dynamic } : {}),
   });
   acc.dependencyCount.set(normalizedSource, (acc.dependencyCount.get(normalizedSource) ?? 0) + 1);
   acc.dependentCount.set(normalizedTarget, (acc.dependentCount.get(normalizedTarget) ?? 0) + 1);

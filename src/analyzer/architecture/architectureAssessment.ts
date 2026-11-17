@@ -87,10 +87,10 @@ export interface MatrixFinding {
 }
 
 /**
- * The cycles whose every import is type-only (#740), kept out of the quick wins as one item: design
- * coupling, no init-order risk.
+ * Cycles kept out of the quick wins as one item, no init-order risk: those whose every import is
+ * type-only (#740), and those that close only through dynamic `import()` (#741).
  */
-export interface TypeOnlyCycles {
+export interface GroupedCycles {
   unitCycles: number;
   mutualImports: number;
   /** `a <-> b` file pairs, then `units a, b` unit cycles; at most `evidence`. */
@@ -103,7 +103,8 @@ export interface ArchitectureAssessment {
   deadFiles: DeadFileGroup[];
   /** Runtime cycles only: a cycle with at least one runtime import. */
   quickWins: QuickWin[];
-  typeOnlyCycles: TypeOnlyCycles;
+  typeOnlyCycles: GroupedCycles;
+  lazyCycles: GroupedCycles;
   matrixFindings: MatrixFinding[];
   /** The terms and formulas the findings use, stated once. */
   glossary: Record<string, string>;
@@ -111,11 +112,13 @@ export interface ArchitectureAssessment {
     files: number;
     units: number;
     unitEdges: number;
-    /** Runtime unit cycles and mutual imports: at least one of their imports is a runtime import. */
+    /** Runtime unit cycles and mutual imports: neither type-only nor closing only through import(). */
     unitCycles: number;
     mutualImports: number;
     typeOnlyUnitCycles: number;
     typeOnlyMutualImports: number;
+    lazyUnitCycles: number;
+    lazyMutualImports: number;
     /** The file in the most runtime mutual imports, when it is in more than one. */
     mutualHotSpot?: { file: string; pairs: number };
     acceptedViolations: number;
@@ -158,6 +161,7 @@ function glossary(matrix: ArchitectureMatrix<string>): Record<string, string> {
     cut: "The cells of a cycle that go against one order of its units (the matrix order, its reverse or a greedy Eades–Lin–Smyth order, the cheapest); without them the units are layered again.",
     "gain / effort": "Quick wins are ranked by what they remove over the imports or symbols to change, then by gain.",
     "type-only": "An import erased at runtime (import type, every specifier type, export type). A cycle is type-only when all its imports are: design coupling, no init-order risk. One runtime import makes it a runtime cycle.",
+    lazy: "A dynamic import() loads its target on demand. A cycle is lazy when it is no longer a cycle without its import() calls: no init-order risk, still a dependency (rules, impact).",
   };
 }
 
@@ -266,24 +270,49 @@ function cycleBreaks(input: AssessmentInput, cuts: readonly CycleCut[], pairs: M
 
 /**
  * Two files importing each other: removing one import breaks the file cycle. Type-only when both
- * imports are, runtime otherwise.
+ * imports are, lazy when one is a dynamic import(), runtime otherwise.
  */
-function mutualPairs(input: AssessmentInput): { runtime: Edge[]; typeOnly: Edge[] } {
+function mutualPairs(input: AssessmentInput): { runtime: Edge[]; typeOnly: Edge[]; lazy: Edge[] } {
   const byPair = new Map(input.graph.edges.map((edge) => [`${edge.sourceRelative}\0${edge.targetRelative}`, edge]));
   const backOf = (edge: Edge) => byPair.get(`${edge.targetRelative}\0${edge.sourceRelative}`);
   // One edge per file pair, from the first file in code-unit order.
   const mutual = [...byPair.values()].filter((edge) => edge.sourceRelative < edge.targetRelative && backOf(edge) !== undefined);
   const typeOnly = (edge: Edge) => edge.typeOnly === true && backOf(edge)?.typeOnly === true;
-  return { runtime: mutual.filter((edge) => !typeOnly(edge)), typeOnly: mutual.filter(typeOnly) };
+  const lazy = (edge: Edge) => edge.dynamic === true || backOf(edge)?.dynamic === true;
+  return {
+    runtime: mutual.filter((edge) => !typeOnly(edge) && !lazy(edge)),
+    typeOnly: mutual.filter(typeOnly),
+    lazy: mutual.filter(lazy),
+  };
 }
 
 /** A unit cycle is type-only when every file pair between its units is. */
 function isTypeOnlyCycle(cut: CycleCut, pairs: Map<string, Edge[]>): boolean {
-  const edges = cut.members.flatMap((from) => cut.members.flatMap((to) => (from === to ? [] : pairs.get(`${from}>${to}`) ?? [])));
+  const edges = cyclePairs(cut, pairs);
   return edges.length > 0 && edges.every((edge) => edge.typeOnly === true);
 }
 
-function typeOnlyCycles(input: AssessmentInput, cuts: readonly CycleCut[], mutual: readonly Edge[]): TypeOnlyCycles {
+/** The file pairs between the units of a cycle. */
+function cyclePairs(cut: CycleCut, pairs: Map<string, Edge[]>): Edge[] {
+  return cut.members.flatMap((from) => cut.members.flatMap((to) => (from === to ? [] : pairs.get(`${from}>${to}`) ?? [])));
+}
+
+/** A unit cycle is lazy when its units no longer form a cycle without the import() file pairs (#741). */
+function isLazyCycle(cut: CycleCut, pairs: Map<string, Edge[]>): boolean {
+  if (!cyclePairs(cut, pairs).some((edge) => edge.dynamic === true)) return false;
+  const eager = (from: string, to: string) => from !== to && (pairs.get(`${from}>${to}`) ?? []).some((edge) => edge.dynamic !== true);
+  // Peel the units no eager pair enters: a cycle is what can never be peeled.
+  let left = cut.members;
+  let before: number;
+  do {
+    before = left.length;
+    const kept = left;
+    left = kept.filter((to) => kept.some((from) => eager(from, to)));
+  } while (left.length < before);
+  return left.length === 0;
+}
+
+function groupedCycles(input: AssessmentInput, cuts: readonly CycleCut[], mutual: readonly Edge[]): GroupedCycles {
   const files = mutual.flatMap((edge) => [edge.sourceRelative, edge.targetRelative]);
   const units = new Set([...cuts.flatMap((cut) => cut.members), ...files.flatMap((file) => input.unitOf.get(file) ?? [])]);
   return {
@@ -470,11 +499,13 @@ export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<s
   const mutualByKind = mutualPairs(input);
   const mutual = mutualByKind.runtime.filter(scope.edge);
   const typeOnlyMutual = mutualByKind.typeOnly.filter(scope.edge);
-  // The hot spot and the ranking count runtime cycles only (#740).
+  const lazyMutual = mutualByKind.lazy.filter(scope.edge);
+  // The hot spot and the ranking count runtime cycles only (#740, #741).
   const { wins: mutualWins, hotSpot } = mutualImports(input, mutual);
   const scopedCuts = cycleCuts(input.matrix).filter((cut) => cut.members.some(scope.unit));
   const typeOnlyCuts = scopedCuts.filter((cut) => isTypeOnlyCycle(cut, pairs));
-  const cuts = scopedCuts.filter((cut) => !typeOnlyCuts.includes(cut));
+  const lazyCuts = scopedCuts.filter((cut) => !typeOnlyCuts.includes(cut) && isLazyCycle(cut, pairs));
+  const cuts = scopedCuts.filter((cut) => !typeOnlyCuts.includes(cut) && !lazyCuts.includes(cut));
   const deadCodeFiles = input.deadCode.filter((file) => focus?.has(file.relativePath) ?? true);
   const quickWins = [...cycleBreaks(input, cuts, pairs), ...mutualWins, ...weakDependencies(input, pairs, scope), ...deadCode(input, deadCodeFiles)]
     // Cross products compare gain / effort without rounding.
@@ -486,17 +517,20 @@ export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<s
   return {
     deadFiles,
     quickWins,
-    typeOnlyCycles: typeOnlyCycles(input, typeOnlyCuts, typeOnlyMutual),
+    typeOnlyCycles: groupedCycles(input, typeOnlyCuts, typeOnlyMutual),
+    lazyCycles: groupedCycles(input, lazyCuts, lazyMutual),
     matrixFindings: rowFindings(input).filter((finding) => rows === undefined || finding.rows.some((row) => rows.has(row))),
     glossary: glossary(input.matrix),
     totals: {
       files: focus?.size ?? input.unitOf.size,
       units: rows?.size ?? input.units.units.length,
       unitEdges: input.units.unitEdges.filter((edge) => scope.unitEdge(pairs, edge)).length,
-      unitCycles: (focus === undefined ? input.units.cycles : scopedCuts.length) - typeOnlyCuts.length,
+      unitCycles: (focus === undefined ? input.units.cycles : scopedCuts.length) - typeOnlyCuts.length - lazyCuts.length,
       mutualImports: mutual.length,
       typeOnlyUnitCycles: typeOnlyCuts.length,
       typeOnlyMutualImports: typeOnlyMutual.length,
+      lazyUnitCycles: lazyCuts.length,
+      lazyMutualImports: lazyMutual.length,
       ...(hotSpot === undefined ? {} : { mutualHotSpot: hotSpot }),
       acceptedViolations: input.acceptedViolations,
       deadFiles: deadFileList.length,

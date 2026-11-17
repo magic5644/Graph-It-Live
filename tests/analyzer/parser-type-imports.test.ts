@@ -120,6 +120,25 @@ import type { E } from './d';
       expect(parse("import type { A } from './a';\nimport { a } from './a';\n")).toEqual([{ module: './a', type: 'import', line: 1 }]);
     });
 
+    it('keeps a module lazy only while every runtime import of it is import() (#741)', () => {
+      expect(parse(`
+import type { A } from './a';
+const a = import('./a');
+export type { E } from './e';
+const e = import('./e');
+import { b } from './b';
+const b2 = import('./b');
+const c = import('./c');
+const c2 = import('./c');
+`)).toEqual([
+        { module: './a', type: 'dynamic', line: 2 },
+        { module: './b', type: 'import', line: 6 },
+        // A barrel's `export type` keeps its export for re-export lookups: runtime, not lazy.
+        { module: './e', type: 'export', line: 4 },
+        { module: './c', type: 'dynamic', line: 8 },
+      ]);
+    });
+
     it('still drops type-only imports when configured to ignore them', () => {
       const imports = new Parser(undefined, true).parse("import type { A } from './a';\nimport { a } from './a';\n", '/project/file.ts');
       expect(imports).toEqual([{ module: './a', type: 'import', line: 2 }]);

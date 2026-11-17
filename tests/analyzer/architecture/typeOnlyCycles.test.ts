@@ -95,7 +95,7 @@ describe("type-only cycles (#740)", () => {
       written: [], reportFiles: [], changes: [], acceptedViolations: 0,
       guard: { preCommit: "", ci: "", sarif: "" }, assessment, diagrams: [],
     } satisfies InitResult);
-    expect(text).toContain("Cycles: 0 runtime unit cycles, 0 runtime mutual file imports; type-only: 1 unit cycle, 1 mutual file import");
+    expect(text).toContain("Cycles: 0 runtime unit cycles, 0 runtime mutual file imports; type-only: 1 unit cycle, 1 mutual file import; lazy: 0 unit cycles, 0 mutual file imports");
     expect(text).toContain("[type-only] a, b: 1 unit cycle and 1 mutual file import whose every import is type-only: design coupling, no init-order risk.");
     expect(text).not.toMatch(/Top action: .*type-only/);
   });

@@ -24,6 +24,22 @@ describe("resolveFileImports", () => {
     ]);
   });
 
+  it("keeps a target lazy only while every runtime import of it is import() (#741)", async () => {
+    const analyzer: ILanguageAnalyzer = {
+      parseImports: async () => [],
+      resolvePath: async () => null,
+      resolveImport: async (_from, specifier) => ({ path: `/repo/apps/worker/src/${specifier.replaceAll(/^\.\/|\.ts$/g, "")}.ts`, outsideRoot: false }),
+    };
+    const lazy = (module: string, line: number): Dependency => ({ ...imp(module, line), type: "dynamic" });
+    const typed = (module: string, line: number): Dependency => ({ ...imp(module, line), typeOnly: true });
+    const result = await resolveFileImports(analyzer, from, [lazy("./a", 1), { ...imp("./a.ts", 2), type: "side-effect" }, typed("./b", 3), lazy("./b.ts", 4), lazy("./c", 5), typed("./c.ts", 6)], insideRoot);
+    expect(result.dependencies).toEqual([
+      { path: "/repo/apps/worker/src/a.ts", type: "side-effect", line: 1, module: "./a" },
+      { path: "/repo/apps/worker/src/b.ts", type: "dynamic", line: 3, module: "./b" },
+      { path: "/repo/apps/worker/src/c.ts", type: "dynamic", line: 5, module: "./c" },
+    ]);
+  });
+
   const from = "/repo/apps/worker/src/a.ts";
   const insideRoot = (p: string) => normalizePath(p).startsWith("/repo/apps/worker/");
 
