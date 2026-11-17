@@ -144,7 +144,7 @@ async function run() {
   const label = (source: string, target: string) => edge(source, target)?.querySelector('.react-flow__edge-text')?.textContent;
   const dash = (source: string, target: string) => edge(source, target)?.querySelector<SVGPathElement>('.react-flow__edge-path')?.style.strokeDasharray.replaceAll(',', '');
   show(typed, 'type-only');
-  await until(() => label(ta, tb) === 'type-only cycle', 'A type-only cycle edge was not labelled');
+  await until(() => label(ta, tb) === 'type-only', 'A type-only cycle edge was not labelled');
   check(dash(ta, tb) === '2 3', `A type-only cycle edge was not dotted: ${dash(ta, tb)}`);
   check(label(ra, rb) === 'cycle', 'A runtime cycle lost its label next to a type-only one');
   show(typed, 'type-only', true, true);

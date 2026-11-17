@@ -167,7 +167,7 @@ describe("buildReactFlowGraph", () => {
         ]);
         expect(result.cycles.size).toBe(0);
         expect(result.nodes.some((node) => (node.data as { isInCycle: boolean }).isInCycle)).toBe(false);
-        expect(labelOf(result, "/w/a.ts->/w/b.ts")).toBe("type-only cycle");
+        expect(labelOf(result, "/w/a.ts->/w/b.ts")).toBe("type-only");
         expect(dashOf(result, "/w/a.ts->/w/b.ts")).toBe("2 3");
       });
 
