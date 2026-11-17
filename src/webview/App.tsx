@@ -216,6 +216,7 @@ const App: React.FC = () => {
   >("none");
   const [filterUnused, setFilterUnused] = React.useState<boolean>(false);
   const [showCommunities, setShowCommunities] = React.useState<boolean>(true);
+  const [hideTypeOnly, setHideTypeOnly] = React.useState<boolean>(false);
   const [communityMode, setCommunityMode] = React.useState<CommunityMode>("path");
   const [layout, setLayout] = React.useState<
     "hierarchical" | "force" | "radial"
@@ -301,6 +302,9 @@ const App: React.FC = () => {
       if (message.unusedDependencyMode) {
         setUnusedDependencyMode(message.unusedDependencyMode);
       }
+      if (message.hideTypeOnly !== undefined) {
+        setHideTypeOnly(message.hideTypeOnly);
+      }
     },
     [],
   );
@@ -363,6 +367,9 @@ const App: React.FC = () => {
       }
       if (message.showCommunities !== undefined) {
         setShowCommunities(message.showCommunities);
+      }
+      if (message.hideTypeOnly !== undefined) {
+        setHideTypeOnly(message.hideTypeOnly);
       }
       if (message.communityMode !== undefined) {
         setCommunityMode(message.communityMode);
@@ -935,6 +942,7 @@ const App: React.FC = () => {
             unusedDependencyMode={unusedDependencyMode}
             filterUnused={filterUnused}
             showCommunities={showCommunities}
+            hideTypeOnly={hideTypeOnly}
             communityMode={communityMode}
             mode={viewMode as "file" | "symbol"}
             symbolData={symbolData}

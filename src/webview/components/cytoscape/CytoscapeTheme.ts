@@ -541,6 +541,17 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors, kin
       selector: 'edge[kind = "upward"], edge[kind = "cycle"]',
       style: { label: "data(label)", "line-color": colors.error, "target-arrow-color": colors.error },
     },
+    // A cycle erased at runtime, or closing only through import(): drawn apart, never as a runtime one (#745).
+    {
+      selector: 'edge[kind = "cycle"][cycleKind = "type-only"]',
+      style: { "line-color": colors.edge, "target-arrow-color": colors.edge, "line-style": "dotted" },
+    },
+    {
+      selector: 'edge[kind = "cycle"][cycleKind = "lazy"]',
+      style: { "line-color": colors.accent, "target-arrow-color": colors.accent, "line-style": "dashed", "line-dash-pattern": [8, 4] },
+    },
+    // Every file pair of the edge is type-only.
+    { selector: 'edge[kind = "down"][?typeOnly]', style: { "line-style": "dotted" } },
     // Breaks a declared architecture rule: red and dashed, apart from the upward and cycle edges.
     { selector: "edge[?violation]", style: { "line-color": colors.error, "target-arrow-color": colors.error, "line-style": "dashed" } },
     // Unrelated to the dependents: dimmed less than a hover fade, which still applies over it.

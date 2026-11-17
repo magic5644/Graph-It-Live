@@ -1,5 +1,5 @@
 import type { Edge, Node } from "reactflow";
-import { detectCycleEdges } from "../../../shared/cycleUtils";
+import { detectCycleEdges, typeOnlyCycleEdges } from "../../../shared/cycleUtils";
 import { getLogger } from "../../../shared/logger";
 import type {
   GraphData,
@@ -53,12 +53,12 @@ export interface BuildGraphResult {
  * This ensures expand/collapse feels reliable even with huge graphs.
  */
 function filterRelevantEdges(
-  edges: Array<{ source: string; target: string }>,
+  edges: GraphEdge[],
   currentPath: string,
   expandedNodes: Set<string>,
   showParents: boolean,
   maxEdges: number,
-): Array<{ source: string; target: string }> {
+): GraphEdge[] {
   const allowedSources = new Set<string>([normalizePath(currentPath)]);
   expandedNodes.forEach((n) => allowedSources.add(normalizePath(n)));
 
@@ -70,7 +70,8 @@ function filterRelevantEdges(
       allowedSources.has(source) ||
       (showParents && target === normalizePath(currentPath))
     ) {
-      selected.push({ source, target });
+      // Keep the edge's flags (typeOnly, relationType): its style depends on them.
+      selected.push({ ...edge, source, target });
       if (selected.length >= maxEdges) break;
     }
   }
@@ -88,6 +89,8 @@ interface EdgeProcessingConfig {
   unusedEdges: string[];
   unusedDependencyMode: UnusedDependencyMode;
   filterUnused: boolean;
+  /** Drop the edges whose every import is type-only (graph-it-live.ignoreTypeImports, #745). */
+  hideTypeOnly: boolean;
 }
 
 /**
@@ -96,16 +99,16 @@ interface EdgeProcessingConfig {
 function getEdgesForProcessing(
   data: GraphData,
   config: EdgeProcessingConfig,
-): { edges: Array<{ source: string; target: string }>; truncated: boolean } {
+): { edges: GraphEdge[]; truncated: boolean } {
   const isHideMode =
     config.unusedDependencyMode === "hide" && config.filterUnused;
   const unusedEdgeSet = new Set(config.unusedEdges);
 
   // In hide mode: filter out ALL unused edges (both incoming and outgoing)
   // In dim mode: keep all edges, styling is applied in createVisibleEdges
-  let baseEdges = data.edges;
+  let baseEdges = config.hideTypeOnly ? data.edges.filter((edge) => !edge.typeOnly) : data.edges;
   if (isHideMode && config.unusedEdges.length > 0) {
-    baseEdges = data.edges.filter((edge) => {
+    baseEdges = baseEdges.filter((edge) => {
       const normalizedId = `${normalizePath(edge.source)}->${normalizePath(edge.target)}`;
       return !unusedEdgeSet.has(normalizedId);
     });
@@ -233,6 +236,9 @@ function buildRelationshipMaps(
   return { children, parents };
 }
 
+/** Dots of a type-only edge, as the shared legend draws it (diagramStyle LEGEND). */
+const TYPE_ONLY_DASH = "2 3";
+
 /**
  * Filter and create edges for the visible nodes
  */
@@ -240,6 +246,7 @@ function createVisibleEdges(
   edgesForProcessing: GraphEdge[],
   visibleNodes: Set<string>,
   cycleEdges: Set<string>,
+  typeOnlyCycles: Set<string>,
   unusedEdges: string[],
   unusedDependencyMode: "none" | "hide" | "dim",
   filterUnused: boolean,
@@ -249,16 +256,17 @@ function createVisibleEdges(
   const isDimMode = unusedDependencyMode === "dim" && filterUnused;
 
   return edgesForProcessing
-    .map(({ source, target, relationType }) => ({
+    .map(({ source, target, relationType, typeOnly }) => ({
       source: normalizePath(source),
       target: normalizePath(target),
       relationType,
+      typeOnly,
     }))
     .filter(
       ({ source, target }) =>
         visibleNodes.has(source) && visibleNodes.has(target),
     )
-    .flatMap(({ source, target, relationType }) => {
+    .flatMap(({ source, target, relationType, typeOnly }) => {
       const id = `${source}->${target}`;
       if (seenEdgeIds.has(id)) return [];
       seenEdgeIds.add(id);
@@ -297,6 +305,17 @@ function createVisibleEdges(
             fillOpacity: 0.9,
           },
         };
+      } else if (typeOnlyCycles.has(id)) {
+        // A cycle erased at runtime: dotted and labelled, never the runtime cycle's error colour.
+        styleOverrides = {
+          style: { ...edgeStyle.style, strokeDasharray: TYPE_ONLY_DASH },
+          animated: false,
+          label: "type-only cycle",
+          labelStyle: { fill: "var(--vscode-descriptionForeground)", fontSize: 10 },
+          labelBgStyle: { fill: "var(--vscode-editor-background)", fillOpacity: 0.9 },
+        };
+      } else if (typeOnly) {
+        styleOverrides = { style: { ...edgeStyle.style, strokeDasharray: TYPE_ONLY_DASH }, animated: false };
       } else if (relationType === "reference") {
         // Dashed style for references
         styleOverrides = {
@@ -365,6 +384,8 @@ export function buildReactFlowGraph(params: {
   selectedNodeId?: string | null;
   highlightState?: { highlightedNodes: Set<string>; highlightedEdges: Set<string> } | null; // Étape 4
   showCommunities?: boolean;
+  /** graph-it-live.ignoreTypeImports: leave out the edges whose every import is type-only (#745). */
+  hideTypeOnly?: boolean;
 }): BuildGraphResult {
   const {
     data,
@@ -377,6 +398,7 @@ export function buildReactFlowGraph(params: {
     unusedDependencyMode = "none",
     filterUnused = true,
     showCommunities = true,
+    hideTypeOnly = false,
     mode = "file",
     symbolData,
     layout = "hierarchical",
@@ -405,12 +427,15 @@ export function buildReactFlowGraph(params: {
       unusedEdges,
       unusedDependencyMode,
       filterUnused,
+      hideTypeOnly,
     });
 
   const normalizedEdges = edgesForProcessing.map(({ source, target, ...rest }) => ({
     ...rest, source: normalizePath(source), target: normalizePath(target),
   }));
-  const cycleEdges = detectCycleEdges(normalizedEdges);
+  // Runtime cycles keep the error style and the node badge; a cycle whose every import is type-only is drawn apart (#745).
+  const typeOnlyCycles = typeOnlyCycleEdges(normalizedEdges);
+  const cycleEdges = new Set([...detectCycleEdges(normalizedEdges)].filter((id) => !typeOnlyCycles.has(id)));
   const cycles = new Set<string>();
   for (const { source, target } of normalizedEdges) {
     if (cycleEdges.has(`${source}->${target}`)) {
@@ -592,6 +617,7 @@ export function buildReactFlowGraph(params: {
     edgesForProcessing,
     visibleNodes,
     cycleEdges,
+    typeOnlyCycles,
     unusedEdges,
     unusedDependencyMode,
     filterUnused,

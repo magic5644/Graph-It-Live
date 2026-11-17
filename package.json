@@ -1731,7 +1731,7 @@
           "graph-it-live.ignoreTypeImports": {
             "type": "boolean",
             "default": false,
-            "description": "Ignore TypeScript type-only imports and exports in the dependency graph. You might need to restart VS Code for this setting to take effect."
+            "description": "Hide the edges whose every import is type-only (TypeScript import type, Python if TYPE_CHECKING:) in the dependency graph. Applies at once; the index keeps them, so impact analysis and dependents still count them."
           },
           "graph-it-live.enableMcpServer": {
             "type": "boolean",

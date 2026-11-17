@@ -712,7 +712,10 @@ function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitL
       ...element,
       data: {
         ...element.data, unitEdge: true, fromUnit: edge.from, toUnit: edge.to, kind: edge.kind,
-        capped: capped.has(`${edge.from}\0${edge.to}`), tooltip: `${element.data.tooltip} · click files`,
+        ...(edge.cycleKind === undefined ? {} : { cycleKind: edge.cycleKind }),
+        ...(edge.typeOnlyEdgeCount !== undefined && edge.typeOnlyEdgeCount === edge.fileEdgeCount ? { typeOnly: true } : {}),
+        capped: capped.has(`${edge.from}\0${edge.to}`),
+        tooltip: `${element.data.tooltip}${edge.cycleKind === "type-only" || edge.cycleKind === "lazy" ? ` · ${edge.cycleKind} cycle` : ""} · click files`,
       },
     };
   });

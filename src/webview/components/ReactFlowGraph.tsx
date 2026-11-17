@@ -104,6 +104,8 @@ interface ReactFlowGraphProps {
   onHighlight?: (symbolId: string) => void;
   /** Whether to show community tint and legend (default true) */
   showCommunities?: boolean;
+  /** `graph-it-live.ignoreTypeImports`: hide the edges whose every import is type-only (#745). */
+  hideTypeOnly?: boolean;
   /** How communities were computed; only changes the legend wording */
   communityMode?: CommunityMode;
 }
@@ -371,6 +373,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   unusedDependencyMode = "none",
   filterUnused: backendFilterUnused,
   showCommunities = true,
+  hideTypeOnly = false,
   communityMode = "path",
   mode = "file",
   symbolData,
@@ -529,6 +532,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
       unusedDependencyMode,
       filterUnused,
       showCommunities,
+      hideTypeOnly,
       mode,
       symbolData,
       layout,
@@ -557,6 +561,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
     unusedDependencyMode,
     filterUnused,
     showCommunities,
+    hideTypeOnly,
     // DO NOT include callbacks in deps! They don't change graph structure,
     // only node data handlers. Including them causes constant re-renders.
     mode,

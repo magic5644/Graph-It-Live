@@ -65,6 +65,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private _lastFileGraphMetadata: GraphData["nodeMetadata"];
   /** File the last file graph was rooted on (E2E observability). */
   private _lastFileGraphRoot: string | undefined;
+  /** `source->target` of the type-only edges of the last file graph sent (E2E observability, #745). */
+  private _lastFileGraphTypeOnlyEdges: string[] = [];
   /**
    * Optional callback used by EditorEventsService to notify MCP server.
    * Populated by extension activation if MCP server is registered.
@@ -435,6 +437,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
           command: "updateFilter",
           filterUnused: filterActive,
           unusedDependencyMode: effectiveMode,
+          hideTypeOnly: this._configSnapshot.ignoreTypeImports,
         });
       }
 
@@ -1327,6 +1330,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     return this._lastFileGraphRoot;
   }
 
+  /** The type-only edges of the last file graph, and whether the webview is told to hide them (#745). */
+  public getFileGraphTypeOnly(): { hide: boolean; edges: string[] } {
+    return { hide: this._configSnapshot.ignoreTypeImports, edges: this._lastFileGraphTypeOnlyEdges };
+  }
+
   /** E2E observability pass-through to ArchitectureViewService */
   public getArchitectureE2EState(): ReturnType<ArchitectureViewService["getE2EState"]> | undefined {
     return this.architectureViewService?.getE2EState();
@@ -1535,11 +1543,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         unusedDependencyMode: effectiveMode,
         filterUnused: filterActive,
         showCommunities: this._configSnapshot.showCommunities,
+        hideTypeOnly: this._configSnapshot.ignoreTypeImports,
         communityMode: this._configSnapshot.communityMode,
       };
       this._view.webview.postMessage(initialMessage);
       this._lastFileGraphMetadata = initialGraphData.nodeMetadata;
     this._lastFileGraphRoot = filePath;
+    this._lastFileGraphTypeOnlyEdges = initialGraphData.edges.filter((edge) => edge.typeOnly).map((edge) => `${edge.source}->${edge.target}`);
 
       // Step 2: If usage check is required, perform it and send update
       if (checkUsage) {
@@ -1571,6 +1581,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
           unusedDependencyMode: effectiveMode,
           filterUnused: filterActive,
           showCommunities: this._configSnapshot.showCommunities,
+          hideTypeOnly: this._configSnapshot.ignoreTypeImports,
           communityMode: this._configSnapshot.communityMode,
         };
 
