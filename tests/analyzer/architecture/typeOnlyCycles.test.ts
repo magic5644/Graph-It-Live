@@ -1,41 +1,9 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
-import { assessArchitecture, type AssessmentInput } from "@/analyzer/architecture/architectureAssessment";
-import { unitMatrix } from "@/analyzer/architecture/architectureMatrix";
-import { assignUnits, buildArchitectureUnits } from "@/analyzer/architecture/architectureUnits";
-import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
-import { renderInitText, type InitResult } from "@/cli/commands/initReport";
+import { assessWorkspace as assess, cycleWins, edgeFlags, removeWorkspaces, renderDryRun } from "./cycleHarness";
 
 /** The fixtures of #740: init tells a runtime cycle from a type-only one. */
 describe("type-only cycles (#740)", () => {
-  let root: string | undefined;
-
-  afterEach(() => {
-    if (root) fs.rmSync(root, { recursive: true, force: true });
-    root = undefined;
-  });
-
-  async function assess(files: Record<string, string>) {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-type-only-"));
-    for (const [file, content] of Object.entries(files)) {
-      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
-      fs.writeFileSync(path.join(root, file), content);
-    }
-    const spider = new SpiderBuilder().withRootDir(root).withExcludeNodeModules(true).build();
-    const graph = await buildArchitectureGraph(root, (file) => spider.analyze(file));
-    const assignment = assignUnits(root, graph.nodes.map((node) => node.relativePath));
-    const units = buildArchitectureUnits(graph, root, assignment);
-    const input: AssessmentInput = { graph, units, unitOf: assignment.unitOf, matrix: unitMatrix(units), deadCode: [], acceptedViolations: 0 };
-    return { graph, assessment: assessArchitecture(input) };
-  }
-
-  const edgeFlags = (graph: { edges: { sourceRelative: string; targetRelative: string; typeOnly?: boolean }[] }) =>
-    graph.edges.map((edge) => `${edge.sourceRelative} -> ${edge.targetRelative}${edge.typeOnly ? " (type)" : ""}`).sort();
-  const cycleWins = (assessment: ReturnType<typeof assessArchitecture>) =>
-    assessment.quickWins.filter((win) => win.kind === "mutual-import" || win.kind === "cycle-break").map((win) => win.kind);
+  afterEach(removeWorkspaces);
 
   it("reports two files importing each other only through import type as type-only, out of the hot spot", async () => {
     const { graph, assessment } = await assess({
@@ -90,11 +58,7 @@ describe("type-only cycles (#740)", () => {
       "a/user.ts": 'import type { Role } from "../b/role";\nexport interface User { role: Role }\n',
       "b/role.ts": 'import type { User } from "../a/user";\nexport type Role = { owner: User };\n',
     });
-    const text = renderInitText({
-      configFile: "graphit.architecture.json", baselineFile: "graphit.architecture.baseline.json", status: "dry-run",
-      written: [], reportFiles: [], changes: [], acceptedViolations: 0,
-      guard: { preCommit: "", ci: "", sarif: "" }, assessment, diagrams: [],
-    } satisfies InitResult);
+    const text = renderDryRun(assessment);
     expect(text).toContain("Cycles: 0 runtime unit cycles, 0 runtime mutual file imports; type-only: 1 unit cycle, 1 mutual file import; lazy: 0 unit cycles, 0 mutual file imports");
     expect(text).toContain("[type-only] a, b: 1 unit cycle and 1 mutual file import whose every import is type-only: design coupling, no init-order risk.");
     expect(text).not.toMatch(/Top action: .*type-only/);

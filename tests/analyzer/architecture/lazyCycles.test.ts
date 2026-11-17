@@ -1,45 +1,10 @@
-import * as fs from "node:fs";
-import * as os from "node:os";
-import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildArchitectureGraph, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
-import { assessArchitecture, type AssessmentInput } from "@/analyzer/architecture/architectureAssessment";
-import { unitMatrix } from "@/analyzer/architecture/architectureMatrix";
 import { checkGraphArchitecture, parseArchitectureConfig } from "@/analyzer/architecture/architectureRules";
-import { assignUnits, buildArchitectureUnits } from "@/analyzer/architecture/architectureUnits";
-import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
-import { renderInitText, type InitResult } from "@/cli/commands/initReport";
+import { assessWorkspace as assess, cycleWins, edgeFlags, removeWorkspaces, renderDryRun as text } from "./cycleHarness";
 
 /** The fixtures of #741: a cycle that closes only through import() is lazy, not a runtime cycle. */
 describe("lazy cycles (#741)", () => {
-  let root: string | undefined;
-
-  afterEach(() => {
-    if (root) fs.rmSync(root, { recursive: true, force: true });
-    root = undefined;
-  });
-
-  async function assess(files: Record<string, string>) {
-    root = fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-lazy-"));
-    for (const [file, content] of Object.entries(files)) {
-      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
-      fs.writeFileSync(path.join(root, file), content);
-    }
-    const spider = new SpiderBuilder().withRootDir(root).withExcludeNodeModules(true).build();
-    const graph = await buildArchitectureGraph(root, (file) => spider.analyze(file));
-    const assignment = assignUnits(root, graph.nodes.map((node) => node.relativePath));
-    const units = buildArchitectureUnits(graph, root, assignment);
-    const input: AssessmentInput = { graph, units, unitOf: assignment.unitOf, matrix: unitMatrix(units), deadCode: [], acceptedViolations: 0 };
-    return { graph, assessment: assessArchitecture(input) };
-  }
-
-  const edgeFlags = (graph: Pick<ArchitectureGraph, "edges">) =>
-    graph.edges.map((edge) => `${edge.sourceRelative} -> ${edge.targetRelative}${edge.typeOnly ? " (type)" : ""}${edge.dynamic ? " (dynamic)" : ""}`).sort();
-  const text = (assessment: ReturnType<typeof assessArchitecture>) => renderInitText({
-    configFile: "graphit.architecture.json", baselineFile: "graphit.architecture.baseline.json", status: "dry-run",
-    written: [], reportFiles: [], changes: [], acceptedViolations: 0,
-    guard: { preCommit: "", ci: "", sarif: "" }, assessment, diagrams: [],
-  } satisfies InitResult);
+  afterEach(removeWorkspaces);
 
   // A router that lazily loads its page, which imports the router back.
   const LAZY_ROUTE = {
@@ -50,7 +15,7 @@ describe("lazy cycles (#741)", () => {
   it("reports a router lazily importing a page that imports it back as one lazy item, no runtime cycle", async () => {
     const { graph, assessment } = await assess(LAZY_ROUTE);
     expect(edgeFlags(graph)).toEqual(["app/router.ts -> views/page.ts (dynamic)", "views/page.ts -> app/router.ts"]);
-    expect(assessment.quickWins.filter((win) => win.kind === "mutual-import" || win.kind === "cycle-break")).toEqual([]);
+    expect(cycleWins(assessment)).toEqual([]);
     expect(assessment.totals).toMatchObject({ unitCycles: 0, mutualImports: 0, lazyUnitCycles: 1, lazyMutualImports: 1, typeOnlyUnitCycles: 0, typeOnlyMutualImports: 0 });
     expect(assessment.totals.mutualHotSpot).toBeUndefined();
     expect(assessment.lazyCycles).toEqual({
@@ -78,12 +43,12 @@ describe("lazy cycles (#741)", () => {
   });
 
   it("keeps the dynamic edge for allowOnly rules (check-architecture)", async () => {
-    const { graph } = await assess(LAZY_ROUTE);
+    const { root, graph } = await assess(LAZY_ROUTE);
     const config = parseArchitectureConfig(JSON.stringify({
       elements: { app: { path: "app/" }, views: { path: "views/" } },
       rules: [{ name: "app-imports-nothing-but-app", from: "app", allowOnly: ["app"], severity: "error" }],
     }));
-    const { check } = checkGraphArchitecture(graph, root!, config);
+    const { check } = checkGraphArchitecture(graph, root, config);
     expect(check.violations.map(({ rule, source, target }) => ({ rule, source, target }))).toEqual([
       { rule: "app-imports-nothing-but-app", source: "app/router.ts", target: "views/page.ts" },
     ]);
