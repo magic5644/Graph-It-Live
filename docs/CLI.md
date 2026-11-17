@@ -709,6 +709,8 @@ graph-it check-dependencies src/index.ts
 
 List confirmed circular-dependency cycles that involve a given file.
 
+Each cycle is tagged in `cycleKinds` (same order as `confirmedCycles`): `type-only` when every import closing it is type-only (TypeScript `import type`, every specifier `type`, `export type`; Python imports under `if TYPE_CHECKING:`), `runtime` as soon as one import is a value import. `typeOnlyCycleCount` counts the type-only ones. MCP `crawl_dependency_graph` returns the same tags in `circularDependencyKinds`, and `analyze_dependencies`, `find_referencing_files` and `generate_codemap` mark each type-only dependency `typeOnly: true`.
+
 A Rust `mod x;` declaration places `x` in the module tree (the file named by a `#[path = "..."]` attribute when there is one, resolved as rustc does): the graph keeps that edge (`type: mod` in `find_referencing_files`), but no cycle detector counts it, so a child module that uses an item of its parent is not a cycle. Cycles between modules that use each other are still reported. The architecture graph leaves `mod` declarations out, since folder groups already show the module tree.
 
 ```
@@ -909,7 +911,7 @@ graph-it check-architecture [--config <file>] [--baseline <file>] [--update-base
 | `elements.<name>.each` | Every matched folder (or unit) is an instance of its own; a file never breaks a rule against its own instance |
 | `rules[].forbid` | Files of `from` may not import files of these elements |
 | `rules[].allowOnly` | Files of `from` may import only these elements and their own instance |
-| `rules[].noCycles` | `"units"`, or an element: no import cycle between units or between the element's instances |
+| `rules[].noCycles` | `"units"`, or an element: no import cycle between units or between the element's instances. Object form `{ "between": "units", "typeOnly": "ignore" }` (or `"warning"`): a cycle whose every import is type-only is skipped, or reported as a warning; the string form reports it like any cycle |
 | `rules[].severity` | `error` (default, fails the command), `warning`, `off` (skipped) |
 | `rules[].reason` | Shown with every violation |
 | `roles.<unit>` | Role of the units whose key or package name matches (`*` matches any characters; first match wins): `function`, `micro-frontend`, `frontend`, `service`, `library`, `tooling` or `unknown`. Not a rule: it only replaces the inferred role |
@@ -919,6 +921,7 @@ How the rules read:
 - A file can belong to several elements; a rule checks each element of the importing file it names.
 - `allowOnly` accepts the importer's own instance and **every** instance of a listed element (list an `each` element to allow all of them). A target selected by no element is a violation (`(no element)`).
 - An element without `each` is a single instance, and a file never breaks a rule against its own instance: `noCycles` on such an element, or `forbid` of the element it comes `from`, could never report, so the config is refused (`needs each: true`).
+- Each `noCycles` violation says `cycle: "runtime"` or `"type-only"` (text and Markdown reports: `(type-only cycle)`); `review-pr` tags its unit cycles the same way. A cycle is runtime as soon as one of its imports is.
 - A rule with `severity: "off"` is not checked: its baseline entries are neither resolved nor dropped by `--update-baseline`.
 - Only `graphit.architecture.json` and `graphit.architecture.baseline.json` at the workspace root are read by the view; `--config` and `--baseline` name others for the CLI and MCP.
 

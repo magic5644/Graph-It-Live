@@ -141,6 +141,7 @@
       "line": 1,
       "from": "shared/ui",
       "to": "shared/utils",
+      "cycle": "runtime",
       "new": true
     },
     {
@@ -151,6 +152,7 @@
       "line": 1,
       "from": "shared/utils",
       "to": "shared/ui",
+      "cycle": "runtime",
       "new": true
     }
   ],

@@ -92,3 +92,21 @@ describe("check-architecture markdown report", () => {
     expect(renderCheckArchitectureMarkdown(check({ rules: [] }))).toContain("\nNo rules.");
   });
 });
+
+describe("check-architecture: type-only cycles (#745)", () => {
+  it("marks a noCycles violation of a type-only cycle, never a runtime one", () => {
+    const report = check({
+      passed: false,
+      totals: { files: 4, unmatchedFiles: 0, rules: 1, brokenRules: 1, violations: 2, newViolations: 2, errors: 1, newErrors: 1, warnings: 1, resolved: 0 },
+      rules: [{ name: "no-cycles", kind: "noCycles", severity: "error", reason: undefined, violations: 2, newViolations: 2, elementPairs: [] }],
+      violations: [
+        { rule: "no-cycles", severity: "warning", source: "a/user.ts", target: "b/role.ts", line: 1, from: "a", to: "b", cycle: "type-only", new: true },
+        { rule: "no-cycles", severity: "error", source: "c/order.ts", target: "d/line.ts", line: 1, from: "c", to: "d", cycle: "runtime", new: true },
+      ],
+    });
+    const text = renderCheckArchitectureText(report);
+    expect(text).toContain("a/user.ts:1 → b/role.ts (type-only cycle)");
+    expect(text).toMatch(/c\/order\.ts:1 → d\/line\.ts$/m);
+    expect(renderCheckArchitectureMarkdown(report)).toContain("(type-only cycle)");
+  });
+});

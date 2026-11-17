@@ -153,9 +153,36 @@
             }
           },
           "noCycles": {
-            "description": "'units', or an element with each: no import cycle between them",
-            "type": "string",
-            "pattern": "^[\\w.-]{1,64}$"
+            "description": "'units', or an element with each: no import cycle between them; the object form treats type-only cycles apart",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^[\\w.-]{1,64}$"
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "between": {
+                    "type": "string",
+                    "pattern": "^[\\w.-]{1,64}$",
+                    "description": "'units', or an element with each"
+                  },
+                  "typeOnly": {
+                    "type": "string",
+                    "enum": [
+                      "ignore",
+                      "warning"
+                    ],
+                    "description": "A cycle whose every import is type-only: ignore it, or report it as a warning"
+                  }
+                },
+                "required": [
+                  "between",
+                  "typeOnly"
+                ],
+                "additionalProperties": false
+              }
+            ]
           },
           "severity": {
             "description": "error (default) fails graph-it check-architecture; off skips the rule",

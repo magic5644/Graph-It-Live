@@ -18,6 +18,7 @@ import {
   type ArchitectureCheckTotals,
   type ArchitectureRuleSummary,
 } from "../../shared/architecture-model";
+import type { CycleKind } from "../../shared/cycleUtils";
 import { normalizePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
@@ -66,12 +67,23 @@ const RuleSchema = z.strictObject({
   forbid: oneOrMany(NameSchema).optional().describe("Elements the files of from must not import"),
   allowOnly: z.array(NameSchema).max(MAX_ELEMENTS).optional()
     .describe("The only elements the files of from may import, besides their own element instance"),
-  noCycles: NameSchema.optional().describe("'units', or an element with each: no import cycle between them"),
+  noCycles: z.union([
+    NameSchema,
+    z.strictObject({
+      between: NameSchema.describe("'units', or an element with each"),
+      typeOnly: z.enum(["ignore", "warning"]).describe("A cycle whose every import is type-only: ignore it, or report it as a warning"),
+    }),
+  ]).optional().describe("'units', or an element with each: no import cycle between them; the object form treats type-only cycles apart"),
   severity: z.enum(["error", "warning", "off"]).optional().describe("error (default) fails graph-it check-architecture; off skips the rule"),
   reason: z.string().max(1000).optional().describe("Why the rule exists, shown with every violation"),
 });
 
 type RawRule = z.infer<typeof RuleSchema>;
+
+/** What a noCycles rule checks: `units` or an element, and how it treats type-only cycles (#745). */
+function cycleTarget(rule: RawRule): { between: string; typeOnly?: "ignore" | "warning" } | undefined {
+  return typeof rule.noCycles === "string" ? { between: rule.noCycles } : rule.noCycles;
+}
 type ArchitectureConfigElements = Record<string, z.infer<typeof ElementSchema>>;
 
 const asList = <T>(value: T | T[] | undefined): T[] => (value === undefined ? [] : [value].flat() as T[]);
@@ -82,7 +94,9 @@ function elementRefs(rule: RawRule): { name: string; at: (string | number)[] }[]
     const value = rule[key];
     return asList(value).map((name, index) => ({ name, at: Array.isArray(value) ? [key, index] : [key] }));
   });
-  return rule.noCycles === undefined || rule.noCycles === UNITS ? refs : [...refs, { name: rule.noCycles, at: ["noCycles"] }];
+  const between = cycleTarget(rule)?.between;
+  const at = typeof rule.noCycles === "string" ? ["noCycles"] : ["noCycles", "between"];
+  return between === undefined || between === UNITS ? refs : [...refs, { name: between, at }];
 }
 
 /**
@@ -90,8 +104,9 @@ function elementRefs(rule: RawRule): { name: string; at: (string | number)[] }[]
  * rule could never report, so it is refused rather than silently passing.
  */
 function selfRuleIssue(rule: RawRule, each: (name: string) => boolean): { message: string; at: string } | undefined {
-  if (rule.noCycles !== undefined && rule.noCycles !== UNITS && !each(rule.noCycles)) {
-    return { message: `noCycles on "${rule.noCycles}" needs each: true (one instance has no cycle with itself)`, at: "noCycles" };
+  const between = cycleTarget(rule)?.between;
+  if (between !== undefined && between !== UNITS && !each(between)) {
+    return { message: `noCycles on "${between}" needs each: true (one instance has no cycle with itself)`, at: "noCycles" };
   }
   const self = asList(rule.forbid).find((name) => asList(rule.from).includes(name) && !each(name));
   return self === undefined ? undefined : { message: `forbidding "${self}" from itself needs each: true (a file never breaks a rule against its own instance)`, at: "forbid" };
@@ -342,12 +357,14 @@ export interface ArchitectureViolation {
   /** Element instances (`element` or `element (instance)` with each), or unit keys for noCycles units. */
   from: string;
   to: string;
+  /** noCycles only: `type-only` when every import between the cycle's keys is type-only (#745). */
+  cycle?: CycleKind;
   /** Not in the baseline (every violation without one). */
   new: boolean;
 }
 
 type Edge = ArchitectureGraph["edges"][number];
-type Found = Pick<ArchitectureViolation, "from" | "to">;
+type Found = Pick<ArchitectureViolation, "from" | "to" | "cycle">;
 
 const label = (element: string, instance: string) => (instance === element ? element : `${element} (${instance})`);
 
@@ -389,15 +406,21 @@ function cycleViolations(edges: readonly Edge[], keyOf: (file: string) => string
   const keys = [...new Set(across.flatMap(({ from, to }) => [from, to]))].sort(byCodeUnit);
   for (const targets of successors.values()) targets.sort(byCodeUnit);
   const { componentOf } = layerGraph(keys, successors);
-  return new Map(across.filter(({ from, to }) => componentOf.get(from) === componentOf.get(to)).map(({ edge, from, to }) => [edge, { from, to }]));
+  const inCycle = across.filter(({ from, to }) => componentOf.get(from) === componentOf.get(to));
+  // A cycle is runtime as soon as one of its imports is (#740).
+  const runtime = new Set(inCycle.filter(({ edge }) => edge.typeOnly !== true).map(({ from }) => componentOf.get(from)));
+  return new Map(inCycle.map(({ edge, from, to }) => [edge, { from, to, cycle: runtime.has(componentOf.get(from)) ? "runtime" : "type-only" }]));
 }
 
 function ruleViolations(rule: RawRule, graph: ArchitectureGraph, assignment: UnitAssignment, elements: ResolvedElements): Map<Edge, Found> {
-  if (rule.noCycles === UNITS) return cycleViolations(graph.edges, (file) => assignment.unitOf.get(file));
-  if (rule.noCycles !== undefined) {
-    const element = rule.noCycles;
-    const found = cycleViolations(graph.edges, (file) => elements.membership.get(file)?.get(element));
-    return new Map([...found].map(([edge, { from, to }]) => [edge, { from: label(element, from), to: label(element, to) }]));
+  const target = cycleTarget(rule);
+  if (target !== undefined) {
+    const element = target.between;
+    const found = element === UNITS
+      ? cycleViolations(graph.edges, (file) => assignment.unitOf.get(file))
+      : new Map([...cycleViolations(graph.edges, (file) => elements.membership.get(file)?.get(element))]
+        .map(([edge, pair]) => [edge, { ...pair, from: label(element, pair.from), to: label(element, pair.to) }]));
+    return target.typeOnly === "ignore" ? new Map([...found].filter(([, pair]) => pair.cycle !== "type-only")) : found;
   }
   const check = rule.forbid === undefined ? allowOnlyViolation : forbidViolation;
   const found = new Map<Edge, Found>();
@@ -442,10 +465,12 @@ export function checkArchitecture(
   const rules: ArchitectureRuleSummary[] = config.rules.map((rule) => {
     const severity = rule.severity ?? "error";
     const kind = ARCHITECTURE_RULE_KINDS.find((candidate) => rule[candidate] !== undefined)!;
-    const own = severity === "off" ? [] : [...ruleViolations(rule, graph, assignment, elements)].map(([edge, pair]) => {
+    const typeOnlyWarning = cycleTarget(rule)?.typeOnly === "warning";
+    const own = severity === "off" ? [] : [...ruleViolations(rule, graph, assignment, elements)].map(([edge, pair]): ArchitectureViolation => {
       const key = `${rule.name}\0${edge.sourceRelative}\0${edge.targetRelative}`;
       found.add(key);
-      return { rule: rule.name, severity, source: edge.sourceRelative, target: edge.targetRelative, line: edge.line, ...pair, new: !accepted.has(key) };
+      const pairSeverity = typeOnlyWarning && pair.cycle === "type-only" ? "warning" : severity;
+      return { rule: rule.name, severity: pairSeverity, source: edge.sourceRelative, target: edge.targetRelative, line: edge.line, ...pair, new: !accepted.has(key) };
     });
     violations.push(...own);
     return {
@@ -532,7 +557,7 @@ export function checkGraphArchitecture(graph: ArchitectureGraph, workspaceRoot: 
 }
 
 /** File pairs between two units of one import cycle, as `graph-it architecture --level units` shows them. */
-export function unitCyclePairs(graph: ArchitectureGraph, assignment: UnitAssignment): Pick<ArchitectureViolation, "source" | "target" | "line" | "from" | "to">[] {
+export function unitCyclePairs(graph: ArchitectureGraph, assignment: UnitAssignment): Pick<ArchitectureViolation, "source" | "target" | "line" | "from" | "to" | "cycle">[] {
   return [...cycleViolations(graph.edges, (file) => assignment.unitOf.get(file))]
     .map(([edge, pair]) => ({ source: edge.sourceRelative, target: edge.targetRelative, line: edge.line, ...pair }));
 }

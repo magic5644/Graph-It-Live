@@ -22,6 +22,7 @@ export interface MatrixEdge<Id> {
   from: Id;
   to: Id;
   fileEdgeCount: number;
+  typeOnlyEdgeCount?: number;
 }
 
 /** Rows ordered by layer, each cycle kept together (at its first member's label), then by label. */
@@ -61,7 +62,8 @@ export function buildMatrix<Id extends number | string>(nodes: readonly MatrixNo
     const row = indexOf.get(String(edge.from));
     const column = indexOf.get(String(edge.to));
     if (row === undefined || column === undefined) continue;
-    cells.push({ row, column, fileEdgeCount: edge.fileEdgeCount, upward: column > row });
+    const { fileEdgeCount, typeOnlyEdgeCount } = edge;
+    cells.push({ row, column, fileEdgeCount, ...(typeOnlyEdgeCount ? { typeOnlyEdgeCount } : {}), upward: column > row });
     outgoing[row].pairs += edge.fileEdgeCount;
     outgoing[row].groups += 1;
     incoming[column].pairs += edge.fileEdgeCount;
