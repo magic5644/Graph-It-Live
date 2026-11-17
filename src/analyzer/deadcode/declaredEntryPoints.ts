@@ -1,19 +1,28 @@
 /**
- * Declared entry points (#690, #696): what a language manifest declares is loaded by a runtime, a package manager or
- * another project, never by a workspace import, so the dead-code scan counts it as used. Pure functions over text
+ * Declared entry points (#690, #696, #743): what a language or deployment manifest declares is loaded by a runtime, a
+ * package manager or another project, never by a workspace import, so the dead-code scan counts it as used; what a
+ * graphql-codegen config generates comes back with the next generation, so it is never reported either. Pure functions over text
  * the caller read once per scan; a path is kept only when it names a workspace source file inside the root.
  */
 import path from "node:path";
 import { getRelativePath, normalizePath } from "../../shared/path";
 import { isPathWithinRoot } from "../../shared/pathSecurity";
+import { maskNonCode } from "../utils/maskNonCode";
 
-export const MANIFEST_FILE_NAMES: ReadonlySet<string> = new Set(["package.json", "pyproject.toml", "setup.cfg", "setup.py", "Cargo.toml"]);
+const SERVERLESS_FILE_NAMES = ["serverless.yml", "serverless.yaml"];
+const SAM_FILE_NAMES = ["template.yaml", "template.yml"];
+const CODEGEN_FILE_NAMES = ["codegen.yml", "codegen.yaml", "codegen.ts", "codegen.json"];
+
+export const MANIFEST_FILE_NAMES: ReadonlySet<string> = new Set([
+  "package.json", "pyproject.toml", "setup.cfg", "setup.py", "Cargo.toml", ...SERVERLESS_FILE_NAMES, ...SAM_FILE_NAMES, ...CODEGEN_FILE_NAMES,
+]);
 
 /** Every export of the file is used. */
 export const WHOLE_FILE = "*";
 
 /**
- * file (absolute, normalized) → exported name, or `WHOLE_FILE`, → why it is used (`declared:<manifest>#<field>`).
+ * file (absolute, normalized) → exported name, or `WHOLE_FILE`, → why it is used (`declared:<manifest>#<field>`, or
+ * `generated:<codegen config>#generates[...]` for a file a graphql-codegen config writes).
  * A Rust crate-API file (`#lib`) is declared whole: Rust exports are `pub` items, and the scan drops `pub(crate)`,
  * `pub(super)` and `pub(in …)` ones (`restrictedRustItem` in SpiderSymbolService).
  */
@@ -93,7 +102,15 @@ const MANIFEST_READERS: Readonly<Record<string, ManifestReader>> = {
   "setup.cfg": (...args) => setupCfgEntries(...args),
   "setup.py": (...args) => setupPyEntries(...args),
   "Cargo.toml": (...args) => cargoEntries(...args),
+  ...Object.fromEntries(SERVERLESS_FILE_NAMES.map((name): [string, ManifestReader] => [name, (...args) => serverlessEntries(...args)])),
+  ...Object.fromEntries(SAM_FILE_NAMES.map((name): [string, ManifestReader] => [name, (...args) => samEntries(...args)])),
+  ...Object.fromEntries(CODEGEN_FILE_NAMES.map((name): [string, ManifestReader] => [name, (...args) => codegenEntries(...args)])),
 };
+
+/** The `generated:` reason of a file a codegen config writes (`codegenEntries`). */
+export function isGeneratedReason(reason: string): boolean {
+  return reason.startsWith("generated:");
+}
 
 /** Why `name` of `file` is used, or undefined when no manifest declares it. */
 export function declaredReason(entryPoints: DeclaredEntryPoints, file: string, name: string): string | undefined {
@@ -415,6 +432,115 @@ function crateModules(root: string, sources: EntryPointSources): string[] {
 }
 
 // ---------------------------------------------------------------------------------------------------------------
+// Serverless Framework, AWS SAM, graphql-codegen (#743)
+
+/** serverless.yml `functions.<name>.handler: src/handler.main`, relative to the manifest folder. */
+function serverlessEntries(manifest: Manifest, rel: string, sources: EntryPointSources, out: Collected): void {
+  for (const { keys, value } of yamlOrWarn(manifest, rel, "entry points", out)) {
+    if (value && keys.length === 3 && keys[0] === "functions" && keys[2] === "handler") {
+      handlerEntries(manifest.file, ".", value, `declared:${rel}#functions.${keys[1]}.handler`, sources, out);
+    }
+  }
+}
+
+/**
+ * SAM template.yaml: the `Handler` of each `AWS::Serverless::Function` resource under its `CodeUri` folder, both read
+ * from `Globals.Function` when the resource has none, the folder defaulting to the template's. A `CodeUri` that is a
+ * map (an S3 location) or a tag (`!Ref`) names no workspace folder: that function is skipped.
+ */
+function samEntries(manifest: Manifest, rel: string, sources: EntryPointSources, out: Collected): void {
+  // `template.yaml` is a common name (Jinja, cookiecutter): only a SAM template is read, or warned about.
+  if (!manifest.text.includes("AWS::Serverless")) return;
+  const values = new Map(yamlOrWarn(manifest, rel, "entry points", out).map(({ keys, value }) => [keys.join("\n"), value]));
+  for (const [key, type] of values) {
+    const [section, name, field, ...deeper] = key.split("\n");
+    if (section !== "Resources" || field !== "Type" || deeper.length > 0 || type !== "AWS::Serverless::Function") continue;
+    // A resource's own map value (null) wins over Globals: it is no workspace path.
+    const property = (prop: string): string | null | undefined => {
+      const own = `Resources\n${name}\nProperties\n${prop}`;
+      return values.has(own) ? values.get(own) : values.get(`Globals\nFunction\n${prop}`);
+    };
+    const codeUri = property("CodeUri");
+    const handler = property("Handler");
+    if (codeUri !== null && handler) handlerEntries(manifest.file, codeUri ?? ".", handler, `declared:${rel}#Resources.${name}.Properties.Handler`, sources, out);
+  }
+}
+
+/**
+ * A Lambda handler `path/module.export` (Node) or `package.module.function` (Python) under `folder`, both relative to
+ * the manifest folder: the module's source file (`.js` read as `.ts` and so on) or its `.py` file. A path that is
+ * absolute or leaves the workspace names nothing (`sourceCandidates`).
+ */
+function handlerEntries(manifestFile: string, folder: string, handler: string, source: string, sources: EntryPointSources, out: Collected): void {
+  const dot = handler.lastIndexOf(".");
+  if (dot <= 0) return;
+  const moduleName = handler.slice(0, dot);
+  const declared = [path.posix.join(folder, moduleName), `${path.posix.join(folder, moduleName.replaceAll(".", "/"))}.py`];
+  const baseDir = path.posix.dirname(manifestFile);
+  const files = new Set(declared.flatMap((target) => sourceCandidates(baseDir, target, {}, sources)));
+  for (const file of files) out.entries.push({ file, name: handler.slice(dot + 1), source });
+}
+
+/**
+ * graphql-codegen `generates` keys, relative to the config folder: files the generator writes (a key ending in `/` is
+ * a preset's output folder), so a deletion there comes back with the next generation.
+ */
+function codegenEntries(manifest: Manifest, rel: string, sources: EntryPointSources, out: Collected): void {
+  const baseDir = path.posix.dirname(manifest.file);
+  for (const key of codegenOutputs(manifest, rel, out)) {
+    const declared = key.endsWith("/") ? `${key}*` : key;
+    for (const file of sourceCandidates(baseDir, declared, {}, sources)) {
+      out.entries.push({ file, name: WHOLE_FILE, source: `generated:${rel}#generates[${JSON.stringify(key)}]` });
+    }
+  }
+}
+
+function codegenOutputs(manifest: Manifest, rel: string, out: Collected): string[] {
+  const extension = path.posix.extname(manifest.file);
+  if (extension === ".json") {
+    const config = parseJsonObject(manifest.text);
+    if (!config) out.warnings.push(`${rel}: not a JSON object, its generated files are ignored`);
+    return isObject(config?.generates) ? Object.keys(config.generates) : [];
+  }
+  if (extension === ".ts") {
+    const keys = objectLiteralKeys(manifest.text, /\bgenerates\s*:\s*\{/);
+    if (!keys) out.warnings.push(`${rel}: generates never closes, its generated files are ignored`);
+    return keys ?? [];
+  }
+  return yamlOrWarn(manifest, rel, "generated files", out).filter(({ keys }) => keys.length === 2 && keys[0] === "generates").map(({ keys }) => keys[1]);
+}
+
+/**
+ * The quoted keys of the JS/TS object literal whose `{` ends the first `opening` match, comments and string contents
+ * masked; [] without a match, undefined when the object never closes.
+ * shortcut: literal keys only (a computed or spread key is skipped); evaluate the module if a config builds its keys.
+ */
+function objectLiteralKeys(text: string, opening: RegExp): string[] | undefined {
+  const code = maskNonCode(text);
+  const match = opening.exec(code);
+  if (!match) return [];
+  const keys: string[] = [];
+  let depth = 0;
+  let i = match.index + match[0].length - 1;
+  while (i < code.length) {
+    const char = code[i];
+    if (char === '"' || char === "'" || char === "`") {
+      // The masked string holds only spaces: its closing quote is the next one.
+      const end = code.indexOf(char, i + 1);
+      if (end < 0) return undefined;
+      if (depth === 1 && code.slice(end + 1).trimStart().startsWith(":")) keys.push(text.slice(i + 1, end));
+      i = end;
+    } else if (char === "{" || char === "[" || char === "(") {
+      depth++;
+    } else if ((char === "}" || char === "]" || char === ")") && --depth === 0) {
+      return keys;
+    }
+    i++;
+  }
+  return undefined;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
 // Text readers
 
 const RUST_ENTRY_ATTRIBUTE = /^\s*#\[(?:unsafe\()?(test|bench|no_mangle|export_name|proc_macro_derive|proc_macro_attribute|proc_macro)\b/;
@@ -508,6 +634,112 @@ function bracketBalance(line: string): number {
 function tomlKey(key: string): string {
   const parts = key.trim().match(/"[^"]*"|'[^']*'|[^.\s]+/g) ?? [];
   return parts.map((part) => part.replaceAll(/^["']|["']$/g, "")).join(".");
+}
+
+interface YamlEntry {
+  /** Keys from the document root; a sequence item is `-` */
+  keys: string[];
+  /** Its plain or quoted scalar; null for a map, a sequence, a block or flow value, a tag, an anchor or an alias */
+  value: string | null;
+}
+
+interface YamlReader {
+  entries: YamlEntry[];
+  stack: Array<{ indent: number; key: string }>;
+  /** Lines indented deeper than this belong to a block scalar (`|`, `>`); -1 outside one */
+  blockIndent: number;
+  /** Open brackets of a multi-line flow value */
+  flowDepth: number;
+}
+
+function yamlOrWarn(manifest: Manifest, rel: string, what: string, out: Collected): YamlEntry[] {
+  const entries = readYaml(manifest.text);
+  if (!entries) out.warnings.push(`${rel}: not valid YAML, its ${what} are ignored`);
+  return entries ?? [];
+}
+
+/**
+ * shortcut: reads block maps and sequences with plain or quoted scalars, what deployment and codegen manifests write;
+ * flow collections, block scalars, tags, anchors and aliases give no value. Add a YAML parser dependency if a manifest
+ * needs more. Undefined on a tab in an indent or a root line that is neither `key:` nor `- item`.
+ */
+function readYaml(text: string): YamlEntry[] | undefined {
+  const reader: YamlReader = { entries: [], stack: [], blockIndent: -1, flowDepth: 0 };
+  for (const raw of text.split(/\r?\n/)) {
+    if (!readYamlLine(raw, reader)) return undefined;
+  }
+  return reader.entries;
+}
+
+function readYamlLine(raw: string, reader: YamlReader): boolean {
+  let rest = raw.trimStart();
+  let indent = raw.length - rest.length;
+  if (skipsYamlLine(rest, indent, reader)) return true;
+  if (raw.slice(0, indent).includes("\t")) return false;
+  // `- key: value`: the item is a `-` key and its first pair sits one level below it.
+  while (rest === "-" || rest.startsWith("- ")) {
+    pushYamlKey(reader, indent, "-", null);
+    const item = rest.slice(1).trimStart();
+    indent += rest.length - item.length;
+    rest = item;
+  }
+  if (rest === "") return true;
+  const pair = yamlPair(rest);
+  // A scalar item or a continuation line; a root line must be a pair.
+  if (!pair) return indent > 0;
+  const opener = pair.value.charAt(0);
+  if (opener === "|" || opener === ">") reader.blockIndent = indent;
+  else if (opener === "{" || opener === "[") reader.flowDepth = Math.max(0, bracketBalance(pair.value));
+  pushYamlKey(reader, indent, pair.key, pair.value === "" || "|>{[!&*".includes(opener) ? null : unquoteYaml(pair.value));
+  return true;
+}
+
+/** Blank lines, comments, document markers, directives and the lines of a block scalar or a multi-line flow value. */
+function skipsYamlLine(content: string, indent: number, reader: YamlReader): boolean {
+  if (reader.flowDepth > 0) {
+    reader.flowDepth = Math.max(0, reader.flowDepth + bracketBalance(content));
+    return true;
+  }
+  if (content === "" || content.startsWith("#")) return true;
+  if (indent > reader.blockIndent && reader.blockIndent >= 0) return true;
+  reader.blockIndent = -1;
+  return content.startsWith("---") || content.startsWith("...") || content.startsWith("%");
+}
+
+/** `key: value` or `key:` (a quoted key allowed), the value without its comment. */
+function yamlPair(text: string): { key: string; value: string } | undefined {
+  let key: string;
+  let end: number;
+  if (text.startsWith('"') || text.startsWith("'")) {
+    const close = text.indexOf(text[0], 1);
+    if (close < 0 || text[close + 1] !== ":") return undefined;
+    key = text.slice(1, close);
+    end = close + 1;
+  } else {
+    const space = text.indexOf(": ");
+    end = space >= 0 ? space : text.length - 1;
+    if (end <= 0 || text[end] !== ":") return undefined;
+    key = text.slice(0, end).trim();
+  }
+  const value = text.slice(end + 1).trim();
+  return { key, value: value.startsWith("#") ? "" : value };
+}
+
+/** A quoted scalar's text, or a plain one without its ` #` comment. */
+function unquoteYaml(value: string): string {
+  const quote = value.charAt(0);
+  if (quote === '"' || quote === "'") {
+    const close = value.indexOf(quote, 1);
+    return close < 0 ? value.slice(1) : value.slice(1, close);
+  }
+  const comment = value.indexOf(" #");
+  return (comment < 0 ? value : value.slice(0, comment)).trim();
+}
+
+function pushYamlKey(reader: YamlReader, indent: number, key: string, value: string | null): void {
+  while ((reader.stack.at(-1)?.indent ?? -1) >= indent) reader.stack.pop();
+  reader.stack.push({ indent, key });
+  reader.entries.push({ keys: reader.stack.map((entry) => entry.key), value });
 }
 
 function parseJsonObject(text: string): Record<string, unknown> | undefined {
