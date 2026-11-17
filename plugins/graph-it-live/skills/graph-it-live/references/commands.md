@@ -66,7 +66,7 @@ graph-it trace src/index.ts#main --format toon  # call chain from <file>#<symbol
 graph-it path src/index.ts --format toon        # transitive imports from an entry file (--communities path|louvain)
 graph-it path-in src/index.ts --format toon     # who imports this file
 graph-it check-dependencies src/index.ts --format toon   # incoming and outgoing dependencies
-graph-it cycles src/index.ts --format toon      # confirmed dependency cycles for a file
+graph-it cycles src/index.ts --format toon      # confirmed dependency cycles for a file; cycleKinds tags each runtime or type-only (typeOnlyCycleCount)
 graph-it check src/api.ts --format toon         # unused exports of one file
 ```
 
@@ -136,7 +136,9 @@ by hot spot file), hubs, a glossary, and the guard snippets last (summary, dead 
 explorable `index.html`; `--focus <unit|package|folder>` restricts the report and diagrams to it and
 its direct neighbours. It never overwrites an existing config or baseline without
 confirmation: outside a terminal (agent, CI) it then writes nothing unless `--yes`, and still prints
-the report.
+the report. CLI 1.25.3 or later counts runtime, type-only (`import type`, Python `if TYPE_CHECKING:`)
+and lazy (`import()` only) cycles apart, and only runtime cycles can be the top action; each quick win
+and matrix finding carries a `next` command, and the JSON adds a `matrixGuide`.
 
 ## Diagrams for humans (CLI 1.23.0 or later)
 

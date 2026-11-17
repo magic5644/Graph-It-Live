@@ -210,7 +210,10 @@ Colours follow the VS Code theme: *red* is the theme's error colour, *focus* its
 | Look | Meaning |
 | --- | --- |
 | Grey, no label | A normal edge, going down a layer |
-| **Solid red**, with its count | An upward edge (to the same or a higher layer) or an edge inside a cycle |
+| Grey, **dotted**, no label | A down edge whose every file pair is a type-only import (`import type`, Python `if TYPE_CHECKING:`) |
+| **Solid red**, with its count | An upward edge (to the same or a higher layer) or an edge inside a runtime cycle |
+| Grey, **dotted**, with its count | An edge inside a type-only cycle: erased at compile time, no runtime effect; its tooltip ends with *type-only cycle* |
+| Focus colour, **dashed**, with its count | An edge inside a lazy cycle, one that closes only through `import()`; its tooltip ends with *lazy cycle* |
 | **Dashed red** | Breaks a rule of `graphit.architecture.json` (it may also be upward); never hidden by the 3 × N cap, only by *Min. imports* |
 | Focus colour, with its count | Highlighted: you hover or selected it, or one of its ends |
 | Not drawn | Hidden: a down edge past the strongest 3 × N (header *weaker edges hidden*), or any edge below *Min. imports* when it is above 1 |
@@ -252,6 +255,8 @@ Each fix ends with **Refresh** (or `graph-it architecture`, `graph-it check-arch
 ### A cycle
 
 Graph: a dashed red block, solid red edges inside it. Matrix: red fill above the diagonal, an outlined block. Header: *N cycles*.
+
+Edges of a type-only cycle are grey and dotted, edges of a lazy cycle dashed in the focus colour: they do not load modules in a loop at startup, so fix the runtime cycles first.
 
 1. Click the cycle count in the header to show the first block, or find the outlined block in the matrix.
 2. Click each red edge or each cell of the block. The evidence panel lists its file pairs.
@@ -465,7 +470,7 @@ With `each: true`, every matched folder or unit is an instance of its own. `mfe 
 | --- | --- |
 | `forbid` | Files of `from` may not import these elements |
 | `allowOnly` | Files of `from` may import only these elements and their own instance; a target in no element is a violation |
-| `noCycles` | `"units"` or an `each` element: no import cycle between them |
+| `noCycles` | `"units"` or an `each` element: no import cycle between them. The object form `{ "between": "units", "typeOnly": "warning" }` reports a cycle whose every import is type-only as a warning; `"typeOnly": "ignore"` skips it |
 | `severity` | `error` (default, fails `check-architecture`), `warning`, or `off` (not checked) |
 | `reason` | Shown with every violation |
 

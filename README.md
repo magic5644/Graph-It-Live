@@ -484,6 +484,7 @@ Set these options in VS Code settings:
 | `graph-it-live.enableMcpServer` | `false` | Enable the built-in MCP server |
 | `graph-it-live.maxDepth` | `50` | Limit dependency traversal depth |
 | `graph-it-live.excludeNodeModules` | `true` | Exclude dependencies from `node_modules` |
+| `graph-it-live.ignoreTypeImports` | `false` | Hide the edges whose every import is type-only (`import type`, Python `if TYPE_CHECKING:`); applies at once, impact analysis and dependents still count them |
 | `graph-it-live.enableBackgroundIndexing` | `true` | Build reverse-dependency indexes in the background |
 | `graph-it-live.unusedDependencyMode` | `hide` | Hide or dim unused dependencies |
 | `graph-it-live.communityMode` | `path` | Group graph communities by folder (`path`) or by import structure (`louvain`); same as CLI `--communities` |
