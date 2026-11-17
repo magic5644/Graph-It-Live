@@ -763,6 +763,8 @@ describe("GraphProvider", () => {
     const snap = (provider as any)["_configSnapshot"];
     snap.unusedDependencyMode = "hide";
     snap.showCommunities = true;
+    // graph-it-live.ignoreTypeImports is a live view filter (#745): the webview gets it with the graph.
+    snap.ignoreTypeImports = true;
 
     // Force unusedFilterActive=true so getUnusedFilterActive() → true → checkUsage=true.
     (mockContext.globalState.get as ReturnType<typeof vi.fn>).mockImplementation(
@@ -809,7 +811,9 @@ describe("GraphProvider", () => {
       command: "updateGraph",
       refreshReason: "usage-analysis",
       showCommunities: true,
+      hideTypeOnly: true,
     });
+    expect(calls.find(([msg]: [any]) => msg.command === "updateGraph")![0]).toMatchObject({ hideTypeOnly: true });
   });
 
   it("runs the architecture view mode through ArchitectureViewService", async () => {
@@ -853,6 +857,8 @@ describe("GraphProvider", () => {
     vi.spyOn(indexingManager, "handleConfigUpdate").mockResolvedValue(undefined);
     provider.updateConfig();
     expect(handleCommunityModeChange).toHaveBeenCalledOnce();
+    // A settings change sends the type-only filter live, no restart (#745).
+    expect(webview.postMessage).toHaveBeenCalledWith(expect.objectContaining({ command: "updateFilter", hideTypeOnly: expect.any(Boolean) }));
 
     await provider.handleFileChange(np(path.join(testRootDir, "src", "main.ts")), "change");
     expect(markStale).toHaveBeenCalledOnce();

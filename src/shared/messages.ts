@@ -45,6 +45,8 @@ export interface ShowGraphMessage {
   showCommunities?: boolean;
   /** How nodeMetadata communities were computed, so the legend can say so. */
   communityMode?: CommunityMode;
+  /** `graph-it-live.ignoreTypeImports`: hide the edges whose every import is type-only, live (#745). */
+  hideTypeOnly?: boolean;
 }
 
 export interface OpenFileMessage {
@@ -73,6 +75,8 @@ export interface UpdateFilterMessage {
   command: "updateFilter";
   filterUnused: boolean;
   unusedDependencyMode: "none" | "hide" | "dim";
+  /** `graph-it-live.ignoreTypeImports`: hide the edges whose every import is type-only, live (#745). */
+  hideTypeOnly?: boolean;
 }
 
 export interface RefreshingMessage {

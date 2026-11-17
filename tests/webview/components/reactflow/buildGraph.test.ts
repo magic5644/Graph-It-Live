@@ -147,6 +147,57 @@ describe("buildReactFlowGraph", () => {
   });
 
   describe("cycle detection", () => {
+    describe("type-only edges (#745)", () => {
+      const build = (edges: GraphData["edges"], hideTypeOnly?: boolean) => buildReactFlowGraph({
+        data: { nodes: ["/w/a.ts", "/w/b.ts", "/w/c.ts"], edges },
+        currentFilePath: "/w/a.ts",
+        expandAll: true,
+        expandedNodes: new Set(),
+        showParents: false,
+        callbacks: createMockCallbacks(),
+        hideTypeOnly,
+      });
+      const labelOf = (result: ReturnType<typeof build>, id: string) => result.edges.find((edge) => edge.id === id)?.label;
+      const dashOf = (result: ReturnType<typeof build>, id: string) => result.edges.find((edge) => edge.id === id)?.style?.strokeDasharray;
+
+      it("draws a cycle whose every import is type-only apart, without the node cycle badge", () => {
+        const result = build([
+          { source: "/w/a.ts", target: "/w/b.ts", typeOnly: true },
+          { source: "/w/b.ts", target: "/w/a.ts", typeOnly: true },
+        ]);
+        expect(result.cycles.size).toBe(0);
+        expect(result.nodes.some((node) => (node.data as { isInCycle: boolean }).isInCycle)).toBe(false);
+        expect(labelOf(result, "/w/a.ts->/w/b.ts")).toBe("type-only cycle");
+        expect(dashOf(result, "/w/a.ts->/w/b.ts")).toBe("2 3");
+      });
+
+      it("keeps a cycle with one runtime import a runtime cycle, its type-only edge dotted", () => {
+        const result = build([
+          { source: "/w/a.ts", target: "/w/b.ts" },
+          { source: "/w/b.ts", target: "/w/a.ts", typeOnly: true },
+          { source: "/w/a.ts", target: "/w/c.ts", typeOnly: true },
+        ]);
+        expect([...result.cycles].sort((left, right) => left.localeCompare(right))).toEqual(["/w/a.ts", "/w/b.ts"]);
+        expect(labelOf(result, "/w/b.ts->/w/a.ts")).toBe("cycle");
+        expect(labelOf(result, "/w/a.ts->/w/c.ts")).toBeUndefined();
+        expect(dashOf(result, "/w/a.ts->/w/c.ts")).toBe("2 3");
+      });
+
+      it("hides the type-only edges when ignoreTypeImports is on, and their cycle with them", () => {
+        const edges = [
+          { source: "/w/a.ts", target: "/w/b.ts", typeOnly: true },
+          { source: "/w/b.ts", target: "/w/a.ts" },
+          { source: "/w/a.ts", target: "/w/c.ts" },
+        ];
+        expect(build(edges).edges).toHaveLength(3);
+        const hidden = build(edges, true);
+        // b.ts was reached only through the hidden type-only import: it goes with it.
+        expect(hidden.edges.map((edge) => edge.id)).toEqual(["/w/a.ts->/w/c.ts"]);
+        expect(hidden.nodes.map((node) => node.id).sort((left, right) => left.localeCompare(right))).toEqual(["/w/a.ts", "/w/c.ts"]);
+        expect(hidden.cycles.size).toBe(0);
+      });
+    });
+
     it("draws a Rust mod containment edge without marking a cycle (#595)", () => {
       const data: GraphData = {
         nodes: ["/w/src/lib.rs", "/w/src/a.rs"],

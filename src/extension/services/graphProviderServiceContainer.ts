@@ -156,7 +156,6 @@ export function createGraphProviderServiceContainer(
         .withTsConfigPath(path.join(workspaceRoot, "tsconfig.json"))
         .withExtensionPath(options.context.extensionPath)
         .withExcludeNodeModules(configSnapshot.excludeNodeModules)
-        .withIgnoreTypeImports(configSnapshot.ignoreTypeImports)
         .withMaxDepth(configSnapshot.maxDepth)
         .withReverseIndex(configSnapshot.enableBackgroundIndexing)
         .withIndexingConcurrency(configSnapshot.indexingConcurrency)

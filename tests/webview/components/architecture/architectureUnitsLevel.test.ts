@@ -151,6 +151,25 @@ describe("toLevelElements", () => {
     ]);
   });
 
+  it("draws a type-only or lazy unit cycle apart from a runtime one, and a down edge of type-only pairs dotted (#745)", () => {
+    const edgesOf = (unitEdges: typeof summary.units.unitEdges) =>
+      toLevelElements({ ...summary, units: { ...summary.units!, unitEdges } }, null).filter(element => element.group === "edges").map(element => element.data);
+    const [cycleA, cycleB] = [summary.units!.unitEdges[2], summary.units!.unitEdges[3]];
+    const typeOnly = edgesOf([
+      { ...summary.units!.unitEdges[0], typeOnlyEdgeCount: 2 },
+      summary.units!.unitEdges[1],
+      { ...cycleA, cycleKind: "type-only", typeOnlyEdgeCount: 1 },
+      { ...cycleB, cycleKind: "type-only", typeOnlyEdgeCount: 1 },
+    ]);
+    expect(typeOnly.map(edge => [edge.id, edge.cycleKind, edge.typeOnly])).toEqual([
+      ["edge-1-2", undefined, true], ["edge-1-3", undefined, undefined], ["edge-3-4", "type-only", true], ["edge-4-3", "type-only", true],
+    ]);
+    expect(String(typeOnly[2].tooltip)).toContain("type-only cycle · click files");
+    const runtime = edgesOf([{ ...cycleA, cycleKind: "runtime" }, { ...cycleB, cycleKind: "lazy" }]);
+    expect(String(runtime[0].tooltip)).not.toContain("cycle ·");
+    expect(String(runtime[1].tooltip)).toContain("lazy cycle · click files");
+  });
+
   it("badges each unit with its role, and lists the role's evidence in its tooltip", () => {
     const nodes = toLevelElements(summary, null).filter(element => element.group === "nodes").map(element => element.data);
     expect(nodes.map(node => [node.role, String(node.label).split("\n")[0]])).toEqual([

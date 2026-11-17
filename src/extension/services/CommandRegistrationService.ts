@@ -239,6 +239,7 @@ export class CommandRegistrationService {
       ['graph-it-live.callGraph', () => this.provider.getCallGraphE2EGraph()],
       ['graph-it-live.fileGraphNodeMetadata', () => this.provider.getFileGraphNodeMetadata()],
       ['graph-it-live.fileGraphRoot', () => this.provider.getFileGraphRoot()],
+      ['graph-it-live.fileGraphTypeOnly', () => this.provider.getFileGraphTypeOnly()],
       ['graph-it-live.architectureRenderCount', () => architecture()?.renderCount ?? 0],
       ['graph-it-live.architectureGroupCount', () => architecture()?.groupCount ?? 0],
       ['graph-it-live.architectureGroupEdgeCount', () => architecture()?.groupEdgeCount ?? 0],

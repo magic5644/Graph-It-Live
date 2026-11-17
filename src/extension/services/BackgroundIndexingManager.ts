@@ -201,7 +201,8 @@ export class BackgroundIndexingManager {
   private reverseIndexOptions(): ReverseIndexOptions {
     return {
       excludeNodeModules: this.config.excludeNodeModules,
-      ignoreTypeImports: this.config.ignoreTypeImports,
+      // ignoreTypeImports is a view filter now (#745): the index keeps type-only imports, flagged.
+      ignoreTypeImports: false,
     };
   }
 

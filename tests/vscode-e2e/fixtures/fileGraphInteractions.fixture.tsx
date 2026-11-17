@@ -13,9 +13,9 @@ const data: GraphData = {
   edges: [{ source: a, target: b }, { source: b, target: c }, { source: c, target: d }, { source: a, target: x }],
   nodeMetadata: Object.fromEntries(paths.map((p, i) => [p, { hubScore: 0, communityId: i + 1, communityKey: ['a', 'b', 'c', 'd', 'x'][i] }])),
 };
-function show(graph: GraphData, key: string, expandAll = true) {
+function show(graph: GraphData, key: string, expandAll = true, hideTypeOnly = false) {
   root.render(React.createElement(ReactFlowGraph, {
-    key, data: graph, currentFilePath: graph.nodes[0], expandAll,
+    key, data: graph, currentFilePath: graph.nodes[0], expandAll, hideTypeOnly,
     onExpandAllChange: () => {}, onNodeClick: () => {}, onDrillDown: () => {}, onFindReferences: () => {},
   }));
 }
@@ -134,6 +134,22 @@ async function run() {
   const cycleNodes = Array.from({ length: 3002 }, (_, i) => `/p/cycle/n${i}.ts`);
   show({ nodes: cycleNodes, edges: cycleNodes.map((source, i) => ({ source, target: cycleNodes[(i + 1) % cycleNodes.length] })) }, 'large-cycle', false);
   await until(() => !!badge()?.textContent?.includes('3002 files in analyzed graph'), 'Cycle detection was skipped above 3000 edges');
+
+  // #745: a type-only cycle is dotted and labelled apart from a runtime one; hideTypeOnly drops its edges in place.
+  const [ta, tb, ra, rb] = ['ta', 'tb', 'ra', 'rb'].map(name => `/p/t/${name}.ts`);
+  const typed: GraphData = {
+    nodes: [ta, tb, ra, rb],
+    edges: [{ source: ta, target: tb, typeOnly: true }, { source: tb, target: ta, typeOnly: true }, { source: ta, target: ra }, { source: ra, target: rb }, { source: rb, target: ra }],
+  };
+  const label = (source: string, target: string) => edge(source, target)?.querySelector('.react-flow__edge-text')?.textContent;
+  const dash = (source: string, target: string) => edge(source, target)?.querySelector<SVGPathElement>('.react-flow__edge-path')?.style.strokeDasharray.replaceAll(',', '');
+  show(typed, 'type-only');
+  await until(() => label(ta, tb) === 'type-only cycle', 'A type-only cycle edge was not labelled');
+  check(dash(ta, tb) === '2 3', `A type-only cycle edge was not dotted: ${dash(ta, tb)}`);
+  check(label(ra, rb) === 'cycle', 'A runtime cycle lost its label next to a type-only one');
+  show(typed, 'type-only', true, true);
+  await until(() => !edge(ta, tb) && !edge(tb, ta), 'hideTypeOnly kept a type-only edge');
+  check(!!edge(ta, ra) && label(ra, rb) === 'cycle', 'hideTypeOnly removed a runtime edge');
 
   // Exercise the current render ceilings with actual SVG edges and node geometry.
   const largeNodes = Array.from({ length: 400 }, (_, i) => `/p/src/g${i % 4}/f${i}.ts`);
