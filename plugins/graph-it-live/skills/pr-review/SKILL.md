@@ -56,7 +56,7 @@ graph-it review-pr --base origin/main --head feature/my-change --depth 3 --max-f
 With `graphit.architecture.json` at the workspace root (or edited by the diff), the report has an
 `architecture` section comparing the rules on base and head: `verdict` (`degraded`, `improved`,
 `unchanged`), each rule's `newViolations` (`accepted` when the head baseline lists them),
-`resolvedViolations`, new `unitCycles`, and `configChange`. `newErrors` > 0 blocks the merge and fails
+`resolvedViolations`, new `unitCycles` (each pair tagged `cycle: "runtime"` or `"type-only"`), and `configChange`. `newErrors` > 0 blocks the merge and fails
 the Review Gate. A `configChange` that weakens or removes a rule or accepts new baseline entries is a
 finding to justify. `graph-it check-architecture --format toon` gives the whole-workspace check
 (`--verbose` lists accepted violations in text/markdown).

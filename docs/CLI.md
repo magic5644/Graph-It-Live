@@ -601,6 +601,7 @@ Starting from `<file>`, follows all import edges recursively and returns:
 - `nodes`: every reachable file, with `relativePath`, `dependencyCount`, `dependentCount`, `hubScore`, `communityId` and `communityKey` (omitted for files in no community)
 - `edges`: direct dependency edges (`source`, `target`, `sourceRelative`, `targetRelative`)
 - `circularDependencies`: each cycle as a list of file paths
+- `circularDependencyKinds`: `runtime` or `type-only` for each cycle, in the same order as `circularDependencies`
 - `nodeCount`, `edgeCount` and the effective `maxDepth`
 
 **Output (text, abridged):**
@@ -838,7 +839,7 @@ Files without a folder domain (`path`) or without any import edge (`louvain`) ge
 |-------|---------|
 | `context` | as above; `revision` also covers the units, their names and roles |
 | `units` | `key` (folder or `(root)`), `name` (`package.json` name, else the folder), `fileCount`, `internalEdgeCount`, `layer` (0 = depends on no other unit; the units of a cycle share a layer), `role` (`function`, `micro-frontend`, `frontend`, `service`, `library`, `tooling` or `unknown`), `confidence` (`inferred`, or `declared` by `roles` in `graphit.architecture.json`) and `evidence` (`role` and `detail` of every match, the unit's role first by priority), deepest layer last |
-| `unitEdges` | `from`, `to`, `fileEdgeCount`, `kind`: `down`, `upward` (to the same or a higher layer) or `cycle` (both units in one cycle), heaviest first |
+| `unitEdges` | `from`, `to`, `fileEdgeCount`, `kind`: `down`, `upward` (to the same or a higher layer) or `cycle` (both units in one cycle), `typeOnlyEdgeCount` (file pairs whose every import is type-only; absent when none), `cycleKind` on cycle edges (`runtime`, `type-only` or `lazy`), heaviest first |
 | `upwardEdges`, `cycles` | number of upward edges, and of groups of units that depend on each other |
 | `layerCount` | number of distinct layers of the units (the Architecture view's header) |
 | `roleCounts` | units per role, in role priority order (see [Roles](architecture.md#roles) for the evidence of each role) |
@@ -864,7 +865,7 @@ These are the pairs the Architecture view lists when a unit edge is clicked. A k
 | Field | Content |
 |-------|---------|
 | `rows` | `id` (group id, or unit key), `key`, `label`, `layer`, `cycle` (index in `cycles`, when in one), `internalEdgeCount` (the diagonal), `outgoingPairs` / `outgoingGroups` (Ce), `incomingPairs` / `incomingGroups` (Ca), `instability` (`I = Ce / (Ca + Ce)`, 2 decimals, `null` without any pair across the row's boundary) |
-| `cells` | non-zero cells only, the diagonal included: `row`, `column` (indexes in `rows`), `fileEdgeCount` (file pairs where a file of the row imports a file of the column), `upward` (above the diagonal) |
+| `cells` | non-zero cells only, the diagonal included: `row`, `column` (indexes in `rows`), `fileEdgeCount` (file pairs where a file of the row imports a file of the column), `typeOnlyEdgeCount` (those whose every import is type-only; absent when none), `upward` (above the diagonal) |
 | `cycles` | `firstRow`, `lastRow`, `members` (keys) of each group of two or more rows that depend on each other |
 | `totals` | `rows`, `cells`, `fileEdges`, `intraEdges` (diagonal), `interEdges`, `upwardCells` |
 | `formulas` | how rows are ordered, what a cell and an upward cell are, and the instability formula |
@@ -1023,7 +1024,7 @@ An invalid config is reported, never replaced.
 **The report**, from the cheapest action to the setup: the rules line (what happened to the config and how many current violations the proposed baseline accepts) and the report files written, apart; a five-line summary (size, cycles, dead files, unused exports, top action: the first dead file with exports, an export-less one being most often an entry point, as `check, then delete` when its confidence is `low` and `delete` otherwise, else the first item of the next sections); then these sections, each left out when empty. A finding is a lead for the architect, never a verdict.
 
 - **Dead files**: the files no production file imports ([`check --unreferencedFiles`](#check)), grouped by unit, the unit with the most lines first (the lines of the tests to delete with them included), each with its line count, exports, confidence and reasons, then the files dead by cascade with their dead importers (`via`), each with the tests to delete with it, and one `next:` command per unit. An entry point by convention (script, handler) is listed too: check before deleting.
-- **Cycles to cut** and **Other leads** list the quick wins, ranked by gain / effort (what the item removes over what it costs, each kind below; effort 0 ranks first), then by gain. A cycle is **type-only** when all its imports are erased at runtime (`import type`, every specifier `type`, `export type`; `export *` counts as runtime): design coupling, no init-order risk. One runtime import makes it a **runtime** cycle. A cycle is **lazy** when it is no longer a cycle without its dynamic `import()` calls (a router loading its pages on demand that they import back): loaded on demand, no init-order risk. A file imported both statically and through `import()` counts as static. Only runtime cycles are ranked and give the hot spot; the type-only and the lazy ones come last in **Cycles to cut**, as one `type-only` and one `lazy` item that are never the top action. Dynamic imports stay dependencies: `check-architecture` rules and impact analysis still see them. The summary's cycles line counts runtime, type-only and lazy cycles apart:
+- **Cycles to cut** and **Other leads** list the quick wins, ranked by gain / effort (what the item removes over what it costs, each kind below; effort 0 ranks first), then by gain. A cycle is **type-only** when all its imports are erased at runtime (`import type`, every specifier `type`, `export type`, Python imports under `if TYPE_CHECKING:`; `export *` counts as runtime): design coupling, no init-order risk. One runtime import makes it a **runtime** cycle. A cycle is **lazy** when it is no longer a cycle without its dynamic `import()` calls (a router loading its pages on demand that they import back): loaded on demand, no init-order risk. A file imported both statically and through `import()` counts as static. Only runtime cycles are ranked and give the hot spot; the type-only and the lazy ones come last in **Cycles to cut**, as one `type-only` and one `lazy` item that are never the top action. Dynamic imports stay dependencies: `check-architecture` rules and impact analysis still see them. The summary's cycles line counts runtime, type-only and lazy cycles apart:
 
 | Kind | What | Gain | Effort |
 | --- | --- | --- | --- |
@@ -1113,7 +1114,7 @@ At most 60 units or groups are drawn, the largest ones; a note counts the others
 | `counts` | `nodes`, `layers`, `cycles`, `edges`, `violations` |
 | `layers` | Ascending; layer 0 depends on no other node and sits at the bottom |
 | `nodes` | `key`, `label`, `layer`, `fileCount`, `internalEdgeCount`, and `role` at the units level |
-| `edges` | `from`, `to`, `fileEdgeCount` (the weight), `kind` (`down`, `upward`, `cycle`), `rules` broken, `accepted` by the baseline |
+| `edges` | `from`, `to`, `fileEdgeCount` (the weight), `kind` (`down`, `upward`, `cycle`), `cycleKind` on cycle edges (`runtime`, `type-only`, `lazy`), `typeOnlyEdgeCount` (absent when none), `rules` broken, `accepted` by the baseline |
 | `cycles` | The nodes of each dependency cycle |
 | `violations` | With `--rules`: the rule-breaking file pairs between two nodes, those accepted, the broken rules' names |
 
@@ -2101,7 +2102,7 @@ The `graph-it tool` command invokes the 19 MCP analysis tools by name. The MCP s
 graph-it tool analyze_dependencies --filePath=/abs/path/to/file.ts
 ```
 
-**Output fields:** `filePath`, `dependencyCount`, `dependencies[]` (each dependency includes its resolved path, relative path, import type, line, module specifier, and extension)
+**Output fields:** `filePath`, `dependencyCount`, `dependencies[]` (each dependency includes its resolved path, relative path, import type, line, module specifier, and extension, plus `typeOnly: true` when every import of it is type-only)
 
 ---
 
@@ -2115,7 +2116,7 @@ graph-it tool crawl_dependency_graph --entryFile=/abs/path/to/index.ts --maxDept
 graph-it tool crawl_dependency_graph --entryFile=/abs/path/to/index.ts --tokenBudget=8000
 ```
 
-**Output fields:** `nodes[]`, `edges[]`, `circularDependencies[]`, `nodeCount`, `edgeCount`, `truncated`, `omitted`
+**Output fields:** `nodes[]`, `edges[]`, `circularDependencies[]`, `circularDependencyKinds[]` (`runtime` or `type-only`, same order), `nodeCount`, `edgeCount`, `truncated`, `omitted`
 
 `--tokenBudget` (500–16,000, default 4,000, or `0` for no limit) caps the
 output size. Nodes keep crawl order (nearest first). A cut sets
@@ -2139,7 +2140,7 @@ Each node in `nodes[]` includes:
 graph-it tool find_referencing_files --targetPath=/abs/path/to/utils.ts
 ```
 
-**Output fields:** `targetPath`, `referencingFileCount`, `referencingFiles[]`
+**Output fields:** `targetPath`, `referencingFileCount`, `referencingFiles[]` (`typeOnly: true` on a file whose every import of the target is type-only)
 
 ---
 
@@ -2270,7 +2271,7 @@ graph-it tool get_impact_analysis --filePath=/abs/path/to/utils.ts --symbolName=
 graph-it tool generate_codemap --filePath=/abs/path/to/Spider.ts --format toon
 ```
 
-**Output fields:** `filePath`, `relativePath`, `language`, `lineCount`, `exports[]`, `internals[]`, `dependencies[]`, `dependents[]`, `callFlow`, cycle data, and `analysisTimeMs`
+**Output fields:** `filePath`, `relativePath`, `language`, `lineCount`, `exports[]`, `internals[]`, `dependencies[]`, `dependents[]` (`typeOnly: true` on type-only links), `callFlow`, cycle data, and `analysisTimeMs`
 
 > **Tip:** Use `--format toon` for repeated node and edge rows, then measure the
 > result for your payload; the reduction is data-dependent.
@@ -2352,7 +2353,7 @@ graph-it tool scan_dead_code --unreferencedFiles=true --verbose=true
 
 Pass `--minConfidence=medium` or `--minConfidence=low` to list more than the default `high` items; confidence levels and reason codes are described under [`check`](#check). `find_unused_symbols` takes the same `minConfidence`. Pass `--verbose=true` to also list `excluded`: the unused exports a manifest declares or a framework loads, each with its `reason` (see [Declared entry points](#check)).
 
-**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `minConfidence`, `byConfidence`, `hint`, `entries[]` (each unused symbol with `confidence`, `reasons` and `evidence`), `excluded[]` (verbose only: `relativePath`, `name`, `kind`, `line`, `reason`), `skippedFiles`, `truncated`, `filesBeyondLimit`, `analysisTimeMs`. When `truncated` is `true`, `maxFiles` stopped the scan and `filesBeyondLimit` files were not analysed: the result is partial, so raise `--maxFiles` or narrow `--scopePath` before concluding there is no dead code.
+**Output fields:** `rootDir`, `scopePath`, `scannedFiles`, `filesWithDeadCode`, `totalUnusedSymbols`, `minConfidence`, `byConfidence`, `hint`, `entries[]` (each unused symbol with `confidence`, `reasons` and `evidence`), `generatedFiles` (files a graphql-codegen config generates, whose unused exports are left out), `excluded[]` (verbose only: `relativePath`, `name`, `kind`, `line`, `reason`), `skippedFiles`, `truncated`, `filesBeyondLimit`, `analysisTimeMs`. When `truncated` is `true`, `maxFiles` stopped the scan and `filesBeyondLimit` files were not analysed: the result is partial, so raise `--maxFiles` or narrow `--scopePath` before concluding there is no dead code.
 
 `--maxFiles` is optional: without it, every analysable file in scope is scanned, like `graph-it architecture --maxFiles`. The MCP tool and the VS Code language-model tool use the same default. Any integer of at least `1` is accepted, with no upper bound. Memory stays flat on a full scan; duration grows linearly with the file count (about 90 s for 12,000 files on a recent laptop). The MCP server stops a `scan_dead_code` call after 10 minutes (other tools after 1 minute), and other MCP tool calls wait until it ends; `graph-it tool` and the VS Code tool have no time limit, and VS Code chat can cancel the scan.
 
