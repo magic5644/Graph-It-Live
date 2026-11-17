@@ -33,7 +33,7 @@ export function removeWorkspaces(): void {
 
 /** `a -> b`, with ` (type)` and ` (dynamic)` flags, sorted. */
 export const edgeFlags = (graph: Pick<ArchitectureGraph, "edges">) =>
-  graph.edges.map((edge) => `${edge.sourceRelative} -> ${edge.targetRelative}${edge.typeOnly ? " (type)" : ""}${edge.dynamic ? " (dynamic)" : ""}`).sort();
+  graph.edges.map((edge) => `${edge.sourceRelative} -> ${edge.targetRelative}${edge.typeOnly ? " (type)" : ""}${edge.dynamic ? " (dynamic)" : ""}`).sort((left, right) => left.localeCompare(right));
 
 export const cycleWins = (assessment: ArchitectureAssessment) =>
   assessment.quickWins.filter((win) => win.kind === "mutual-import" || win.kind === "cycle-break").map((win) => win.kind);
