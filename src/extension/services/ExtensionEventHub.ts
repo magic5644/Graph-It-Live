@@ -1,3 +1,4 @@
+import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { Spider } from "../../analyzer/Spider";
@@ -202,6 +203,8 @@ export class ExtensionEventHub {
       case "create":
       case "change":
         if (await this.spider.reanalyzeFile(filePath) === null) {
+          // Deleted before its queued event ran: the delete event that follows updates the index.
+          if (!fs.existsSync(filePath)) return;
           throw new Error(`Dependency index could not analyze changed file: ${filePath}`);
         }
         if (eventType === "create") await this.spider.reanalyzeUnresolvedImporters(filePath);
