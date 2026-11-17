@@ -481,7 +481,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     <div class="shot rev rv" style="margin-bottom:64px">
       <div class="shot-txt">
         <h3>From file imports down to a single symbol</h3>
-        <p>The file graph shows what a file imports and what depends on it, with cycles. Double-click a file: Symbol View turns it into its own little graph — exports, internals, and who calls what.</p>
+        <p>The file graph shows what a file imports and what depends on it, with cycles; a cycle made only of type imports is drawn dotted, apart from runtime ones. Double-click a file: Symbol View turns it into its own little graph — exports, internals, and who calls what.</p>
         <ul>
           <li>Functions, classes and variables with export status</li>
           <li>Outgoing calls and incoming callers side by side</li>
@@ -556,13 +556,14 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
         <ul>
           <li>Summary first, then dead files, cycles to cut and quick wins ranked by gain / effort</li>
           <li>Click a finding to centre the graph on its files</li>
-          <li>Dead files have a dashed border; cycle and upward edges in orange</li>
+          <li>One legend shared with the SVG diagrams: runtime cycles solid, type-only cycles dotted, lazy <code>import()</code> cycles dashed; upward edges in orange, dead files with a dashed border</li>
+          <li>A Dependency matrix panel with the cells to cut marked and a guide to reading it; each finding carries its <code>next</code> command</li>
           <li><code>--focus &lt;unit|folder&gt;</code>: one unit and its direct neighbours, with what it depends on and what uses it</li>
         </ul>
       </div>
       <div class="frame">
         <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>graph-it init — index.html</span></div>
-        <img src="media/init-explorable-page.png" alt="index.html written by graph-it init on tests/demo/legacy-shop: the Findings panel lists the dead files and the cycles to cut, the graph shows the files grouped by unit, two dead files with a dashed border and the cycle edges in orange" loading="lazy">
+        <img src="media/init-cycle-kinds.png" alt="index.html written by graph-it init --output: the Findings panel lists the dead file and the cycles to cut, each with its next command; the graph groups the files by unit, a runtime cycle as solid purple edges, a type-only cycle dotted, a lazy import() cycle dashed, and the shared legend under the groups" loading="lazy">
       </div>
     </div>
   </div>
