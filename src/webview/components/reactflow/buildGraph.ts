@@ -307,11 +307,12 @@ function createVisibleEdges(
         };
       } else if (typeOnlyCycles.has(id)) {
         // A cycle erased at runtime: dotted and labelled, never the runtime cycle's error colour.
+        // "type-only" at 9 px: "type-only cycle" does not fit between two adjacent nodes.
         styleOverrides = {
           style: { ...edgeStyle.style, strokeDasharray: TYPE_ONLY_DASH },
           animated: false,
-          label: "type-only cycle",
-          labelStyle: { fill: "var(--vscode-descriptionForeground)", fontSize: 10 },
+          label: "type-only",
+          labelStyle: { fill: "var(--vscode-descriptionForeground)", fontSize: 9 },
           labelBgStyle: { fill: "var(--vscode-editor-background)", fillOpacity: 0.9 },
         };
       } else if (typeOnly) {
