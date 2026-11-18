@@ -555,6 +555,8 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
         <p><code>graph-it init --output report</code> writes <code>report.md</code>, SVG diagrams and <code>index.html</code>: one offline page grouped by architecture units, with the report's findings beside the graph.</p>
         <ul>
           <li>Summary first, then dead files, cycles to cut and quick wins ranked by gain / effort</li>
+          <li>Each heading gives its count, such as <em>Dead files: 2 files in 2 units</em> or <em>Cycles to cut: 3</em>; <code>report.md</code> lists every item</li>
+          <li>The page stores each path once, so it stays light on large repositories</li>
           <li>Click a finding to centre the graph on its files</li>
           <li>One legend shared with the SVG diagrams: runtime cycles solid, type-only cycles dotted, lazy <code>import()</code> cycles dashed; upward edges in orange, dead files with a dashed border</li>
           <li>A Dependency matrix panel with the cells to cut marked and a guide to reading it; each finding carries its <code>next</code> command</li>
