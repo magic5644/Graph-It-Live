@@ -4,7 +4,7 @@ Graph-It-Live draws the architecture of a workspace from its static imports, che
 
 ## What it answers
 
-- **What are my layers?** Packages (or top-level folders), ordered so that each one imports only those below it, with the loops between them.
+- **What are my layers?** Projects (or top-level folders), ordered so that each one imports only those below it, with the loops between them.
 - **Who depends on this?** Every package or folder that imports a package, a folder or a file, directly or not.
 - **Does the code follow my architecture?** Every import checked against the rules of `graphit.architecture.json`, locally or in CI.
 
