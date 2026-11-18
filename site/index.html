@@ -428,7 +428,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     <div class="shot rv" style="margin-bottom:64px">
       <div class="shot-txt">
         <h3>See the architecture, layer by layer</h3>
-        <p>The Architecture view draws your packages (or top-level folders) as units in layers, with their roles, cycles and the import edges between them. Open it with <em>Switch to Architecture View</em> in the Dependency Graph title bar.</p>
+        <p>The Architecture view draws your projects (or top-level folders) as units in layers, with their roles, cycles and the import edges between them. Open it with <em>Switch to Architecture View</em> in the Dependency Graph title bar.</p>
         <ul>
           <li>Double-click a unit to walk down its folders, breadcrumb to come back</li>
           <li>Click an edge for the exact file pairs behind it</li>
@@ -783,7 +783,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
           <div class="code-head"><span class="file">common commands</span><button class="copy">Copy</button></div>
 <pre><code><span class="c-cmd">graph-it</span> scan                         <span class="c-dim"># Index workspace</span>
 <span class="c-cmd">graph-it</span> summary                      <span class="c-dim"># Workspace overview</span>
-<span class="c-cmd">graph-it</span> architecture --level units    <span class="c-dim"># Packages in layers</span>
+<span class="c-cmd">graph-it</span> architecture --level units    <span class="c-dim"># Projects in layers</span>
 <span class="c-cmd">graph-it</span> init                         <span class="c-dim"># Rules from today's imports, quick wins</span>
 <span class="c-cmd">graph-it</span> check-architecture           <span class="c-dim"># Check graphit.architecture.json</span>
 <span class="c-cmd">graph-it</span> trace src/index.ts#main      <span class="c-dim"># Trace execution</span>

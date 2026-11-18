@@ -169,7 +169,7 @@ Options:
   --communities M    Community grouping: path (by folder, default) | louvain (by imports)
   --groups           Add groups, groupEdges and totals per community (json/toon);
                      group the mermaid/markdown diagram by community
-  --level L          groups (same as --groups) | units: packages (else top-level
+  --level L          groups (same as --groups) | units: projects (else top-level
                      folders) with their layers, unit edges and cycles (json/toon)
   --folder K         Path mode: the level below a unit or folder key, as the view
                      draws it: its sub-folders and own files as groups (json/toon)

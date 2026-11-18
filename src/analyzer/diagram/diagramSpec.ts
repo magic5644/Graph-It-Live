@@ -20,7 +20,7 @@ export interface DiagramSpec {
   version: number;
   /** Workspace folder name, never its absolute path. */
   workspace: string;
-  /** What a node is: "units" (packages, else top-level folders) or "groups" (the folders of one unit or folder). */
+  /** What a node is: "units" (projects, else top-level folders) or "groups" (the folders of one unit or folder). */
   level: string;
   /** "units", or the entered unit or folder key. */
   scope: string;

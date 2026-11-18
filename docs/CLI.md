@@ -754,7 +754,7 @@ graph-it architecture [options]
 | `--maxFiles <N>` | unlimited | Cap on the number of analyzed source files |
 | `--communities <mode>` | `path` | How `communityId`/`communityKey` group files: `path` by folder, `louvain` by import structure |
 | `--groups` | off | Add `context`, `groups`, `unassigned`, `groupEdges` and `totals` to `json`/`toon` output; group `mermaid`/`markdown` diagrams (see [Grouped output](#grouped-output)) |
-| `--level <level>` | — | `groups` = `--groups`; `units` replaces the file graph with the packages and their layers (see [Units output](#units-output)) |
+| `--level <level>` | — | `groups` = `--groups`; `units` replaces the file graph with the projects and their layers (see [Units output](#units-output)) |
 | `--folder <key>` | — | `path` mode: the level below a unit or folder key, its sub-folders and own files as groups (see [Folder levels](#folder-levels)) |
 | `--matrix` | off | Dependency structure matrix of the level (groups, `--level units` or `--folder`) instead (see [Matrix output](#matrix-output)) |
 | `--workspace, -w` | auto-detected | Project root |
