@@ -39,15 +39,16 @@ interface ArchitectureRender {
 // architecture edges, #595):
 //   node dist/graph-it.js architecture --level units --format json -w tests/fixtures
 //   node dist/graph-it.js architecture --groups --communities louvain --format json -w tests/fixtures
-// Path mode draws the units (11 packages or (root), 9 unit edges, the 2 edges of the
-// workspaces-project core ↔ types cycle in red); (root) holds 18 folder groups and 4 group edges.
+// Path mode draws the units (13 projects or (root), 9 unit edges, the 2 edges of the
+// workspaces-project core ↔ types cycle in red); (root) holds 17 folder groups and 4 group edges.
+// go-project (go.mod) and sample-project (tsconfig.json) are units of their own (#758).
 //   node dist/graph-it.js architecture --folder "(root)/graphql-project" --format json -w tests/fixtures
 //   node dist/graph-it.js architecture --level units --from workspaces-project/apps/web --to workspaces-project/packages/ui --format json -w tests/fixtures
 // Louvain: rendered groups = groups.length + 1 for the unassigned files.
 const EXPECTED = {
   // 3 layers (@ws/web… on 2, (root), core, types… on 0); 1 cycle block (core ↔ types).
-  units: { groups: 11, groupEdges: 9, redEdges: 2, layers: 3, cycles: 1 },
-  root: { groups: 18, groupEdges: 4 },
+  units: { groups: 13, groupEdges: 9, redEdges: 2, layers: 3, cycles: 1 },
+  root: { groups: 17, groupEdges: 4 },
   graphql: { groups: 3, groupEdges: 2, evidenceOf: '(root)/graphql-project/queries' },
   louvain: { groups: 24 + 1, groupEdges: 1 },
   // The first edge of @ws/web, its heaviest: apps/web → packages/ui.
@@ -61,8 +62,8 @@ const EXPECTED = {
   },
   // node dist/graph-it.js architecture --level units --matrix --format json -w tests/fixtures (and --folder "(root)", --communities louvain).
   matrix: {
-    units: { rows: 11, cells: 14, fileEdges: 211, upwardCells: 1, cycles: 1 },
-    root: { rows: 18, cells: 19, fileEdges: 195, upwardCells: 1, cycles: 1 },
+    units: { rows: 13, cells: 16, fileEdges: 211, upwardCells: 1, cycles: 1 },
+    root: { rows: 17, cells: 18, fileEdges: 184, upwardCells: 1, cycles: 1 },
     louvain: { rows: 25, cells: 25, fileEdges: 211, upwardCells: 0, cycles: 0 },
   },
   // RULES_CONFIG written at the workspace root, then:
@@ -76,9 +77,9 @@ const EXPECTED = {
   // roleCounts of: node dist/graph-it.js architecture --level units --format json -w tests/fixtures
   // (with ROLES_CONFIG written at the workspace root for `declared`).
   roles: {
-    legend: ['function=1', 'library=4', 'tooling=2', 'unknown=4'],
+    legend: ['function=1', 'library=4', 'tooling=2', 'unknown=6'],
     libraries: 4,
-    declared: ['function=1', 'frontend=1', 'library=4', 'tooling=2', 'unknown=3'],
+    declared: ['function=1', 'frontend=1', 'library=4', 'tooling=2', 'unknown=5'],
   },
 } as const;
 
@@ -987,7 +988,7 @@ suite('Architecture view mode', () => {
     const selected = await waitForInteraction('selecting @ws/web', { legendUnit: 'workspaces-project/apps/web' }, interaction => interaction.selectedGroups === 1);
     assert.strictEqual(selected.ringedGroups, 1, 'the selected unit is ringed');
 
-    // Zoom in moves away from the fit; Fit shows all 71 units, below the first fit's readable zoom.
+    // Zoom in moves away from the fit; Fit shows all 73 units, below the first fit's readable zoom.
     const initialZoom = rendered.zoom ?? 0;
     const zoomed = await waitForInteraction('zooming in', { zoom: 'in' }, interaction => (interaction.zoom ?? 0) > initialZoom * 1.1);
     assert.ok((zoomed.zoom ?? 0) > initialZoom, 'zoomed in');
@@ -1039,12 +1040,12 @@ suite('Architecture view mode', () => {
       });
       const before = (await readRender()).renderCount;
       await openFreshArchitecture();
-      const render = await waitForRender('the 71 units', before, current => !current.stale && current.groupCount === EXPECTED.units.groups + 60);
+      const render = await waitForRender('the 73 units', before, current => !current.stale && current.groupCount === EXPECTED.units.groups + 60);
       const rendered = await readRendered() as RenderedReport & { stale?: boolean };
       assert.ok((rendered.headerHeightPx ?? Infinity) <= (rendered.viewHeightPx ?? 0) * 0.25,
         `header and controls within 25% of the view: ${rendered.headerHeightPx} of ${rendered.viewHeightPx}px (stale ${rendered.stale}, ${rendered.headerRows?.join(' ')})`);
       assert.strictEqual(rendered.legendOverflowing, false, 'the legend stays inside the canvas');
-      assert.strictEqual(rendered.legendScrolls, true, '71 units scroll inside the legend, capped at 40% of the canvas');
+      assert.strictEqual(rendered.legendScrolls, true, '73 units scroll inside the legend, capped at 40% of the canvas');
       assert.strictEqual(render.unitLevel?.layerBands, EXPECTED.units.layers, 'the new units sit on layer 0');
     } finally {
       await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
