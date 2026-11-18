@@ -72,6 +72,7 @@ body:
       description: How we will know it is fixed.
       placeholder: |
         - [ ] The reproduction above gives the expected result
+        - [ ] Same defect checked on the other commands, formats and surfaces (CLI, MCP, VS Code)
         - [ ] Unit test covers the case and its edge cases
         - [ ] Checked on other languages when the bug is not language-specific
   - type: input
