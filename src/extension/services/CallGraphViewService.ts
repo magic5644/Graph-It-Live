@@ -29,6 +29,7 @@ import type {
 import { normalizePath } from "@/shared/path";
 import { resolveReviewCallGraphPath, REVIEW_CALL_GRAPH_MAX_DEPTH, validateReviewCallGraphTarget } from "@/shared/reviewTarget";
 import crypto from "node:crypto";
+import * as fs from "node:fs";
 import path from "node:path";
 import * as vscode from "vscode";
 import type { EventType } from "./FileChangeScheduler";
@@ -41,6 +42,8 @@ import type { ExternalCallerResult, ICallGraphQueryService } from "./ICallGraphQ
 const DEFAULT_DEPTH = 1;
 /** Debounce delay (ms) for the live-refresh save listener — matches FileChangeScheduler pattern */
 const SAVE_DEBOUNCE_MS = 500;
+/** The `src` of a Vue SFC's `<template src="...">` element. */
+const TEMPLATE_SRC = /<template\b[^>]*?\bsrc\s*=\s*["']([^"']+)["']/i;
 
 /** Safely extract a human-readable message from an unknown catch value. */
 function errorMessage(err: unknown): string {
@@ -1057,11 +1060,27 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
 
   /** An external Vue `<template src>` was saved: refresh the shown `.vue` that reads it. */
   private refreshTemplateOwner(templatePath: string, workspaceRoot: string): void {
-    this.trackOperation(this.findImporters(templatePath)).then((importers) => {
-      const owner = importers.map((file) => normalizePath(file)).find((file) => /\.vue$/i.test(file) && this.currentNeighbourhoodPaths.has(file));
+    this.trackOperation(this.templateOwner(templatePath)).then((owner) => {
       if (owner) this.scheduleRefresh(owner, "vue", workspaceRoot);
     }).catch((err: unknown) => {
       this.log(`[CallGraph] refresh error: ${errorMessage(err)}`);
+    });
+  }
+
+  /**
+   * The shown `.vue` reading an external template: the dependency index's importer, else the shown `.vue` whose
+   * `<template src>` resolves to it. The index misses a `.vue` whose create event was lost or is late (#600).
+   */
+  private async templateOwner(templatePath: string): Promise<string | undefined> {
+    const shown = [...this.currentNeighbourhoodPaths].filter((file) => /\.vue$/i.test(file));
+    const importers = await this.findImporters(templatePath).catch((): string[] => []);
+    const indexed = importers.map((file) => normalizePath(file)).find((file) => shown.includes(file));
+    if (indexed) return indexed;
+    const target = normalizePath(templatePath);
+    const sources = await Promise.all(shown.map((file) => fs.promises.readFile(file, "utf8").catch(() => "")));
+    return shown.find((file, index) => {
+      const src = TEMPLATE_SRC.exec(sources[index])?.[1];
+      return src !== undefined && normalizePath(path.resolve(path.dirname(file), src)) === target;
     });
   }
 

@@ -1,4 +1,7 @@
 /** Saving an external Vue `<template src>` refreshes the displayed `.vue` that reads it (#646). */
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("vscode", () => ({
@@ -9,6 +12,7 @@ vi.mock("vscode", () => ({
 }));
 
 import { CallGraphViewService } from "@/extension/services/CallGraphViewService";
+import { normalizePath } from "@/shared/path";
 
 type Internals = {
   currentNeighbourhoodPaths: Set<string>;
@@ -41,5 +45,32 @@ describe("CallGraphViewService external template save", () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(hidden.schedule).not.toHaveBeenCalled();
     expect(failing.schedule).not.toHaveBeenCalled();
+  });
+
+  // The dependency index learns a new .vue from its create event, which a watcher may lose or deliver late (#600).
+  it("finds the shown .vue by its own <template src> when the index does not list it, and not another one", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-template-"));
+    try {
+      const write = (name: string, text: string) => { fs.writeFileSync(path.join(dir, name), text); return normalizePath(path.join(dir, name)); };
+      const host = write("Host.vue", '<script setup lang="ts"></script>\n<template lang="html" src="./parts/host.html"></template>\n');
+      const other = write("Other.vue", '<template src="./other.html"></template>\n');
+      const inline = write("Inline.vue", "<template><p>host.html</p></template>\n");
+      const template = path.join(dir, "parts", "host.html");
+      const late = service(async () => [], [other, inline, host]);
+      late.internals.refreshTemplateOwner(template, dir);
+      await vi.waitFor(() => expect(late.schedule).toHaveBeenCalledWith(host, "vue", dir));
+      expect(late.schedule).toHaveBeenCalledTimes(1);
+
+      const failing = service(() => Promise.reject(new Error("index gone")), [host]);
+      failing.internals.refreshTemplateOwner(template, dir);
+      await vi.waitFor(() => expect(failing.schedule).toHaveBeenCalledWith(host, "vue", dir));
+
+      const none = service(async () => [], [other, inline]);
+      none.internals.refreshTemplateOwner(template, dir);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      expect(none.schedule).not.toHaveBeenCalled();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
