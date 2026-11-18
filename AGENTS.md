@@ -22,6 +22,7 @@ Prefix shell commands with `rtk`; use `rtk proxy <command>` when no optimized wr
 - Define extension↔webview messages in `src/shared/types.ts`; update sender and receiver together.
 - Build paths with `node:path`; call `normalizePath()` before path keys enter Sets or Maps.
 - Keep TypeScript strict. Avoid `any`; ESLint decides style.
+- User-facing behavior (CLI, MCP, VS Code) follows `.claude/rules/user-contract.md`: no silent fallback, no empty success, and a black-box check as a user before the pull request.
 - New functions/modules need success and edge/failure unit tests. User-facing behavior also needs VS Code E2E coverage. Touched files must stay at or above 80% coverage.
 - Never delete empty maps eagerly in `ReverseIndex.removeDependenciesFromSource()`; cleanup is query-time to avoid re-index races.
 - Build/dependency/package changes require production package validation: zero `.map` files and required WASM/query assets present.
@@ -52,6 +53,7 @@ Before modifying matching paths—or when task topic matches—read correspondin
 | Broad-task bootstrap, shell use, exploration, refactoring, codemaps | `.claude/rules/development-workflow.md` |
 | Source changes or SonarQube | `.claude/rules/quality-gates.md` |
 | Release preparation (docs audit, media, site, changelog, tag) | `.claude/rules/release.md` |
+| CLI command or option, MCP tool, VS Code command, setting or view (issue, change or review) | `.claude/rules/user-contract.md` |
 
 Claude Code and VS Code load matching `.claude/rules` automatically. Codex must follow routing table explicitly.
 

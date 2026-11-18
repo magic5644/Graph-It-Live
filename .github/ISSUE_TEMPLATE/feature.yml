@@ -51,6 +51,7 @@ body:
       label: Acceptance criteria
       placeholder: |
         - [ ] Observable behavior 1
+        - [ ] Failure cases: unknown option or parameter, invalid value, missing target, empty result, large input (expected message and exit code)
         - [ ] Unit tests (success and edge cases); E2E if user-facing
         - [ ] Docs updated
         - [ ] Works on Linux, macOS and Windows

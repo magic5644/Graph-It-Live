@@ -43,6 +43,9 @@ Users discover features through images, so every release showing new user-facing
 3. Keep demo media out of the VSIX: `.vscodeignore` excludes `media/**` except the icon. `vsce` rewrites relative README images to `https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/...`, and both stores publish that same VSIX. Never rename or delete a `media/` file that a published README still references.
 4. Check the package: `npm run package && npm run package:verify`, then `ls -lh graph-it-live-*.vsix` (≤ 20 MB).
 
+## Smoke as a user
+Before the changelog PR, run every CLI command in every declared format, and the MCP tools and VS Code views the release touched, on a large public repository (cal.com, svelte.dev or nuxt.com) and on `tests/demo/legacy-shop`, as `.claude/rules/user-contract.md` describes. Open every SVG and HTML output. A defect found here is fixed before the tag, or its issue is put in the release notes as a known limit with the user's agreement.
+
 ## Changelog and tag
 
 - Add `## v<version>` at top of `changelog.md`; release fails without it. Group under *Breaking / Behavior changes*, *Changed*, *Fixed*, *Security*, *Tests*.
