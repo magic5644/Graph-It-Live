@@ -190,6 +190,13 @@ function sections(assessment: ArchitectureAssessment, page?: string): ReportSect
   ];
 }
 
+/** " (20 shown)" when fewer items are shown than there are; `noun` names what is counted. */
+function shownSuffix(shown: number, total: number, noun?: string): string {
+  if (shown >= total) return "";
+  const count = noun === undefined ? String(shown) : plural(shown, noun);
+  return ` (${count} shown)`;
+}
+
 /**
  * The sections a report lists: non-empty ones, their first `limit` items (all by default: report.md
  * and the page) and the line counting the rest. The heading says what it counts and how many are
@@ -198,10 +205,9 @@ function sections(assessment: ArchitectureAssessment, page?: string): ReportSect
 export function reportSections(result: Pick<InitResult, "assessment" | "page">, limit = Infinity) {
   return sections(result.assessment, result.page).filter((section) => section.items.length > 0).map(({ count, noun, ...section }) => {
     const shown = Math.min(limit, section.items.length);
-    const shownText = shown < section.items.length ? ` (${noun === undefined ? shown : plural(shown, noun)} shown)` : "";
     return {
       ...section,
-      title: `${section.title}: ${count ?? section.items.length}${shownText}`,
+      title: `${section.title}: ${count ?? section.items.length}${shownSuffix(shown, section.items.length, noun)}`,
       items: section.items.slice(0, shown),
       more: moreLine(shown, section.items.length, " (--format json lists them all)"),
     };
@@ -298,7 +304,7 @@ export function renderInitText(result: InitResult): string {
   if (result.diagrams.length > 0) lines.push("", "Diagrams:", ...result.diagrams.map((diagram) => `  ${diagram.file}`));
   if (result.changes.length > 0) {
     const shown = Math.min(REPORT_LIMIT, result.changes.length);
-    lines.push("", `Config changes: ${result.changes.length}${shown < result.changes.length ? ` (${shown} shown)` : ""}`,
+    lines.push("", `Config changes: ${result.changes.length}${shownSuffix(shown, result.changes.length)}`,
       ...result.changes.slice(0, shown).map((change) => `  ${change}`), ...more(result.changes.length));
   }
   lines.push(
