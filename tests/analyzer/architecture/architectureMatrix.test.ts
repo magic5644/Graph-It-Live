@@ -154,7 +154,7 @@ describe("exploreMatrix", () => {
   });
 
   it("names the units provenance for unit rows", () => {
-    expect(exploreMatrix(matrix, context, { units: true }).provenance.grouping).toContain("Units are package folders");
+    expect(exploreMatrix(matrix, context, { units: true }).provenance.grouping).toContain("Units are project folders");
     expect(exploreMatrix(matrix, context).provenance.grouping).toContain("communityMode detector");
   });
 

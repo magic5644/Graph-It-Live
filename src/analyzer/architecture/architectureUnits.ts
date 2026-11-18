@@ -1,6 +1,6 @@
 /**
- * Architecture units: the packages of a workspace (every folder holding a package.json),
- * else its top-level folders, with their layers and the file pairs between them. Shared by
+ * Architecture units: the projects of a workspace (every folder holding a project manifest of
+ * PROJECT_MARKERS: package.json, pyproject.toml, go.mod...), else its top-level folders, with their layers and the file pairs between them. Shared by
  * `graph-it architecture --level units`, explore_architecture and the extension's view.
  *
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
@@ -20,11 +20,12 @@ import {
   type UnitRole,
 } from "../../shared/architecture-model";
 import { normalizePath } from "../../shared/path";
+import { hasProjectMarker } from "../utils/workspaceBoundary";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { layerGraph } from "./stronglyConnectedComponents";
 import { unitRole, type DeclaredRoles } from "./unitRoles";
 
-/** Unit of the files outside every package (or at the root of a workspace without packages). */
+/** Unit of the files outside every project (or at the root of a workspace without projects). */
 export const ROOT_UNIT = "(root)";
 
 export interface UnitAssignment {
@@ -51,15 +52,15 @@ function foldersOf(relativePath: string): string[] {
 }
 
 /**
- * Each file goes to its deepest package folder (a folder holding a package.json, workspace
- * member or not), else to ROOT_UNIT. Without any package below the root, units are the
- * top-level folders. Files come from SourceFileCollector, so node_modules is never read.
+ * Each file goes to its deepest project folder (a folder holding a PROJECT_MARKERS manifest:
+ * package.json, pyproject.toml, go.mod, Cargo.toml, *.csproj, pom.xml..., workspace member or
+ * not), else to ROOT_UNIT. Without any project below the root, units are the top-level folders. Files come from SourceFileCollector, so node_modules is never read.
  */
 export function assignUnits(workspaceRoot: string, files: readonly string[]): UnitAssignment {
   const relativePaths = files.map(normalizePath);
   const isPackage = new Map<string, boolean>();
   for (const folder of new Set(relativePaths.flatMap(foldersOf))) {
-    isPackage.set(folder, fs.existsSync(path.join(workspaceRoot, folder, "package.json")));
+    isPackage.set(folder, hasProjectMarker(path.join(workspaceRoot, folder)));
   }
   const hasPackages = [...isPackage.values()].some(Boolean);
   const unitOf = new Map<string, string>();

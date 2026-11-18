@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased (1.25.4)
+
+The `graph-it init` report no longer misleads its reader (#758).
+
+- A dead file is no longer also listed as a `dead-code` lead: its Dead files entry deletes the whole file.
+- Each heading says what it counts and how many are shown: `Dead files: 235 files in 22 units`, `Cycles to cut: 50 (20 shown)`. The page uses the same words.
+- `report.md`, `--format markdown` and the page list every item; only the terminal keeps the first 20. Capped sub-lines point to the item's `next:` command, or to `index.html` for dead files.
+- `index.html` writes each path once. Edges are pairs of file row indexes, and the page rebuilds colours and labels. On a 12,420-file monorepo it drops from 8.4 MB to 2.0 MB, with the same rendering.
+
+### Breaking / Behavior changes
+
+- **Units come from every project manifest** (#758). A folder holding any project marker is now a unit, not only a `package.json` folder. Markers include `pyproject.toml`, `requirements.txt`, `go.mod`, `Cargo.toml`, `*.csproj`, `pom.xml`, `build.gradle` and `tsconfig.json`. On a polyglot monorepo, Python, Go, Java, C# and Rust projects leave `(root)`. Files outside every project stay in `(root)`, so existing `graphit.architecture.json` elements keep matching. `graph-it init` lists the new units' elements under **Config changes**; confirm, or pass `--yes`, to add them.
+- **`graph-it init` JSON**: a `dead-code` quick win now never names a file listed in `deadFiles`. Its `gain` is always the lines of the unused declarations, and `totals.deadCodeFiles` and `totals.unusedExports` leave out dead files.
+- **`index.html` data**: `filesData` and `edgesData` are rebuilt in the page from `fileRows`, `fileStyles` and `edgeRows`. A file's page id is its label (a workspace-relative path). `overlay.edgeKinds` holds file row indexes.
+
 ## v1.25.3
 
 Patch release on the relevance of the `graph-it init` report, after an audit of a real legacy codebase: cycles are told apart by how they run, quick wins get real gain and effort, deployment manifests and generated code stop showing as dead code, and the report, its diagrams and its page now agree.

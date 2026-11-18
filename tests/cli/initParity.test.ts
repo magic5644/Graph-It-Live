@@ -86,10 +86,10 @@ describe("graph-it init: report, diagrams and page in phase (#745)", { timeout: 
     expect(svgCycleUnits(read("out/units.svg"))).toEqual(report);
 
     const page = read("out/index.html");
-    const overlay = pageValue<{ edgeKinds: [string, string, string][]; deadFiles: string[] }>(page, "overlay");
-    const files = pageValue<{ id: string; group: number }[]>(page, "filesData");
+    const overlay = pageValue<{ edgeKinds: [number, number, string][]; deadFiles: string[] }>(page, "overlay");
+    const files = pageValue<[number, string, number][]>(page, "fileRows");
     const groups = pageValue<{ id: number; label: string }[]>(page, "groupsData");
-    const unitOf = (file: string) => groups.find((group) => group.id === files.find((candidate) => candidate.id === file)?.group)?.label;
+    const unitOf = (row: number) => groups.find((group) => group.id === files[row][2])?.label;
     const pageUnits: Record<Kind, Set<string>> = { cycle: new Set(), "type-only": new Set(), lazy: new Set() };
     for (const [from, to, kind] of overlay.edgeKinds) {
       if (kind in pageUnits) pageUnits[kind as Kind].add(unitOf(from)!).add(unitOf(to)!);

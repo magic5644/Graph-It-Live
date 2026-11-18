@@ -64,12 +64,29 @@ describe("initReport", () => {
     expect(renderInitMarkdown(result({ changes: ["+ element \"a\": {}"] }))).toContain("\n```text\n");
   });
 
-  it("lists the first items only, and says how many more", () => {
+  it("lists the first items only in a terminal, and says how many more", () => {
     const changes = Array.from({ length: REPORT_LIMIT + 3 }, (_, index) => `+ element "e${index}": {}`);
     const text = renderInitText(result({ changes }));
-    expect(text).toContain(`Config changes (${REPORT_LIMIT + 3}):`);
+    expect(text).toContain(`Config changes: ${REPORT_LIMIT + 3} (${REPORT_LIMIT} shown)\n`);
     expect(text).toContain("... 3 more (--format json lists them all)");
     expect(text).not.toContain(`e${REPORT_LIMIT}"`);
+    expect(renderInitText(result({ changes: changes.slice(0, 2) }))).toContain("Config changes: 2\n");
+  });
+
+  it("lists every item in report.md, a terminal the first ones, with headings saying what they count (#758)", () => {
+    const files = Array.from({ length: REPORT_LIMIT + 2 }, (_, index) => `u${index}/dead.ts`);
+    const input = { ...empty, unitOf: new Map(files.map((file) => [file, file.split("/")[0]])), deadFiles: files.map((relativePath) => ({ relativePath, lines: 1, exports: 0, confidence: "low", reasons: ["no-importer"] })) };
+    const changes = Array.from({ length: REPORT_LIMIT + 3 }, (_, index) => `+ element "e${index}": {}`);
+    const all = result({ assessment: assessArchitecture(input), changes });
+    const text = renderInitText(all);
+    expect(text).toContain(`Dead files: ${REPORT_LIMIT + 2} files in ${REPORT_LIMIT + 2} units (${REPORT_LIMIT} units shown)\n`);
+    expect(text).toContain("... 2 more (--format json lists them all)");
+    const markdown = renderInitMarkdown(all);
+    expect(markdown).toContain(`## Dead files: ${REPORT_LIMIT + 2} files in ${REPORT_LIMIT + 2} units\n`);
+    expect(markdown).not.toContain("more (--format json");
+    for (const file of files) expect(markdown).toContain(file);
+    expect(markdown).toContain(`## Config changes: ${REPORT_LIMIT + 3}\n`);
+    expect(markdown).toContain(`e${REPORT_LIMIT + 2}"`);
   });
 
   it("links diagrams relative to the folder of report.md, and states the status", () => {
@@ -92,13 +109,13 @@ describe("initReport", () => {
 
   it("orders the report: summary first, findings by cost, glossary once, guard last", () => {
     const text = renderInitText(result({ changes: ["+ element \"a\": {}"], assessment: assessArchitecture(rich()) }));
-    const order = ["Summary:", "Dead files (3):", "Cycles to cut (1):", "Other leads (2):", "Glossary:", "Config changes (1):", "Guard:"].map((title) => text.indexOf(title));
+    const order = ["Summary:", "Dead files: 9 files in 3 units\n", "Cycles to cut: 1\n", "Other leads: 2\n", "Glossary:", "Config changes: 1\n", "Guard:"].map((title) => text.indexOf(title));
     expect(order.every((index) => index >= 0)).toBe(true);
     expect(order).toEqual(order.toSorted((left, right) => left - right));
     expect(text).not.toContain("formula:");
     expect(text.match(/I = Ce \/ \(Ca \+ Ce\)/g)).toHaveLength(1);
     // A section with nothing to show is left out.
-    expect(text).not.toContain("Hubs (");
+    expect(text).not.toContain("Hubs:");
   });
 
   it("summarises in five lines, the top action from the first section with items", () => {
@@ -144,11 +161,14 @@ describe("initReport", () => {
     expect(text).toContain("  [1 file, 12 lines] app\n      app/old.ts: 12 lines, 1 export, low no-importer\n      next: graph-it check \"app\" --unreferencedFiles");
     // cli/f6.ts has no line count: sorted last, past the cap.
     expect(text).not.toContain("cli/f6.ts");
-    expect(text).toContain("      ... 2 more\n      next: graph-it check \"cli\" --unreferencedFiles");
+    expect(text).toContain("      ... 2 more (next: lists them all)\n      next: graph-it check \"cli\" --unreferencedFiles");
+    // With the page written, the sub-lines point to it: it shows every dead file.
+    const paged = renderInitMarkdown(result({ assessment: assessArchitecture(rich()), page: "out/index.html" }), "out");
+    expect(paged).toContain("  - `... 2 more (index.html shows them all)`");
     // A file outside every unit: the whole-workspace command.
     expect(text).toContain("next: graph-it check --unreferencedFiles");
     // Two dead-file units, the workspace one, two quick wins and the entry rows' check (#745).
-    expect(text.match(/next: /g)).toHaveLength(6);
+    expect(text.match(/^ +next: /gm)).toHaveLength(6);
   });
 
   it("collapses the entry rows into one line cross-referenced with the dead files", () => {
@@ -187,7 +207,7 @@ describe("initReport", () => {
     });
     const diagrams = [{ file: "out/matrix.svg", view: "matrix" as const }, { file: "out/folder-1-hub.svg", view: "folder" as const, unit: "hub" }];
     const markdown = renderInitMarkdown(result({ assessment, diagrams }), "out");
-    expect(markdown).toContain("## Hubs (1)");
+    expect(markdown).toContain("## Hubs: 1\n");
     expect(markdown).toContain("- **hub-at-risk**: `hub` 10 file pairs from 1 unit(s) import it (Ca)");
     expect(markdown).toContain("([diagram](folder-1-hub.svg))");
     expect(markdown).toContain("`hub/big.ts: lines unknown, 0 exports, low no-importer`");

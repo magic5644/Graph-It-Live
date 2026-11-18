@@ -111,20 +111,25 @@ describe("assessArchitecture: quick wins", () => {
     expect(result.totals).toMatchObject({ deadCodeFiles: 2, unusedExports: 8 });
   });
 
-  // #742: gain = lines removed, effort = files to edit (0 to delete a file nothing imports).
+  // #742: gain = lines of the unused declarations, effort = files to edit (0 when nothing imports the file).
   const legacy: DeadFile = { relativePath: "lib/legacy.ts", lines: 300, exports: 1, confidence: "low", reasons: ["no-importer"] };
   const oneLiners = Array.from({ length: 5 }, (_, index) => ({ name: `h${index}`, line: index + 1, endLine: index + 1 }));
 
-  it("ranks a 300-line unreferenced file above a file with 5 unused one-line exports", () => {
-    const result = assessArchitecture(input(["app:1:0", "lib:2:0"], [], {
-      files: [["app/main.ts", "lib/helpers.ts", 1]],
-      deadCode: [{ relativePath: "lib/helpers.ts", unusedSymbols: oneLiners }, { relativePath: "lib/legacy.ts", unusedSymbols: [{ name: "run", line: 1, endLine: 3 }] }],
-      deadFiles: [legacy],
+  // #758: the Dead files entry deletes the whole file; a dead-code lead on it would count it twice.
+  it("never gives a dead-code lead for a dead file, imported by tests only or by nothing", () => {
+    const testOnly: DeadFile = { relativePath: "lib/tested.ts", lines: 40, exports: 2, confidence: "medium", reasons: ["test-only-use"] };
+    const result = assessArchitecture(input(["app:1:0", "lib:3:0"], [], {
+      files: [["app/main.ts", "lib/helpers.ts", 1], ["tests/tested.test.ts", "lib/tested.ts", 1]],
+      deadCode: [
+        { relativePath: "lib/helpers.ts", unusedSymbols: oneLiners },
+        { relativePath: "lib/legacy.ts", unusedSymbols: [{ name: "run", line: 1, endLine: 3 }] },
+        { relativePath: "lib/tested.ts", unusedSymbols: [{ name: "a", line: 1 }, { name: "b", line: 9 }] },
+      ],
+      deadFiles: [legacy, testOnly],
     }));
-    expect(result.quickWins.map((win) => [win.subject, win.gain, win.effort])).toEqual([
-      ["lib/legacy.ts: 1 unused export(s); no file imports it", 300, 0],
-      ["lib/helpers.ts: 5 unused export(s)", 5, 1],
-    ]);
+    expect(result.quickWins.map((win) => [win.subject, win.gain, win.effort])).toEqual([["lib/helpers.ts: 5 unused export(s)", 5, 1]]);
+    expect(result.deadFiles.flatMap((group) => group.files.map((file) => file.relativePath))).toEqual(["lib/legacy.ts", "lib/tested.ts"]);
+    expect(result.totals).toMatchObject({ deadFiles: 2, deadCodeFiles: 1, unusedExports: 5 });
   });
 
   it("counts the lines of the unused declarations of an imported file, one when the end is unknown or before the start", () => {
@@ -134,26 +139,24 @@ describe("assessArchitecture: quick wins", () => {
         { relativePath: "lib/helpers.ts", unusedSymbols: oneLiners },
         { relativePath: "lib/big.ts", unusedSymbols: [{ name: "Big", line: 10, endLine: 49 }, { name: "noEnd", line: 60 }, { name: "bad", line: 70, endLine: 65 }] },
       ],
-      // An imported file is never deleted whole, even when the scan lists its lines.
-      deadFiles: [{ ...legacy, relativePath: "lib/big.ts" }],
     }));
     expect(result.quickWins.map((win) => `${win.subject.split(":")[0]}:${win.gain}/${win.effort}`)).toEqual(["lib/big.ts:42/1", "lib/helpers.ts:5/1"]);
   });
 
-  it("breaks an effort-0 tie by gain, an unread unreferenced file counting its unused declarations", () => {
+  it("breaks an effort-0 tie by gain for files nothing imports that are not dead files (entry points)", () => {
     const result = assessArchitecture(input(["lib:2:0"], [], {
       deadCode: [{ relativePath: "lib/unread.ts", unusedSymbols: [{ name: "u", line: 1, endLine: 20 }] }, { relativePath: "lib/legacy.ts", unusedSymbols: [{ name: "run", line: 1 }] }],
-      deadFiles: [legacy, { ...legacy, relativePath: "lib/unread.ts", lines: undefined }],
     }));
-    expect(result.quickWins.map((win) => `${win.subject.split(":")[0]}:${win.gain}/${win.effort}`)).toEqual(["lib/legacy.ts:300/0", "lib/unread.ts:20/0"]);
+    expect(result.quickWins.map((win) => `${win.subject.split(":")[0]}:${win.gain}/${win.effort}`)).toEqual(["lib/unread.ts:20/0", "lib/legacy.ts:1/0"]);
   });
 
-  it("keeps the line count of a focused unreferenced file", () => {
+  it("leaves out a focused dead file's lead too", () => {
     const result = assessArchitecture(input(["lib:2:0"], [], {
       deadCode: [{ relativePath: "lib/legacy.ts", unusedSymbols: [{ name: "run", line: 1 }] }, { relativePath: "lib/other.ts", unusedSymbols: [{ name: "o", line: 1 }] }],
       deadFiles: [legacy],
     }), new Set(["lib/legacy.ts"]));
-    expect(result.quickWins.map((win) => [win.subject, win.gain, win.effort])).toEqual([["lib/legacy.ts: 1 unused export(s); no file imports it", 300, 0]]);
+    expect(result.quickWins).toEqual([]);
+    expect(result.totals).toMatchObject({ deadFiles: 1, deadCodeFiles: 0, unusedExports: 0 });
   });
 
   it("orders quick wins by gain / effort, then gain, then kind", () => {

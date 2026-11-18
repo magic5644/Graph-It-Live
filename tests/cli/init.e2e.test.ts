@@ -66,7 +66,11 @@ describe.skipIf(!fs.existsSync(DIST_ENTRY))("graph-it init (E2E)", { timeout: 12
     expect(status).toBe(0);
     const result = JSON.parse(stdout);
     expect(result).toMatchObject({ status: "unchanged", written: [] });
-    expect(result.assessment.totals.unusedExports).toBeGreaterThan(0);
+    // view.ts's unused export is high confidence, but only the dead mfe/cart/src/index.ts imports
+    // view.ts: its Dead files entry carries it, never a dead-code lead (#758).
+    expect(result.assessment.deadFiles.flatMap((group: { files: Array<{ relativePath: string }> }) => group.files.map((file) => file.relativePath))).toContain("mfe/cart/src/view.ts");
+    expect(result.assessment.quickWins.filter((win: { kind: string }) => win.kind === "dead-code")).toEqual([]);
+    expect(result.assessment.totals.unusedExports).toBe(0);
   });
 
   it("lists the same dead files on a run after its report, as check --unreferencedFiles does (#757)", () => {

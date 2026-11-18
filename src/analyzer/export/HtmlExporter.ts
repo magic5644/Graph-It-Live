@@ -36,10 +36,9 @@ export interface HtmlFindingItem {
 }
 
 export interface HtmlFindingSection {
+  /** The heading as report.md words it: what it counts ("Dead files: 235 files in 22 units"). */
   title: string;
   intro?: string;
-  /** Items in the section; `items` holds the first ones, `more` says how many are left. */
-  total: number;
   items: HtmlFindingItem[];
   more: string[];
 }
@@ -169,7 +168,37 @@ export function buildHtmlGraphModel(graphData: GraphData, workspaceRoot?: string
   return { groups, files, edges: [...pairs.values()], totals: aggregation.totals };
 }
 
-function buildHeader(workspaceName: string, context: HtmlExportContext, model: ReturnType<typeof buildHtmlGraphModel>): string {
+type HtmlGraphModel = ReturnType<typeof buildHtmlGraphModel>;
+
+/**
+ * The page's file and edge data, compact (#758): a file row is [shared, rest, group, style(, framework)],
+ * its label (doubling as its page id) being the first `shared` characters of the previous label
+ * followed by `rest`; a style is [background, border, borderWidth], shared by the files drawn alike;
+ * edges are file row indexes, two per file pair (importer, imported), never paths.
+ */
+export function compactGraphModel(model: HtmlGraphModel) {
+  const styles: [string, string, number][] = [];
+  const styleIndex = new Map<string, number>();
+  const rowOf = new Map(model.files.map((file, row) => [file.id, row]));
+  let previous = '';
+  const files = model.files.map(({ label, group, framework, color, borderWidth }) => {
+    const key = `${color.background} ${color.border} ${borderWidth}`;
+    let style = styleIndex.get(key);
+    if (style === undefined) {
+      style = styles.push([color.background, color.border, borderWidth]) - 1;
+      styleIndex.set(key, style);
+    }
+    let shared = 0;
+    while (shared < label.length && label[shared] === previous[shared]) shared++;
+    previous = label;
+    const row = [shared, label.slice(shared), group, style];
+    return framework ? [...row, framework] : row;
+  });
+  const edges = model.edges.flatMap(([from, to]) => [rowOf.get(from)!, rowOf.get(to)!]);
+  return { files, styles, edges };
+}
+
+function buildHeader(workspaceName: string, context: HtmlExportContext, model: HtmlGraphModel): string {
   const { totals } = model;
   return [
     `<strong>${htmlEscape(workspaceName)}</strong>`,
@@ -238,13 +267,18 @@ const OVERLAY_CSS = `
     #matrix-view .matrix-cell { cursor: pointer; }
     #matrix-view li { margin-bottom: 4px; color: #bbb; }`;
 
-/** Overlay data and the focus expansion, before the first render. */
-function overlayHead(overlay: HtmlOverlay): string {
+/** Overlay data and the focus expansion, before the first render; edge kinds hold file row indexes, as edgeRows. */
+function overlayHead(overlay: HtmlOverlay, model: HtmlGraphModel): string {
+  const rowOf = new Map(model.files.map((file, row) => [file.label, row]));
+  const edgeKinds = overlay.edgeKinds.flatMap(([from, to, kind]) => {
+    const pair = [rowOf.get(from), rowOf.get(to)];
+    return pair.includes(undefined) ? [] : [[...pair, kind]];
+  });
   return String.raw`
-    const overlay = ${jsonForScript(overlay)};
+    const overlay = ${jsonForScript({ ...overlay, edgeKinds })};
     const STYLES = ${jsonForScript(Object.fromEntries(OVERLAY_KINDS.map(kind => [kind, overlayStyle(kind)])))};
     const KIND_ORDER = ${jsonForScript(OVERLAY_KINDS)};
-    const pairKind = new Map(overlay.edgeKinds.map(([from, to, kind]) => [from + '\0' + to, kind]));
+    const pairKind = new Map(overlay.edgeKinds.map(([from, to, kind]) => [filesData[from].id + '\0' + filesData[to].id, kind]));
     const deadFiles = new Set(overlay.deadFiles);
     const focusFiles = new Set(overlay.focus ? overlay.focus.files.filter(id => fileById.has(id)) : []);
     const groupByLabel = new Map(groupsData.map(g => [g.label, g.id]));
@@ -392,7 +426,7 @@ const OVERLAY_TAIL = String.raw`
     }
     const findingsList = document.getElementById('findings-list');
     for (const section of overlay.findings) {
-      findingsList.append(el('h4', section.title + ' (' + section.total + ')'), ...(section.intro ? [el('p', section.intro)] : []),
+      findingsList.append(el('h4', section.title), ...(section.intro ? [el('p', section.intro)] : []),
         ...section.items.map(findingEntry), ...section.more.map(line => el('p', line)));
     }
     if (overlay.findings.length === 0) findingsList.append(el('p', 'No finding: nothing to clean up.'));
@@ -421,6 +455,7 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
   const safeVisSource = visSource.replaceAll('</script>', String.raw`<\/script>`);
 
   const model = buildHtmlGraphModel(config.graphData, config.workspaceRoot);
+  const data = compactGraphModel(model);
   const header = buildHeader(config.workspaceName, config.context, model);
   const frameworkFiles = model.files.flatMap(file => file.framework ? [{ label: file.label, framework: file.framework }] : []);
   const legend = buildLegend(model.groups, config.context.communityMode, new Set(frameworkFiles.map(file => file.framework)), overlay);
@@ -475,13 +510,22 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
   <script>${safeVisSource}</script>
   <script>
     const groupsData = ${jsonForScript(model.groups)};
-    const filesData = ${jsonForScript(model.files)};
+    const fileStyles = ${jsonForScript(data.styles)};
+    const fileRows = ${jsonForScript(data.files)};
+    const edgeRows = ${jsonForScript(data.edges)};
+    // A file's page id is its label, rebuilt from the previous one; its colours and border come from its style.
+    let previousLabel = '';
+    const filesData = fileRows.map(([shared, rest, group, style, framework]) => {
+      const id = previousLabel = previousLabel.slice(0, shared) + rest;
+      return { id, label: id, group, framework, color: { background: fileStyles[style][0], border: fileStyles[style][1] }, borderWidth: fileStyles[style][2] };
+    });
     const frameworks = ${jsonForScript(Object.fromEntries((Object.keys(FRAMEWORK_IDENTITIES) as Framework[]).map(name => [name, { label: FRAMEWORK_IDENTITIES[name].label, image: frameworkImage(name) }])))};
-    const edgesData = ${jsonForScript(model.edges)};
+    const edgesData = [];
+    for (let i = 0; i < edgeRows.length; i += 2) edgesData.push([filesData[edgeRows[i]].id, filesData[edgeRows[i + 1]].id]);
     const PAGE_SIZE = 50;
     const groupById = new Map(groupsData.map(g => [g.id, g]));
     const fileById = new Map(filesData.map(f => [f.id, f]));
-    const expanded = new Set(${model.files.length <= EXPANDED_FILE_LIMIT} ? groupsData.map(g => g.id) : []);${overlay ? overlayHead(overlay) : ''}
+    const expanded = new Set(${model.files.length <= EXPANDED_FILE_LIMIT} ? groupsData.map(g => g.id) : []);${overlay ? overlayHead(overlay, model) : ''}
     let filterText = '';
 
     const nodes = new vis.DataSet([]);

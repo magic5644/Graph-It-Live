@@ -19,7 +19,7 @@ Each term has one meaning in this page, the README and [`docs/CLI.md`](CLI.md).
 | Term | Meaning |
 | --- | --- |
 | **File pair** | One file importing another file (static import). Every count in the view is a number of file pairs. |
-| **Unit** | A package: a folder holding a `package.json`, workspace member or not, outside `node_modules`. Without any package below the root, each top-level folder is a unit. Files outside every package form the `(root)` unit. |
+| **Unit** | A project: a folder holding a project manifest of a supported language (`package.json`, `tsconfig.json`, `pyproject.toml`, `requirements.txt`, `go.mod`, `Cargo.toml`, `*.csproj`, `pom.xml`, `build.gradle`..., the [workspace markers](CLI.md#global-options)), workspace member or not, outside `node_modules`. Without any project below the root, each top-level folder is a unit. Files outside every project form the `(root)` unit. Before 1.25.4, only `package.json` made a unit. |
 | **Group** | A node of one level: a unit, a folder inside a unit, or a Louvain community. |
 | **Level** | What the view draws at once: the units, the folders of an entered unit or folder, or the Louvain communities. |
 | **Edge** | The file pairs from one group to another of the same level. |
@@ -57,7 +57,7 @@ Each part of the view below answers three questions: what it is for, how to read
 
   | Count | Meaning |
   | --- | --- |
-  | *N units* | Packages (folders holding a `package.json`), else top-level folders |
+  | *N units* | Projects (folders holding a project manifest: `package.json`, `pyproject.toml`, `go.mod`...), else top-level folders |
   | *N layers* | Bands of the units level |
   | *N upward* | Unit edges to a unit on the same or a higher layer, outside a cycle; red when above 0 |
   | *N cycles* | Groups of units that import each other; a click shows the first cycle block |

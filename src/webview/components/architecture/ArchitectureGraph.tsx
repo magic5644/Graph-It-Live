@@ -441,7 +441,7 @@ function UnitsSummary({ summary, minImports, onCycle }: Readonly<UnitsSummaryPro
   const hidden = hiddenUnitEdgeCount(level, minImports, summary.rules);
   return (
     <span>
-      <span title="Packages (folders holding a package.json), else top-level folders">{plural(level.units.length, "unit")}</span>
+      <span title="Projects (folders holding a package.json, pyproject.toml, go.mod or other project manifest), else top-level folders">{plural(level.units.length, "unit")}</span>
         {" · "}{plural(level.layerCount, "layer")}{" · "}
         <span style={{ color: level.upwardEdges > 0 ? RED : undefined }} title="Unit edges to a unit on the same or a higher layer">{level.upwardEdges} upward</span>
         {" · "}

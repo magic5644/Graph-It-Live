@@ -25,6 +25,7 @@ import {
   hubScoreBorderWidth,
   nodeColor,
   buildHtmlGraphModel,
+  compactGraphModel,
   exportHtml,
   jsonForScript,
   renderHtmlPage,
@@ -264,6 +265,34 @@ describe('buildHtmlGraphModel', () => {
   });
 });
 
+// #758: the page carries each path once; edges are index pairs, colours a shared style table.
+describe('compactGraphModel', () => {
+  it('writes a file row per file, its label after the part it shares with the previous one, shared styles, and edges as file row indexes', () => {
+    const graph = sampleGraph();
+    graph.nodeMetadata!['/ws/src/core/b.ts'].framework = 'react';
+    const model = buildHtmlGraphModel(graph, '/ws');
+    const data = compactGraphModel(model);
+    expect(data.files).toEqual([
+      [0, 'src/core/a.ts', 1, 0],
+      [9, 'b.ts', 1, 1, 'react'],
+      [4, 'ui/c.ts', 2, 2],
+      [0, 'main.ts', 0, 3],
+    ]);
+    expect(data.styles[0]).toEqual([COMMUNITY_PALETTE[0], '#333', 4]);
+    expect(data.edges).toEqual([0, 1, 2, 0, 2, 1, 1, 2, 3, 2]);
+    // Each index pair names the same files as the model's path pairs.
+    const pairs = data.edges.flatMap((row, index) => (index % 2 === 0 ? [[model.files[row].id, model.files[data.edges[index + 1]].id]] : []));
+    expect(pairs).toEqual(model.edges);
+  });
+
+  it('shares one style between the files drawn alike, and gives nothing for an empty graph', () => {
+    const nodes = Array.from({ length: 50 }, (_, index) => `/ws/a/f${index}.ts`);
+    const nodeMetadata = Object.fromEntries(nodes.map((node) => [node, { hubScore: 0, communityId: 1, communityKey: 'a' }]));
+    expect(compactGraphModel(buildHtmlGraphModel({ nodes, edges: [], nodeMetadata }, '/ws')).styles).toHaveLength(1);
+    expect(compactGraphModel(buildHtmlGraphModel({ nodes: [], edges: [] }))).toEqual({ files: [], styles: [], edges: [] });
+  });
+});
+
 describe('exportHtml', () => {
   beforeEach(() => {
     mockReadFileSync.mockReset();
@@ -294,6 +323,22 @@ describe('exportHtml', () => {
     exportHtml(config);
     return mockWriteFileSync.mock.calls[0][1] as string;
   }
+
+  it('writes no path twice, however many edges a file has, and rebuilds every file and pair in the page (#758)', () => {
+    const nodes = Array.from({ length: 40 }, (_, index) => `/ws/src/deep/folder/name/file${index}.ts`);
+    const edges = nodes.flatMap((source) => nodes.filter((target) => target !== source).map((target) => ({ source, target })));
+    const html = render({ ...baseConfig, graphData: { nodes, edges, nodeMetadata: {} } });
+    expect(html).not.toContain('/ws/');
+    expect(html.split('src/deep/folder/name/')).toHaveLength(2);
+    // 1560 edges, a few bytes each: file row indexes, not paths.
+    const edgeRows = html.split('const edgeRows = ')[1].split(';\n')[0];
+    expect(JSON.parse(edgeRows)).toHaveLength(edges.length * 2);
+    expect(edgeRows.length).toBeLessThan(edges.length * 6);
+    const view = runPage(html);
+    view.setAllExpanded(true);
+    expect(view.nodes.get().map((node: { id: string }) => node.id)).toEqual(nodes.map((node) => node.slice(4)));
+    expect(view.edges.get()).toHaveLength(edges.length);
+  });
 
   it('inlines the vis-network copy shipped next to the bundle when present', () => {
     mockExistsSync.mockReturnValue(true);
@@ -444,14 +489,14 @@ describe('exportHtml', () => {
     graphData.nodeMetadata!['/ws/src/core/a.ts'].framework = 'react';
     const html = render({ ...baseConfig, graphData });
     const page = runPage(html);
-    const react = page.nodes.get('/ws/src/core/a.ts');
+    const react = page.nodes.get('src/core/a.ts');
     expect(react.label).toBe('a.ts [React]');
     expect(react.title).toContain('React');
     expect(react.image).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(REACT_IDENTITY.svg)}`);
     expect(react.borderWidth).toBe(4);
     expect(react.color).toEqual(nodeColor(1, 0.9));
-    expect(page.nodes.get('/ws/src/core/b.ts').label).toBe('b.ts');
-    expect(page.nodes.get('/ws/src/core/b.ts').image).toBeUndefined();
+    expect(page.nodes.get('src/core/b.ts').label).toBe('b.ts');
+    expect(page.nodes.get('src/core/b.ts').image).toBeUndefined();
     expect(html).toContain('React component files');
     expect(html).toContain('aria-label="Dependency graph. React: src/core/a.ts"');
   });
@@ -462,10 +507,10 @@ describe('exportHtml', () => {
     graphData.nodeMetadata!['/ws/src/core/b.ts'].framework = 'vue';
     const html = render({ ...baseConfig, graphData });
     const page = runPage(html);
-    const vue = page.nodes.get('/ws/src/core/b.ts');
+    const vue = page.nodes.get('src/core/b.ts');
     expect(vue.label).toBe('b.ts [Vue]');
     expect(vue.image).toBe(`data:image/svg+xml;charset=utf-8,${encodeURIComponent(VUE_IDENTITY.svg)}`);
-    expect(page.nodes.get('/ws/src/core/a.ts').label).toBe('a.ts [React]');
+    expect(page.nodes.get('src/core/a.ts').label).toBe('a.ts [React]');
     expect(html.indexOf('React component files')).toBeLessThan(html.indexOf('Vue component files'));
     expect(html).toContain('aria-label="Dependency graph. React: src/core/a.ts. Vue: src/core/b.ts"');
   });
@@ -519,14 +564,14 @@ describe('exportHtml', () => {
     const page = runPage(render());
     page.setAllExpanded(false);
     page.handlers.doubleClick({ nodes: ['group:1'], edges: [] });
-    expect(page.nodes.get().map((n: { id: string }) => n.id)).toEqual(['group:2', 'group:0', '/ws/src/core/a.ts', '/ws/src/core/b.ts']);
+    expect(page.nodes.get().map((n: { id: string }) => n.id)).toEqual(['group:2', 'group:0', 'src/core/a.ts', 'src/core/b.ts']);
 
-    page.handlers.click({ nodes: ['/ws/src/core/b.ts'], edges: [] });
+    page.handlers.click({ nodes: ['src/core/b.ts'], edges: [] });
     expect(page.panelText()).toContain('Outgoing → depends on (orange): 1');
     expect(page.panelText()).toContain('Incoming ← used by (blue): 2');
-    expect(page.edges.get('["/ws/src/core/b.ts","group:2"]').color.color).toBe('#ffaa00');
+    expect(page.edges.get('["src/core/b.ts","group:2"]').color.color).toBe('#ffaa00');
 
-    page.handlers.doubleClick({ nodes: ['/ws/src/core/a.ts'], edges: [] });
+    page.handlers.doubleClick({ nodes: ['src/core/a.ts'], edges: [] });
     expect(page.nodes.get()).toHaveLength(3);
     page.handlers.doubleClick({ nodes: [], edges: [] });
     expect(page.nodes.get()).toHaveLength(3);
@@ -535,7 +580,7 @@ describe('exportHtml', () => {
   it('filters by file path or group label', () => {
     const page = runPage(render());
     page.applyFilter('  CORE ');
-    expect(page.nodes.get().map((n: { id: string }) => n.id)).toEqual(['/ws/src/core/a.ts', '/ws/src/core/b.ts']);
+    expect(page.nodes.get().map((n: { id: string }) => n.id)).toEqual(['src/core/a.ts', 'src/core/b.ts']);
 
     page.applyFilter('c.ts');
     page.setAllExpanded(false);
@@ -562,7 +607,9 @@ describe('exportHtml', () => {
       findings: [],
       ...fields,
     });
-    const page = (fields: Partial<HtmlOverlay> = {}) => runPage(renderHtmlPage({ ...baseConfig, overlay: overlay(fields) }));
+    // An init page has no workspaceRoot: its file ids are its labels, as the overlay names them.
+    const initConfig = { ...baseConfig, workspaceRoot: undefined };
+    const page = (fields: Partial<HtmlOverlay> = {}) => runPage(renderHtmlPage({ ...initConfig, overlay: overlay(fields) }));
 
     it('renders exactly the export page without an overlay', () => {
       const { outputPath: _outputPath, ...config } = baseConfig;
@@ -595,7 +642,7 @@ describe('exportHtml', () => {
       expect(edge(C, A)).toMatchObject({ base: '#ff7b72', dashes: [4, 3], title: 'accepted in baseline: 1 of 1 file pair(s). Click to list them.' });
       expect(edge(B, C)).toMatchObject({ base: '#bc8cff', dashes: [2, 3], title: 'type-only cycle: 1 of 1 file pair(s). Click to list them.' });
       expect(edge(MAIN, C)).toMatchObject({ base: '#bc8cff', dashes: [8, 4], title: 'lazy cycle (import()): 1 of 1 file pair(s). Click to list them.' });
-      const legend = renderHtmlPage({ ...baseConfig, overlay: overlay({ edgeKinds: [[B, C, 'type-only']], deadFiles: [] }) }).split('<div id="legend">')[1];
+      const legend = renderHtmlPage({ ...initConfig, overlay: overlay({ edgeKinds: [[B, C, 'type-only']], deadFiles: [] }) }).split('<div id="legend">')[1];
       expect(legend).toContain('stroke-dasharray="2 3"/></svg><span>type-only cycle</span>');
       expect(legend).not.toContain('runtime cycle');
       expect(legend).not.toContain('dead file');
@@ -606,7 +653,7 @@ describe('exportHtml', () => {
         svg: '<svg><g class="matrix-cell" data-from="ui" data-to="core"><rect/></g></svg>',
         guide: { reading: ['Each row imports the columns <where> it has a number.'], patterns: [{ pattern: 'wide-row', meaning: 'imports many', action: 'Put a facade.' }] },
       };
-      const html = renderHtmlPage({ ...baseConfig, overlay: overlay({ matrix }) });
+      const html = renderHtmlPage({ ...initConfig, overlay: overlay({ matrix }) });
       expect(html).toContain('<details id="matrix-view"><summary>Dependency matrix</summary>');
       expect(html).toContain(matrix.svg);
       expect(html).toContain('<li>Each row imports the columns &lt;where&gt; it has a number.</li>');
@@ -620,11 +667,11 @@ describe('exportHtml', () => {
       expect(panel).toContain('/ws/src/ui/c.ts → /ws/src/core/a.ts (breaks a rule)');
       // A click outside a cell does nothing.
       expect(() => listeners.click({ target: { closest: () => null } })).not.toThrow();
-      expect(renderHtmlPage({ ...baseConfig, overlay: overlay() })).not.toContain('<details id="matrix-view"');
+      expect(renderHtmlPage({ ...initConfig, overlay: overlay() })).not.toContain('<details id="matrix-view"');
     });
 
     it('marks dead files and lists the overlay in the legend', () => {
-      const html = renderHtmlPage({ ...baseConfig, overlay: overlay() });
+      const html = renderHtmlPage({ ...initConfig, overlay: overlay() });
       const view = runPage(html);
       expect(view.nodes.get(MAIN)).toMatchObject({ label: 'main.ts · dead', shapeProperties: { borderDashes: [4, 3] } });
       expect(view.nodes.get(MAIN).title).toContain('Dead file: no production file imports it.');
@@ -640,21 +687,21 @@ describe('exportHtml', () => {
     it('lists the findings in order with their text, and reveals the files or units of a clicked one', () => {
       const view = page({
         findings: [
-          { title: 'Dead files', intro: 'Cheapest first.', total: 3, more: ['... 1 more (--format json lists them all)'], items: [
+          { title: 'Dead files: 3 files in 1 unit', intro: 'Cheapest first.', more: ['... 1 more (--format json lists them all)'], items: [
             item({ label: '1 file', subject: 'core', details: ['src/core/b.ts: 3 lines'], next: 'graph-it check "core" --unreferencedFiles', units: ['core'], files: [B] }),
             item({ label: 'hub-at-risk', subject: 'ui', note: 'split it', units: ['ui'] }),
           ] },
-          { title: 'Other leads', total: 1, more: [], items: [item({ label: 'entry-row', subject: 'a, b' })] },
+          { title: 'Other leads: 1', more: [], items: [item({ label: 'entry-row', subject: 'a, b' })] },
         ],
       });
       const entries = view.findings();
       expect(entries.map(entry => view.text(entry).replaceAll(/\s+/g, ' ').trim())).toEqual([
-        'Dead files (3)',
+        'Dead files: 3 files in 1 unit',
         'Cheapest first.',
         '1 file : core src/core/b.ts: 3 lines next: graph-it check "core" --unreferencedFiles',
         'hub-at-risk : ui split it',
         '... 1 more (--format json lists them all)',
-        'Other leads (1)',
+        'Other leads: 1',
         'entry-row : a, b',
       ]);
       const [, , file, unit, , , none] = entries as Record<string, Record<string, (event?: unknown) => void>>[];
@@ -687,12 +734,18 @@ describe('exportHtml', () => {
       expect(view.calls.selected.at(-1)).toEqual([C]);
     });
 
+    it('keeps the kinds of drawn file pairs only, as file row indexes (#758)', () => {
+      const html = renderHtmlPage({ ...initConfig, overlay: overlay({ edgeKinds: [[C, A, 'error'], ['/ws/gone.ts', A, 'cycle']] }) });
+      expect(JSON.parse(html.split('const overlay = ')[1].split(';\n')[0]).edgeKinds).toEqual([[2, 0, 'error']]);
+      expect(runPage(html).edges.get(JSON.stringify([C, A]))).toMatchObject({ base: '#ff7b72' });
+    });
+
     it('says when there is no finding', () => {
       expect(page().findings().map(entry => entry.textContent)).toEqual(['No finding: nothing to clean up.']);
     });
 
     it('opens on the focus: its groups expanded, other files dimmed, its boundary in the panel', () => {
-      const html = renderHtmlPage({ ...baseConfig, overlay: overlay({ focus: { label: 'src/core/b.ts', files: [B, '/ws/gone.ts'] } }) });
+      const html = renderHtmlPage({ ...initConfig, overlay: overlay({ focus: { label: 'src/core/b.ts', files: [B, '/ws/gone.ts'] } }) });
       expect(html).toContain('<button onclick="revealFocus()">◎ Focus</button>');
       const view = runPage(html);
       expect([...view.expanded]).toEqual([1]);
@@ -715,8 +768,8 @@ describe('exportHtml', () => {
     });
 
     it('keeps repository text out of the markup', () => {
-      const html = renderHtmlPage({ ...baseConfig, overlay: overlay({
-        findings: [{ title: 'T', total: 1, more: [], items: [item({ subject: '</script><script>alert(1)</script>' })] }],
+      const html = renderHtmlPage({ ...initConfig, overlay: overlay({
+        findings: [{ title: 'T', more: [], items: [item({ subject: '</script><script>alert(1)</script>' })] }],
         focus: { label: '<img src=x>', files: [] },
       }) });
       expect(html).not.toContain('</script><script>alert(1)');

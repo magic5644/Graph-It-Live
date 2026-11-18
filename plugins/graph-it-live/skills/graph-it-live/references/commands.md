@@ -110,7 +110,7 @@ graph-it tool analyze_breaking_changes --args '{"filePath":"/abs/src/a.ts","symb
 ## Architecture
 
 ```bash
-graph-it architecture --level units --format toon              # packages (else top-level folders), layers, unit edges, cycles
+graph-it architecture --level units --format toon              # projects (else top-level folders), layers, unit edges, cycles
 graph-it architecture --groups --format toon                   # folder groups, groupEdges, totals
 graph-it architecture --folder "(root)/src" --format toon      # one level below a unit or folder key
 graph-it architecture --level units --from apps/web --to packages/core --format toon   # file pairs behind a unit edge
@@ -138,7 +138,12 @@ its direct neighbours. It never overwrites an existing config or baseline withou
 confirmation: outside a terminal (agent, CI) it then writes nothing unless `--yes`, and still prints
 the report. CLI 1.25.3 or later counts runtime, type-only (`import type`, Python `if TYPE_CHECKING:`)
 and lazy (`import()` only) cycles apart, and only runtime cycles can be the top action; each quick win
-and matrix finding carries a `next` command, and the JSON adds a `matrixGuide`.
+and matrix finding carries a `next` command, and the JSON adds a `matrixGuide`. CLI 1.25.4 or later:
+a unit is any folder holding a project manifest (`package.json`, `pyproject.toml`, `go.mod`,
+`Cargo.toml`, `*.csproj`, `pom.xml`...), files outside every project stay in `(root)`; headings say
+what they count and how many are shown (`Dead files: 235 files in 22 units`, `Cycles to cut: 50 (20
+shown)`); `report.md` and `index.html` list every item (the terminal the first 20, capped sub-lines
+point to the item's `next:` command or to `index.html`); a dead file is never also a `dead-code` lead.
 
 ## Diagrams for humans (CLI 1.23.0 or later)
 

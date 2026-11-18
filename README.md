@@ -158,7 +158,7 @@ A chain stops at its first unproven link and after 8 calls. An unannotated retur
 
 ### Architecture view
 
-The Architecture view draws the whole workspace as **units** (packages, else top-level folders) in layers, with the import edges between them, their roles and their cycles. It answers three questions: what are my layers, who depends on this, and does the code follow my rules. The [architecture guide](docs/architecture.md) defines every term, explains the marks of each view and how to fix what they raise: cycles, rule violations, unmatched files.
+The Architecture view draws the whole workspace as **units** (projects: folders holding a `package.json`, `pyproject.toml`, `go.mod` or other project manifest, else top-level folders) in layers, with the import edges between them, their roles and their cycles. It answers three questions: what are my layers, who depends on this, and does the code follow my rules. The [architecture guide](docs/architecture.md) defines every term, explains the marks of each view and how to fix what they raise: cycles, rule violations, unmatched files.
 
 <div align="center">
 <img src="media/architecture-units-overview.png" alt="Architecture view of an npm-workspaces monorepo: units in layers, a cycle between two shared libraries, rule violations in red" width="800"/>

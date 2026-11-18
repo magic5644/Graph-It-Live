@@ -43,7 +43,7 @@ export interface InitResult {
   diagrams: InitDiagram[];
 }
 
-/** Items listed per section; the json and toon formats list them all. */
+/** Items listed per section in a terminal; report.md, the page, json and toon list them all. */
 export const REPORT_LIMIT = 20;
 /** Files listed per dead-file group, and units named on the entry line, as many as evidence lines. */
 const ITEM_LIMIT = ASSESSMENT_THRESHOLDS.evidence;
@@ -73,6 +73,10 @@ interface ReportItem {
 
 interface ReportSection {
   title: string;
+  /** What the heading counts when it is not the items: "235 files in 22 units". */
+  count?: string;
+  /** What an item is when the heading counts something else: "unit". */
+  noun?: string;
   intro?: string;
   items: ReportItem[];
 }
@@ -85,7 +89,11 @@ const more = (total: number) => moreLine(REPORT_LIMIT, total, " (--format json l
 
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
-function deadFileItem(group: DeadFileGroup): ReportItem {
+/** The sub-lines left out of an item: the item's next: command lists them, or the page shows them. */
+const NEXT_LISTS = " (next: lists them all)";
+const pageShows = (page: string | undefined) => (page === undefined ? "" : ` (${path.posix.basename(page)} shows them all)`);
+
+function deadFileItem(group: DeadFileGroup, page: string | undefined): ReportItem {
   const files = group.files.slice(0, ITEM_LIMIT).map((file) =>
     `${file.relativePath}: ${file.lines === undefined ? "lines unknown" : plural(file.lines, "line")}, ${plural(file.exports, "export")}, ${file.confidence} ${file.reasons.join(", ")}` +
     (file.via ? ` via ${file.via.join(", ")}` : "") +
@@ -93,7 +101,7 @@ function deadFileItem(group: DeadFileGroup): ReportItem {
   return {
     label: `${plural(group.files.length, "file")}, ${plural(group.lines, "line")}`,
     subject: group.unit,
-    details: [...files, ...moreLine(ITEM_LIMIT, group.files.length, "")],
+    details: [...files, ...moreLine(ITEM_LIMIT, group.files.length, page === undefined ? NEXT_LISTS : pageShows(page))],
     next: `graph-it check${group.unit === ROOT_UNIT ? "" : " " + JSON.stringify(group.unit)} --unreferencedFiles`,
     units: [group.unit],
   };
@@ -110,7 +118,7 @@ function quickWinItem(win: QuickWin): ReportItem {
   return {
     label: `${win.kind}, gain ${win.gain} / effort ${win.effort}`,
     subject: win.subject,
-    details: [...win.evidence, ...moreLine(win.evidence.length, win.totalEvidence, "")],
+    details: [...win.evidence, ...moreLine(win.evidence.length, win.totalEvidence, NEXT_LISTS)],
     next: win.next,
     units: win.units,
     fallback: QUICK_WIN_VIEW[win.kind],
@@ -120,13 +128,13 @@ function quickWinItem(win: QuickWin): ReportItem {
 /** Labels of the grouped cycle items: listed after the runtime cycles, never the top action. */
 const GROUPED = { "type-only": "whose every import is type-only: design coupling", lazy: "that close through lazy import(s): loaded on demand" };
 
-function groupedItem(label: keyof typeof GROUPED, cycles: GroupedCycles): ReportItem[] {
+function groupedItem(label: keyof typeof GROUPED, cycles: GroupedCycles, page: string | undefined): ReportItem[] {
   if (cycles.unitCycles + cycles.mutualImports === 0) return [];
   return [{
     label,
     subject: [...cycles.units.slice(0, ITEM_LIMIT), ...moreLine(ITEM_LIMIT, cycles.units.length, "")].join(", "),
     note: `${plural(cycles.unitCycles, "unit cycle")} and ${plural(cycles.mutualImports, "mutual file import")} ${GROUPED[label]}, no init-order risk.`,
-    details: [...cycles.evidence, ...moreLine(cycles.evidence.length, cycles.totalEvidence, "")],
+    details: [...cycles.evidence, ...moreLine(cycles.evidence.length, cycles.totalEvidence, pageShows(page))],
     units: cycles.units,
     fallback: "units",
   }];
@@ -152,20 +160,23 @@ function entryItem(entries: readonly MatrixFinding[], deadFiles: readonly DeadFi
   }];
 }
 
-function sections(assessment: ArchitectureAssessment): ReportSection[] {
+/** `page`: the page written with the report, which shows every dead file and cycle pair. */
+function sections(assessment: ArchitectureAssessment, page?: string): ReportSection[] {
   const { deadFiles, quickWins, matrixFindings, typeOnlyCycles, lazyCycles } = assessment;
   const wins = (...kinds: QuickWin["kind"][]) => quickWins.filter((win) => kinds.includes(win.kind)).map(quickWinItem);
   const findings = (...kinds: MatrixFinding["kind"][]) => matrixFindings.filter((finding) => kinds.includes(finding.kind));
   return [
     {
       title: "Dead files",
+      count: `${plural(deadFiles.reduce((total, group) => total + group.files.length, 0), "file")} in ${plural(deadFiles.length, "unit")}`,
+      noun: "unit",
       intro: "Files no production file imports, by unit, most lines first: the cheapest deletions. An entry point by convention (script, handler) is listed too: check before deleting.",
-      items: deadFiles.map(deadFileItem),
+      items: deadFiles.map((group) => deadFileItem(group, page)),
     },
     {
       title: "Cycles to cut",
       intro: "Runtime cycles ranked by gain / effort, then the type-only and the lazy ones, one item each (see Glossary).",
-      items: [...wins("cycle-break", "mutual-import"), ...groupedItem("type-only", typeOnlyCycles), ...groupedItem("lazy", lazyCycles)],
+      items: [...wins("cycle-break", "mutual-import"), ...groupedItem("type-only", typeOnlyCycles, page), ...groupedItem("lazy", lazyCycles, page)],
     },
     { title: "Hubs", items: findings("hub-at-risk", "wide-row").map(findingItem) },
     {
@@ -176,14 +187,22 @@ function sections(assessment: ArchitectureAssessment): ReportSection[] {
   ];
 }
 
-/** The sections a report lists: non-empty ones, their first REPORT_LIMIT items and the line counting the rest. */
-export function reportSections(assessment: ArchitectureAssessment) {
-  return sections(assessment).filter((section) => section.items.length > 0).map((section) => ({
-    ...section,
-    total: section.items.length,
-    items: section.items.slice(0, REPORT_LIMIT),
-    more: more(section.items.length),
-  }));
+/**
+ * The sections a report lists: non-empty ones, their first `limit` items (all by default: report.md
+ * and the page) and the line counting the rest. The heading says what it counts and how many are
+ * shown: "Dead files: 235 files in 22 units", "Cycles to cut: 50 (20 shown)".
+ */
+export function reportSections(result: Pick<InitResult, "assessment" | "page">, limit = Infinity) {
+  return sections(result.assessment, result.page).filter((section) => section.items.length > 0).map(({ count, noun, ...section }) => {
+    const shown = Math.min(limit, section.items.length);
+    const shownText = shown < section.items.length ? ` (${noun === undefined ? shown : plural(shown, noun)} shown)` : "";
+    return {
+      ...section,
+      title: `${section.title}: ${count ?? section.items.length}${shownText}`,
+      items: section.items.slice(0, shown),
+      more: moreLine(shown, section.items.length, " (--format json lists them all)"),
+    };
+  });
 }
 
 function summaryLines(result: InitResult, all: readonly ReportSection[]): string[] {
@@ -265,8 +284,8 @@ export function renderInitText(result: InitResult): string {
     "Summary:",
     ...summaryLines(result, all).map((line) => `  ${line}`),
   ];
-  for (const section of reportSections(result.assessment)) {
-    lines.push("", `${section.title} (${section.total}):`, ...(section.intro === undefined ? [] : [`  ${section.intro}`]),
+  for (const section of reportSections(result, REPORT_LIMIT)) {
+    lines.push("", section.title, ...(section.intro === undefined ? [] : [`  ${section.intro}`]),
       ...section.items.flatMap(textItem), ...section.more);
   }
   const guide = result.assessment.matrixGuide;
@@ -275,7 +294,9 @@ export function renderInitText(result: InitResult): string {
     "", "Glossary:", ...Object.entries(result.assessment.glossary).map(([term, meaning]) => `  ${term}: ${meaning}`));
   if (result.diagrams.length > 0) lines.push("", "Diagrams:", ...result.diagrams.map((diagram) => `  ${diagram.file}`));
   if (result.changes.length > 0) {
-    lines.push("", `Config changes (${result.changes.length}):`, ...result.changes.slice(0, REPORT_LIMIT).map((change) => `  ${change}`), ...more(result.changes.length));
+    const shown = Math.min(REPORT_LIMIT, result.changes.length);
+    lines.push("", `Config changes: ${result.changes.length}${shown < result.changes.length ? ` (${shown} shown)` : ""}`,
+      ...result.changes.slice(0, shown).map((change) => `  ${change}`), ...more(result.changes.length));
   }
   lines.push(
     "",
@@ -320,8 +341,8 @@ export function renderInitMarkdown(result: InitResult, base?: string): string {
     lines.push("", `Explore: [${path.posix.basename(result.page)}](${encodeURI(base === undefined ? result.page : path.posix.relative(base, result.page))}): units as groups, findings, cycles, violations and dead files, offline.`);
   }
   lines.push("", "## Summary", "", ...summaryLines(result, all).map((line) => `- ${line}`));
-  for (const section of reportSections(result.assessment)) {
-    lines.push("", `## ${section.title} (${section.total})`, "", ...(section.intro === undefined ? [] : [section.intro, ""]),
+  for (const section of reportSections(result)) {
+    lines.push("", `## ${section.title}`, "", ...(section.intro === undefined ? [] : [section.intro, ""]),
       ...section.items.flatMap((item) => markdownItem(item, result.diagrams, base)), ...section.more);
   }
   const guide = result.assessment.matrixGuide;
@@ -335,10 +356,9 @@ export function renderInitMarkdown(result: InitResult, base?: string): string {
     lines.push("", "## Diagrams", "", ...result.diagrams.map((diagram) => `- ${diagram.view}${diagram.unit === undefined ? "" : " " + code(diagram.unit)}${link(diagram, base)}`));
   }
   if (result.changes.length > 0) {
-    const shown = result.changes.slice(0, REPORT_LIMIT);
     // Longer than any backtick run of the config text (rule reasons), so it cannot close early.
-    const fence = "`".repeat(Math.max(3, ...shown.flatMap((change) => change.match(/`+/g) ?? []).map((run) => run.length + 1)));
-    lines.push("", "## Config changes", "", `${fence}text`, ...shown, ...more(result.changes.length), fence);
+    const fence = "`".repeat(Math.max(3, ...result.changes.flatMap((change) => change.match(/`+/g) ?? []).map((run) => run.length + 1)));
+    lines.push("", `## Config changes: ${result.changes.length}`, "", `${fence}text`, ...result.changes, fence);
   }
   lines.push(
     "", "## Guard", "",
