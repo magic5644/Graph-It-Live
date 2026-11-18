@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SourceFileWatcher } from "../../src/extension/services/SourceFileWatcher";
 import type { FileChangeScheduler } from "../../src/extension/services/FileChangeScheduler";
+import { PROJECT_MARKER_GLOB } from "../../src/analyzer/utils/workspaceBoundary";
 import { ARCHITECTURE_RULES_GLOB, RESOLVER_CONFIG_GLOB, WATCH_GLOB } from "../../src/shared/constants";
 
 type Listener = (uri: { fsPath: string }) => void;
@@ -42,9 +43,9 @@ describe("SourceFileWatcher", () => {
     });
   });
 
-  it("watches source files, architecture rules and resolver configs (#419)", () => {
-    expect(watchers.map(watcher => watcher.glob)).toEqual([WATCH_GLOB, ARCHITECTURE_RULES_GLOB, RESOLVER_CONFIG_GLOB]);
-    expect(subscriptions).toHaveLength(3);
+  it("watches source files, architecture rules, resolver configs (#419) and project markers (#758)", () => {
+    expect(watchers.map(watcher => watcher.glob)).toEqual([WATCH_GLOB, ARCHITECTURE_RULES_GLOB, RESOLVER_CONFIG_GLOB, PROJECT_MARKER_GLOB]);
+    expect(subscriptions).toHaveLength(4);
   });
 
   it("enqueues create, change and delete events", () => {

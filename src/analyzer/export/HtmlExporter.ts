@@ -43,7 +43,7 @@ export interface HtmlFindingSection {
   more: string[];
 }
 
-/** What the init page adds to the exported graph (#718). */
+/** What the init page adds to the exported graph (#718). Files are named by their page id: their label, a workspace-relative path without workspaceRoot. */
 export interface HtmlOverlay {
   /** [importer, imported, kind] file pairs. */
   edgeKinds: [string, string, HtmlEdgeKind][];

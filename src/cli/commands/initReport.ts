@@ -91,7 +91,10 @@ const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ?
 
 /** The sub-lines left out of an item: the item's next: command lists them, or the page shows them. */
 const NEXT_LISTS = " (next: lists them all)";
-const pageShows = (page: string | undefined) => (page === undefined ? "" : ` (${path.posix.basename(page)} shows them all)`);
+/** A cut spans several unit edges; next: lists the first one's file pairs. */
+const CUT_EDGES_LIST = " (graph-it architecture --level units --from <unit> --to <unit> lists each cut edge's pairs)";
+const pageShows = (page: string | undefined) =>
+  ` (${page === undefined ? "the index.html of graph-it init --output" : path.posix.basename(page)} shows them all)`;
 
 function deadFileItem(group: DeadFileGroup, page: string | undefined): ReportItem {
   const files = group.files.slice(0, ITEM_LIMIT).map((file) =>
@@ -118,7 +121,7 @@ function quickWinItem(win: QuickWin): ReportItem {
   return {
     label: `${win.kind}, gain ${win.gain} / effort ${win.effort}`,
     subject: win.subject,
-    details: [...win.evidence, ...moreLine(win.evidence.length, win.totalEvidence, NEXT_LISTS)],
+    details: [...win.evidence, ...moreLine(win.evidence.length, win.totalEvidence, win.kind === "cycle-break" ? CUT_EDGES_LIST : NEXT_LISTS)],
     next: win.next,
     units: win.units,
     fallback: QUICK_WIN_VIEW[win.kind],
