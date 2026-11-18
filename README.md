@@ -276,6 +276,12 @@ On an existing codebase, start with `graph-it init`: it guards the architecture 
 With `--output <dir>`, `init` also writes `report.md`, SVG diagrams and `index.html`. This offline page groups the files by architecture unit and lists the report's findings beside the graph. Click a finding to centre the graph on its files.
 
 <div align="center">
+<img src="media/init-counted-findings.png" alt="index.html written by graph-it init --output on the legacy-shop demo: the Findings panel headings give their counts, Dead files: 2 files in 2 units and Cycles to cut: 3, each unit and cycle with its next command; the graph shows both dead files with a dashed border and the runtime cycle edges in purple" width="800"/>
+</div>
+
+*`graph-it init --output report` on `tests/demo/legacy-shop`. Each heading gives its count; `report.md` and `--format markdown` list every item, the terminal the first 20.*
+
+<div align="center">
 <img src="media/init-cycle-kinds.png" alt="index.html written by graph-it init --output: the Findings panel lists the dead file and the cycles to cut, each with its next command; the graph groups the files by unit, a runtime cycle as solid purple edges, a type-only cycle dotted, a lazy import() cycle dashed, and the shared legend under the groups" width="800"/>
 </div>
 
@@ -292,7 +298,7 @@ The **Dependency matrix** panel, inside Findings, shows the units' matrix with t
 `--focus <unit|folder>` keeps one unit or folder and its direct neighbours, and adds a panel listing what it depends on and what uses it:
 
 <div align="center">
-<img src="media/init-focus.png" alt="index.html with --focus billing: only billing and its neighbour orders, the cycle-break and mutual-import findings for billing, and a Focus panel listing orders under Depends on and Used by, each with 1 file pair in a unit cycle" width="800"/>
+<img src="media/init-focus.png" alt="index.html with --focus billing: only billing and its neighbour orders, the findings for billing under Cycles to cut: 2 (cycle-break and mutual-import) and Other leads: 1, and a Focus panel listing orders under Depends on and Used by, each with 1 file pair in a runtime cycle" width="800"/>
 </div>
 
 *`graph-it init --focus billing --output report` on `tests/demo/legacy-shop`.*
