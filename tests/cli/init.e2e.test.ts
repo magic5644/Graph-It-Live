@@ -68,4 +68,28 @@ describe.skipIf(!fs.existsSync(DIST_ENTRY))("graph-it init (E2E)", { timeout: 12
     expect(result).toMatchObject({ status: "unchanged", written: [] });
     expect(result.assessment.totals.unusedExports).toBeGreaterThan(0);
   });
+
+  it("lists the same dead files on a run after its report, as check --unreferencedFiles does (#757)", () => {
+    withFile("backend/src/orphan.ts", "export const orphan = 1;\n", () => {
+      const deadFiles = () => {
+        const { status, stdout } = cli("init", "--output", "report", "--format", "json");
+        expect(status).toBe(0);
+        const groups: Array<{ files: Array<{ relativePath: string }> }> = JSON.parse(stdout).assessment.deadFiles;
+        return groups.flatMap((group) => group.files.map((file) => file.relativePath)).sort((a, b) => a.localeCompare(b));
+      };
+      try {
+        const first = deadFiles();
+        expect(first).toContain("backend/src/orphan.ts");
+        // The report's index.html embeds every path in its inline data: it names none of them.
+        expect(fs.readFileSync(path.join(root, "report/index.html"), "utf-8")).toContain("backend/src/orphan.ts");
+        expect(deadFiles()).toEqual(first);
+        const { status, stdout } = cli("check", "--unreferencedFiles", "--format", "json");
+        expect(status).toBe(0);
+        const checked: Array<{ relativePath: string }> = JSON.parse(stdout).unreferencedFiles;
+        expect(checked.map((file) => file.relativePath).sort((a, b) => a.localeCompare(b))).toEqual(first);
+      } finally {
+        fs.rmSync(path.join(root, "report"), { recursive: true, force: true });
+      }
+    });
+  });
 });

@@ -8,6 +8,7 @@ import path from "node:path";
 import { getRelativePath, normalizePath } from "../../shared/path";
 import { isPathWithinRoot } from "../../shared/pathSecurity";
 import { maskNonCode } from "../utils/maskNonCode";
+import { deployModuleName } from "./deadCodeConfidence";
 
 const SERVERLESS_FILE_NAMES = ["serverless.yml", "serverless.yaml"];
 const SAM_FILE_NAMES = ["template.yaml", "template.yml"];
@@ -53,6 +54,8 @@ export interface EntryPointSources {
   rustPubMods: ReadonlyMap<string, readonly string[]>;
   /** Rust file → the functions a runtime attribute (`#[no_mangle]`, `#[proc_macro]`, ...) marks, with the attribute */
   rustAttributed: ReadonlyMap<string, ReadonlyArray<{ name: string; attribute: string }>>;
+  /** Deployment manifest (Dockerfile, compose, Procfile...) → the `module.name` pairs it writes (deployManifestReferences) */
+  deployRefs: ReadonlyMap<string, readonly string[]>;
 }
 
 interface Entry {
@@ -84,6 +87,7 @@ export function collectDeclaredEntryPoints(sources: EntryPointSources): { entryP
   for (const [file, functions] of sources.rustAttributed) {
     for (const { name, attribute } of functions) collected.entries.push({ file, name, source: `attribute:#[${attribute}]` });
   }
+  deployManifestEntries(sources, collected);
 
   const entryPoints = new Map<string, Map<string, string>>();
   for (const { file, name, source } of collected.entries) {
@@ -110,6 +114,14 @@ const MANIFEST_READERS: Readonly<Record<string, ManifestReader>> = {
 /** The `generated:` reason of a file a codegen config writes (`codegenEntries`). */
 export function isGeneratedReason(reason: string): boolean {
   return reason.startsWith("generated:");
+}
+
+/** The field of a handler a deployment manifest's command names (`deployManifestEntries`): its text names no field. */
+const DEPLOY_COMMAND = "#CMD";
+
+/** Whether `reason` comes from a deployment manifest's command, which may name an export the file lacks. */
+export function isDeployCommandReason(reason: string): boolean {
+  return reason.endsWith(DEPLOY_COMMAND);
 }
 
 /** Why `name` of `file` is used, or undefined when no manifest declares it. */
@@ -479,6 +491,30 @@ function handlerEntries(manifestFile: string, folder: string, handler: string, s
   const baseDir = path.posix.dirname(manifestFile);
   const files = new Set(declared.flatMap((target) => sourceCandidates(baseDir, target, {}, sources)));
   for (const file of files) out.entries.push({ file, name: handler.slice(dot + 1), source });
+}
+
+/**
+ * A handler a deployment manifest writes as `module.name` (`CMD ["lambda_function.handler"]`, `uvicorn app:app`): the
+ * export `name` of each `module` file in the manifest's folder or below, where its build context copies from (#757).
+ * A file of the same name elsewhere is not reached. The manifest is a walked workspace file and no path is built from
+ * its text, so nothing it writes leaves the workspace.
+ * shortcut: the text is not parsed, so any pair of the manifest counts (a YAML key too); parse the field if one hides a dead export.
+ */
+function deployManifestEntries(sources: EntryPointSources, out: Collected): void {
+  if (sources.deployRefs.size === 0) return;
+  const byModule = Map.groupBy(sources.files, (file) => deployModuleName(file));
+  for (const [manifest, refs] of sources.deployRefs) {
+    // serverless, SAM and codegen files are parsed (MANIFEST_READERS): their keys (`functions.api.handler`) name no handler.
+    if (MANIFEST_FILE_NAMES.has(path.posix.basename(manifest))) continue;
+    const source = `declared:${getRelativePath(manifest, sources.rootDir)}${DEPLOY_COMMAND}`;
+    const under = `${path.posix.dirname(manifest)}/`;
+    for (const ref of refs) {
+      const dot = ref.indexOf(".");
+      for (const file of byModule.get(ref.slice(0, dot)) ?? []) {
+        if (file.startsWith(under)) out.entries.push({ file, name: ref.slice(dot + 1), source });
+      }
+    }
+  }
 }
 
 /**

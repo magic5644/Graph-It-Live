@@ -23,9 +23,6 @@ export type DeadCodeConfidence = "high" | "medium" | "low";
  *   follow type uses, `Type::new()` or nested grouped `use`, so it may be used. `medium`.
  * - `convention:test-file`: the file is a test file or lives in a test folder, where fixtures hold unused code by
  *   design and a runner loads files by name. `medium`.
- * - `named-in-deploy-manifest`: a container or deployment manifest (Dockerfile, compose, serverless, SAM /
- *   CloudFormation, Procfile) writes `<module>.<name>` or `<module>:<name>` with the file's module name, as a Lambda
- *   handler or a `uvicorn app:app` target. `medium`.
  * - `convention:generated`: the file header says it is generated (`@generated`, `DO NOT EDIT`, `automatically
  *   generated`): the next generation restores a deletion; change the generator's input instead. `medium`.
  * - `published-deep-import`: the file belongs to a published package with no `exports` map that the workspace itself
@@ -42,7 +39,6 @@ export type DeadCodeReason =
   | "named-in-own-file"
   | "name-written-elsewhere"
   | "convention:test-file"
-  | "named-in-deploy-manifest"
   | "convention:generated"
   | "published-deep-import"
   | "importers-use-other-exports"
@@ -147,8 +143,6 @@ export interface ConfidenceInput {
   nameWrittenElsewhere?: boolean;
   /** The name is written again in its own file */
   namedInOwnFile?: boolean;
-  /** A deployment manifest names the export with its module (deployManifestReferences) */
-  namedInDeployManifest?: boolean;
   /** The file belongs to a published package the workspace imports by deep path (deepImportablePackageName) */
   publishedDeepImport?: boolean;
   /** The file header marks it as generated (isGeneratedFile) */
@@ -168,7 +162,6 @@ export function classifyUnused(input: ConfidenceInput): Pick<UnusedSymbol, "conf
   if (input.namedInOwnFile) reasons.push("named-in-own-file");
   if (input.nameWrittenElsewhere) reasons.push("name-written-elsewhere");
   if (input.testFile) reasons.push("convention:test-file");
-  if (input.namedInDeployManifest) reasons.push("named-in-deploy-manifest");
   if (input.generated) reasons.push("convention:generated");
   if (input.publishedDeepImport) reasons.push("published-deep-import");
   if (input.importers.length === 0) return { confidence: "low", reasons: ["no-importer", ...reasons], evidence };
@@ -400,7 +393,7 @@ export const CI_DEFINITION_DIRS = [".github", ".circleci"] as const;
  * Every `module.name` and `module:name` pair a deployment manifest writes, as `module.name`: a Lambda handler
  * (`src/handler.main`, `CMD ["app.handler"]`, SAM `Handler`) or an ASGI/WSGI target (`uvicorn app:app`). Read as text,
  * no YAML parse and no path resolved, so nothing it writes reaches the file system. `a.b.c` gives `a.b` and `b.c`.
- * shortcut: any pair counts, keys and URLs included; it only lowers an item to medium, never hides it.
+ * Each pair declares the export of the same-name module in the manifest's folder (`deployManifestEntries`).
  */
 export function deployManifestReferences(content: string): string[] {
   const refs = new Set<string>();
@@ -498,12 +491,17 @@ export function expandBraces(pattern: string): string[] {
   return pattern.slice(open + 1, close).split(",").flatMap((choice) => expandBraces(pattern.slice(0, open) + choice + pattern.slice(close + 1)));
 }
 
+/** A `src` / `href` attribute value, quoted or not; `data-src` and escaped quotes in inline JSON are no attribute. */
+const HTML_SOURCE_ATTRIBUTE = /(?<![\w-])(?:src|href)\s*=\s*(["']?)([^"'\s>]*)\1/gi;
+
 /**
- * The source paths an HTML page writes: Vite's `<script type="module" src="/src/main.ts">` names the entry from the
- * page's folder (the Vite root), so a root-relative `src` / `href` counts as relative to it.
+ * The source paths an HTML page loads: only its `src` / `href` attribute values, never its text or inline data (a
+ * report page embedding workspace paths in JSON loads none of them, #757). Vite's `<script type="module"
+ * src="/src/main.ts">` names the entry from the page's folder (the Vite root), so a root-relative value counts as
+ * relative to it.
  */
 export function htmlSourcePaths(content: string): string[] {
-  return writtenSourcePaths(content.replaceAll(/(\b(?:src|href)\s*=\s*["'])\/(?!\/)/gi, "$1"));
+  return writtenSourcePaths([...content.matchAll(HTML_SOURCE_ATTRIBUTE)].map((match) => match[2].replace(/^\/(?!\/)/, "")).join("\n"));
 }
 
 const TEMPLATE_PATH = /`([\w@./-]*\$\{[^`}]+\}[\w@./${}-]*?)`/g;

@@ -185,7 +185,8 @@ describe("Spider - declared entry points (#696)", { timeout: 60_000 }, () => {
     expect(items.has("gql/src/types.ts#UnusedType")).toBe(false);
     expect(items.has("gqlts/src/gql/graphql.ts#unusedGen")).toBe(false);
     expect(generatedExportFiles).toBe(2);
-    expect(unreferenced.generatedFiles).toBe(0);
+    // gql/src/app.ts is dead (sam/py's `app.lambda_handler` no longer reaches it, #757): the cascade reaches types.ts, left out as generated.
+    expect(unreferenced.generatedFiles).toBe(1);
   });
 
   it("applies the same exclusions to a single-file check", async () => {

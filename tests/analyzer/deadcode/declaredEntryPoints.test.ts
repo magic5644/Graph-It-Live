@@ -5,6 +5,7 @@ import {
   declaredReason,
   deepImportablePackageName,
   deepSpecifierPackages,
+  isDeployCommandReason,
   isGeneratedReason,
   pythonAllNames,
   rustAttributedFunctions,
@@ -26,6 +27,7 @@ function sources(files: string[], manifests: Array<{ file: string; text: string;
     pythonAll: new Map(),
     rustPubMods: new Map(),
     rustAttributed: new Map(),
+    deployRefs: new Map(),
     ...extra,
   };
 }
@@ -166,6 +168,7 @@ describe("declaredEntryPoints - package.json (#696)", () => {
       pythonAll: new Map(),
       rustPubMods: new Map(),
       rustAttributed: new Map(),
+      deployRefs: new Map(),
     };
     const { entryPoints } = collectDeclaredEntryPoints(input);
     expect([...entryPoints.keys()]).toEqual([`${root}/src/index.ts`, `${root}/pkg/index.ts`]);
@@ -538,5 +541,44 @@ describe("published packages imported by deep path (#698)", () => {
 
   it("returns nothing for code without a deep specifier", () => {
     expect(deepSpecifierPackages("export const x = 1;\n")).toEqual([]);
+  });
+});
+
+describe("declaredEntryPoints - deployment manifests (#757)", () => {
+  const deploy = (files: string[], refs: Record<string, string[]>) =>
+    entriesOf(sources(files, [], { deployRefs: new Map(Object.entries(refs).map(([file, pairs]) => [abs(file), pairs])) }));
+
+  it("declares the handler a Dockerfile CMD names in its folder, not a same-name file elsewhere", () => {
+    const { entries } = deploy(
+      ["fn/lambda_function.py", "fn/src/lambda_function.py", "other/lambda_function.py", "lib/index.ts"],
+      { "fn/Dockerfile": ["lambda_function.handler"] },
+    );
+    expect(entries).toEqual(["fn/lambda_function.py#handler declared:fn/Dockerfile#CMD", "fn/src/lambda_function.py#handler declared:fn/Dockerfile#CMD"]);
+    expect(isDeployCommandReason("declared:fn/Dockerfile#CMD")).toBe(true);
+    expect(isDeployCommandReason("declared:serverless.yml#functions.api.handler")).toBe(false);
+  });
+
+  it("reaches every folder below a root manifest, and a package __init__.py by its folder name", () => {
+    const { entries } = deploy(["svc/api.py", "app/__init__.py"], { Procfile: ["api.app", "app.create"] });
+    expect(entries).toEqual(["app/__init__.py#create declared:Procfile#CMD", "svc/api.py#app declared:Procfile#CMD"]);
+  });
+
+  it("reads Windows paths once normalized, and skips the keys of a parsed serverless.yml", () => {
+    const root = normalizePath("C:\\ws");
+    const { entryPoints } = collectDeclaredEntryPoints({
+      ...sources([], []),
+      rootDir: root,
+      files: new Set([normalizePath("C:\\ws\\fn\\app.py"), normalizePath("C:\\ws\\api\\api.ts")]),
+      deployRefs: new Map([
+        [normalizePath("C:\\ws\\fn\\Dockerfile"), ["app.handler"]],
+        [normalizePath("C:\\ws\\api\\serverless.yml"), ["api.handler"]],
+      ]),
+    });
+    expect([...entryPoints]).toEqual([[normalizePath("C:\\ws\\fn\\app.py"), new Map([["handler", "declared:fn/Dockerfile#CMD"]])]]);
+  });
+
+  it("declares nothing for a name no workspace file has, or a manifest in a sibling folder", () => {
+    expect(deploy(["a/index.ts"], { "b/Dockerfile": ["index.handler", "missing.run"] }).entries).toEqual([]);
+    expect(deploy(["ab/index.ts"], { "a/Dockerfile": ["index.handler"] }).entries).toEqual([]);
   });
 });
