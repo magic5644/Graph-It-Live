@@ -77,20 +77,25 @@ describe("DeadCodeTextIndex", () => {
     }
   });
 
-  it("collects module.name pairs of deployment manifests only, lock files and sources aside (#698)", async () => {
-    await write("deploy/serverless.yml", "functions:\n  api:\n    handler: src/handler.main\n");
-    await write("Dockerfile.lambda", 'CMD ["app.lambda_handler"]\n');
+  it("declares the handlers deployment manifests name in their folder only, lock files and sources aside (#698, #757)", async () => {
+    await write("deploy/Dockerfile.lambda", 'CMD ["app.lambda_handler"]\n');
+    await write("deploy/app.py", "def lambda_handler(event, context):\n    return 1\n");
+    await write("other/app.py", "def lambda_handler(event, context):\n    return 1\n");
     await write("Procfile", "web: uvicorn api:app\n");
+    await write("svc/api.py", "app = 1\n");
     await write("pnpm-lock.yaml", "lock.only: 1\n");
+    await write("lock.py", "only = 1\n");
     await write("src/code.ts", "export const x = other.thing;\n");
+    await write("src/other.ts", "export const thing = 1;\n");
 
-    const { deployReferences } = await index.collect(root, true);
+    const { entryPoints } = await index.collect(root, true);
+    const declared = (file: string) => entryPoints.get(normalizePath(path.join(root, file)));
 
-    expect(deployReferences.has("handler.main")).toBe(true);
-    expect(deployReferences.has("app.lambda_handler")).toBe(true);
-    expect(deployReferences.has("api.app")).toBe(true);
-    expect(deployReferences.has("lock.only")).toBe(false);
-    expect(deployReferences.has("other.thing")).toBe(false);
+    expect(declared("deploy/app.py")?.get("lambda_handler")).toBe("declared:deploy/Dockerfile.lambda#CMD");
+    expect(declared("other/app.py")).toBeUndefined();
+    expect(declared("svc/api.py")?.get("app")).toBe("declared:Procfile#CMD");
+    expect(declared("lock.py")).toBeUndefined();
+    expect(declared("src/other.ts")).toBeUndefined();
   });
 
   it("reads the paths CI definitions of dot-folders write, not their module.name pairs (#726)", async () => {
@@ -99,11 +104,11 @@ describe("DeadCodeTextIndex", () => {
     await write(".github/workflows/release.yml", "jobs:\n  r:\n    steps:\n      - run: node scripts/release.mjs\n      - run: echo ${{ steps.handler.main }}\n");
     await write(".github/hidden/.nested/skip.yml", "run: node scripts/handler.ts\n");
 
-    const { namedPaths, deployReferences } = await index.collect(root, true);
+    const { namedPaths, entryPoints } = await index.collect(root, true);
 
     expect(namedPaths.get(normalizePath(path.join(root, "scripts/release.mjs")))).toBe(".github/workflows/release.yml");
     expect(namedPaths.has(normalizePath(path.join(root, "scripts/handler.ts")))).toBe(false);
-    expect(deployReferences.has("handler.main")).toBe(false);
+    expect(entryPoints.has(normalizePath(path.join(root, "scripts/handler.ts")))).toBe(false);
   });
 
   it("names the files a bundler loads: import.meta.glob with base, braces and negation, and new URL workers (#728)", async () => {
@@ -190,5 +195,37 @@ describe("DeadCodeTextIndex", () => {
     expect(of("src/api.rs")?.get("*")).toBe("declared:Cargo.toml#lib");
     expect(of("src/ffi.rs")?.get("ffi")).toBe("attribute:#[no_mangle]");
     expect(of("py/pkg/__init__.py")?.get("x")).toBe("declared:py/pkg/__init__.py#__all__");
+  });
+  it("names the files an HTML page loads by src / href, not the paths its inline data writes (#757)", async () => {
+    await write("web/index.html", '<script type="module" src="/src/main.ts"></script>\n<link href="./src/theme.ts">\n<script type=module src=/src/bare.ts></script>\n<script src=\'src/single.ts\'></script>\n<a href="">x</a>\n<img data-src="src/lazy.ts">\n<script>const graph = {"nodes":[{"path":"src/dead.ts"}],"html":"<script src=\\"src/escaped.ts\\">"};</script>\n');
+    for (const file of ["main", "theme", "bare", "single", "lazy", "dead", "escaped"]) await write(`web/src/${file}.ts`, "export const x = 1;\n");
+
+    const { namedPaths } = await index.collect(root, true);
+    const named = (file: string) => namedPaths.get(normalizePath(path.join(root, file)));
+
+    expect(named("web/src/main.ts")).toBe("web/index.html");
+    expect(named("web/src/theme.ts")).toBe("web/index.html");
+    expect(named("web/src/bare.ts")).toBe("web/index.html");
+    expect(named("web/src/single.ts")).toBe("web/index.html");
+    for (const file of ["lazy", "dead", "escaped"]) expect(named(`web/src/${file}.ts`), file).toBeUndefined();
+  });
+
+  it("keeps the files a bundler config names alive, not those a lint or format config lists (#757)", async () => {
+    await write("eslint.config.mjs", "export default [{ files: ['src/oneShot.ts'], rules: {} }];\n");
+    await write(".prettierrc.yaml", "overrides:\n  - files: src/pretty.ts\n");
+    await write(".markdownlint-cli2.yaml", "ignores:\n  - src/marked.ts\n");
+    await write("tools/biome.ts", "export const run = () => 'src/biome-run.ts';\n");
+    await write("stylelint.config.js", "module.exports = { ignoreFiles: ['src/styled.ts'] };\n");
+    await write("vite.config.ts", "export default { build: { rollupOptions: { input: 'src/entry.ts' } }, test: { setupFiles: ['src/setup.ts'] } };\n");
+    for (const file of ["oneShot", "pretty", "marked", "styled", "entry", "setup", "biome-run"]) await write(`src/${file}.ts`, "export const x = 1;\n");
+
+    const { namedPaths } = await index.collect(root, true);
+    const named = (file: string) => namedPaths.get(normalizePath(path.join(root, file)));
+
+    // A source named biome.ts is no Biome config: it still names what it runs.
+    expect(named("src/biome-run.ts")).toBe("tools/biome.ts");
+    for (const file of ["oneShot", "pretty", "marked", "styled"]) expect(named(`src/${file}.ts`), file).toBeUndefined();
+    expect(named("src/entry.ts")).toBe("vite.config.ts");
+    expect(named("src/setup.ts")).toBe("vite.config.ts");
   });
 });

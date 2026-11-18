@@ -56,8 +56,10 @@ const FILES: Record<string, string> = {
   // Lambda handlers in files imported for their other exports, named only by deployment manifests (#698)
   "lambda/handler.ts": "export function shared() { return 1; }\nexport async function main() { return 2; }\nexport function unusedHere() { return 3; }\n",
   "lambda/consumer.ts": "import { shared } from './handler';\nshared();\n",
-  // A Dockerfile is read as text only: serverless.yml and SAM handlers are declared entry points instead (#743).
+  // A Dockerfile declares the handler it names in its own folder only (#757).
   "lambda/Dockerfile": "FROM public.ecr.aws/lambda/nodejs:22\nCMD [\"handler.main\"]\n",
+  "elsewhere/handler.ts": "export function shared() { return 1; }\nexport async function main() { return 2; }\n",
+  "elsewhere/consumer.ts": "import { shared } from './handler';\nshared();\n",
   "pyfn/__init__.py": "",
   "pyfn/app.py": "def util():\n    return 1\n\ndef lambda_handler(event, context):\n    return 2\n\ndef app_dead():\n    return 3\n",
   "pyfn/main.py": "from pyfn.app import util\nutil()\n",
@@ -115,9 +117,8 @@ describe("Spider - dead-code confidence (#695)", { timeout: 60_000 }, () => {
     ["src/own.ts#helperUsedHere", "medium", ["named-in-own-file"]],
     ["src/own.ts#unusedApi", "high", ["importers-use-other-exports"]],
     ["py/views.py#unused_view", "high", ["importers-use-other-exports"]],
-    ["lambda/handler.ts#main", "medium", ["named-in-deploy-manifest"]],
+    ["elsewhere/handler.ts#main", "high", ["importers-use-other-exports"]],
     ["lambda/handler.ts#unusedHere", "high", ["importers-use-other-exports"]],
-    ["pyfn/app.py#lambda_handler", "medium", ["named-in-deploy-manifest"]],
     ["pyfn/app.py#app_dead", "high", ["importers-use-other-exports"]],
     ["packages/kit/util.ts#kitDeep", "medium", ["published-deep-import"]],
     ["packages/priv/util.ts#privDead", "high", ["importers-use-other-exports"]],
@@ -138,6 +139,7 @@ describe("Spider - dead-code confidence (#695)", { timeout: 60_000 }, () => {
       "rs/helpers.rs#rs_used", "rs/helpers.rs#new", "rs/complete/bash.rs#generate", "rs/helpers.rs#to_str",
       "py/views.py#helper", "py/views.py#setup", "svc/src/svc_pkg/__init__.py#create_app",
       "src/types.ts#Used", "src/types.ts#Kind", "src/ns/all.ts#one", "src/ns/all.ts#two", "src/lazy/mod.ts#run",
+      "lambda/handler.ts#main", "pyfn/app.py#lambda_handler",
     ]) {
       expect(items.has(key), key).toBe(false);
     }

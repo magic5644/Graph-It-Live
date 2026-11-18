@@ -51,6 +51,8 @@ const PYTHON_FILE = /\.pyi?$/i;
 const JS_FAMILY_FILE = /\.(?:[cm]?[jt]sx?|vue|svelte)$/i;
 const YAML_FILE = /\.ya?ml$/i;
 const HTML_FILE = /\.html?$/i;
+/** Lint and format configs (eslint, prettier, stylelint, biome, markdownlint): their path lists run nothing (#757). */
+const LINT_CONFIG = [/^\.?(?:eslint|prettier|stylelint)(?:rc|\.config)(?:\.\w+)*$/i, /^\.markdownlint(?:-cli2|rc)?(?:\.\w+)*$/i, /^biome\.jsonc?$/i];
 
 interface FileFacts {
   mtimeMs: number;
@@ -97,8 +99,6 @@ export interface WorkspaceTextFacts {
   computedAttributeReaders: ReadonlySet<string>;
   /** What the language manifests declare as used (`declaredEntryPoints.ts`) */
   entryPoints: DeclaredEntryPoints;
-  /** `module.name` pairs written in container and deployment manifests (Dockerfile, serverless, SAM...) */
-  deployReferences: ReadonlySet<string>;
   /**
    * Folder of every package.json (absolute, normalized) → whether it is a published package with no `exports` map
    * that the workspace imports by deep path (`<name>/<file>`)
@@ -158,7 +158,6 @@ export class DeadCodeTextIndex {
       rustTokenFiles,
       computedAttributeReaders,
       entryPoints: await this.entryPoints(root, files, next),
-      deployReferences: new Set([...next.values()].flatMap((entry) => entry.deployRefs)),
       packageDeepImport: packageDeepImport(next, new Set(present.flatMap((entry) => entry.deepSpecifiers))),
       namedPaths: bundlerLoadedPaths(root, next, files, packageDirs, namedPaths(root, next, new Set(files))),
       frameworksByPackage: new Map(packageDirs.map((dir) => [dir, packageFrameworks(next.get(`${dir}/package.json`)?.manifestText ?? "")])),
@@ -189,6 +188,7 @@ export class DeadCodeTextIndex {
       pythonAll: byFile((entry) => entry.pythonAll),
       rustPubMods: byFile((entry) => entry.rustPubMods),
       rustAttributed: byFile((entry) => entry.rustAttributed),
+      deployRefs: new Map([...facts].filter(([, entry]) => entry.deployRefs.length > 0).map(([file, entry]) => [file, entry.deployRefs])),
     });
     for (const warning of warnings) log.warn(`Dead-code scan: ${warning}`);
     return entryPoints;
@@ -227,8 +227,8 @@ export class DeadCodeTextIndex {
       deployRefs: isDeployManifest(path.posix.basename(file)) ? deployManifestReferences(content) : [],
       deepSpecifiers: JS_FAMILY_FILE.test(file) ? deepSpecifierPackages(content) : [],
       ...bundlerLoads(file, content, test),
-      // Tests write fixture paths by design: they run nothing by name.
-      ...(test ? { writtenPaths: [], workingDirs: [] } : writtenFacts(content)),
+      // Tests write fixture paths by design, lint configs file lists: they run nothing by name.
+      ...(test || LINT_CONFIG.some((re) => re.test(path.posix.basename(file))) ? { writtenPaths: [], workingDirs: [] } : writtenFacts(content)),
     };
   }
 }

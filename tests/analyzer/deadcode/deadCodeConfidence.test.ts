@@ -57,7 +57,6 @@ describe("classifyUnused", () => {
     [{ testOnlyUse: true }, ["test-only-use"]],
     [{ dynamicLoads: ["src/loader.ts:3"] }, ["dynamic-import-in-workspace"]],
     [{ testFile: true }, ["convention:test-file"]],
-    [{ namedInDeployManifest: true }, ["named-in-deploy-manifest"]],
     [{ generated: true }, ["convention:generated"]],
     [{ publishedDeepImport: true }, ["published-deep-import"]],
     [{ testOnlyUse: true, dynamicLoads: ["src/loader.ts:3"], testFile: true }, ["test-only-use", "dynamic-import-in-workspace", "convention:test-file"]],

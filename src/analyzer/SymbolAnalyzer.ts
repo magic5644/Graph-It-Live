@@ -152,6 +152,26 @@ function isLazyImport(importCall: Node): boolean {
   return Node.isCallExpression(lazy) && /^(?:React\.)?lazy$/.test(lazy.getExpression().getText());
 }
 
+/** React `lazy`, Vue `defineAsyncComponent`, loadable-components `loadable`: a one-argument loader reads `default`. */
+const DEFAULT_LOADER = /^(?:(?:React\.)?lazy|defineAsyncComponent|loadable)$/;
+
+/**
+ * Exports read from an `import()` neither destructured nor bound: `(await import("./m")).run` reads `run`, as
+ * `require("./m").run` does; a side-effect import (`import("./m");`, `await import("./m");`) or the loader
+ * `() => import("./m")` of a one-argument `lazy`, `defineAsyncComponent` or `loadable` reads `default` (none listed);
+ * a module object that leaves the call (returned, passed on, stored) may be read for any export: `*`.
+ */
+function unboundImportReads(importCall: Node): string[] {
+  const parent = importCall.getParent();
+  const outer = Node.isAwaitExpression(parent) ? parent.getParent() : parent;
+  if (Node.isExpressionStatement(outer)) return [];
+  const read = outer !== parent && Node.isParenthesizedExpression(outer) ? outer.getParent() : undefined;
+  if (Node.isPropertyAccessExpression(read)) return [read.getName()];
+  const loader = Node.isArrowFunction(parent) ? parent.getParent() : undefined;
+  const defaultLoader = Node.isCallExpression(loader) && loader.getArguments().length === 1 && DEFAULT_LOADER.test(loader.getExpression().getText());
+  return defaultLoader ? [] : ["*"];
+}
+
 /**
  * Unwrap `(x)`, `x as T`, `<T>x`, `x satisfies T` and `x!` around an initializer.
  * Call expressions stay wrapped: `wrap(() => 1)` returns whatever `wrap` returns.
@@ -1076,23 +1096,23 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
 
   /**
    * Extract export names destructured from a dynamic import:
-   * `const { a, b: c } = await import("./m")` or `import("./m").then(({ a }) => ...)`
+   * `const { a, b: c } = await import("./m")` or `import("./m").then(({ a }) => ...)`. A module object that leaves
+   * the call (returned by a loader, passed on, stored) may be read for any export: `*`, as `requireBindings` (#757).
    */
   private extractDynamicImportBindings(callExpr: Node): string[] {
     const parent = callExpr.getParent();
     let pattern: Node | undefined;
+    const grandParent = parent?.getParent();
 
-    if (Node.isAwaitExpression(parent)) {
-      const declaration = parent.getParent();
-      if (Node.isVariableDeclaration(declaration)) {
-        pattern = declaration.getNameNode();
-      }
+    if (Node.isAwaitExpression(parent) && Node.isVariableDeclaration(grandParent)) {
+      pattern = grandParent.getNameNode();
     } else if (Node.isPropertyAccessExpression(parent) && parent.getName() === "then") {
-      const thenCall = parent.getParent();
-      const callback = Node.isCallExpression(thenCall) ? thenCall.getArguments()[0] : undefined;
-      if (Node.isArrowFunction(callback) || Node.isFunctionExpression(callback)) {
-        pattern = callback.getParameters()[0]?.getNameNode();
-      }
+      const callback = Node.isCallExpression(grandParent) ? grandParent.getArguments()[0] : undefined;
+      // `.then(register)`: the module object goes to a function the scan does not follow.
+      if (!Node.isArrowFunction(callback) && !Node.isFunctionExpression(callback)) return ["*"];
+      pattern = callback.getParameters()[0]?.getNameNode();
+    } else {
+      return unboundImportReads(callExpr);
     }
 
     if (Node.isIdentifier(pattern)) return namespaceMembersRead(pattern);

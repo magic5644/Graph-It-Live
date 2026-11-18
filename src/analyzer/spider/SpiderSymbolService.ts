@@ -21,8 +21,8 @@ import { isPythonOrRust, namesModule, pythonStarExports, readImportBindings } fr
 import { mayReExport, readModuleReExports, type ModuleReExports, type ReExportTarget } from '../utils/reExports';
 import { DEFAULT_ONLY, findDeclaration, type DeclarationReads } from '../utils/declarations';
 import { getRelativePath } from '../../shared/path';
-import { classifyUnused, codeForNames, EVIDENCE_PATHS, deployModuleName, inDeepImportedPackage, isGeneratedFile, isMigrationFile, isTestFile, runsAsProgram, loadsReaching, namedAgain, rustQualifiedUse, type DeadCodeConfidence, type ExcludedExport, type ExcludedFile, type UnreferencedFile, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
-import { declaredReason, type DeclaredEntryPoints } from '../deadcode/declaredEntryPoints';
+import { classifyUnused, codeForNames, EVIDENCE_PATHS, inDeepImportedPackage, isGeneratedFile, isMigrationFile, isTestFile, runsAsProgram, loadsReaching, namedAgain, rustQualifiedUse, type DeadCodeConfidence, type ExcludedExport, type ExcludedFile, type UnreferencedFile, type UnusedSymbol } from '../deadcode/deadCodeConfidence';
+import { declaredReason, isDeployCommandReason, type DeclaredEntryPoints } from '../deadcode/declaredEntryPoints';
 import { DeadCodeTextIndex, type WorkspaceTextFacts } from '../deadcode/DeadCodeTextIndex';
 import { cascadeConfidence, deadByCascade } from '../deadcode/deadCodeCascade';
 import { FRAMEWORK_ROUTE, isFrameworkRoute } from '../deadcode/frameworkRoutes';
@@ -235,7 +235,7 @@ export class SpiderSymbolService {
       const content = await this.fileReader.readFile(target);
       const internalGraph = withSameFileCalls(await this.astWorkerHost.getInternalExportDependencyGraph(target, content), symbols, dependencies, target);
       const textFacts = this.workspaceTextFacts(context);
-      const { entryPoints, deployReferences, packageDeepImport, frameworksByPackage } = await textFacts;
+      const { entryPoints, packageDeepImport, frameworksByPackage } = await textFacts;
       const publishedDeepImport = inDeepImportedPackage(target, packageDeepImport);
       const loadedByConvention = this.conventionReason(target, frameworksByPackage);
       const generated = isGeneratedFile(content);
@@ -280,7 +280,6 @@ export class SpiderSymbolService {
             decorated: decorated.has(symbol.id),
             nameWrittenElsewhere: await this.rustNameWrittenElsewhere(target, symbol, textFacts),
             namedInOwnFile: namedAgain(code, symbol.name),
-            namedInDeployManifest: deployReferences.has(`${deployModuleName(target)}.${symbol.name}`),
             publishedDeepImport,
             generated,
             dynamicLoads,
@@ -1373,20 +1372,23 @@ export class SpiderSymbolService {
     if (TYPE_DECLARATION.test(target)) return { filePath: target, reason: 'convention:type-declaration' };
     // Tool configs (vite.config.ts, eslint.config.mjs): the tool loads them by name.
     if (CONFIG_FILE.test(target)) return { filePath: target, reason: 'convention:config-file' };
-    const { entryPoints, deployReferences, packageDeepImport, namedPaths, frameworksByPackage } = await textFacts;
+    const { entryPoints, packageDeepImport, namedPaths, frameworksByPackage } = await textFacts;
     const convention = this.conventionReason(target, frameworksByPackage);
     if (convention) return { filePath: target, reason: convention };
     if (path.posix.basename(target) === '__init__.py' && (await hasOtherPythonModule(path.posix.dirname(target)))) {
       return { filePath: target, reason: 'convention:package-init' };
     }
-    // Any declared name makes the file an entry point: a script `pkg.cli:main`, `#[no_mangle]`, `__all__`.
-    const declared = entryPoints.get(target)?.values().next().value;
+    const exportsOf = async () => (await this.getSymbolGraph(target)).symbols.filter((symbol) => symbol.isExported);
+    const declaredNames = [...(entryPoints.get(target) ?? [])];
+    // Any declared name makes the file an entry point: a script `pkg.cli:main`, `#[no_mangle]`, `__all__`; a deployment
+    // command's handler only when the file exports it (`index.handler` names no `types/index.ts` without one, #757).
+    const exported = declaredNames.some(([, reason]) => isDeployCommandReason(reason)) ? new Set((await exportsOf()).map((symbol) => symbol.name)) : undefined;
+    const declared = declaredNames.find(([name, reason]) => !isDeployCommandReason(reason) || exported?.has(name))?.[1];
     if (declared) return { filePath: target, reason: declared };
     const writer = namedPaths.get(target);
     if (writer) return { filePath: target, reason: `named-in:${writer}` };
-    const exports = (await this.getSymbolGraph(target)).symbols.filter((symbol) => symbol.isExported);
+    const exports = await exportsOf();
     if (exports.some((symbol) => isFrameworkDefault(target, symbol))) return { filePath: target, reason: FRAMEWORK_DEFAULT_EXPORT };
-    const moduleName = `${deployModuleName(target)}.`;
     importers.sort((a, b) => a.localeCompare(b));
     return {
       filePath: target,
@@ -1397,7 +1399,6 @@ export class SpiderSymbolService {
         testOnlyUse,
         testFile: false,
         dynamicLoads: await this.dynamicLoadsReaching(target, [], textFacts),
-        namedInDeployManifest: [...deployReferences].some((ref) => ref.startsWith(moduleName)),
         publishedDeepImport: inDeepImportedPackage(target, packageDeepImport),
         generated: isGeneratedFile(await this.fileReader.readFile(target)),
       }),

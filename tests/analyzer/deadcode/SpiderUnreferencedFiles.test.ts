@@ -41,6 +41,12 @@ const FILES: Record<string, string> = {
   // a Lambda handler only a deployment manifest names
   "lambda/fn.ts": "export async function main() { return 1; }\n",
   "lambda/Dockerfile": "FROM public.ecr.aws/lambda/nodejs:22\nCMD [\"fn.main\"]\n",
+  // the same module name in another folder: the Dockerfile does not reach it (#757)
+  "other/fn.ts": "export async function main() { return 1; }\n",
+  // a Dockerfile's handler keeps only the files of its folder that export it
+  "svc/Dockerfile": "FROM public.ecr.aws/lambda/nodejs:22\nCMD [\"index.handler\"]\n",
+  "svc/index.ts": "export const handler = async () => 1;\n",
+  "svc/types/index.ts": "export interface Payload { id: string }\n",
   // a package's build output, git-ignored by the package, and a git-ignored generated file importing src/lazy.ts
   "pkg/.gitignore": "/dist-tsc\nindex.generated.ts\n",
   "pkg/dist-tsc/out.js": "module.exports = 1;\n",
@@ -157,7 +163,8 @@ describe("scanUnreferencedFiles (#711)", { timeout: 60_000 }, () => {
     ["src/plugins/csv.ts", 1, "low", ["no-importer", "dynamic-import-in-workspace"]],
     ["src/gen/client.ts", 1, "low", ["no-importer", "convention:generated"]],
     ["py/run.py", 0, "low", ["no-importer"]],
-    ["lambda/fn.ts", 1, "low", ["no-importer", "named-in-deploy-manifest"]],
+    ["other/fn.ts", 1, "low", ["no-importer"]],
+    ["svc/types/index.ts", 1, "low", ["no-importer"]],
   ])("lists %s with %i export(s) at %s %j", (file, exports, confidence, reasons) => {
     expect(listed().get(file)).toMatchObject({ exports, confidence, reasons });
   });
@@ -191,6 +198,8 @@ describe("scanUnreferencedFiles (#711)", { timeout: 60_000 }, () => {
       { relativePath: "vitest.config.ts", reason: "convention:config-file" },
       { relativePath: "vercel.ts", reason: "convention:config-file" },
       { relativePath: "pkg/index.generated.ts", reason: "gitignored" },
+      { relativePath: "lambda/fn.ts", reason: "declared:lambda/Dockerfile#CMD" },
+      { relativePath: "svc/index.ts", reason: "declared:svc/Dockerfile#CMD" },
     ]));
     const excludedPaths = new Set(result.excluded?.map((item) => item.relativePath));
     expect(result.unreferencedFiles.filter((file) => excludedPaths.has(file.relativePath))).toEqual([]);

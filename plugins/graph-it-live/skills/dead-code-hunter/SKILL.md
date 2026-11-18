@@ -91,8 +91,8 @@ default lists `high` items only; `byConfidence` counts the others and `hint` say
 | Confidence | Reasons | Use in the plan |
 |---|---|---|
 | `high` | `importers-use-other-exports`: the file is imported, no importer uses the export | Deletion candidate; still run Step 3 for public API and monorepo use |
-| `medium` | `test-only-use`, `dynamic-import-in-workspace`, `convention:decorated`, `named-in-own-file` (drop `export` rather than delete), `name-written-elsewhere` (Rust), `convention:test-file`, `named-in-deploy-manifest` (a Dockerfile, serverless, SAM or Procfile names it: a Lambda handler), `convention:generated` (edit the generator's input, not the file), `published-deep-import` (a published package without `exports` the workspace imports by deep path: outside projects may too) | Review; never delete without the evidence of Step 3 |
-| `low` | `no-importer`: nothing imports the file | Entry point by convention as often as dead (Lambda handler of another deploy tool, Dockerfile `CMD`: these manifests declare nothing): review only |
+| `medium` | `test-only-use`, `dynamic-import-in-workspace`, `convention:decorated`, `named-in-own-file` (drop `export` rather than delete), `name-written-elsewhere` (Rust), `convention:test-file`, `convention:generated` (edit the generator's input, not the file), `published-deep-import` (a published package without `exports` the workspace imports by deep path: outside projects may too) | Review; never delete without the evidence of Step 3 |
+| `low` | `no-importer`: nothing imports the file | Entry point by convention as often as dead (a script, a handler of another deploy tool): review only. A handler that serverless, SAM, or a Dockerfile, compose or Procfile of its folder (or above) names is a declared entry point, never listed (`declared:<manifest>#CMD`) |
 
 Methods, nested functions and Rust `impl` members are never reported. Go, Java and C# are not scanned.
 
@@ -113,15 +113,15 @@ graph-it check src --unreferencedFiles --format markdown   # a table for a human
 |---|---|---|
 | `medium` | `test-only-use`: only tests import the file; `testImporters` lists them | Quick cleanup win: delete the file with those tests (or their cases on it) |
 | `low` | `no-importer` alone | Possible ghost file: delete unless it is run by name (script, config, tool entry) |
-| `low` | `no-importer` plus `dynamic-import-in-workspace`, `named-in-deploy-manifest`, `convention:generated` or `published-deep-import` | Review the reason before deleting |
+| `low` | `no-importer` plus `dynamic-import-in-workspace`, `convention:generated` or `published-deep-import` | Review the reason before deleting |
 | `low` or `medium` | `cascade`: only dead files and tests import it; `via` lists the dead importers | Delete with (after) the files in `via` |
 
 Every dead file also has `tests`: the test files that import nothing but dead files, to delete with it.
 Dead cycles (two files importing each other, nothing else importing either) are listed by cascade.
 
 Test files, manifest entry points, files whose path a non-test file writes (`named-in:esbuild.js`,
-`named-in:package.json`, a CI workflow or task runner, `working-directory` and `cd` honoured), files a bundler loads
-(`import.meta.glob`, `new URL(..., import.meta.url)`, a Vite HTML entry), JSX/Vue default exports, framework route files
+`named-in:package.json`, a CI workflow or task runner, `working-directory` and `cd` honoured; a lint or format config names nothing), files a bundler loads
+(`import.meta.glob`, `new URL(..., import.meta.url)`, an HTML page's `src` / `href`, never its inline data), JSX/Vue default exports, framework route files
 (`convention:framework-route`: Next.js, SvelteKit, Remix / React Router, Nuxt, Astro, Expo Router, Gatsby, Storybook),
 migrations folders (`convention:migration`), `.d.ts` files, tool configs (`*.config.ts`, `.<tool>rc.ts`, `vercel.ts`), files a folder's `.gitignore`
 ignores and Python package `__init__.py` are left out (`excluded` with `--verbose`). A file a barrel re-exports counts as imported: delete an unreferenced

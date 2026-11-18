@@ -224,4 +224,29 @@ export async function idle() {
             expect(targets("export function f() { return my.require('./m'); }")).toEqual([]);
         });
     });
+    describe('import() whose module object leaves the call (#757)', () => {
+        const targets = (content: string): string[] =>
+            analyzer.analyzeFileContent('/test/user.ts', content).dependencies
+                .filter((d) => d.targetFilePath === './m')
+                .map((d) => d.targetSymbolId.slice('./m:'.length))
+                .sort((a, b) => a.localeCompare(b));
+
+        it('counts every export when a loader returns it, a call takes it or a variable stores it', () => {
+            expect(targets('export const load = () => import("./m");')).toEqual(['*']);
+            expect(targets('export const r = lazy(() => import("./m"), "AResolver", "Query", ["x"]);')).toEqual(['*']);
+            expect(targets('export function f() { register(import("./m")); }')).toEqual(['*']);
+            expect(targets('export function f() { return import("./m").then(register); }')).toEqual(['*']);
+            expect(targets('export function f() { const pending = import("./m"); return pending; }')).toEqual(['*']);
+            expect(targets('export async function f() { return await import("./m"); }')).toEqual(['*']);
+            expect(targets('export async function f() { return (await import("./m")).run(); }')).toEqual(['run']);
+        });
+
+        it('reads default for a one-argument lazy, defineAsyncComponent or loadable, and a side-effect import', () => {
+            expect(targets('export const A = lazy(() => import("./m"));')).toEqual(['default']);
+            expect(targets('export const A = React.lazy(() => import("./m"));')).toEqual(['default']);
+            expect(targets('export const A = defineAsyncComponent(() => import("./m"));')).toEqual(['default']);
+            expect(targets('export const A = loadable(() => import("./m"));')).toEqual(['default']);
+            expect(targets('export async function f() { await import("./m"); import("./m"); }')).toEqual(['default']);
+        });
+    });
 });
