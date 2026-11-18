@@ -103,7 +103,7 @@ describe("initPage", () => {
     const matrixFindings = [{ kind: "hub-at-risk", rows: ["app"], cells: [], evidence: ["app is imported by 3 units"], totalEvidence: 1, action: "split it" }];
     const page = initPage(source(), ROOT, [], result({ deadFiles, quickWins, matrixFindings } as never));
     const sections = page.overlay?.findings ?? [];
-    expect(sections.map((section) => [section.title, section.total])).toEqual([["Dead files", 1], ["Cycles to cut", 1], ["Hubs", 1], ["Other leads", 1]]);
+    expect(sections.map((section) => section.title)).toEqual(["Dead files: 1 file in 1 unit", "Cycles to cut: 1", "Hubs: 1", "Other leads: 1"]);
     const items = sections.flatMap((section) => section.items);
     expect(items.map((entry) => [entry.label, entry.subject, entry.files])).toEqual([
       ["1 file, 8 lines", "app", ["app/main.ts"]],
@@ -115,12 +115,12 @@ describe("initPage", () => {
     expect(items[2]).toMatchObject({ note: "split it", units: ["app"] });
   });
 
-  it("cuts a section at the report limit and keeps the line counting the rest", () => {
+  it("lists every item of a section, as report.md does, past the terminal's limit (#758)", () => {
     const matrixFindings = Array.from({ length: REPORT_LIMIT + 2 }, (_, index) =>
       ({ kind: "cohesion", rows: [`u${index}`], cells: [], evidence: [], totalEvidence: 0, action: "a" }));
     const [section] = initPage(source(), ROOT, [], result({ matrixFindings } as never)).overlay?.findings ?? [];
-    expect(section).toMatchObject({ title: "Other leads", total: REPORT_LIMIT + 2, more: ["... 2 more (--format json lists them all)"] });
-    expect(section.items).toHaveLength(REPORT_LIMIT);
+    expect(section).toMatchObject({ title: `Other leads: ${REPORT_LIMIT + 2}`, more: [] });
+    expect(section.items).toHaveLength(REPORT_LIMIT + 2);
   });
 
   it("with a focus, keeps its units and their neighbours and opens on its files", () => {

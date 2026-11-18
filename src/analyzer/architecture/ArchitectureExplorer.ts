@@ -202,7 +202,7 @@ export function exploreArchitecture(
 /** Units provenance: what a unit and a layer are, so a reader never takes them for responsibilities. */
 const UNIT_PROVENANCE = {
   ...PROVENANCE,
-  grouping: "Units are package folders (package.json), else top-level folders; layer = rank in the unit graph after collapsing cycles, 0 = depends on no other unit.",
+  grouping: "Units are project folders (a package.json, pyproject.toml, go.mod or other project manifest), else top-level folders; layer = rank in the unit graph after collapsing cycles, 0 = depends on no other unit.",
   interpretation: "Roles only: each is inferred from the unit's manifest and files (confidence inferred, with its evidence) unless graphit.architecture.json declares it (confidence declared). Names are package names or folders.",
 };
 

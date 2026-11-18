@@ -170,7 +170,7 @@ describe("executeExploreArchitecture", () => {
 
     const units = await executeExploreArchitecture({ level: "units", view: "matrix" });
     expect(units.rows.map(row => row.id)).toEqual(["src", "(root)"]);
-    expect(units.provenance.grouping).toContain("Units are package folders");
+    expect(units.provenance.grouping).toContain("Units are project folders");
 
     const folder = await executeExploreArchitecture({ folder: "src", view: "matrix", limit: 1 });
     expect(folder).toMatchObject({ folder: "src", view: "matrix", page: { returned: 1, truncated: true } });

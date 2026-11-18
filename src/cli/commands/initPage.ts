@@ -76,7 +76,7 @@ export function initPage(
     overlay: {
       edgeKinds,
       deadFiles: result.assessment.deadFiles.flatMap((group) => group.files.map((file) => file.relativePath)).filter((file) => files.has(file)),
-      findings: reportSections(result.assessment).map((section) => ({
+      findings: reportSections(result).map((section) => ({
         ...section,
         items: section.items.map((item) => ({ ...item, files: namedFiles([item.subject, ...item.details], files) })),
       })),

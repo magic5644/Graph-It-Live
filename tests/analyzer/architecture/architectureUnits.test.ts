@@ -89,6 +89,37 @@ describe("assignUnits", () => {
     });
   });
 
+  // #758: any PROJECT_MARKERS manifest makes a unit, so the projects of a polyglot monorepo stay apart.
+  it("makes a unit of every folder holding a project manifest, in any language", () => {
+    write("package.json", manifest("root"));
+    write("apps/web/package.json", manifest("@acme/web"));
+    write("services/ml/pyproject.toml");
+    write("services/etl/requirements.txt");
+    write("services/gateway/go.mod");
+    write("services/billing/Billing.csproj");
+    const files = ["apps/web/main.ts", "services/ml/src/model.py", "services/etl/job.py", "services/gateway/main.go", "services/billing/Invoice.cs", "services/README.py", "tools/x.py"];
+    const { unitOf, names } = assignUnits(root, files);
+    expect(Object.fromEntries(unitOf)).toEqual({
+      "apps/web/main.ts": "apps/web",
+      "services/ml/src/model.py": "services/ml",
+      "services/etl/job.py": "services/etl",
+      "services/gateway/main.go": "services/gateway",
+      "services/billing/Invoice.cs": "services/billing",
+      // Outside every project: the root package, never a top-level folder.
+      "services/README.py": ROOT_UNIT,
+      "tools/x.py": ROOT_UNIT,
+    });
+    // Only package.json carries a name; other manifests keep the folder key.
+    expect(names.get("apps/web")).toBe("@acme/web");
+    expect(names.get("services/ml")).toBe("services/ml");
+  });
+
+  it("still uses the top-level folders when the only manifest is at the root, a Python one too", () => {
+    write("pyproject.toml");
+    const { unitOf } = assignUnits(root, ["app/main.py", "lib/util.py", "setup.py"]);
+    expect(Object.fromEntries(unitOf)).toEqual({ "app/main.py": "app", "lib/util.py": "lib", "setup.py": ROOT_UNIT });
+  });
+
   it("uses the top-level folders when no package sits below the root", () => {
     write("package.json", manifest("single"));
     const { unitOf, names } = assignUnits(root, ["src/a/x.ts", "src/b/y.ts", "tests/x.test.ts", "main.ts"]);

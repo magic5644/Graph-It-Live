@@ -25,7 +25,7 @@ vi.mock("@/mcp/tools", async (importOriginal) => ({
       ? {
         // A file gone since the scan has no line count.
         unreferencedFiles: [
-          { relativePath: "backend/src/api.ts", exports: 1, confidence: "low", reasons: ["no-importer"] },
+          { relativePath: "scripts/seed.ts", exports: 1, confidence: "low", reasons: ["no-importer"] },
           { relativePath: "backend/src/gone.ts", exports: 0, confidence: "medium", reasons: ["test-only-use"] },
         ],
       }
@@ -193,7 +193,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     expect(groups.map((group) => group.label)).toEqual(expect.arrayContaining(["backend", "frontend", "shared/ui", "shared/utils", "(root)"]));
     expect(groups).toHaveLength(result.assessment.totals.units);
     expect(groups.reduce((sum, group) => sum + group.fileCount, 0)).toBe(result.assessment.totals.files);
-    expect(page).toContain(`"title":"Dead files"`);
+    expect(page).toContain(`"title":"Dead files: 2 files in 1 unit"`);
     expect(page).not.toContain(root);
     // On stdout the links are workspace-relative.
     expect(await run(["--dry-run"], runtime, "markdown", offline)).toContain("# Architecture report (graph-it init)");
@@ -272,7 +272,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     const text = await run(["--dry-run"], runtime, "text", offline);
     expect(text).toMatch(/^Rules: graphit\.architecture\.json: dry run: nothing written/);
     expect(text).toContain(`pre-commit: ${GUARD_SNIPPETS.preCommit}`);
-    expect(text).toMatch(/Cycles to cut \(\d+\):/);
+    expect(text).toMatch(/\nCycles to cut: \d+\n/);
     expect(text.indexOf("Summary:")).toBeLessThan(text.indexOf("Guard:"));
     expect(await run(["--dry-run"], runtime, "toon", offline)).toContain("dry-run");
     expect(text).toContain("Unused exports: 1 high-confidence in 1 file listed; not listed: 2 medium (by reason: test-only-use 2, convention:generated 1), graph-it check --minConfidence medium; 3 low, graph-it check --minConfidence low");
@@ -353,9 +353,9 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     });
     // backend/src/db.ts holds medium exports only: no quick win.
     expect(result.assessment.quickWins.filter((win) => win.kind === "dead-code").map((win) => win.subject)).toEqual(["backend/src/api.ts: 1 unused export(s)"]);
-    const lines = fs.readFileSync(file("backend/src/api.ts"), "utf8").trimEnd().split("\n").length;
+    const lines = fs.readFileSync(file("scripts/seed.ts"), "utf8").trimEnd().split("\n").length;
     expect(result.assessment.deadFiles.flatMap((group) => group.files)).toEqual([
-      expect.objectContaining({ relativePath: "backend/src/api.ts", lines }),
+      expect.objectContaining({ relativePath: "scripts/seed.ts", lines }),
       expect.not.objectContaining({ lines: expect.anything() }),
     ]);
   });

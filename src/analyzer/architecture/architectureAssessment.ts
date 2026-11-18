@@ -194,7 +194,7 @@ function glossary(matrix: ArchitectureMatrix<string>): Record<string, string> {
     C: "Cohesion. C = diagonal / (diagonal + Ce): the share of the unit's file pairs that stay inside it.",
     matrix: `${matrix.formulas.cell} ${matrix.formulas.order} ${matrix.formulas.upward}`,
     cut: "The cells of a cycle that go against one order of its units (the matrix order, its reverse or a greedy Eades–Lin–Smyth order, the cheapest); without them the units are layered again.",
-    "gain / effort": "Quick wins are ranked by gain over effort (effort 0 first), then by gain. cycle-break: units layered again over file pairs to remove or move. mutual-import: runtime file cycles broken over files to edit (1: the hub, which drops its import of each partner). weak-dependency: 1 unit edge over its file pairs. dead-code: lines removed (the whole file when nothing imports it, else the unused declarations) over files to edit (0: delete a file nothing imports, else 1).",
+    "gain / effort": "Quick wins are ranked by gain over effort (effort 0 first), then by gain. cycle-break: units layered again over file pairs to remove or move. mutual-import: runtime file cycles broken over files to edit (1: the hub, which drops its import of each partner). weak-dependency: 1 unit edge over its file pairs. dead-code: lines of the unused declarations over files to edit (0 when nothing imports the file, else 1); a dead file is listed under Dead files instead.",
     "type-only": "An import erased at runtime (import type, every specifier type, export type). A cycle is type-only when all its imports are: design coupling, no init-order risk. One runtime import makes it a runtime cycle.",
     lazy: "A dynamic import() loads its target on demand. A cycle is lazy when it is no longer a cycle without its import() calls: no init-order risk, still a dependency (rules, impact).",
   };
@@ -389,16 +389,13 @@ function weakDependencies(input: AssessmentInput, pairs: Map<string, Edge[]>, sc
 
 function deadCode(input: AssessmentInput, files: readonly DeadCodeFile[]): QuickWin[] {
   const imported = new Set(input.graph.edges.map((edge) => edge.targetRelative));
-  const fileLines = new Map((input.deadFiles ?? []).map((file) => [file.relativePath, file.lines]));
   return files.filter((file) => file.unusedSymbols.length > 0).map((file) => {
     const unit = input.unitOf.get(file.relativePath);
     const unreferenced = !imported.has(file.relativePath);
-    // A declaration whose end the analyzer cannot tell counts one line.
-    const declared = file.unusedSymbols.reduce((total, symbol) => total + Math.max(1, (symbol.endLine ?? symbol.line) - symbol.line + 1), 0);
     return {
       kind: "dead-code" as const,
-      // Nothing imports the file: deleting it removes all its lines (unread: its unused declarations).
-      gain: (unreferenced ? fileLines.get(file.relativePath) : undefined) ?? declared,
+      // A declaration whose end the analyzer cannot tell counts one line.
+      gain: file.unusedSymbols.reduce((total, symbol) => total + Math.max(1, (symbol.endLine ?? symbol.line) - symbol.line + 1), 0),
       // Files to edit: none to delete a file nothing imports, else the file itself.
       effort: unreferenced ? 0 : 1,
       subject: `${file.relativePath}: ${file.unusedSymbols.length} unused export(s)${unreferenced ? "; no file imports it" : ""}`,
@@ -540,7 +537,9 @@ export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<s
   const typeOnlyCuts = scopedCuts.filter((cut) => cutKind(input, cut) === "type-only");
   const lazyCuts = scopedCuts.filter((cut) => cutKind(input, cut) === "lazy");
   const cuts = scopedCuts.filter((cut) => cutKind(input, cut) === "runtime");
-  const deadCodeFiles = input.deadCode.filter((file) => focus?.has(file.relativePath) ?? true);
+  // A dead file's unused exports go with it: its Dead files entry deletes the whole file (#758).
+  const dead = new Set((input.deadFiles ?? []).map((file) => file.relativePath));
+  const deadCodeFiles = input.deadCode.filter((file) => !dead.has(file.relativePath) && (focus?.has(file.relativePath) ?? true));
   const quickWins = [...cycleBreaks(input, cuts, pairs), ...mutualWins, ...weakDependencies(input, pairs, scope), ...deadCode(input, deadCodeFiles)]
     // Cross products compare gain / effort without rounding; effort 0 ranks first.
     .sort((left, right) => right.gain * left.effort - left.gain * right.effort || right.gain - left.gain
