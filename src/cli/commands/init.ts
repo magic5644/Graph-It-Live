@@ -333,9 +333,10 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   };
   if (outputDir !== undefined) {
     const page = path.posix.join(outputDir, "index.html");
+    // Set first: the page's findings point to it, in report.md's words (#758).
+    result.page = page;
     await runtime.progress.phase("Writing the HTML page", () =>
       writeWorkspaceFile(workspaceRoot, page, renderHtmlPage(initPage({ graph, units, assignment }, workspaceRoot, check.violations, result, scope, drawn?.matrixSvg))));
-    result.page = page;
     const reportFile = path.posix.join(outputDir, "report.md");
     result.reportFiles.push(...diagrams.map((diagram) => diagram.file), page, reportFile);
     await writeWorkspaceFile(workspaceRoot, reportFile, renderInitMarkdown(result, outputDir));

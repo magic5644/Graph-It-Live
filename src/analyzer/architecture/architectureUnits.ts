@@ -58,19 +58,19 @@ function foldersOf(relativePath: string): string[] {
  */
 export function assignUnits(workspaceRoot: string, files: readonly string[]): UnitAssignment {
   const relativePaths = files.map(normalizePath);
-  const isPackage = new Map<string, boolean>();
+  const isProject = new Map<string, boolean>();
   for (const folder of new Set(relativePaths.flatMap(foldersOf))) {
-    isPackage.set(folder, hasProjectMarker(path.join(workspaceRoot, folder)));
+    isProject.set(folder, hasProjectMarker(path.join(workspaceRoot, folder)));
   }
-  const hasPackages = [...isPackage.values()].some(Boolean);
+  const hasProjects = [...isProject.values()].some(Boolean);
   const unitOf = new Map<string, string>();
   const names = new Map<string, string>();
   for (const relativePath of relativePaths) {
     const folders = foldersOf(relativePath);
-    const unit = (hasPackages ? folders.find((folder) => isPackage.get(folder)) : folders.at(-1)) ?? ROOT_UNIT;
+    const unit = (hasProjects ? folders.find((folder) => isProject.get(folder)) : folders.at(-1)) ?? ROOT_UNIT;
     unitOf.set(relativePath, unit);
     if (!names.has(unit)) {
-      const name = unit !== ROOT_UNIT && hasPackages ? packageName(path.join(workspaceRoot, unit, "package.json")) : undefined;
+      const name = unit !== ROOT_UNIT && hasProjects ? packageName(path.join(workspaceRoot, unit, "package.json")) : undefined;
       names.set(unit, name ?? unit);
     }
   }

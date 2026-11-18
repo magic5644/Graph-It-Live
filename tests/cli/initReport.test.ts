@@ -171,6 +171,24 @@ describe("initReport", () => {
     expect(text.match(/^ +next: /gm)).toHaveLength(6);
   });
 
+  it("points each capped sub-line to what lists the rest: next:, the cut edges or the page (#758)", () => {
+    const lines = (prefix: string) => Array.from({ length: 5 }, (_, index) => `${prefix}${index}`);
+    const base = assessArchitecture(empty);
+    const assessment = {
+      ...base,
+      quickWins: [
+        { kind: "cycle-break" as const, gain: 2, effort: 7, subject: "a, b import each other", evidence: lines("cut"), totalEvidence: 7, units: ["a", "b"], next: "graph-it architecture --level units --from \"a\" --to \"b\"" },
+        { kind: "weak-dependency" as const, gain: 1, effort: 2, subject: "c depends on d", evidence: lines("pair"), totalEvidence: 6, units: ["c", "d"], next: "graph-it x" },
+      ],
+      typeOnlyCycles: { unitCycles: 1, mutualImports: 0, units: ["e", "f"], evidence: lines("type"), totalEvidence: 8 },
+    };
+    const markdown = renderInitMarkdown(result({ assessment }));
+    expect(markdown).toContain("`... 2 more (graph-it architecture --level units --from <unit> --to <unit> lists each cut edge's pairs)`");
+    expect(markdown).toContain("`... 1 more (next: lists them all)`");
+    expect(markdown).toContain("`... 3 more (the index.html of graph-it init --output shows them all)`");
+    expect(renderInitMarkdown(result({ assessment, page: "out/index.html" }), "out")).toContain("`... 3 more (index.html shows them all)`");
+  });
+
   it("collapses the entry rows into one line cross-referenced with the dead files", () => {
     const markdown = renderInitMarkdown(result({ assessment: assessArchitecture(rich()) }));
     expect(markdown).toContain("- **entry-row**: `app, cli` 2 units no other unit imports, 2 of them with dead files. Expected for apps, handlers and scripts; otherwise its files are dead: check them, then delete.");

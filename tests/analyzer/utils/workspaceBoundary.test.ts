@@ -9,6 +9,8 @@ import {
   findProjectRoot,
   findWorkspaceRoot,
   hasProjectMarker,
+  isProjectMarker,
+  PROJECT_MARKER_GLOB,
   PROJECT_MARKERS,
   toDisplayPath,
   toReportableSpecifier,
@@ -120,6 +122,15 @@ describe("workspaceBoundary", () => {
       write("loose/package.json.bak", "");
       write("loose/csproj", "");
       expect(hasProjectMarker(path.join(tmp, "loose"))).toBe(false);
+    });
+
+    it("names a marker by its file name, and watches each one (#758)", () => {
+      expect(isProjectMarker("go.mod")).toBe(true);
+      expect(isProjectMarker("Billing.csproj")).toBe(true);
+      expect(isProjectMarker("package.json.bak")).toBe(false);
+      expect(isProjectMarker("rustfmt.toml")).toBe(false);
+      for (const marker of Object.values(PROJECT_MARKERS).flat()) expect(PROJECT_MARKER_GLOB).toContain(marker);
+      expect(PROJECT_MARKER_GLOB).toMatch(/^\*\*\/\{[^{}]+\}$/);
     });
 
     it("returns false for a missing or unreadable directory", () => {

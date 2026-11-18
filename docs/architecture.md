@@ -182,7 +182,7 @@ Rows 1–2 are outlined. The red cell, `core` → `shared`, has 6 pairs; its mir
 
 **What it is for.** Tell you the drawn view no longer matches the files.
 
-**How to read it.** *Files or architecture rules changed since this view was built.* appears when a file of the graph, `graphit.architecture.json`, its baseline, a `package.json` or a `tsconfig*.json` changes. The view does not rebuild by itself: a build reads every file of the workspace, and rebuilding on each save would redraw the graph while you read it.
+**How to read it.** *Files or architecture rules changed since this view was built.* appears when a file of the graph, `graphit.architecture.json`, its baseline, a `package.json` or a `tsconfig*.json` changes, or when a project manifest (`go.mod`, `pyproject.toml`, `pom.xml`...) is added or removed, since it adds or removes a unit. The view does not rebuild by itself: a build reads every file of the workspace, and rebuilding on each save would redraw the graph while you read it.
 
 **What to do.** Click **Refresh** when you want the new state, for example after a fix, to check the edge or the violation is gone. The view is also built when it opens and when `graph-it-live.communityMode` changes.
 

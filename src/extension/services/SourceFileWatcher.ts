@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { PROJECT_MARKER_GLOB } from '../../analyzer/utils/workspaceBoundary';
 import { ARCHITECTURE_RULES_GLOB, RESOLVER_CONFIG_GLOB, WATCH_GLOB } from '../../shared/constants';
 import type { FileChangeScheduler } from './FileChangeScheduler';
 
@@ -23,8 +24,9 @@ export class SourceFileWatcher {
     this.logger = options.logger;
     this.fileChangeScheduler = options.fileChangeScheduler;
 
-    // Architecture rule and resolver config files are JSON, outside the source glob, yet edits to them make the index or view stale.
-    this.watchers = [WATCH_GLOB, ARCHITECTURE_RULES_GLOB, RESOLVER_CONFIG_GLOB].map((glob) => vscode.workspace.createFileSystemWatcher(glob));
+    // Architecture rule, resolver config and project marker files (go.mod, pom.xml...) are outside the source glob,
+    // yet they make the index or the Architecture view stale: a project marker adds or removes a unit (#758).
+    this.watchers = [WATCH_GLOB, ARCHITECTURE_RULES_GLOB, RESOLVER_CONFIG_GLOB, PROJECT_MARKER_GLOB].map((glob) => vscode.workspace.createFileSystemWatcher(glob));
 
     const ignoredDirectories = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'coverage', '.vscode-test']);
     const isIgnored = (uri: vscode.Uri) => uri.fsPath.split(/[\\/]/).some(segment => ignoredDirectories.has(segment));

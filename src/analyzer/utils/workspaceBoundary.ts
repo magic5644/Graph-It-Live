@@ -42,6 +42,14 @@ const MARKER_EXTENSIONS = Object.values(PROJECT_MARKERS)
   .filter((marker) => marker.startsWith("*"))
   .map((marker) => marker.slice(1));
 
+/** Whether a file name (no folder) is a project marker of a supported language. */
+export function isProjectMarker(fileName: string): boolean {
+  return MARKER_FILES.has(fileName) || MARKER_EXTENSIONS.some((extension) => fileName.endsWith(extension));
+}
+
+/** Every project marker, for a file watcher: adding or removing one adds or removes an architecture unit. */
+export const PROJECT_MARKER_GLOB = `**/{${Object.values(PROJECT_MARKERS).flat().join(",")}}`;
+
 /**
  * Whether dir directly holds a project marker of a supported language.
  * shortcut: an unreadable dir counts as holding none, so the climb passes it; upgrade if users hit it.
@@ -55,9 +63,7 @@ export function hasProjectMarker(dir: string): boolean {
   } catch {
     return false;
   }
-  return entries.some(
-    (entry) => MARKER_FILES.has(entry) || MARKER_EXTENSIONS.some((extension) => entry.endsWith(extension)),
-  );
+  return entries.some(isProjectMarker);
 }
 
 /**

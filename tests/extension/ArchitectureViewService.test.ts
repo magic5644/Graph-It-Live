@@ -236,6 +236,21 @@ describe("ArchitectureViewService", () => {
     expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
   });
 
+  // #758: a project marker the graph never reads adds or removes a unit.
+  it("marks stale for a project marker leaving or arriving, and not for another file outside the graph", async () => {
+    const service = createService();
+    await service.build();
+    service.markStale(path.join(root, "rustfmt.toml"), "delete");
+    service.markStale(path.join(root, "services", "Api.Tests", "notes.txt"), "change");
+    expect(summaries()).toHaveLength(1);
+    service.markStale(path.join(root, "services", "api", "go.mod"), "delete");
+    expect(summaries().map(summary => summary.stale)).toEqual([false, true]);
+
+    await service.build();
+    service.markStale(path.join(root, "services", "billing", "Billing.csproj"), "change");
+    expect(summaries().at(-1)?.stale).toBe(true);
+  });
+
   // macOS delivers watcher events late: after the Refresh that already read those files.
   it("ignores late create and change events for content written before the build", async () => {
     await fs.writeFile(path.join(root, "src/late.ts"), "export const late = 1;\n");

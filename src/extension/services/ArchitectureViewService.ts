@@ -24,6 +24,7 @@ import {
 import { diagramLevel, type DiagramTheme } from "@/analyzer/diagram/diagramStyle";
 import { renderSourceDiagram } from "@/analyzer/diagram/workspaceDiagram";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
+import { isProjectMarker } from "@/analyzer/utils/workspaceBoundary";
 import {
   DEFAULT_RENDERED_GROUPS,
   MAX_RENDERED_GROUPS,
@@ -623,8 +624,8 @@ export class ArchitectureViewService {
   /**
    * Marks the cached summary stale when the change can alter it: a file of the graph changed or
    * was deleted, or a file was created (no path: any change). Files the graph never read (build
-   * output, ignored folders) leave it as it is; the rule files at the root and resolver configs
-   * count too. During a build, the build's own summary carries it.
+   * output, ignored folders) leave it as it is; the rule files at the root, resolver configs
+   * and project markers count too. During a build, the build's own summary carries it.
    * ponytail: any created file counts, ignored ones included; check the collector's ignore rules if that shows the banner for nothing.
    */
   markStale(filePath?: string, eventType?: "create" | "change" | "delete"): void {
@@ -646,7 +647,9 @@ export class ArchitectureViewService {
   }
 
   private isConfigFile(filePath: string | undefined, relative: string | undefined): boolean {
-    return this.options.isResolverConfig(filePath ?? "") || relative === ARCHITECTURE_CONFIG_FILE || relative === ARCHITECTURE_BASELINE_FILE;
+    // A project marker (go.mod, pyproject.toml...) adds or removes a unit (#758).
+    return this.options.isResolverConfig(filePath ?? "") || relative === ARCHITECTURE_CONFIG_FILE || relative === ARCHITECTURE_BASELINE_FILE
+      || (filePath !== undefined && isProjectMarker(path.basename(filePath)));
   }
 
   /**
