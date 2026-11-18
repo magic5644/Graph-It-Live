@@ -1,19 +1,47 @@
 # Changelog
 
-## Unreleased (1.25.4)
+## v1.25.4
 
-The `graph-it init` report no longer misleads its reader (#758).
+Patch release on the honesty of the `graph-it init` report and the precision of the dead-code scan: headings say what they count, reports list every item, a dead file is no longer reported twice, units come from every project manifest, and four false dead-code results are gone.
 
-- A dead file is no longer also listed as a `dead-code` lead: its Dead files entry deletes the whole file.
-- Each heading says what it counts and how many are shown: `Dead files: 235 files in 22 units`, `Cycles to cut: 50 (20 shown)`. The page uses the same words.
-- `report.md`, `--format markdown` and the page list every item; only the terminal keeps the first 20. Capped sub-lines point to the item's `next:` command, or to `index.html` for dead files.
-- `index.html` writes each path once. Edges are pairs of file row indexes, and the page rebuilds colours and labels. On a 12,420-file monorepo it drops from 8.4 MB to 2.0 MB, with the same rendering.
+[![index.html written by graph-it init --output on the legacy-shop demo: the Findings panel headings give their counts, Dead files: 2 files in 2 units and Cycles to cut: 3, each unit and cycle with its next command](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/init-counted-findings.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/init-counted-findings.png)
+
+*`graph-it init --output report` on `tests/demo/legacy-shop`, then open `report/index.html`.*
+
+Read *Breaking / Behavior changes* first if a script reads the JSON of `graph-it init` or the data of `index.html`, or if your workspace holds non-`package.json` projects.
 
 ### Breaking / Behavior changes
 
-- **Units come from every project manifest** (#758). A folder holding any project marker is now a unit, not only a `package.json` folder. Markers include `pyproject.toml`, `requirements.txt`, `go.mod`, `Cargo.toml`, `*.csproj`, `pom.xml`, `build.gradle` and `tsconfig.json`. On a polyglot monorepo, Python, Go, Java, C# and Rust projects leave `(root)`. Files outside every project stay in `(root)`, so existing `graphit.architecture.json` elements keep matching. `graph-it init` lists the new units' elements under **Config changes**; confirm, or pass `--yes`, to add them.
+- **Units come from every project manifest** (#758, PR #760). A folder holding any project marker is now a unit, not only a `package.json` folder. Markers include `pyproject.toml`, `requirements.txt`, `go.mod`, `Cargo.toml`, `*.csproj`, `pom.xml`, `build.gradle` and `tsconfig.json`. On a polyglot monorepo, Python, Go, Java, C# and Rust projects leave `(root)`. Files outside every project stay in `(root)`. A workspace with no `package.json` folder used its top-level folders as units; if it holds a `go.mod`, `pyproject.toml` or `tsconfig.json` folder, it now gets project units, so existing `graphit.architecture.json` elements may need updating. `graph-it init` lists the new units' elements under **Config changes**; confirm, or pass `--yes`, to add them.
 - **`graph-it init` JSON**: a `dead-code` quick win now never names a file listed in `deadFiles`. Its `gain` is always the lines of the unused declarations, and `totals.deadCodeFiles` and `totals.unusedExports` leave out dead files.
 - **`index.html` data**: `filesData` and `edgesData` are rebuilt in the page from `fileRows`, `fileStyles` and `edgeRows`. A file's page id is its label (a workspace-relative path). `overlay.edgeKinds` holds file row indexes.
+
+### Changed
+
+- **Report headings give their counts** (#758, PR #760). Each heading says what it counts and how many are shown: `Dead files: 235 files in 22 units`, `Cycles to cut: 50 (20 shown)`. The page uses the same words.
+- **Full lists** (#758). `report.md`, `--format markdown` and `index.html` list every item; only the terminal keeps the first 20. Evidence sub-lines stay capped at 5; a capped one says where the rest is listed: the item's `next:` command, or `index.html` when `--output` writes it.
+- **VS Code refreshes units on project markers** (#758). The file watcher and the Architecture view refresh when a project marker (`go.mod`, `pyproject.toml`, `tsconfig.json`...) is added or removed.
+- **Lighter `index.html`** (#758). The page writes each path once, stores edges as file row indexes, and rebuilds colours and labels in the browser. On large monorepos the file is several times smaller, with the same rendering.
+
+### Fixed
+
+- **A dead file is no longer also a `dead-code` lead** (#758): its *Dead files* entry already deletes the whole file.
+- **Dead-code scan precision** (#757, PR #759):
+  - An HTML page names only its `src` / `href` attribute values. A `graph-it init` report embedding workspace paths in inline JSON no longer hides every dead file on the next run.
+  - A module object that leaves `import()` (returned by a loader, passed on, stored, `.then(fn)`) uses every export, as `require()` does; `(await import()).x` reads `x`; a one-argument `lazy`, `defineAsyncComponent` or `loadable` loader keeps `default`.
+  - Lint and format configs (ESLint, Prettier, Stylelint, Biome, markdownlint) no longer keep the files they list alive; bundler and test runner configs still do.
+  - A Dockerfile, compose or Procfile handler is a declared entry point (`declared:<manifest>#CMD`) for the files of its folder and below, and excludes a whole file only when the file exports it. A same-name file elsewhere gets no reason; the workspace-wide `named-in-deploy-manifest` reason is removed.
+- **Call graph: saved `<template src>`** (#600, PR #760). Saving an external Vue template refreshes its `.vue` in the call graph even when the index has not seen that `.vue` yet (its create event was lost or late): the view finds the `.vue` by its own `<template src>`.
+- **Units are called projects** in `graph-it architecture --help`, the `explore_architecture` descriptions and the docs (PR #762).
+
+### Security
+
+- `picomatch` GHSA-fc5q-39xc-vjpf (ReDoS through single-branch repeated extglobs) still has no patched release; every version up to `4.0.7` is affected. The runtime path is `ts-morph` → `tinyglobby` → `picomatch`, with glob patterns read from the analyzed repository's own `tsconfig.json`. Dependencies are refreshed within their ranges (PR #761).
+
+### Tests
+
+- The E2E fixtures workspace has 13 units now that `go.mod` and `tsconfig.json` folders are units (#758).
+- Unit tests for the template owner lookup (#600) and for each dead-code false result (#757).
 
 ## v1.25.3
 
