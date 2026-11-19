@@ -80,12 +80,12 @@ describe('MCP tool output-format contract', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('drops a legacy format field instead of forwarding it', () => {
-    const parsed = mcpTypes.GenerateCodemapParamsSchema.parse({
+  it('refuses the legacy format field, naming response_format (#769)', () => {
+    const result = mcpTypes.validateToolParams('generate_codemap', {
       filePath: '/project/src/service.ts',
       format: 'toon',
     });
 
-    expect('format' in parsed).toBe(false);
+    expect(result).toMatchObject({ success: false, error: 'Unknown parameter "format". Parameters: filePath.' });
   });
 });

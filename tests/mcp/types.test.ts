@@ -761,16 +761,13 @@ describe('GenerateCodemapParamsSchema', () => {
     }
   });
 
-  it('no longer carries a legacy format field', () => {
+  it('rejects the legacy format field (#769)', () => {
     const result = GenerateCodemapParamsSchema.safeParse({
       filePath: '/project/src/service.ts',
       format: 'toon',
     });
 
-    expect(result.success).toBe(true);
-    if (result.success) {
-      expect('format' in result.data).toBe(false);
-    }
+    expect(result.success).toBe(false);
   });
 
   it('rejects missing filePath', () => {

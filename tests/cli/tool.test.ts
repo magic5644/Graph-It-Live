@@ -80,7 +80,7 @@ describe("tool command dispatch", () => {
     vi.mocked(runtimeStub.ensureIndexed).mockClear();
     await expect(
       run(["get_impact_analysis", "--symbolName=a"], runtimeStub, "json"),
-    ).rejects.toThrow("Invalid parameters: filePath");
+    ).rejects.toThrow('Missing required parameter "filePath" (a string).');
     expect(runtimeStub.ensureIndexed).not.toHaveBeenCalled();
     expect(executeMock).not.toHaveBeenCalled();
   });
@@ -122,7 +122,7 @@ describe("tool command dispatch", () => {
 
   it("rejects scan_dead_code --maxFiles 0 without indexing the workspace (#670)", async () => {
     vi.mocked(runtimeStub.ensureIndexed).mockClear();
-    await expect(run(["scan_dead_code", "--maxFiles", "0"], runtimeStub, "json")).rejects.toThrow("Invalid parameters: maxFiles");
+    await expect(run(["scan_dead_code", "--maxFiles", "0"], runtimeStub, "json")).rejects.toThrow('"maxFiles" must be >= 1; got 0.');
     expect(executeMock).not.toHaveBeenCalled();
   });
 

@@ -99,60 +99,52 @@ if (DEBUG_MCP_ENABLED) {
     "[McpServer] Starting (debug logging disabled - set DEBUG_MCP=true to enable)\n",
   );
 }
-import { McpServer } from "@modelcontextprotocol/server";
+import { McpServer, type ToolAnnotations } from "@modelcontextprotocol/server";
 import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import * as path from "node:path";
 import * as z from "zod/v4";
 import { McpWorkerHost } from "./McpWorkerHost";
-import { formatToolResponse } from "./responseFormatter";
+import { formatToolResponse, type ResponseFormat } from "./responseFormatter";
 import { nextWorkspaceConfig } from "./shared/helpers";
-import { mcpToolDescription } from "./toolDescriptions";
+import { mcpToolDescription, RESPONSE_FORMAT_DESCRIPTION, RESPONSE_FORMATS } from "./toolDescriptions";
+import { toolInputSchema } from "./paramIssues";
 import {
   AnalyzeBreakingChangesParamsSchema,
-  type AnalyzeBreakingChangesResult,
-  ReviewPrParamsSchema,
-  type ReviewPrResult,
   AnalyzeDependenciesParamsSchema,
-  type AnalyzeDependenciesResult,
+  CheckArchitectureParamsSchema,
   CrawlDependencyGraphParamsSchema,
   type CrawlDependencyGraphResult,
   createErrorResponse,
   createSuccessResponse,
-  FindReferencingFilesParamsSchema,
-  type FindReferencingFilesResult,
-  FindUnusedSymbolsParamsSchema,
-  type FindUnusedSymbolsResult,
-  GetImpactAnalysisParamsSchema,
-  type GetImpactAnalysisResult,
-  CheckArchitectureParamsSchema,
   ExploreArchitectureParamsSchema,
   ExportArchitectureDiagramParamsSchema,
-  GraphContextParamsSchema,
+  FindReferencingFilesParamsSchema,
+  FindUnusedSymbolsParamsSchema,
+  GenerateCodemapParamsSchema,
+  GenerateWikiParamsSchema,
+  GetImpactAnalysisParamsSchema,
+  GetIndexStatusParamsSchema,
   type GetIndexStatusResult,
   GetSymbolGraphParamsSchema,
-  type GetSymbolGraphResult,
+  GraphContextParamsObject,
   InvalidateFilesParamsSchema,
-  type InvalidateFilesResult,
   MCP_SERVER_VERSION,
   MCP_TOOL_VERSION,
+  type McpToolName,
   type McpToolResponse,
-  type PaginationInfo,
   QueryCallGraphParamsSchema,
-  type RebuildIndexResult,
-  ResolveModulePathParamsSchema,
-  type ResolveModulePathResult,
-  ScanDeadCodeParamsSchema,
   QueryNaturalLanguageParamsSchema,
-  // Import all parameter schemas with payload limits
+  RebuildIndexParamsSchema,
+  ResolveModulePathParamsSchema,
+  ReviewPrParamsSchema,
+  ScanDeadCodeParamsSchema,
   SetWorkspaceParamsSchema,
   type SetWorkspaceResult,
   TraceFunctionExecutionParamsSchema,
-  type TraceFunctionExecutionResult,
   validateFilePath,
   VerifyDependencyUsageParamsSchema,
 } from "./types";
-import type { GraphContextResponse } from "../shared/graph-context-types";
-import { GenerateWikiSchema } from "./tools/wiki.js";
+import type { GraphContextDetail } from "../shared/graph-context-types";
 import { executeGetSessionStats, GetSessionStatsSchema, type GetSessionStatsResult } from "./tools/stats.js";
 import { startPeriodicFlush } from "../analyzer/stats/statsPersistence";
 import { findProjectRoot } from "../analyzer/utils/workspaceBoundary";
@@ -236,8 +228,13 @@ function getWorkspaceRoot(): string {
 }
 
 const ResponseFormatSchema = z
-  .enum(["json", "markdown", "toon"])
-  .default("toon");
+  .enum(RESPONSE_FORMATS)
+  .default("toon")
+  .describe(RESPONSE_FORMAT_DESCRIPTION);
+
+const READ_ONLY: ToolAnnotations = { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false };
+const WRITES: ToolAnnotations = { ...READ_ONLY, readOnlyHint: false };
+const DESTRUCTIVE: ToolAnnotations = { ...WRITES, destructiveHint: true };
 
 // ============================================================================
 // Server Setup
@@ -573,17 +570,8 @@ server.registerTool(
   {
     title: "Set Workspace Directory",
     description: mcpToolDescription("set_workspace"),
-    inputSchema: SetWorkspaceParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
+    inputSchema: toolInputSchema(SetWorkspaceParamsSchema.safeExtend({ response_format: ResponseFormatSchema })),
+    annotations: WRITES,
   },
   async ({
     workspacePath,
@@ -730,804 +718,93 @@ server.registerTool(
   },
 );
 
-// Tool: graphitlive_analyze_dependencies
-server.registerTool(
-  "graphitlive_analyze_dependencies",
-  {
-    title: "Analyze File Dependencies",
-    description: mcpToolDescription("analyze_dependencies"),
-    inputSchema: AnalyzeDependenciesParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    if (workerCheck.error)
-      return formatToolResponse(
-        workerCheck.response,
-        response_format,
-      "graphitlive_analyze_dependencies",
-      );
-
-    const response = await invokeToolWithResponse<AnalyzeDependenciesResult>(
-      "analyze_dependencies",
-      { filePath },
-    );
-
-    return formatToolResponse(response, response_format, "graphitlive_analyze_dependencies");
-  },
-);
-
 // Tool: graphitlive_crawl_dependency_graph
 server.registerTool(
   "graphitlive_crawl_dependency_graph",
   {
     title: "Crawl Full Dependency Graph",
     description: mcpToolDescription("crawl_dependency_graph"),
-    inputSchema: CrawlDependencyGraphParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
+    inputSchema: toolInputSchema(CrawlDependencyGraphParamsSchema.safeExtend({ response_format: ResponseFormatSchema })),
+    annotations: READ_ONLY,
   },
-  async ({ entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget, communityMode, response_format }) => {
+  async ({ response_format, ...params }) => {
     const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
     if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_crawl_dependency_graph");
+      return formatToolResponse(workerCheck.response, response_format, "graphitlive_crawl_dependency_graph");
 
-    const params = { entryFile, maxDepth, limit, offset, onlyUsed, tokenBudget, communityMode };
-    const result = await workerHost?.invoke<CrawlDependencyGraphResult>(
-      "crawl_dependency_graph",
-      params,
-    );
-    if (!result) {
-      return formatToolResponse(
-        createErrorResponse<CrawlDependencyGraphResult>("Worker not available", 0, getWorkspaceRoot()),
-        responseFormat,
-      "graphitlive_crawl_dependency_graph",
-      );
-    }
-
-    // Build pagination info if limit/offset were used
-    let pagination: PaginationInfo | undefined;
-    if (limit !== undefined || offset !== undefined) {
-      const actualOffset = offset ?? 0;
-      const actualLimit = limit ?? result.nodeCount;
-      pagination = {
+    const response = await invokeToolWithResponse<CrawlDependencyGraphResult>("crawl_dependency_graph", params);
+    const result = response.data;
+    // Pagination info when limit/offset were used
+    if (result && (params.limit !== undefined || params.offset !== undefined)) {
+      const offset = params.offset ?? 0;
+      response.pagination = {
         total: result.nodeCount,
-        limit: actualLimit,
-        offset: actualOffset,
-        hasMore: actualOffset + result.nodes.length < result.nodeCount,
+        limit: params.limit ?? result.nodeCount,
+        offset,
+        hasMore: offset + result.nodes.length < result.nodeCount,
       };
     }
-
-    const response = createSuccessResponse(
-      result,
-      0, // We don't track time here, worker already includes it
-      getWorkspaceRoot(),
-      pagination,
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_crawl_dependency_graph");
+    return formatToolResponse(response, response_format, "graphitlive_crawl_dependency_graph");
   },
 );
 
-// Tool: graphitlive_find_referencing_files
-server.registerTool(
-  "graphitlive_find_referencing_files",
-  {
-    title: "Find Files That Import This File",
-    description: mcpToolDescription("find_referencing_files"),
-    inputSchema: FindReferencingFilesParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
+/** Tools whose handler only forwards its parameters to the worker. */
+const WORKER_TOOLS: ReadonlyArray<{
+  tool: McpToolName;
+  title: string;
+  schema: z.ZodObject;
+  annotations: ToolAnnotations;
+}> = [
+  { tool: "analyze_dependencies", title: "Analyze File Dependencies", schema: AnalyzeDependenciesParamsSchema, annotations: READ_ONLY },
+  { tool: "find_referencing_files", title: "Find Files That Import This File", schema: FindReferencingFilesParamsSchema, annotations: READ_ONLY },
+  { tool: "verify_dependency_usage", title: "Verify Dependency Usage", schema: VerifyDependencyUsageParamsSchema, annotations: READ_ONLY },
+  { tool: "resolve_module_path", title: "Resolve Module Specifier to File Path", schema: ResolveModulePathParamsSchema, annotations: READ_ONLY },
+  { tool: "get_index_status", title: "Get Dependency Index Status", schema: GetIndexStatusParamsSchema, annotations: READ_ONLY },
+  { tool: "invalidate_files", title: "Invalidate File Cache", schema: InvalidateFilesParamsSchema, annotations: DESTRUCTIVE },
+  { tool: "rebuild_index", title: "Rebuild Full Dependency Index", schema: RebuildIndexParamsSchema, annotations: DESTRUCTIVE },
+  { tool: "get_symbol_graph", title: "Get Symbol-Level Dependency Graph", schema: GetSymbolGraphParamsSchema, annotations: READ_ONLY },
+  { tool: "find_unused_symbols", title: "Find Dead Code (Unused Exports)", schema: FindUnusedSymbolsParamsSchema, annotations: READ_ONLY },
+  { tool: "trace_function_execution", title: "Trace Function Execution Chain", schema: TraceFunctionExecutionParamsSchema, annotations: READ_ONLY },
+  { tool: "analyze_breaking_changes", title: "Analyze Breaking Changes in Signature", schema: AnalyzeBreakingChangesParamsSchema, annotations: READ_ONLY },
+  { tool: "review_pr", title: "Review Pull Request Diff", schema: ReviewPrParamsSchema, annotations: READ_ONLY },
+  { tool: "get_impact_analysis", title: "Get Comprehensive Impact Analysis", schema: GetImpactAnalysisParamsSchema, annotations: READ_ONLY },
+  { tool: "generate_codemap", title: "Generate File Codemap", schema: GenerateCodemapParamsSchema, annotations: READ_ONLY },
+  { tool: "query_call_graph", title: "Query Cross-File Call Graph", schema: QueryCallGraphParamsSchema, annotations: READ_ONLY },
+  { tool: "scan_dead_code", title: "Scan Workspace for Dead Code", schema: ScanDeadCodeParamsSchema, annotations: READ_ONLY },
+  { tool: "graph_context", title: "Retrieve Unified Graph Context", schema: GraphContextParamsObject, annotations: READ_ONLY },
+  { tool: "explore_architecture", title: "Explore Grouped Architecture", schema: ExploreArchitectureParamsSchema, annotations: READ_ONLY },
+  { tool: "check_architecture", title: "Check Architecture Rules", schema: CheckArchitectureParamsSchema, annotations: READ_ONLY },
+  // Overwrites output, or architecture.<format> for a diagram over the inline cap.
+  { tool: "export_architecture_diagram", title: "Export Architecture Diagram", schema: ExportArchitectureDiagramParamsSchema, annotations: DESTRUCTIVE },
+  { tool: "query_natural_language", title: "Query Codebase with Natural Language", schema: QueryNaturalLanguageParamsSchema, annotations: READ_ONLY },
+  { tool: "generate_wiki", title: "Generate Markdown Wiki from Call Graph", schema: GenerateWikiParamsSchema, annotations: WRITES },
+];
+
+for (const { tool, title, schema, annotations } of WORKER_TOOLS) {
+  const name = `graphitlive_${tool}`;
+  server.registerTool(
+    name,
+    {
+      title,
+      description: mcpToolDescription(tool),
+      inputSchema: toolInputSchema(schema.safeExtend({ response_format: ResponseFormatSchema })),
+      annotations,
     },
-  },
-  async ({ targetPath, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_find_referencing_files");
+    async (args) => {
+      // The table loses each schema's own type: the validated arguments keep response_format.
+      const { response_format, ...params } = args as { response_format: ResponseFormat } & Record<string, unknown>;
+      const rateLimitError = checkRateLimit(tool);
+      if (rateLimitError) {
+        return formatToolResponse(createErrorResponse(rateLimitError, 0, getWorkspaceRoot()), response_format, name);
+      }
+      const workerCheck = await ensureWorkerReady();
+      if (workerCheck.error) return formatToolResponse(workerCheck.response, response_format, name);
 
-    const response = await invokeToolWithResponse<FindReferencingFilesResult>(
-      "find_referencing_files",
-      { targetPath },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_find_referencing_files");
-  },
-);
-
-// Tool: graphitlive_verify_dependency_usage
-server.registerTool(
-  "graphitlive_verify_dependency_usage",
-  {
-    title: "Verify Dependency Usage",
-    description: mcpToolDescription("verify_dependency_usage"),
-    inputSchema: VerifyDependencyUsageParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
+      const response = await invokeToolWithResponse(tool, params);
+      return formatToolResponse(response, response_format, name, (params as { detail?: GraphContextDetail }).detail);
     },
-  },
-  async ({ sourceFile, targetFile, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_verify_dependency_usage");
-
-    const response = await invokeToolWithResponse<unknown>(
-      "verify_dependency_usage",
-      {
-        sourceFile,
-        targetFile,
-      },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_verify_dependency_usage");
-  },
-);
-
-// Tool: graphitlive_resolve_module_path
-server.registerTool(
-  "graphitlive_resolve_module_path",
-  {
-    title: "Resolve Module Specifier to File Path",
-    description: mcpToolDescription("resolve_module_path"),
-    inputSchema: ResolveModulePathParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ fromFile, moduleSpecifier, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_resolve_module_path");
-
-    const response = await invokeToolWithResponse<ResolveModulePathResult>(
-      "resolve_module_path",
-      { fromFile, moduleSpecifier },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_resolve_module_path");
-  },
-);
-
-// Tool: graphitlive_get_index_status
-server.registerTool(
-  "graphitlive_get_index_status",
-  {
-    title: "Get Dependency Index Status",
-    description: mcpToolDescription("get_index_status"),
-    inputSchema: z.object({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_index_status");
-
-    const response = await invokeToolWithResponse<GetIndexStatusResult>(
-      "get_index_status",
-      {},
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_get_index_status");
-  },
-);
-
-// Tool: graphitlive_invalidate_files
-server.registerTool(
-  "graphitlive_invalidate_files",
-  {
-    title: "Invalidate File Cache",
-    description: mcpToolDescription("invalidate_files"),
-    inputSchema: InvalidateFilesParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePaths, response_format }) => {
-    const responseFormat = response_format;
-    const rateLimitError = checkRateLimit("invalidate_files");
-    if (rateLimitError) {
-      return formatToolResponse(
-        createErrorResponse<InvalidateFilesResult>(rateLimitError, 0, getWorkspaceRoot()),
-        responseFormat,
-        "graphitlive_invalidate_files",
-      );
-    }
-
-    const workerCheck = await ensureWorkerReady();
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_invalidate_files");
-
-    const response = await invokeToolWithResponse<InvalidateFilesResult>(
-      "invalidate_files",
-      {
-        filePaths,
-      },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_invalidate_files");
-  },
-);
-
-// Tool: graphitlive_rebuild_index
-server.registerTool(
-  "graphitlive_rebuild_index",
-  {
-    title: "Rebuild Full Dependency Index",
-    description: mcpToolDescription("rebuild_index"),
-    inputSchema: z.object({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ response_format }) => {
-    const responseFormat = response_format;
-    const rateLimitError = checkRateLimit("rebuild_index");
-    if (rateLimitError) {
-      return formatToolResponse(
-        createErrorResponse<RebuildIndexResult>(rateLimitError, 0, getWorkspaceRoot()),
-        responseFormat,
-        "graphitlive_rebuild_index",
-      );
-    }
-
-    const workerCheck = await ensureWorkerReady();
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_rebuild_index");
-
-    const response = await invokeToolWithResponse<RebuildIndexResult>(
-      "rebuild_index",
-      {},
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_rebuild_index");
-  },
-);
-
-// Tool: graphitlive_get_symbol_graph
-server.registerTool(
-  "graphitlive_get_symbol_graph",
-  {
-    title: "Get Symbol-Level Dependency Graph",
-    description: mcpToolDescription("get_symbol_graph"),
-    inputSchema: GetSymbolGraphParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_symbol_graph");
-
-    const response = await invokeToolWithResponse<GetSymbolGraphResult>(
-      "get_symbol_graph",
-      { filePath },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_get_symbol_graph");
-  },
-);
-
-// Tool: graphitlive_find_unused_symbols
-server.registerTool(
-  "graphitlive_find_unused_symbols",
-  {
-    title: "Find Dead Code (Unused Exports)",
-    description: mcpToolDescription("find_unused_symbols"),
-    inputSchema: FindUnusedSymbolsParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_find_unused_symbols");
-
-    const response = await invokeToolWithResponse<FindUnusedSymbolsResult>(
-      "find_unused_symbols",
-      { filePath },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_find_unused_symbols");
-  },
-);
-
-// Tool: graphitlive_trace_function_execution
-server.registerTool(
-  "graphitlive_trace_function_execution",
-  {
-    title: "Trace Function Execution Chain",
-    description: mcpToolDescription("trace_function_execution"),
-    inputSchema: TraceFunctionExecutionParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, symbolName, maxDepth, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_trace_function_execution");
-
-    const response = await invokeToolWithResponse<TraceFunctionExecutionResult>(
-      "trace_function_execution",
-      {
-        filePath,
-        symbolName,
-        maxDepth,
-      },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_trace_function_execution");
-  },
-);
-
-// Tool: graphitlive_analyze_breaking_changes
-server.registerTool(
-  "graphitlive_analyze_breaking_changes",
-  {
-    title: "Analyze Breaking Changes in Signature",
-    description: mcpToolDescription("analyze_breaking_changes"),
-    inputSchema: AnalyzeBreakingChangesParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, symbolName, oldContent, newContent, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_analyze_breaking_changes");
-
-    const response = await invokeToolWithResponse<AnalyzeBreakingChangesResult>(
-      "analyze_breaking_changes",
-      {
-        filePath,
-        symbolName,
-        oldContent,
-        newContent,
-      },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_analyze_breaking_changes");
-  },
-);
-
-// Tool: graphitlive_review_pr
-server.registerTool(
-  "graphitlive_review_pr",
-  {
-    title: "Review Pull Request Diff",
-    description: mcpToolDescription("review_pr"),
-    inputSchema: ReviewPrParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe("Output format: 'json', 'markdown' (readable lists and tables), or 'toon'"),
-    }),
-    annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-  },
-  async ({ baseRef, headRef, maxFiles, maxDepth, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error) {
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_review_pr");
-    }
-    const response = await invokeToolWithResponse<ReviewPrResult>("review_pr", { baseRef, headRef, maxFiles, maxDepth });
-    return formatToolResponse(response, responseFormat, "graphitlive_review_pr");
-  },
-);
-
-// Tool: graphitlive_get_impact_analysis
-server.registerTool(
-  "graphitlive_get_impact_analysis",
-  {
-    title: "Get Comprehensive Impact Analysis",
-    description: mcpToolDescription("get_impact_analysis"),
-    inputSchema: GetImpactAnalysisParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (Token-Oriented Object Notation for reduced token usage) (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({
-    filePath,
-    symbolName,
-    includeTransitive,
-    maxDepth,
-    response_format,
-  }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_get_impact_analysis");
-
-    const response = await invokeToolWithResponse<GetImpactAnalysisResult>(
-      "get_impact_analysis",
-      {
-        filePath,
-        symbolName,
-        includeTransitive,
-        maxDepth,
-      },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_get_impact_analysis");
-  },
-);
-
-// Tool: graphitlive_generate_codemap
-server.registerTool(
-  "graphitlive_generate_codemap",
-  {
-    title: "Generate File Codemap",
-    description: mcpToolDescription("generate_codemap"),
-    inputSchema: z.object({
-      filePath: z.string().describe("Absolute path to the file to generate a codemap for"),
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_generate_codemap");
-
-    const response = await invokeToolWithResponse("generate_codemap", {
-      filePath,
-    });
-
-    return formatToolResponse(response, responseFormat, "graphitlive_generate_codemap");
-  },
-);
-
-// Tool: graphitlive_query_call_graph
-server.registerTool(
-  "graphitlive_query_call_graph",
-  {
-    title: "Query Cross-File Call Graph",
-    description: mcpToolDescription("query_call_graph"),
-    inputSchema: QueryCallGraphParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ filePath, symbolName, symbolId, startLine, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_query_call_graph");
-
-    const response = await invokeToolWithResponse(
-      "query_call_graph",
-      { filePath, symbolName, symbolId, startLine, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_query_call_graph");
-  },
-);
-
-// Tool: graphitlive_scan_dead_code
-server.registerTool(
-  "graphitlive_scan_dead_code",
-  {
-    title: "Scan Workspace for Dead Code",
-    description: mcpToolDescription("scan_dead_code"),
-    inputSchema: ScanDeadCodeParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ scopePath, maxFiles, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_scan_dead_code");
-
-    const response = await invokeToolWithResponse(
-      "scan_dead_code",
-      { scopePath, maxFiles },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_scan_dead_code");
-  },
-);
-
-// Tool: graphitlive_graph_context
-server.registerTool(
-  "graphitlive_graph_context",
-  {
-    title: "Retrieve Unified Graph Context",
-    description: mcpToolDescription("graph_context"),
-    inputSchema: GraphContextParamsSchema,
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ response_format, ...params }) => {
-    const responseFormat = response_format ?? "toon";
-    const workerCheck = await ensureWorkerReady();
-    if (workerCheck.error) {
-      return formatToolResponse(
-        workerCheck.response,
-        responseFormat,
-        "graphitlive_graph_context",
-      );
-    }
-
-    const response = await invokeToolWithResponse<GraphContextResponse>(
-      "graph_context",
-      params,
-    );
-    return formatToolResponse(response, responseFormat, "graphitlive_graph_context", params.detail);
-  },
-);
-
-// Tool: graphitlive_explore_architecture
-server.registerTool(
-  "graphitlive_explore_architecture",
-  {
-    title: "Explore Grouped Architecture",
-    description: mcpToolDescription("explore_architecture"),
-    inputSchema: ExploreArchitectureParamsSchema,
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ response_format, ...params }) => {
-    const responseFormat = response_format ?? "toon";
-    const workerCheck = await ensureWorkerReady();
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_explore_architecture");
-
-    const response = await invokeToolWithResponse("explore_architecture", params);
-    return formatToolResponse(response, responseFormat, "graphitlive_explore_architecture");
-  },
-);
-
-// Tool: graphitlive_check_architecture
-server.registerTool(
-  "graphitlive_check_architecture",
-  {
-    title: "Check Architecture Rules",
-    description: mcpToolDescription("check_architecture"),
-    inputSchema: CheckArchitectureParamsSchema,
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ response_format, ...params }) => {
-    const responseFormat = response_format ?? "toon";
-    const workerCheck = await ensureWorkerReady();
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_check_architecture");
-
-    const response = await invokeToolWithResponse("check_architecture", params);
-    return formatToolResponse(response, responseFormat, "graphitlive_check_architecture");
-  },
-);
-
-// Tool: graphitlive_export_architecture_diagram
-server.registerTool(
-  "graphitlive_export_architecture_diagram",
-  {
-    title: "Export Architecture Diagram",
-    description: mcpToolDescription("export_architecture_diagram"),
-    inputSchema: ExportArchitectureDiagramParamsSchema,
-    annotations: {
-      readOnlyHint: false,
-      // Overwrites output, or architecture.<format> for a diagram over the inline cap.
-      destructiveHint: true,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ response_format, ...params }) => {
-    const responseFormat = response_format ?? "toon";
-    const workerCheck = await ensureWorkerReady();
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_export_architecture_diagram");
-
-    const response = await invokeToolWithResponse("export_architecture_diagram", params);
-    return formatToolResponse(response, responseFormat, "graphitlive_export_architecture_diagram");
-  },
-);
-
-// Tool: graphitlive_query_natural_language
-server.registerTool(
-  "graphitlive_query_natural_language",
-  {
-    title: "Query Codebase with Natural Language",
-    description: mcpToolDescription("query_natural_language"),
-    inputSchema: QueryNaturalLanguageParamsSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: toon - RECOMMENDED for 30-60% token savings)",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ question, depth, tokenBudget, fileFilter, outputFormat, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_query_natural_language");
-
-    const response = await invokeToolWithResponse(
-      "query_natural_language",
-      { question, depth, tokenBudget, fileFilter, outputFormat },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_query_natural_language");
-  },
-);
-
-// Tool: graphitlive_generate_wiki
-server.registerTool(
-  "graphitlive_generate_wiki",
-  {
-    title: "Generate Markdown Wiki from Call Graph",
-    description: mcpToolDescription("generate_wiki"),
-    inputSchema: GenerateWikiSchema.extend({
-      response_format: ResponseFormatSchema.describe(
-        "Output format: 'json', 'markdown' (readable lists and tables), or 'toon' (default: json). scope and exclude filtering is applied before generation — limitations are documented in the generated wiki itself.",
-      ),
-    }),
-    annotations: {
-      readOnlyHint: false,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
-  },
-  async ({ outputDir, topHubsLimit, scope, exclude, response_format }) => {
-    const workerCheck = await ensureWorkerReady();
-    const responseFormat = response_format;
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, responseFormat, "graphitlive_generate_wiki");
-
-    const response = await invokeToolWithResponse(
-      "generate_wiki",
-      { outputDir, topHubsLimit, scope, exclude },
-    );
-
-    return formatToolResponse(response, responseFormat, "graphitlive_generate_wiki");
-  },
-);
+  );
+}
 
 // Tool: graphitlive_get_session_stats
 // Runs in the server process (no worker needed): the sessionStats singleton
@@ -1537,15 +814,10 @@ server.registerTool(
   {
     title: "Get Session Token Stats",
     description: mcpToolDescription("get_session_stats"),
-    inputSchema: GetSessionStatsSchema,
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: false,
-    },
+    inputSchema: toolInputSchema(GetSessionStatsSchema.safeExtend({ response_format: ResponseFormatSchema })),
+    annotations: READ_ONLY,
   },
-  async () => {
+  async ({ response_format }) => {
     const startTime = Date.now();
     const result = executeGetSessionStats();
     const response = createSuccessResponse<GetSessionStatsResult>(
@@ -1553,8 +825,7 @@ server.registerTool(
       Date.now() - startTime,
       getWorkspaceRoot(),
     );
-    // Always JSON: stats output is small and must stay exact (no TOON re-encoding).
-    return formatToolResponse(response, "json", "graphitlive_get_session_stats");
+    return formatToolResponse(response, response_format, "graphitlive_get_session_stats");
   },
 );
 
