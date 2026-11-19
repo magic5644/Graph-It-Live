@@ -200,7 +200,7 @@ describe("SymbolAnalysisCache", () => {
         const resolved = vi.spyOn(PathResolver.prototype, "resolve");
         const { entries } = await spider.scanDeadCode();
         const external = resolved.mock.calls.filter(([, specifier]) => specifier === "external-pkg").length;
-        const relative = (calls: unknown[][]) => calls.map(([p]) => path.relative(tmpDir, p as string).replaceAll("\\", "/")).sort();
+        const relative = (calls: unknown[][]) => calls.map(([p]) => path.relative(tmpDir, p as string).replaceAll("\\", "/")).sort((a, b) => a.localeCompare(b));
         return { entries, analyzed: relative(analyzed.mock.calls), internal: relative(internal.mock.calls), external };
       } finally {
         await spider.dispose();

@@ -230,7 +230,7 @@ describe.skipIf(!distExists)("MCP user contract (E2E)", { timeout: TIMEOUT_MS },
       const data = async (tool: string, args: Args) => JSON.parse((await call(tool, { ...args, response_format: "json" })).content[0].text).data;
       const files = await data("scan_dead_code", { unreferencedFiles: true });
       expect(files.unresolvedImports).toEqual(expected);
-      expect(files.unreferencedFiles.filter((file: { reasons: string[] }) => file.reasons.includes("unresolved-import-in-workspace")).length).toBe(2);
+      expect(files.unreferencedFiles.filter((file: { reasons: string[] }) => file.reasons.includes("unresolved-import-in-workspace"))).toHaveLength(2);
       expect((await data("get_index_status", {})).unresolvedImports).toEqual(expected);
       expect((await call("scan_dead_code", { unreferencedFiles: true, response_format: "markdown" })).content[0].text).toContain("**Unresolved imports: 3 resolving to no file, 0 to a file excluded from the analysis.**");
     } finally {
