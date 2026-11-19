@@ -696,6 +696,20 @@ describe("relativizeWorkspacePaths", () => {
     );
   });
 
+  it.each([
+    ["native", String.raw`Path does not exist: C:\Users\RUNNER~1\Temp\ws\nope`, "Path does not exist: nope"],
+    ["JSON-escaped", JSON.stringify({ filePath: String.raw`C:\Users\RUNNER~1\Temp\ws\src\a.ts` }), '{"filePath":"src/a.ts"}'],
+    ["TOON row", String.raw`[Path does not exist: c:\users\runner~1\temp\ws\nope]`, "[Path does not exist: nope]"],
+    ["symbol id", String.raw`C:\Users\RUNNER~1\Temp\ws\src\a.ts:A:3`, "src/a.ts:A:3"],
+    ["root alone", String.raw`root C:\Users\RUNNER~1\Temp\ws, done`, "root ., done"],
+  ])("strips a Windows root in its %s form", (_form, output, expected) => {
+    expect(relativizeWorkspacePaths(output, String.raw`C:\Users\RUNNER~1\Temp\ws`)).toBe(expected);
+  });
+
+  it("keeps a sibling folder that shares the root prefix", () => {
+    expect(relativizeWorkspacePaths("/repo-backup/a.ts /repo", "/repo")).toBe("/repo-backup/a.ts .");
+  });
+
   it("leaves output without the workspace root untouched", () => {
     expect(relativizeWorkspacePaths("nothing to strip", "/repo")).toBe("nothing to strip");
   });
