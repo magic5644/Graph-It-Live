@@ -74,15 +74,6 @@ export interface HtmlPageConfig {
   overlay?: HtmlOverlay;
 }
 
-export interface HtmlExporterConfig {
-  /** File graph with nodeMetadata (hubScore, communityId, communityKey) from computeNodeMetadata. */
-  graphData: GraphData;
-  context: HtmlExportContext;
-  workspaceName: string;
-  outputPath: string;
-  workspaceRoot?: string;
-}
-
 /** Above this many files the page opens with every group collapsed. */
 const EXPANDED_FILE_LIMIT = 200;
 
@@ -437,11 +428,6 @@ const OVERLAY_TAIL = String.raw`
         showFocus();
       });
     }`;
-
-export function exportHtml(config: HtmlExporterConfig): void {
-  fs.mkdirSync(path.dirname(config.outputPath), { recursive: true });
-  fs.writeFileSync(config.outputPath, renderHtmlPage(config), 'utf-8');
-}
 
 /** The self-contained page; without an overlay, exactly what `graph-it export --format html` writes. */
 export function renderHtmlPage(config: HtmlPageConfig): string {

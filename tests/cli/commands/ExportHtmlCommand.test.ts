@@ -3,14 +3,18 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-const mockExportHtml = vi.hoisted(() => vi.fn());
-const mockRenderHtmlPage = vi.hoisted(() => vi.fn(() => '<html></html>'));
+const mockRenderHtmlPage = vi.hoisted(() => vi.fn((_config: Record<string, any>) => '<html></html>'));
+const mockWrite = vi.hoisted(() => vi.fn());
 const mockArchitectureRun = vi.hoisted(() => vi.fn());
 const mockComputeNodeMetadata = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../src/analyzer/export/HtmlExporter', () => ({
-  exportHtml: mockExportHtml,
   renderHtmlPage: mockRenderHtmlPage,
+}));
+
+vi.mock('../../../src/cli/workspaceFiles', async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  writeWorkspaceFile: mockWrite,
 }));
 
 vi.mock('../../../src/cli/commands/architecture.js', () => ({
@@ -51,8 +55,8 @@ function realRuntime(): CliRuntime {
 
 describe('runExportHtml', () => {
   beforeEach(() => {
-    mockExportHtml.mockReset();
     mockRenderHtmlPage.mockClear();
+    mockWrite.mockReset();
     mockArchitectureRun.mockReset();
     mockComputeNodeMetadata.mockReset();
     mockArchitectureRun.mockResolvedValue(architectureJsonOutput);
@@ -62,17 +66,15 @@ describe('runExportHtml', () => {
   it('writes graph.html at the workspace root when no --output is given', async () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
-    expect(mockExportHtml).toHaveBeenCalledOnce();
-    const config = mockExportHtml.mock.calls[0][0];
-    expect(normalizePath(config.outputPath)).toBe(normalizePath(path.resolve('/workspace/my-project', 'graph.html')));
+    expect(mockWrite).toHaveBeenCalledOnce();
+    expect(mockWrite).toHaveBeenCalledWith('/workspace/my-project', 'graph.html', '<html></html>');
   });
 
   it('accepts an absolute --output inside the workspace, and -o', async () => {
     await runExportHtml(fakeRuntime, 'my-project', ['--output', '/workspace/my-project/out/graph.html']);
     await runExportHtml(fakeRuntime, 'my-project', ['-o', 'short.html']);
 
-    expect(normalizePath(mockExportHtml.mock.calls[0][0].outputPath)).toBe(normalizePath(path.resolve('/workspace/my-project/out/graph.html')));
-    expect(normalizePath(mockExportHtml.mock.calls[1][0].outputPath)).toBe(normalizePath(path.resolve('/workspace/my-project', 'short.html')));
+    expect(mockWrite.mock.calls.map((call) => call[1])).toEqual(['/workspace/my-project/out/graph.html', 'short.html']);
   });
 
   it.each([['../g.html'], ['/custom/output.html']])('refuses --output %s outside the workspace (exit 5), before any work', async (output) => {
@@ -93,30 +95,29 @@ describe('runExportHtml', () => {
   it('writes the page to stdout with --output -, and no file', async () => {
     await runExportHtml(fakeRuntime, 'my-project', ['--output', '-']);
 
-    expect(mockExportHtml).not.toHaveBeenCalled();
+    expect(mockWrite).not.toHaveBeenCalled();
     expect(mockRenderHtmlPage).toHaveBeenCalledOnce();
     expect(process.stdout.write).toHaveBeenCalledWith('<html></html>');
   });
 
-  it('resolves relative output path to absolute', async () => {
+  it('writes a relative --output under the workspace root, reported workspace-relative', async () => {
     await runExportHtml(fakeRuntime, 'my-project', ['--output', 'relative/graph.html']);
 
-    const config = mockExportHtml.mock.calls[0][0];
-    expect(path.isAbsolute(config.outputPath)).toBe(true);
-    expect(config.outputPath).toContain(normalizePath(path.join('relative', 'graph.html')));
+    expect(mockWrite).toHaveBeenCalledWith('/workspace/my-project', 'relative/graph.html', '<html></html>');
+    expect(process.stdout.write).toHaveBeenCalledWith('Graph exported to relative/graph.html\n');
   });
 
   it('passes workspaceName to exportHtml', async () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
-    const config = mockExportHtml.mock.calls[0][0];
+    const config = mockRenderHtmlPage.mock.calls[0][0];
     expect(config.workspaceName).toBe('my-project');
   });
 
   it('passes the scoped graph and header context to exportHtml', async () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
-    const config = mockExportHtml.mock.calls[0][0];
+    const config = mockRenderHtmlPage.mock.calls[0][0];
     expect(config.graphData.nodes).toEqual(['/workspace/my-project/src/a.ts', '/workspace/my-project/src/b.ts']);
     expect(config.graphData.edges).toEqual([
       { source: '/workspace/my-project/src/a.ts', target: '/workspace/my-project/src/b.ts' },
@@ -138,14 +139,14 @@ describe('runExportHtml', () => {
 
     await runExportHtml(realRuntime(), 'my-project', ['src', '--communities', 'louvain']);
 
-    expect(mockExportHtml.mock.calls[0][0].context).toMatchObject({ scope: 'src', communityMode: 'louvain', failedFiles: 1 });
+    expect(mockRenderHtmlPage.mock.calls[0][0].context).toMatchObject({ scope: 'src', communityMode: 'louvain', failedFiles: 1 });
   });
 
   it('names a scope equal to the workspace root "." and tolerates a missing state', async () => {
     const runtime = { ...realRuntime(), loadState: () => null } as unknown as CliRuntime;
     await runExportHtml(runtime, 'my-project', ['.']);
 
-    expect(mockExportHtml.mock.calls[0][0].context).toMatchObject({ scope: '.', revision: undefined });
+    expect(mockRenderHtmlPage.mock.calls[0][0].context).toMatchObject({ scope: '.', revision: undefined });
   });
 
   it('refuses a missing scope with the closest names (exit 1), never an empty graph', async () => {
@@ -154,7 +155,7 @@ describe('runExportHtml', () => {
       message: 'Scope not found: sr. Did you mean: src? Pass a file or folder of the workspace.',
     });
     await expect(runExportHtml(realRuntime(), 'my-project', ['nope'])).rejects.toThrow('Scope not found: nope. Pass a file or folder of the workspace.');
-    expect(mockExportHtml).not.toHaveBeenCalled();
+    expect(mockWrite).not.toHaveBeenCalled();
   });
 
   it('refuses a scope outside the workspace (exit 5)', async () => {
@@ -180,7 +181,7 @@ describe('runExportHtml', () => {
 
     await runExportHtml(fakeRuntime, 'my-project', []);
 
-    const config = mockExportHtml.mock.calls[0][0];
+    const config = mockRenderHtmlPage.mock.calls[0][0];
     expect(config.graphData.nodes).toHaveLength(0);
     expect(config.graphData.edges).toHaveLength(0);
   });
@@ -190,7 +191,7 @@ describe('runExportHtml', () => {
 
     await runExportHtml(fakeRuntime, 'my-project', []);
 
-    const config = mockExportHtml.mock.calls[0][0];
+    const config = mockRenderHtmlPage.mock.calls[0][0];
     expect(config.graphData.nodes).toHaveLength(0);
     expect(config.graphData.edges).toHaveLength(0);
   });
@@ -205,7 +206,7 @@ describe('runExportHtml', () => {
 
     await runExportHtml(fakeRuntime, 'my-project', []);
 
-    const config = mockExportHtml.mock.calls[0][0];
+    const config = mockRenderHtmlPage.mock.calls[0][0];
     expect(config.graphData.nodes).toEqual(['/workspace/my-project/src/c.ts']);
   });
 
@@ -219,7 +220,7 @@ describe('runExportHtml', () => {
 
     await runExportHtml(fakeRuntime, 'my-project', []);
 
-    const config = mockExportHtml.mock.calls[0][0];
+    const config = mockRenderHtmlPage.mock.calls[0][0];
     expect(config.graphData.nodes).toEqual(['']);
   });
 
@@ -233,7 +234,7 @@ describe('runExportHtml', () => {
 
     await runExportHtml(fakeRuntime, 'my-project', []);
 
-    const config = mockExportHtml.mock.calls[0][0];
+    const config = mockRenderHtmlPage.mock.calls[0][0];
     expect(config.graphData.edges).toEqual([{ source: '', target: '' }]);
   });
 
@@ -258,7 +259,7 @@ describe('runExportHtml', () => {
     await runExportHtml(fakeRuntime, 'my-project', ['--communities', 'louvain']);
 
     expect(mockComputeNodeMetadata).toHaveBeenCalledWith(expect.anything(), fakeRuntime.workspaceRoot, 'louvain');
-    expect(mockExportHtml.mock.calls[0][0].graphData.nodes).toHaveLength(2);
+    expect(mockRenderHtmlPage.mock.calls[0][0].graphData.nodes).toHaveLength(2);
   });
 
   it('uses path communities by default and rejects an unknown mode', async () => {
@@ -287,7 +288,7 @@ describe('runExportHtml', () => {
 
     await runExportHtml(fakeRuntime, 'my-project', []);
 
-    const config = mockExportHtml.mock.calls[0][0];
+    const config = mockRenderHtmlPage.mock.calls[0][0];
     expect(config.graphData.nodeMetadata[nodeId]).toEqual({ hubScore: 0.75, communityId: 2 });
   });
 });

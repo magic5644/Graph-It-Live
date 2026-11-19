@@ -238,8 +238,8 @@ describe('architecture command', () => {
 
     beforeEach(() => {
       mocks.collectAllSourceFiles.mockResolvedValue([app, core]);
-      mocks.executeAnalyzeDependencies.mockImplementation(async ({ filePath }: { filePath: string }) =>
-        ({ dependencies: filePath === app ? [{ path: core }] : [{ path: app }] }));
+      mocks.executeAnalyzeDependencies.mockImplementation(({ filePath }: { filePath: string }) =>
+        Promise.resolve({ dependencies: filePath === app ? [{ path: core }] : [{ path: app }] }));
     });
 
     it('prints the matrix as text and markdown tables, not the summary', async () => {

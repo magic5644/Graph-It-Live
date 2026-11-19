@@ -126,7 +126,7 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     fs.writeFileSync(path.join(root, "src/b.ts"), 'import { util } from "../lib/u";\nexport function helper() { return util(); }\n');
     fs.writeFileSync(path.join(root, "src/a.ts"), 'import { helper } from "./b";\nexport function run() { return helper(); }\n');
     fs.writeFileSync(path.join(root, "lib/u.ts"), 'import { run } from "../src/a";\nexport function util() { return run; }\n');
-    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "ignore" });
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "ignore" }); // NOSONAR S4036 test fixture: git from the developer's PATH
     git("init", "-q", "--initial-branch=main");
     git("-c", "user.name=t", "-c", "user.email=t@t", "add", ".");
     git("-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "base");
@@ -201,6 +201,28 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     expect(JSON.parse(reordered.stdout).nodeCount).toBeGreaterThan(0);
   });
 
+  it("prints the matrix as tables, and holds the output, view and command rules", () => {
+    const matrixText = cli(["architecture", "--matrix"]);
+    expect(matrixText.status).toBe(0);
+    expect(matrixText.stdout).toMatch(/^Dependency matrix \(groups\)\n/);
+    expect(cli(["architecture", "--level", "units", "--matrix", "--format", "markdown"]).stdout).toMatch(/^## Dependency matrix \(units\)\n/);
+    const expectFailure = (args: string[], status: number, message: string) => {
+      const result = cli(args);
+      expect(result.status, args.join(" ")).toBe(status);
+      expect(result.stdout, args.join(" ")).toBe("");
+      expect(result.stderr, args.join(" ")).toContain(message);
+    };
+    expectFailure(["export", "--output", "../g.html"], 5, "Refusing to write ../g.html: it is outside the workspace");
+    expectFailure(["export", "--output", "g.svg"], 1, "--output g.svg does not match --format html");
+    expectFailure(["diagram", "--format", "svg", "--output", "a.html"], 1, "--output a.html does not match --format svg");
+    expectFailure(["diagram", "--format", "diagram-spec", "--view", "matrix"], 4, "--format diagram-spec describes --view units or folder");
+    expectFailure(["--bogus"], 1, "Unknown option --bogus.");
+    expectFailure(["constructor"], 1, 'Unknown command "constructor".');
+    const positional = cli(["diagram", "--format", "svg", "--output", "-", "src"]);
+    expect(positional.status, positional.stderr).toBe(0);
+    expect(positional.stdout).toContain("folder src");
+  });
+
   it("keeps the review gate's --max-files spelling and refuses --groups with --level units", () => {
     expect(cli(["review-pr", "--base", "HEAD", "--max-files", "5", "--format", "json"]).status).toBe(0);
     const both = cli(["architecture", "--groups", "--level", "units"]);
@@ -226,6 +248,7 @@ describe("CLI help matches the declaration", () => {
     }
     const formatLine = help.split("\n").find((line) => /^\s+--format/.test(line));
     const helpFormats = new Set((formatLine ?? "").match(/\b(text|json|toon|markdown|mermaid|csv|sarif|svg|html|diagram-spec)\b/g) ?? ["text"]);
-    expect([...helpFormats].sort(), `${command} --format line`).toEqual([...new Set(spec.formats)].sort());
+    const sorted = (formats: Iterable<string>) => [...new Set(formats)].sort((left, right) => left.localeCompare(right));
+    expect(sorted(helpFormats), `${command} --format line`).toEqual(sorted(spec.formats));
   });
 });

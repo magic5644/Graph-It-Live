@@ -25,7 +25,8 @@ const text = (value: Cell): string => (value === null ? "" : String(value));
 
 function renderTextTable({ title, headers, rows }: ViewTable): string[] {
   if (rows.length === 0) return [`${title}: none`];
-  const widths = headers.map((header, column) => Math.max(header.length, ...rows.map((row) => text(row[column]).length)));
+  // reduce, not Math.max(...rows): a matrix may have more cells than a call takes arguments.
+  const widths = headers.map((header, column) => rows.reduce((width, row) => Math.max(width, text(row[column]).length), header.length));
   const line = (cells: Cell[]) => cells.map((cell, column) => text(cell).padEnd(widths[column])).join("  ").trimEnd();
   return [`${title}:`, `  ${line(headers)}`, ...rows.map((row) => `  ${line(row)}`)];
 }

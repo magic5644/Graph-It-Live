@@ -711,7 +711,7 @@ describe("relativizeWorkspacePaths", () => {
     expect(relativizeWorkspacePaths("workspaceRoot: /repo\nscannedFiles: 2", "/repo")).toBe("workspaceRoot: .\nscannedFiles: 2");
     expect(relativizeWorkspacePaths("root=/a/r.e+po,x", "/a/r.e+po")).toBe("root=.,x");
     expect(relativizeWorkspacePaths("/a/rXe+po", "/a/r.e+po")).toBe("/a/rXe+po");
-    expect(relativizeWorkspacePaths("c:/work/repo", "C:\\work\\repo")).toBe(".");
+    expect(relativizeWorkspacePaths("c:/work/repo", String.raw`C:\work\repo`)).toBe(".");
   });
 });
 

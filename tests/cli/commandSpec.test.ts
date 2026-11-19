@@ -73,6 +73,8 @@ describe("commandSpec", () => {
       message: 'Unknown command "archtecture". Did you mean architecture? Run graph-it --help for the commands.',
     }));
     expect(() => commandSpec("zzzzzz")).toThrow('Unknown command "zzzzzz". Run graph-it --help for the commands.');
+    expect(() => commandSpec("constructor")).toThrow('Unknown command "constructor".');
+    expect(() => commandSpec("toString")).toThrow('Unknown command "toString".');
   });
 
   it("declares at least one format and only known option spellings for every command", () => {

@@ -968,6 +968,7 @@ export class ReviewGateAnalyzer {
     try {
       await execFileAsync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], { cwd: this.workspaceRoot });
     } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") throw new Error("git was not found on the PATH: the review runs git.", { cause: error });
       const stderr = String((error as { stderr?: unknown }).stderr ?? "");
       if (stderr.includes("not a git repository")) throw new Error("The workspace is not a Git repository: the review compares two Git refs.", { cause: error });
       throw new Error(`Unknown Git ref "${ref}": pass a branch, tag or commit of this repository.`, { cause: error });

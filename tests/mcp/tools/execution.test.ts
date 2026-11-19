@@ -45,7 +45,7 @@ describe("execution tools", () => {
     it("refuses a symbol the file does not declare, with the closest names, before tracing (#767)", async () => {
       const filePath = await createTempFile(tempDir, "main.ts", "");
       const spiderMock = {
-        getSymbolGraph: vi.fn(async () => ({ symbols: [{ name: "main" }, { name: "helper" }] })),
+        getSymbolGraph: vi.fn(() => Promise.resolve({ symbols: [{ name: "main" }, { name: "helper" }] })),
         traceFunctionExecution: vi.fn(),
       };
       setupWorkerState(spiderMock);
