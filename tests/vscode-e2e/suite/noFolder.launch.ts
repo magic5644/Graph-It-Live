@@ -13,6 +13,14 @@ async function waitForEmptyState(reason: string): Promise<EmptyState> {
   return state as EmptyState;
 }
 
+/** Runs each command in turn, checking it left the view mode on `file`. */
+async function refuseInOrder([id, ...rest]: string[]): Promise<void> {
+  if (!id) return;
+  await vscode.commands.executeCommand(`graph-it-live.${id}`);
+  assert.strictEqual(await getContextKey('graph-it-live.viewMode'), 'file', `${id} switched the view mode`);
+  return refuseInOrder(rest);
+}
+
 /** #770: run in a window with no folder open (see runTests.ts). */
 suite('Without a folder (#770)', function () {
   this.timeout(60_000);
@@ -31,11 +39,8 @@ suite('Without a folder (#770)', function () {
 
   test('view commands refuse without switching the view mode', async () => {
     await waitForGraphViewResolved();
-    for (const id of ['forceReindex', 'refreshGraph', 'setViewModeList', 'setViewModeSymbol', 'setViewModeArchitecture',
-      'showReverseDependencies', 'hideReverseDependencies', 'expandAllNodes', 'toggleViewMode']) {
-      await vscode.commands.executeCommand(`graph-it-live.${id}`);
-      assert.strictEqual(await getContextKey('graph-it-live.viewMode'), 'file', `${id} switched the view mode`);
-    }
+    await refuseInOrder(['forceReindex', 'refreshGraph', 'setViewModeList', 'setViewModeSymbol', 'setViewModeArchitecture',
+      'showReverseDependencies', 'hideReverseDependencies', 'expandAllNodes', 'toggleViewMode']);
     await waitForEmptyState('no-workspace');
   });
 
