@@ -15,11 +15,11 @@ describe('formatToolResponse', () => {
 
   // Claude Code shows structuredContent instead of the text (#654).
   it('omits structuredContent for markdown output', () => {
-    const response = createSuccessResponse({ ok: true }, 5, '/workspace');
-    const result = formatToolResponse(response, 'markdown');
+    const response = createSuccessResponse({ sourceFile: 'a.ts', targetFile: 'b.ts', isUsed: true }, 5, '/workspace');
+    const result = formatToolResponse(response, 'markdown', 'graphitlive_verify_dependency_usage');
 
     expect(result).not.toHaveProperty('structuredContent');
-    expect(result.content[0].text).toBe('- **ok**: true');
+    expect(result.content[0].text).toBe('# Does `a.ts` use `b.ts`?\n\nYes: it uses at least one symbol the target exports.');
   });
 
   it('formats response as TOON when requested', () => {
@@ -476,117 +476,56 @@ describe('session stats recording', () => {
   });
 });
 
-describe('formatToolResponse markdown (#269)', () => {
-  const markdown = (data: unknown, extra: Record<string, unknown> = {}) =>
-    formatToolResponse({ ...createSuccessResponse(data, 5, '/workspace'), ...extra }, 'markdown').content[0].text;
+describe('formatToolResponse markdown, one report per tool (#769)', () => {
+  const markdown = (tool: string, data: unknown, root = '/workspace') =>
+    formatToolResponse(createSuccessResponse(data, 5, root), 'markdown', `graphitlive_${tool}`).content[0].text;
 
-  it('renders scalars as a list and each array as a table, not JSON', () => {
-    const text = markdown({
+  it('titles the report with the request and renders the chosen columns, never a key dump', () => {
+    const text = markdown('analyze_dependencies', {
       filePath: '/workspace/src/a.ts',
       dependencyCount: 1,
-      dependencies: [{ path: '/workspace/src/b.ts', type: 'import', line: 1 }],
+      dependencies: [{ path: '/workspace/src/b.ts', type: 'import', line: 2, module: './b', extension: 'ts', typeOnly: false }],
     });
 
     expect(text).toBe([
-      '- **filePath**: src/a.ts',
-      '- **dependencyCount**: 1',
+      '# Imports of `src/a.ts`',
       '',
-      '### dependencies',
+      '- Imports: 1',
       '',
-      '| path | type | line |',
-      '| --- | --- | --- |',
-      '| src/b.ts | import | 1 |',
+      '## Dependencies (1)',
+      '',
+      '| path | type | line | module | typeOnly |',
+      '| --- | --- | --- | --- | --- |',
+      '| src/b.ts | import | 2 | ./b | false |',
     ].join('\n'));
-    expect(text).not.toContain('```');
-    expect(text).not.toContain('"success"');
+    expect(text).not.toMatch(/- \*\*\w+\*\*:/);
   });
 
-  it('keeps the same content as TOON for every array section', () => {
-    const text = markdown({ nodes: [{ id: 'a' }], edges: [{ source: 'a', target: 'b' }], truncated: false });
-
-    expect(text).toContain('- **truncated**: false');
-    expect(text).toContain('### nodes');
-    expect(text).toContain('### edges');
-    expect(text).toContain('| a | b |');
-  });
-
-  it('escapes pipes and flattens control characters inside cells', () => {
-    const text = markdown({ items: [{ name: 'a|b', note: 'line1\nline2\u0007', meta: { k: 1 }, empty: null }] });
-
-    expect(text).toContain(String.raw`| a\|b | line1 line2  | {"k":1} |  |`);
-  });
-
-  it('uses the union of row keys as columns', () => {
-    const text = markdown({ items: [{ a: 1 }, { b: 2 }] });
-
-    expect(text).toContain('| a | b |');
-    expect(text).toContain('| 1 |  |');
-    expect(text).toContain('|  | 2 |');
-  });
-
-  it('states rows that carry no field', () => {
-    expect(markdown({ items: [{}, {}] })).toBe('### items\n\n_2 empty rows_');
-  });
-
-  it('keeps a multi-line string field verbatim in a fenced block', () => {
-    const text = markdown({ question: 'q', toon: 'nodes(id)\n[a]' });
-
-    expect(text).toContain('- **question**: q');
-    expect(text).toContain('- **toon**:\n\n```text\nnodes(id)\n[a]\n```');
-  });
-
-  it('sizes the fence past any backtick run in a multi-line value', () => {
-    expect(markdown({ note: 'a\n````\nb' })).toBe('- **note**:\n\n`````text\na\n````\nb\n`````');
-  });
-
-  it('escapes backslashes before pipes, and pipes in keys, headers and section names', () => {
-    const text = markdown({ 'a|b': 'x', 'my|rows': [{ 'c|d': 'e\\' }] });
-
-    expect(text).toContain(String.raw`- **a\|b**: x`);
-    expect(text).toContain(String.raw`### my\|rows`);
-    expect(text).toContain(String.raw`| c\|d |`);
-    expect(text).toContain(String.raw`| e\\ |`);
-  });
-
-  it('renders freshness and pagination before the data', () => {
-    const text = markdown([{ file: 'a.ts' }], {
-      metadata: { ...createSuccessResponse(null, 5, '/workspace').metadata, indexedAt: '2026-10-09T00:00:00Z', stale: true },
-      pagination: { total: 3, limit: 1, offset: 0, hasMore: true },
+  it('escapes pipes and backslashes and flattens newlines inside cells', () => {
+    const text = markdown('find_referencing_files', {
+      targetPath: 'a.ts',
+      referencingFileCount: 1,
+      referencingFiles: [{ path: 'x|y\\z.ts', type: 'import', line: 1, module: 'a\nb' }],
     });
 
-    expect(text.split('\n\n')[0]).toBe([
-      '- **indexedAt**: 2026-10-09T00:00:00Z',
-      '- **stale**: true',
-      '- **total**: 3',
-      '- **limit**: 1',
-      '- **offset**: 0',
-      '- **hasMore**: true',
-    ].join('\n'));
-    expect(text).toContain('### files');
+    expect(text).toContain(String.raw`| x\|y\\z.ts | import | 1 | a b |`);
   });
 
-  it('renders a primitive payload as text and an empty payload explicitly', () => {
-    expect(markdown('done\nnow')).toBe('done now');
-    expect(markdown(null)).toBe('_No results._');
-    expect(markdown({})).toBe('_No results._');
+  it('puts an inline diagram in a fence of its language, and names a written file instead', () => {
+    expect(markdown('export_architecture_diagram', { format: 'svg', counts: '2 units', markup: '<svg/>' })).toContain('```svg\n<svg/>\n```');
+    expect(markdown('export_architecture_diagram', { format: 'html', counts: '2 units', path: 'architecture.html', characters: 9 }))
+      .toContain('Written to `architecture.html` (9 characters).');
   });
 
-  it('states the error of a failed call first, without a data section', () => {
-    const text = formatToolResponse(createErrorResponse('File not found:\nsrc/x.ts', 5, '/workspace'), 'markdown').content[0].text;
-
-    expect(text).toBe('**Error:** File not found: src/x.ts');
+  it('says a paged result is partial and how to read the rest', () => {
+    const text = markdown('crawl_dependency_graph', { entryFile: 'a.ts', nodeCount: 3, edgeCount: 0, nodes: [{ path: 'a.ts' }], edges: [], truncated: true, nextOffset: 1 });
+    expect(text).toContain('_Partial result. Pass offset 1 to read the rest._');
   });
 
-  it('falls back to a generic error message', () => {
-    const response = { ...createErrorResponse('x', 5, '/workspace'), error: undefined };
-
-    expect(formatToolResponse(response, 'markdown').content[0].text).toBe('**Error:** Unknown error');
-  });
-
-  it('leaves json and toon output unchanged', () => {
-    const response = createSuccessResponse({ items: [{ a: 1 }] }, 5, '/workspace');
-
-    expect(formatToolResponse(response, 'json').content[0].text).toContain('"items": [');
-    expect(formatToolResponse(response, 'toon').content[0].text).toContain('items(a)');
+  it('states the error and the index freshness', () => {
+    const failed = formatToolResponse(createErrorResponse('File not found: a.ts.', 5, '/workspace'), 'markdown', 'graphitlive_analyze_dependencies');
+    expect(failed.content[0].text).toBe('**Error:** File not found: a.ts.');
+    const fresh = formatToolResponse(createSuccessResponse({ sourceFile: 'a', targetFile: 'b', isUsed: false }, 5, '/w', undefined, { indexedAt: '2026-01-01T00:00:00.000Z', stale: true }), 'markdown', 'graphitlive_verify_dependency_usage');
+    expect(fresh.content[0].text).toMatch(/_Index updated 2026-01-01T00:00:00.000Z, files changed since \(stale\)._$/);
   });
 });
