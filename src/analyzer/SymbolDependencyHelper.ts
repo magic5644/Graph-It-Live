@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { normalizePath } from './types';
 import { getLogger } from '../shared/logger';
 
@@ -38,6 +39,12 @@ export class SymbolDependencyHelper {
       return true;
     }
     
+    // An absolute target was already resolved (SpiderSymbolService.getSymbolGraph): resolving it again
+    // gives the same file, at a cost per dependency and per target file (#774).
+    if (path.isAbsolute(dep.targetFilePath)) {
+      return false;
+    }
+
     // Fallback: try resolving if dep.targetFilePath is still a module specifier
     // (shouldn't happen if SpiderSymbolService resolves correctly, but defensive)
     log.debug(`Attempting fallback resolution for '${dep.targetFilePath}' from '${sourceFilePath}'`);

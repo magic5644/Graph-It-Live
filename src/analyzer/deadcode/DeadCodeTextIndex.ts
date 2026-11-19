@@ -279,6 +279,8 @@ function bundlerLoadedPaths(
   const fileSet = new Set(files);
   const viteRoot = (file: string): string => packageDirs.filter((dir) => file.startsWith(`${dir}/`)).sort((a, b) => b.length - a.length)[0] ?? root;
   for (const [writer, entry] of facts) {
+    // Most files load nothing: viteRoot scans every package folder, so skip them first (#774).
+    if (entry.globs.length === 0 && entry.urls.length === 0 && entry.nameTemplates.length === 0) continue;
     const loaded = [
       ...entry.globs.flatMap((glob) => globTargets(glob, writer, viteRoot(writer), files)),
       ...entry.urls.flatMap((url) => urlTarget(url, writer, fileSet) ?? []),
