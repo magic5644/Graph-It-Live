@@ -107,7 +107,7 @@ import { McpWorkerHost } from "./McpWorkerHost";
 import { formatToolResponse, type ResponseFormat } from "./responseFormatter";
 import { nextWorkspaceConfig } from "./shared/helpers";
 import { mcpToolDescription, RESPONSE_FORMAT_DESCRIPTION, RESPONSE_FORMATS } from "./toolDescriptions";
-import { toolInputSchema } from "./paramIssues";
+import { schemaParameters, toolInputSchema } from "./paramIssues";
 import {
   AnalyzeBreakingChangesParamsSchema,
   AnalyzeDependenciesParamsSchema,
@@ -466,7 +466,8 @@ function createSetWorkspaceErrorResponse(
       executionTimeMs: Date.now() - startTime,
       toolVersion: MCP_TOOL_VERSION,
       timestamp: new Date().toISOString(),
-      workspaceRoot: workspacePath,
+      // The root still in use: the refused path is shown relative to it.
+      workspaceRoot: previousWorkspace,
     },
   };
 }
@@ -564,13 +565,14 @@ function checkRateLimit(tool: string): string | null {
 // ============================================================================
 
 // Tool: graphitlive_set_workspace
+const SetWorkspaceInputSchema = SetWorkspaceParamsSchema.safeExtend({ response_format: ResponseFormatSchema });
 // This tool is special - it doesn't require the worker to be ready first
 server.registerTool(
   "graphitlive_set_workspace",
   {
     title: "Set Workspace Directory",
-    description: mcpToolDescription("set_workspace"),
-    inputSchema: toolInputSchema(SetWorkspaceParamsSchema.safeExtend({ response_format: ResponseFormatSchema })),
+    description: mcpToolDescription("set_workspace", schemaParameters(SetWorkspaceInputSchema)),
+    inputSchema: toolInputSchema(SetWorkspaceInputSchema),
     annotations: WRITES,
   },
   async ({
@@ -719,12 +721,13 @@ server.registerTool(
 );
 
 // Tool: graphitlive_crawl_dependency_graph
+const CrawlInputSchema = CrawlDependencyGraphParamsSchema.safeExtend({ response_format: ResponseFormatSchema });
 server.registerTool(
   "graphitlive_crawl_dependency_graph",
   {
     title: "Crawl Full Dependency Graph",
-    description: mcpToolDescription("crawl_dependency_graph"),
-    inputSchema: toolInputSchema(CrawlDependencyGraphParamsSchema.safeExtend({ response_format: ResponseFormatSchema })),
+    description: mcpToolDescription("crawl_dependency_graph", schemaParameters(CrawlInputSchema)),
+    inputSchema: toolInputSchema(CrawlInputSchema),
     annotations: READ_ONLY,
   },
   async ({ response_format, ...params }) => {
@@ -781,7 +784,7 @@ const WORKER_TOOLS: ReadonlyArray<{
   {
     tool: "query_natural_language",
     title: "Query Codebase with Natural Language",
-    schema: QueryNaturalLanguageParamsSchema.omit({ outputFormat: true }),
+    schema: QueryNaturalLanguageParamsSchema,
     annotations: READ_ONLY,
     // response_format is the only format knob: TOON gets the compact subgraph, json and markdown the full one.
     toWorker: (params, format) => ({ ...params, outputFormat: format === "toon" ? "toon" : "json" }),
@@ -791,12 +794,13 @@ const WORKER_TOOLS: ReadonlyArray<{
 
 for (const { tool, title, schema, annotations, toWorker } of WORKER_TOOLS) {
   const name = `graphitlive_${tool}`;
+  const inputSchema = schema.safeExtend({ response_format: ResponseFormatSchema });
   server.registerTool(
     name,
     {
       title,
-      description: mcpToolDescription(tool),
-      inputSchema: toolInputSchema(schema.safeExtend({ response_format: ResponseFormatSchema })),
+      description: mcpToolDescription(tool, schemaParameters(inputSchema)),
+      inputSchema: toolInputSchema(inputSchema),
       annotations,
     },
     async (args) => {
@@ -822,7 +826,7 @@ server.registerTool(
   "graphitlive_get_session_stats",
   {
     title: "Get Session Token Stats",
-    description: mcpToolDescription("get_session_stats"),
+    description: mcpToolDescription("get_session_stats", ["response_format"]),
     inputSchema: toolInputSchema(GetSessionStatsSchema.safeExtend({ response_format: ResponseFormatSchema })),
     annotations: READ_ONLY,
   },

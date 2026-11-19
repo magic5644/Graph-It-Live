@@ -418,9 +418,13 @@ export function toolSummary(name: DescribedToolName): string {
   return TOOL_DESCRIPTIONS[name].summary;
 }
 
-/** Full description registered on the MCP server. */
-export function mcpToolDescription(name: DescribedToolName): string {
-  return render(name, "mcp");
+/**
+ * Full description registered on the MCP server; `parameters` (the input
+ * schema's keys) closes it, so the text names every parameter the tool takes.
+ */
+export function mcpToolDescription(name: DescribedToolName, parameters: readonly string[] = []): string {
+  const text = render(name, "mcp");
+  return parameters.length === 0 ? text : `${text}\nPARAMETERS: ${parameters.join(", ")}.`;
 }
 
 /** `modelDescription` of the VS Code Language Model tool `graph-it-live_<name>`. */

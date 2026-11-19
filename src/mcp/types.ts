@@ -601,10 +601,13 @@ export const QueryNaturalLanguageParamsSchema = z.object({
     .max(256)
     .optional()
     .describe("Workspace-relative glob restricting the search (e.g. 'src/analyzer/**'); a glob matching no indexed file is an error"),
-  // Internal: the MCP server and the LM tool set it from response_format, so it is not in their schemas.
-  outputFormat: z.enum(["toon", "json"]).optional(),
 }).strict();
-export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguageParamsSchema>;
+
+/** What the worker receives: the server derives outputFormat from response_format. */
+const QueryNaturalLanguageWorkerParamsSchema = QueryNaturalLanguageParamsSchema.extend({
+  outputFormat: z.enum(["toon", "json"]).optional(),
+});
+export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguageWorkerParamsSchema>;
 
 const GraphContextSeedSchema = z.object({
   id: GenericStringSchema.refine(value => value.trim().length > 0, "Seed ID must not be empty").optional(),
@@ -935,8 +938,10 @@ export type ValidationResult<T> =
 export function validateToolParams<T>(
   tool: McpToolName,
   params: unknown,
+  { worker = false }: { worker?: boolean } = {},
 ): ValidationResult<T> {
-  const schema = toolSchemas[tool];
+  // The worker also takes the parameters the server derives (query outputFormat).
+  const schema = worker && tool === "query_natural_language" ? QueryNaturalLanguageWorkerParamsSchema : toolSchemas[tool];
 
   if (!schema) {
     return {
