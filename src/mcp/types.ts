@@ -17,6 +17,7 @@ import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import { DEAD_CODE_CONFIDENCES, type DeadCodeConfidence, type UnusedSymbol } from "../analyzer/deadcode/deadCodeConfidence";
 import type { OutOfRootReport } from "../analyzer/utils/workspaceBoundary";
+import { parseToolParams } from "./paramIssues";
 import {
   getRelativePath as _getRelativePath,
 } from "../shared/path";
@@ -284,12 +285,12 @@ export const SetWorkspaceParamsSchema = z.object({
     .max(100)
     .optional()
     .describe("Maximum crawl depth (default: 50, min: 1, max: 100)"),
-});
+}).strict();
 export type SetWorkspaceParams = z.infer<typeof SetWorkspaceParamsSchema>;
 
 export const AnalyzeDependenciesParamsSchema = z.object({
   filePath: FilePathSchema.describe("Absolute path to the file to analyze"),
-});
+}).strict();
 export type AnalyzeDependenciesParams = z.infer<
   typeof AnalyzeDependenciesParamsSchema
 >;
@@ -354,7 +355,7 @@ export const CrawlDependencyGraphParamsSchema = z.object({
         "'louvain' by import structure (deterministic Louvain over the crawled graph)",
     ),
   tokenBudget: GraphToolTokenBudgetSchema,
-});
+}).strict();
 export type CrawlDependencyGraphParams = z.infer<
   typeof CrawlDependencyGraphParamsSchema
 >;
@@ -363,7 +364,7 @@ export const FindReferencingFilesParamsSchema = z.object({
   targetPath: FilePathSchema.describe(
     "Absolute path to the file to find references for",
   ),
-});
+}).strict();
 export type FindReferencingFilesParams = z.infer<
   typeof FindReferencingFilesParamsSchema
 >;
@@ -375,7 +376,7 @@ export const VerifyDependencyUsageParamsSchema = z.object({
   targetFile: FilePathSchema.describe(
     "Absolute path to the target file (the one providing symbols)",
   ),
-});
+}).strict();
 export type VerifyDependencyUsageParams = z.infer<
   typeof VerifyDependencyUsageParamsSchema
 >;
@@ -387,12 +388,12 @@ export const ResolveModulePathParamsSchema = z.object({
   moduleSpecifier: GenericStringSchema.describe(
     'The module specifier to resolve (e.g., "./utils", "@/components/Button")',
   ),
-});
+}).strict();
 export type ResolveModulePathParams = z.infer<
   typeof ResolveModulePathParamsSchema
 >;
 
-export const GetIndexStatusParamsSchema = z.object({});
+export const GetIndexStatusParamsSchema = z.object({}).strict();
 export type GetIndexStatusParams = z.infer<typeof GetIndexStatusParamsSchema>;
 
 /**
@@ -408,17 +409,17 @@ export const InvalidateFilesParamsSchema = z.object({
     .describe(
       `Array of absolute file paths to invalidate from the cache (max: ${INVALIDATE_FILES_MAX} per call; use rebuild_index for the whole workspace). Needed only for edits the file watcher missed: it invalidates changed files on its own.`,
     ),
-});
+}).strict();
 export type InvalidateFilesParams = z.infer<typeof InvalidateFilesParamsSchema>;
 
-export const RebuildIndexParamsSchema = z.object({});
+export const RebuildIndexParamsSchema = z.object({}).strict();
 export type RebuildIndexParams = z.infer<typeof RebuildIndexParamsSchema>;
 
 export const GetSymbolGraphParamsSchema = z.object({
   filePath: FilePathSchema.describe(
     "Absolute path to the file to analyze for symbols",
   ),
-});
+}).strict();
 export type GetSymbolGraphParams = z.infer<typeof GetSymbolGraphParamsSchema>;
 
 const MinConfidenceSchema = z
@@ -435,7 +436,7 @@ export const FindUnusedSymbolsParamsSchema = z.object({
     "Absolute path to the file to check for unused exported symbols",
   ),
   minConfidence: MinConfidenceSchema,
-});
+}).strict();
 export type FindUnusedSymbolsParams = z.infer<
   typeof FindUnusedSymbolsParamsSchema
 >;
@@ -455,7 +456,7 @@ export const TraceFunctionExecutionParamsSchema = z.object({
     .describe(
       "Maximum depth to trace the call chain (default: 10, min: 1, max: 100)",
     ),
-});
+}).strict();
 export type TraceFunctionExecutionParams = z.infer<
   typeof TraceFunctionExecutionParamsSchema
 >;
@@ -470,7 +471,7 @@ export const AnalyzeBreakingChangesParamsSchema = z.object({
   newContent: FileContentSchema.optional().describe(
     "The new version of the file content (if not provided, reads current file)",
   ),
-});
+}).strict();
 export type AnalyzeBreakingChangesParams = z.infer<
   typeof AnalyzeBreakingChangesParamsSchema
 >;
@@ -480,7 +481,7 @@ export const ReviewPrParamsSchema = z.object({
   headRef: GenericStringSchema.optional().describe("Optional Git head ref; defaults to the checked-out worktree"),
   maxFiles: z.number().int().min(1).optional().describe("Optional cap on changed files analysed (default: 200, no upper bound)"),
   maxDepth: z.number().int().min(1).max(10).optional(),
-});
+}).strict();
 export type ReviewPrParams = z.infer<typeof ReviewPrParamsSchema>;
 
 // NEW: Schema for get_impact_analysis
@@ -499,7 +500,7 @@ export const GetImpactAnalysisParamsSchema = z.object({
     .describe(
       "Maximum depth for transitive analysis (default: 3, min: 1, max: 20)",
     ),
-});
+}).strict();
 export type GetImpactAnalysisParams = z.infer<
   typeof GetImpactAnalysisParamsSchema
 >;
@@ -511,7 +512,7 @@ export const AnalyzeFileLogicParamsSchema = z.object({
     .boolean()
     .optional()
     .describe("Include calls to external modules (default: false)"),
-});
+}).strict();
 export type AnalyzeFileLogicParams = z.infer<
   typeof AnalyzeFileLogicParamsSchema
 >;
@@ -519,7 +520,7 @@ export type AnalyzeFileLogicParams = z.infer<
 // NEW: Schema for generate_codemap (comprehensive file codemap)
 export const GenerateCodemapParamsSchema = z.object({
   filePath: FilePathSchema.describe("Absolute path to the file to generate a codemap for"),
-});
+}).strict();
 export type GenerateCodemapParams = z.infer<
   typeof GenerateCodemapParamsSchema
 >;
@@ -565,7 +566,7 @@ export const QueryCallGraphParamsSchema = z.object({
     ),
   offset: GraphToolOffsetSchema,
   tokenBudget: GraphToolTokenBudgetSchema,
-});
+}).strict();
 export type QueryCallGraphParams = z.infer<
   typeof QueryCallGraphParamsSchema
 >;
@@ -608,7 +609,7 @@ export const QueryNaturalLanguageParamsSchema = z.object({
         "'json': short-key JSON object per node/edge — use when the calling client " +
         "needs to JSON.parse() the result directly (e.g. building its own graph structure).",
     ),
-});
+}).strict();
 export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguageParamsSchema>;
 
 const GraphContextSeedSchema = z.object({
@@ -639,7 +640,8 @@ const GraphContextRelationSchema = z.enum([
   "DOCUMENTS",
 ]);
 
-export const GraphContextParamsSchema = z.object({
+/** graph_context parameters before the default mode: the MCP server extends it with response_format. */
+export const GraphContextParamsObject = z.object({
   question: z.string().max(1024).optional(),
   seeds: z.array(GraphContextSeedSchema).max(500).optional(),
   mode: z.enum(["search", "neighbors", "path", "impact", "refactor", "overview"]).optional(),
@@ -656,8 +658,7 @@ export const GraphContextParamsSchema = z.object({
   directed: z.boolean().optional(),
   cursor: z.string().min(1).max(4096).optional(),
   detail: z.enum(["compact", "standard", "full"]).optional(),
-  response_format: z.enum(["json", "markdown", "toon"]).optional(),
-}).superRefine((params, context) => {
+}).strict().superRefine((params, context) => {
   const hasQuestion = params.question !== undefined && params.question.trim().length > 0;
   const hasSeeds = (params.seeds?.length ?? 0) > 0;
   const hasFrom = params.from !== undefined;
@@ -693,7 +694,9 @@ export const GraphContextParamsSchema = z.object({
       message: "Provide a question, at least one seed, or both from and to",
     });
   }
-}).transform(params => {
+});
+
+export const GraphContextParamsSchema = GraphContextParamsObject.transform(params => {
   const hasQuestion = params.question !== undefined && params.question.trim().length > 0;
   const hasSeeds = (params.seeds?.length ?? 0) > 0;
   const hasEndpoints = params.from !== undefined && params.to !== undefined;
@@ -718,8 +721,9 @@ export const GenerateWikiParamsSchema = z.object({
     .describe("Number of top hub files to list (max: 50, default: 10)"),
   scope: FilePathSchema.optional()
     .refine((value) => value === undefined || !nodePath.isAbsolute(value), "Scope must be relative to the workspace")
-    .describe("Relative path within workspace to restrict wiki to (e.g. 'src/')"),
-  exclude: z.array(GenericStringSchema).max(100).optional().describe("Relative glob-like patterns to exclude"),
+    .describe("Relative path within workspace to restrict wiki to (e.g. 'src/'; default: the whole workspace)"),
+  exclude: z.array(GenericStringSchema).max(100).optional()
+    .describe("Relative glob-like patterns to exclude (e.g. ['tests/**', '**/*.test.ts']); omitted: tests/, dist/, *.test.ts and the other default exclusions"),
 }).strict();
 export type GenerateWikiParams = z.infer<typeof GenerateWikiParamsSchema>;
 
@@ -769,10 +773,7 @@ export const ExploreArchitectureParamsSchema = z.object({
     .regex(/^[0-9a-f]{64}$/)
     .optional()
     .describe("context.revision of the response the group ids or offset come from; the call fails if the architecture has changed since"),
-  // In the schema itself: an object with refinements cannot be extended by the server.
-  response_format: z.enum(["json", "markdown", "toon"]).optional()
-    .describe("Output format: 'json', 'markdown', or 'toon' (default: toon)"),
-}).superRefine((params, context) => {
+}).strict().superRefine((params, context) => {
   if ((params.from === undefined) !== (params.to === undefined)) {
     context.addIssue({ code: "custom", message: "Both from and to are required for edge evidence" });
   }
@@ -810,8 +811,6 @@ export const CheckArchitectureParamsSchema = z.object({
     .regex(/^[0-9a-f]{64}$/)
     .optional()
     .describe("context.revision of the response the offset comes from; the call fails if the code, rules or baseline changed since"),
-  response_format: z.enum(["json", "markdown", "toon"]).optional()
-    .describe("Output format: 'json', 'markdown', or 'toon' (default: toon)"),
 }).strict();
 export type CheckArchitectureParams = z.infer<typeof CheckArchitectureParamsSchema>;
 
@@ -830,8 +829,6 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
     .describe("Accepted violations with rules, relative to the workspace (default: graphit.architecture.baseline.json when it exists)"),
   output: RulesFileSchema.optional()
     .describe("File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec)"),
-  response_format: z.enum(["json", "markdown", "toon"]).optional()
-    .describe("Output format: 'json', 'markdown', or 'toon' (default: toon)"),
 }).strict().superRefine((params, context) => {
   const { view } = diagramLevel(params.view, params.folder);
   if (view === "folder" && params.folder === undefined) {
@@ -885,7 +882,7 @@ export const ScanDeadCodeParamsSchema = z.object({
         "Python package __init__.py. Then the files only dead files and tests import (reason cascade, via = their dead importers); " +
         "tests = the tests that import nothing but dead files.",
     ),
-});
+}).strict();
 export type ScanDeadCodeParams = z.infer<typeof ScanDeadCodeParamsSchema>;
 
 // ============================================================================
@@ -950,27 +947,8 @@ export function validateToolParams<T>(
     };
   }
 
-  const result = schema.safeParse(params);
-
-  if (result.success) {
-    return {
-      success: true,
-      data: result.data as T,
-    };
-  }
-
-  // Format Zod errors for better readability
-  const issues = result.error.issues;
-  const errorMessages = issues.map((issue) => {
-    const path = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
-    return `${path}${issue.message}`;
-  });
-
-  return {
-    success: false,
-    error: `Invalid parameters: ${errorMessages.join("; ")}`,
-    issues,
-  };
+  const result = parseToolParams(schema, params);
+  return result.success ? { success: true, data: result.data as T } : result;
 }
 
 /**

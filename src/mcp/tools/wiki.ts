@@ -1,5 +1,4 @@
 import * as path from "node:path";
-import { z } from "zod/v4";
 import { workerState } from "../shared/state.js";
 import type { WikiGenerateResult } from "../../shared/wiki-types.js";
 import { normalizePath } from "../../shared/path.js";
@@ -7,36 +6,9 @@ import { validateWorkspacePath } from "../../shared/pathSecurity.js";
 
 // NO vscode imports — VS Code agnostic
 
-export const GenerateWikiSchema = z.object({
-  outputDir: z
-    .string()
-    .optional()
-    .refine((value) => value === undefined || !path.isAbsolute(value), "Output directory must be relative to the workspace")
-    .describe(
-      "Workspace-relative output directory. Defaults to wiki.",
-    ),
-  topHubsLimit: z
-    .number()
-    .int()
-    .min(1)
-    .max(50)
-    .optional()
-    .describe("Number of top hub files to include (default: 10, max: 50)."),
-  scope: z
-    .string()
-    .optional()
-    .describe(
-      "Relative path within workspace to restrict wiki to (e.g. 'src/'). Defaults to entire workspace.",
-    ),
-  exclude: z
-    .array(z.string())
-    .optional()
-    .describe(
-      "Relative glob-like patterns to exclude (e.g. ['tests/**', '**/*.test.ts']). When omitted, default exclusions apply: tests/, dist/, *.test.ts, etc.",
-    ),
-}).strict();
+import type { GenerateWikiParams } from "../types.js";
 
-export type GenerateWikiParams = z.infer<typeof GenerateWikiSchema>;
+export { GenerateWikiParamsSchema as GenerateWikiSchema, type GenerateWikiParams } from "../types.js";
 
 export interface GenerateWikiMcpResult {
   articlesCount: number;

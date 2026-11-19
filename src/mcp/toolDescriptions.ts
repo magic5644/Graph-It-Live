@@ -428,10 +428,16 @@ export function lmToolDescription(name: DescribedToolName): string {
   return render(name, "lm").replaceAll("graphitlive_", "graph-it-live_");
 }
 
+/** `response_format` values of every MCP and Language Model tool. */
+export const RESPONSE_FORMATS = ["toon", "json", "markdown"] as const;
+
+export const RESPONSE_FORMAT_DESCRIPTION =
+  "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)";
+
 /** `inputSchema.properties.response_format` of every VS Code Language Model tool (synced into package.json). */
 export const LM_RESPONSE_FORMAT_PROPERTY = {
   type: "string",
-  enum: ["toon", "markdown", "json"],
+  enum: RESPONSE_FORMATS,
   default: "toon",
-  description: "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)",
+  description: RESPONSE_FORMAT_DESCRIPTION,
 } as const;
