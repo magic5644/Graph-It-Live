@@ -9,6 +9,7 @@
 
 import type { ArchitectureMatrix, ArchitectureUnits, MatrixCell, UnitCycleKind } from "../../shared/architecture-model";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
+import { unitDisplayName } from "../../shared/unitDisplayName";
 import { byCodeUnit, ROOT_UNIT } from "./architectureUnits";
 
 /** Fixed thresholds of the findings, documented in docs/CLI.md (graph-it init). */
@@ -131,6 +132,8 @@ export interface GroupedCycles {
 }
 
 export interface ArchitectureAssessment {
+  /** Every unit with its display name (unitDisplayName): what the report and the page show for a unit key (#774). A list, so toon carries it. */
+  unitNames: { key: string; name: string }[];
   deadFiles: DeadFileGroup[];
   /** Runtime cycles only: a cycle with at least one runtime import. */
   quickWins: QuickWin[];
@@ -287,15 +290,23 @@ export function cycleCuts(matrix: ArchitectureMatrix<string>): CycleCut[] {
 const cellKey = (matrix: ArchitectureMatrix<string>, cell: MatrixCell) => `${matrix.rows[cell.row].key}>${matrix.rows[cell.column].key}`;
 const unitEdgeCommand = (from: string, to: string) => `graph-it architecture --level units --from ${JSON.stringify(from)} --to ${JSON.stringify(to)}`;
 
+/** The display name of a unit key; a key outside the units (NO_UNIT) names itself. */
+function unitNamer(input: AssessmentInput): (key: string) => string {
+  const names = new Map(input.units.units.map((unit) => [unit.key, unitDisplayName(unit)]));
+  return (key) => names.get(key) ?? key;
+}
+
 function cycleBreaks(input: AssessmentInput, cuts: readonly CycleCut[], pairs: Map<string, Edge[]>): QuickWin[] {
+  const name = unitNamer(input);
   return cuts.filter((cut) => cut.cells.length > 0).map((cut) => {
     const keys = cut.cells.map((cell) => cellKey(input.matrix, cell));
     const [from, to] = keys[0].split(">");
+    const cells = cut.cells.map((cell) => `${name(input.matrix.rows[cell.row].key)}>${name(input.matrix.rows[cell.column].key)}`);
     return {
       kind: "cycle-break",
       gain: cut.members.length,
       effort: cut.pairs,
-      subject: `${cut.members.join(", ")} import each other: remove or move ${cut.pairs} import(s) (${keys.join(", ")}) to layer these ${cut.members.length} units again`,
+      subject: `${cut.members.map(name).join(", ")} import each other: remove or move ${cut.pairs} import(s) (${cells.join(", ")}) to layer these ${cut.members.length} units again`,
       ...capped(keys.flatMap((key) => (pairs.get(key) ?? []).map(importLine))),
       units: cut.members,
       next: unitEdgeCommand(from, to),
@@ -332,7 +343,7 @@ function groupedCycles(input: AssessmentInput, cuts: readonly CycleCut[], mutual
   return {
     unitCycles: cuts.length,
     mutualImports: mutual.length,
-    ...capped([...mutual.map((edge) => `${edge.sourceRelative} <-> ${edge.targetRelative}`), ...cuts.map((cut) => `units ${cut.members.join(", ")}`)]),
+    ...capped([...mutual.map((edge) => `${edge.sourceRelative} <-> ${edge.targetRelative}`), ...cuts.map((cut) => `units ${cut.members.map(unitNamer(input)).join(", ")}`)]),
     units: [...units].sort(byCodeUnit),
   };
 }
@@ -374,13 +385,14 @@ function mutualImports(input: AssessmentInput, mutual: readonly Edge[]): { wins:
 }
 
 function weakDependencies(input: AssessmentInput, pairs: Map<string, Edge[]>, scope: FocusScope): QuickWin[] {
+  const name = unitNamer(input);
   return input.units.unitEdges
     .filter((edge) => edge.kind !== "cycle" && edge.fileEdgeCount <= ASSESSMENT_THRESHOLDS.cheapPairs && scope.unitEdge(pairs, edge))
     .map((edge) => ({
       kind: "weak-dependency" as const,
       gain: 1,
       effort: edge.fileEdgeCount,
-      subject: `${edge.from} depends on ${edge.to} through ${edge.fileEdgeCount} file pair(s): remove it before freezing it in allowOnly`,
+      subject: `${name(edge.from)} depends on ${name(edge.to)} through ${edge.fileEdgeCount} file pair(s): remove it before freezing it in allowOnly`,
       ...capped((pairs.get(`${edge.from}>${edge.to}`) ?? []).map(importLine)),
       units: [edge.from, edge.to],
       next: unitEdgeCommand(edge.from, edge.to),
@@ -548,6 +560,7 @@ export function assessArchitecture(input: AssessmentInput, focus?: ReadonlySet<s
   const deadFiles = deadFileGroups(input, deadFileList);
   const { rows } = scope;
   return {
+    unitNames: input.units.units.map((unit) => ({ key: unit.key, name: unitDisplayName(unit) })),
     deadFiles,
     quickWins,
     typeOnlyCycles: groupedCycles(input, typeOnlyCuts, typeOnlyMutual),

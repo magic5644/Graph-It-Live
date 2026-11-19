@@ -15,6 +15,7 @@ import {
   type DrawOptions,
   fitLabel,
   legendHeight,
+  nodeTitle,
   textBound,
   textWidth,
   type Box,
@@ -50,7 +51,8 @@ export interface MatrixLayout {
   height: number;
   top: number;
   /** Row labels, numbered as the columns. */
-  rows: { key: string; text: string; x: number; y: number }[];
+  /** `title`: the full name (nodeTitle) of a row cut to fit. */
+  rows: { key: string; text: string; title: string; x: number; y: number }[];
   columns: { text: string; x: number; y: number }[];
   /** The grid's frame. */
   grid: Box;
@@ -104,6 +106,7 @@ export function layoutMatrix(input: DiagramInput, options: DrawOptions = {}): Ma
   }));
   const placed = matrix.cells.map((matrixCell): PlacedCell => {
     const [from, to] = [matrix.rows[matrixCell.row].key, matrix.rows[matrixCell.column].key];
+    const [fromName, toName] = [matrix.rows[matrixCell.row].label, matrix.rows[matrixCell.column].label];
     const edge = edgeOf.get(`${from}>${to}`);
     const accepted = edge?.accepted ? " (accepted)" : "";
     const rules = edge && edge.rules.length > 0 ? `, breaks ${edge.rules.join(", ")}${accepted}` : "";
@@ -121,8 +124,8 @@ export function layoutMatrix(input: DiagramInput, options: DrawOptions = {}): Ma
       kind: cellKind(matrixCell.row, matrixCell.column, edge),
       cut,
       title: from === to
-        ? `${from}: ${matrixCell.fileEdgeCount} file pairs inside`
-        : `${from} → ${to}: ${matrixCell.fileEdgeCount} file pairs${typeOnly}${rules}${cutNote}`,
+        ? `${fromName}: ${matrixCell.fileEdgeCount} file pairs inside`
+        : `${fromName} → ${toName}: ${matrixCell.fileEdgeCount} file pairs${typeOnly}${rules}${cutNote}`,
     };
   });
   const kinds: LegendKind[] = [
@@ -136,7 +139,7 @@ export function layoutMatrix(input: DiagramInput, options: DrawOptions = {}): Ma
     width: snap(SIZES.margin * 2 + Math.max(labelWidth + size, textBound(text, { kinds, weight: false }))),
     height: snap(gridY + size + SIZES.margin + legendHeight(text)),
     top,
-    rows: labels.map((label, index) => ({ key: matrix.rows[index].key, text: label, x: SIZES.margin, y: gridY + index * cell })),
+    rows: labels.map((label, index) => ({ key: matrix.rows[index].key, text: label, title: nodeTitle(matrix.rows[index]), x: SIZES.margin, y: gridY + index * cell })),
     columns: matrix.rows.map((_row, index) => ({ text: String(index + 1), x: gridX + index * cell, y: top })),
     grid: { x: gridX, y: gridY, width: size, height: size },
     cells: placed,

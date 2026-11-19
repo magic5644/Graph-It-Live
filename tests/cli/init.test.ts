@@ -189,8 +189,10 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     expect(report).toContain("Explore: [index.html](index.html): units as groups");
     // The page: one group per unit, the units of the report, its findings, and no absolute path.
     const page = read(`${dir}/index.html`);
-    const groups = JSON.parse(page.split("const groupsData = ")[1].split(";\n")[0]) as { label: string; fileCount: number }[];
-    expect(groups.map((group) => group.label)).toEqual(expect.arrayContaining(["backend", "frontend", "shared/ui", "shared/utils", "(root)"]));
+    const groups = JSON.parse(page.split("const groupsData = ")[1].split(";\n")[0]) as { key: string; label: string; fileCount: number }[];
+    expect(groups.map((group) => group.key)).toEqual(expect.arrayContaining(["backend", "frontend", "shared/ui", "shared/utils", "(root)"]));
+    // Shown by the unit's display name, as units.svg and report.md show it (#774).
+    expect(groups.map((group) => group.label)).toEqual(expect.arrayContaining(["@acme/backend", "@acme/frontend", "@acme/shared-ui", "@acme/shared-utils", "(root)"]));
     expect(groups).toHaveLength(result.assessment.totals.units);
     expect(groups.reduce((sum, group) => sum + group.fileCount, 0)).toBe(result.assessment.totals.files);
     expect(page).toContain(`"title":"Dead files: 2 files in 1 unit"`);

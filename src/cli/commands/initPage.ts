@@ -13,6 +13,7 @@ import { workspaceName } from "../../analyzer/diagram/architectureDiagram.js";
 import { edgeStyle } from "../../analyzer/diagram/diagramStyle.js";
 import type { HtmlEdgeKind, HtmlPageConfig } from "../../analyzer/export/HtmlExporter";
 import type { GraphNodeMetadata } from "../../shared/graph-types";
+import { unitDisplayName } from "../../shared/unitDisplayName";
 import { reportSections, type InitResult } from "./initReport";
 
 /** Files of the page a finding names: tokens of its subject and details, `file`, `file:` or `file:line`. */
@@ -31,7 +32,7 @@ export function initPage(
   focus?: { files: ReadonlySet<string>; units: ReadonlySet<string> },
   matrixSvg?: string,
 ): HtmlPageConfig {
-  // Group id = unit index + 1, group label = unit key: the page groups by unit, nothing else.
+  // Group id = unit index + 1, group key = unit key, shown by its unitDisplayName: the page groups by unit, nothing else.
   const ids = new Map(units.units.filter((unit) => focus === undefined || focus.units.has(unit.key)).map((unit, index) => [unit.key, index + 1]));
   const unitOf = (file: string) => assignment.unitOf.get(file) ?? "";
   const nodes = graph.nodes.filter((node) => ids.has(unitOf(node.relativePath)));
@@ -73,6 +74,7 @@ export function initPage(
       failedFiles: graph.context.failedFiles,
     },
     workspaceName: workspaceName(workspaceRoot),
+    groupNames: Object.fromEntries(units.units.map((unit) => [unit.key, unitDisplayName(unit)])),
     overlay: {
       edgeKinds,
       deadFiles: result.assessment.deadFiles.flatMap((group) => group.files.map((file) => file.relativePath)).filter((file) => files.has(file)),

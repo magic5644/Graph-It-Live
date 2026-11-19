@@ -12,6 +12,7 @@ import ELK, { type ElkExtendedEdge, type ElkNode } from "elkjs/lib/elk.bundled.j
 import type { ArchitectureUnitEdgeKind, UnitCycleKind, UnitRole } from "../../shared/architecture-model";
 import { ELK_LAYERED_OPTIONS, layerPartition } from "../../shared/elkLayered";
 import { normalizePath } from "../../shared/path";
+import { unitDisplayName } from "../../shared/unitDisplayName";
 import { cycleCuts } from "../architecture/architectureAssessment";
 import { buildMatrix } from "../architecture/architectureMatrix";
 import { rulesByEdge, type ArchitectureViolation } from "../architecture/architectureRules";
@@ -135,6 +136,9 @@ export interface DiagramLayout {
 /** `new: false` marks a pair the baseline accepts. */
 type Violations = readonly (Pick<ArchitectureViolation, "rule" | "source" | "target"> & { new?: boolean })[];
 
+/** A node's full name for a tooltip: its label, then its key when it differs (a unit's folder, #774). */
+export const nodeTitle = ({ key, label }: { key: string; label: string }) => (label === key ? key : `${label} (${key})`);
+
 /** Last folder name of the workspace root: diagrams never show an absolute path. */
 export function workspaceName(workspaceRoot: string): string {
   return normalizePath(workspaceRoot).split("/").findLast((segment) => segment !== "") ?? "workspace";
@@ -198,7 +202,7 @@ function levelInput(source: UnitSource, workspaceRoot: string, { folder, violati
     return {
       workspace, scope: "units", noun: "units", revision: context.revision, date, violations: count, acceptedViolations: accepted,
       ...(role === undefined ? {} : { filters: [`role ${role}`] }),
-      nodes: units.map(({ key, name, layer, fileCount, internalEdgeCount, role: unitRole }) => ({ key, label: name, layer, fileCount, internalEdgeCount, role: unitRole })),
+      nodes: units.map((unit) => ({ key: unit.key, label: unitDisplayName(unit), layer: unit.layer, fileCount: unit.fileCount, internalEdgeCount: unit.internalEdgeCount, role: unit.role })),
       edges: unitEdges
         .filter(({ from, to }) => kept.has(from) && kept.has(to))
         .map(({ from, to, fileEdgeCount, kind, cycleKind: runs, typeOnlyEdgeCount }) => ({
@@ -304,11 +308,13 @@ function diagramCommand(input: DiagramInput, extra: string): string {
 /** The heaviest cuts as note lines (from → to, file pairs, the command that lists them), and where to see all of them. */
 function cutList(input: DiagramInput, cuts: readonly DiagramEdge[], inCycle: number, cycles: number, pairs: number): string[] {
   const heaviest = cuts.toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || byCodeUnit(left.from, right.from) || byCodeUnit(left.to, right.to));
+  const labels = new Map(input.nodes.map((node) => [node.key, node.label]));
+  const name = (key: string) => fitLabel(labels.get(key) ?? key, 40);
   const next = (edge: DiagramEdge) => (input.scope === "units" ? ` · next: graph-it architecture --level units --from ${edge.from} --to ${edge.to}` : "");
   return [
     `${plural(inCycle, input.noun)} form ${plural(cycles, "cycles")}, too large to draw: breaking ${cycles === 1 ? "it" : "them"} takes ${plural(cuts.length, "cuts")} (${plural(pairs, "file pairs")}).`,
     cuts.length > LISTED_CUTS ? `The ${LISTED_CUTS} heaviest cuts:` : "The cuts, heaviest first:",
-    ...heaviest.slice(0, LISTED_CUTS).map((edge) => `${fitLabel(edge.from, 40)} → ${fitLabel(edge.to, 40)} · ${plural(edge.fileEdgeCount, "file pairs")}${next(edge)}`),
+    ...heaviest.slice(0, LISTED_CUTS).map((edge) => `${name(edge.from)} → ${name(edge.to)} · ${plural(edge.fileEdgeCount, "file pairs")}${next(edge)}`),
     `All ${plural(cuts.length, "cuts")}, marked in the matrix: ${diagramCommand(input, " --view matrix")}`,
   ];
 }
