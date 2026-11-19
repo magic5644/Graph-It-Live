@@ -263,6 +263,8 @@ export class ReviewGateAnalyzer {
     const headRef = options.headRef ?? "HEAD";
     this.validateRef(options.baseRef, "baseRef");
     this.validateRef(headRef, "headRef");
+    await this.assertCommit(options.baseRef);
+    await this.assertCommit(headRef);
     const changedFiles = await this.getChangedFiles(options.baseRef, headRef, maxFiles);
     const changedFileSet = new Set(changedFiles);
     const symbols: ReviewSymbol[] = [];
@@ -959,6 +961,17 @@ export class ReviewGateAnalyzer {
       evidence.push({ kind: "partial", detail: "Impact traversal reached its configured depth limit." });
     }
     return evidence;
+  }
+
+  /** A ref git cannot resolve fails here with its name, not later with git's raw "bad revision" output. */
+  private async assertCommit(ref: string): Promise<void> {
+    try {
+      await execFileAsync("git", ["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], { cwd: this.workspaceRoot });
+    } catch (error) {
+      const stderr = String((error as { stderr?: unknown }).stderr ?? "");
+      if (stderr.includes("not a git repository")) throw new Error("The workspace is not a Git repository: the review compares two Git refs.", { cause: error });
+      throw new Error(`Unknown Git ref "${ref}": pass a branch, tag or commit of this repository.`, { cause: error });
+    }
   }
 
   private async getChangedFiles(baseRef: string, headRef: string, maxFiles: number): Promise<string[]> {

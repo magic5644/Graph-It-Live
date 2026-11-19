@@ -44,7 +44,7 @@ function parseTop(args: string[]): number {
   return readIntegerOption(args, "--top", { min: 1, max: 50 }) ?? 10;
 }
 
-/** main() and the REPL strip --format from args; text and mermaid render as markdown. */
+/** Without --format main() passes text: the wiki is markdown then (other formats exit 4 in main()). */
 function toWikiFormat(format: CliOutputFormat): "markdown" | "json" | "toon" {
   return format === "json" || format === "toon" ? format : "markdown";
 }

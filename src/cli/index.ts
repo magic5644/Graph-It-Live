@@ -37,10 +37,12 @@
 
 import { parseArgs } from "node:util";
 import { flushSession } from "../analyzer/stats/statsPersistence";
+import { closestNames } from "../analyzer/utils/SymbolLookup";
 import { sessionStats } from "../shared/sessionStats";
+import { commandSpec, parseCommandArgs, resolveCommandFormat } from "./commandSpec";
 import { classifyError, CliError, ExitCode } from "./errors";
 import type { CliOutputFormat } from "./formatter";
-import { CLI_OUTPUT_FORMATS, renderCliOutput } from "./formatter";
+import { renderCliOutput } from "./formatter";
 import { CliProgress } from "./progress";
 import { CliRuntime, resolveCliWorkspaceRoot } from "./runtime";
 import { maybeNotifyCliUpdate } from "./versionCheck";
@@ -89,6 +91,12 @@ function flushStatsOnce(): void {
 // Covers every exit path (main uses process.exit throughout).
 process.on("exit", () => {
   flushStatsOnce();
+});
+
+// `graph-it … | head` closes stdout early: stop quietly instead of printing an EPIPE stack trace.
+process.stdout.on("error", (error: NodeJS.ErrnoException) => {
+  if (error.code !== "EPIPE") throw error;
+  process.exit(ExitCode.SUCCESS);
 });
 
 // Node does not emit 'exit' on unhandled SIGINT/SIGTERM (e.g. Ctrl+C during a
@@ -141,22 +149,14 @@ Commands:
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text);
-                    html for export and diagram, svg and diagram-spec for diagram, csv for architecture --matrix,
-                    sarif for check-architecture and review-pr
+  --format, -f      Output format; each command lists the ones it writes in graph-it <command> --help.
+                    Any other format exits 4.
   --help, -h        Show this help
   --version, -v     Show version
   --reindex         Discard the cached index and rebuild it from scratch
   --no-cache        Neither read nor write the index cache (also GRAPH_IT_NO_CACHE=1)
 
-Output Format Availability:
-  Format    | scan | summary | trace | explain | path | architecture | check | tool
-  ----------|------|---------|-------|---------|------|--------------|-------|-----
-  text      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
-  json      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
-  toon      |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
-  markdown  |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
-  mermaid   |  ✓   |    ✓    |   ✓   |    ✓    |  ✓   |      ✓       |   ✓   |  ✓
+Unknown options exit 1 with the closest option.
 
 MCP Client Integration:
   Use "graph-it serve" as the MCP server command in any MCP-compatible client.
@@ -300,6 +300,45 @@ export function stripGlobalOptions(args: string[]): string[] {
 }
 
 /**
+ * Before the command name only global options may stand. Checked before the command itself:
+ * `--worksapce . scan` would otherwise report "." as an unknown command.
+ */
+export function assertGlobalOptions(argv: string[], command: string): void {
+  const start = findCommandStart(argv, command);
+  const [unknownGlobal] = start >= 0 ? stripGlobalOptions(argv.slice(0, start)) : [];
+  if (unknownGlobal === undefined) return;
+  const names = Object.keys(GLOBAL_OPTIONS).map((name) => `--${name}`);
+  const [closest] = closestNames(names, unknownGlobal, 1);
+  throw new CliError(
+    `Unknown option ${unknownGlobal}.${closest ? ` Did you mean ${closest}?` : ""} Global options: ${names.join(", ")}.`,
+    ExitCode.GENERAL_ERROR,
+  );
+}
+
+/**
+ * The format and the checked arguments of `command` (see parseCommandArgs). Read from raw argv,
+ * not the top-level positionals: parseArgs({ strict: false }) swallows the command flags it does
+ * not know (`wiki --output`, `query --depth`) and strips them from its positionals.
+ */
+export function readCommandLine(
+  command: string,
+  commandArgs: string[],
+  requestedFormat: unknown,
+  argv: string[] = process.argv.slice(2),
+): { format: CliOutputFormat; args: string[] } {
+  const start = findCommandStart(argv, command);
+  assertGlobalOptions(argv, command);
+  if (requestedFormat !== undefined && (typeof requestedFormat !== "string" || requestedFormat === "")) {
+    throw new CliError("--format needs a value. Run graph-it <command> --help for the formats.", ExitCode.GENERAL_ERROR);
+  }
+  const argsAfterCommand = start >= 0 ? argv.slice(start + 1) : commandArgs;
+  return {
+    format: resolveCommandFormat(command, requestedFormat),
+    args: parseCommandArgs(command, stripGlobalOptions(argsAfterCommand)),
+  };
+}
+
+/**
  * Build the runtime for this invocation, applying the index-cache flags.
  *
  * Exported so the flag semantics are unit-testable: `main()` itself only runs
@@ -437,34 +476,21 @@ async function main(): Promise<void> {
 
   // Per-command --help dispatch (check both parsed positionals and raw argv flags)
   const rawArgvSlice = process.argv.slice(2);
-  if (values.help || commandWantsHelp(command, commandArgs, rawArgvSlice)) {
-    process.stdout.write(await resolveCommandHelp(command, commandArgs));
-    process.exit(ExitCode.SUCCESS);
+  let format: CliOutputFormat;
+  let rawCommandArgs: string[];
+  let workspaceRoot: string;
+  try {
+    assertGlobalOptions(rawArgvSlice, command);
+    commandSpec(command);
+    if (values.help || commandWantsHelp(command, commandArgs, rawArgvSlice)) {
+      process.stdout.write(await resolveCommandHelp(command, commandArgs));
+      process.exit(ExitCode.SUCCESS);
+    }
+    ({ format, args: rawCommandArgs } = readCommandLine(command, commandArgs, values.format));
+    workspaceRoot = resolveCliWorkspaceRoot(values.workspace as string | undefined);
+  } catch (err) {
+    process.exit(reportError(err));
   }
-
-  // Use raw argv (not the top-level parsed positionals) for every command's args.
-  // node:util's parseArgs({ strict: false }) silently swallows any subcommand flag
-  // it doesn't recognize (e.g. `wiki --output`, `query --depth`) into `values` and
-  // strips it from `positionals`, so subcommand parsers never see it. Slicing argv
-  // right after the command name preserves those flags untouched.
-  const argvAfterBinary = process.argv.slice(2);
-  const commandPosInArgv = findCommandStart(argvAfterBinary, command);
-  const argsAfterCommand = commandPosInArgv >= 0
-    ? argvAfterBinary.slice(commandPosInArgv + 1)
-    : commandArgs;
-  const rawCommandArgs = stripGlobalOptions(argsAfterCommand);
-
-  // Validate output format
-  const format = (values.format ?? "text") as CliOutputFormat;
-  if (!CLI_OUTPUT_FORMATS.includes(format)) {
-    process.stderr.write(
-      `Error: Unknown format "${format}". Valid formats: ${CLI_OUTPUT_FORMATS.join(", ")}\n`,
-    );
-    process.exit(ExitCode.GENERAL_ERROR);
-  }
-
-  // Resolve workspace
-  const workspaceRoot = resolveCliWorkspaceRoot(values.workspace as string | undefined);
   const runtime = createRuntime(workspaceRoot, values);
   runtime.progress = createProgress(command);
   activeRuntime = runtime;
@@ -603,22 +629,15 @@ async function dispatch(
       return run(args, runtime, format);
     }
     case "export": {
-      if (format === "html") {
-        const { runExportHtml } = await import("./commands/ExportHtmlCommand.js");
-        const workspaceName = runtime.workspaceRoot.split("/").pop() ?? "workspace";
-        await runExportHtml(runtime, workspaceName, args);
-        return "";
-      }
-      throw new CliError(
-        `Command "export" only supports --format html. Got: "${format}".`,
-        ExitCode.GENERAL_ERROR,
-      );
+      // html is its only format (resolveCommandFormat refuses others): "text" means none was passed.
+      const { runExportHtml } = await import("./commands/ExportHtmlCommand.js");
+      const workspaceName = runtime.workspaceRoot.split("/").pop() ?? "workspace";
+      await runExportHtml(runtime, workspaceName, args);
+      return "";
     }
     default:
-      throw new CliError(
-        `Unknown command "${command}". Run graph-it --help for usage.`,
-        ExitCode.GENERAL_ERROR,
-      );
+      // Unreachable: main() refuses an unknown command (commandSpec) before dispatching.
+      throw new CliError(`Unknown command "${command}". Run graph-it --help for usage.`, ExitCode.GENERAL_ERROR);
   }
 }
 
@@ -627,7 +646,6 @@ async function dispatch(
 // Bundled to CJS (esbuild), so require.main is the standard entry-point check.
 if (require.main === module) {
   main().catch((err) => {
-    process.stderr.write(`Fatal: ${err instanceof Error ? err.message : String(err)}\n`);
-    process.exit(err instanceof CliError ? err.exitCode : ExitCode.GENERAL_ERROR);
+    process.exit(reportError(err));
   });
 }

@@ -12,7 +12,7 @@ import { CliError, ExitCode } from '../errors';
 import type { CliOutputFormat } from '../formatter';
 import { formatOutput } from '../formatter';
 import type { CliRuntime } from '../runtime';
-import { parseSymbolRef } from '../symbols';
+import { parseTargetRef } from '../symbols';
 
 export async function run(
   args: string[],
@@ -28,7 +28,7 @@ export async function run(
 
   await runtime.ensureIndexed();
 
-  const targetFile = parseSymbolRef(args[0], runtime.workspaceRoot).filePath;
+  const targetFile = parseTargetRef(args[0], runtime.workspaceRoot).filePath;
   const [outgoing, incoming] = await Promise.all([
     executeAnalyzeDependencies({ filePath: targetFile }),
     executeFindReferencingFiles({ targetPath: targetFile }),

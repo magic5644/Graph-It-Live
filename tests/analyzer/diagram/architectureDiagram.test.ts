@@ -404,7 +404,7 @@ describe("architecture diagram rendering", () => {
     expect(layout.edges.map((edge) => `${edge.from}>${edge.to}`)).toEqual(["a>b", "b>c"]);
     expect(layout.hidden).toBe(2);
     expect(layout.counts.nodes).toBe(5);
-    expect(layout.text.hidden).toEqual(["2 more units not drawn: the 3 largest are drawn"]);
+    expect(layout.text.hidden).toEqual(["drawn: the 3 largest units; 2 more units not drawn"]);
     expect(renderDiagramSvg(layout)).toContain("2 more units not drawn");
     expect((await layoutDiagram(diagram)).text.hidden).toEqual([]);
   });
@@ -415,7 +415,7 @@ describe("architecture diagram rendering", () => {
     expectSoundGeometry(layout);
     expect(layout.cycles).toEqual([]);
     expect(layout.counts.cycles).toBe(1);
-    expect(layout.text.hidden).toEqual(["1 more unit not drawn: the 2 largest are drawn"]);
+    expect(layout.text.hidden).toEqual(["drawn: the 2 largest units; 1 more unit not drawn"]);
   });
 
   it("draws the most coupled connected nodes, every cycle member kept, and counts the others", async () => {
@@ -429,11 +429,11 @@ describe("architecture diagram rendering", () => {
     expect(layout.cycles).toMatchObject([{ members: ["p", "q"], size: 2 }]);
     expect(layout.hidden).toBe(3);
     expect(layout.counts.nodes).toBe(6);
-    expect(layout.text.hidden).toEqual(["1 unit with no edge to the others not drawn", "2 more units not drawn: the 3 most coupled are drawn, cycle members first"]);
+    expect(layout.text.hidden).toEqual(["1 unit with no edge to the others not drawn", "drawn: the 3 most coupled units, cycle members first; 2 more units not drawn"]);
     // A cycle larger than the cap: its most coupled member is drawn, the block still counts the whole cycle.
     const tight = await layoutDiagram(diagram, { byCoupling: true, maxNodes: 1 });
     expect(tight.nodes.map((node) => node.key)).toEqual(["p"]);
-    expect(tight.text.hidden).toEqual(["5 more units not drawn: the 1 most coupled are drawn, cycle members first (1 of them in a cycle)"]);
+    expect(tight.text.hidden).toEqual(["drawn: the 1 most coupled unit, cycle members first; 5 more units not drawn, 1 of them in a cycle"]);
     // Without isolated node, no note: the matrix rows are the connected ones.
     const matrix = layoutMatrix(diagram, { connectedOnly: true });
     expect(matrix.rows.map((row) => row.key).sort()).toEqual(["p", "q", "x", "y", "z"]);
@@ -457,7 +457,7 @@ describe("architecture diagram rendering", () => {
     expect(layout.nodes.map((node) => node.key)).toEqual(["a", "c"]);
     expect(layout.cycles).toMatchObject([{ members: ["a", "c"], size: 3 }]);
     expect(layout.counts).toMatchObject({ nodes: 4, cycles: 1 });
-    expect(layout.text.hidden).toEqual(["a cycle drawn by the edges that cut it only: 1 in the level (1 file pair)", '1 group of a cycle, 1 group outside cycles, 3 other edges not drawn; all of them: graph-it diagram --folder "src"']);
+    expect(layout.text.hidden).toEqual(["3 groups form 1 cycle, drawn by the 1 edge that breaks it (1 file pair)", 'not drawn: 1 group of a cycle, 1 group outside cycles, 3 other edges; all of them: graph-it diagram --folder "src"']);
     expect(renderDiagramSvg(layout)).toContain("cycle · 3");
     // "cycles": the cycle keeps only its cut, every other node and edge stays.
     const reduced = await layoutDiagram(diagram, { cuts: "cycles" });
@@ -465,7 +465,7 @@ describe("architecture diagram rendering", () => {
     expect(reduced.nodes.map((node) => node.key)).toEqual(["a", "b", "c", "d"]);
     expect(reduced.edges.map((edge) => `${edge.from}>${edge.to}`)).toEqual(["c>a", "d>a"]);
     expect(reduced.cycles).toMatchObject([{ members: ["a", "b", "c"], size: 3 }]);
-    expect(reduced.text.hidden).toEqual(["a cycle drawn by the edges that cut it only: 1 in the level (1 file pair); 2 other edges inside cycles not drawn"]);
+    expect(reduced.text.hidden).toEqual(["3 groups form 1 cycle, drawn by the 1 edge that breaks it (1 file pair); 2 other edges inside them not drawn"]);
     // Without a cycle, nothing to cut: the whole level.
     const acyclic = await layoutDiagram(input([["a", 1, 1], ["b", 0, 1]], [["a", "b", 1, "down"]]), { cuts: "only" });
     expect(acyclic.nodes).toHaveLength(2);
@@ -497,6 +497,35 @@ describe("architecture diagram rendering", () => {
     expect(svg).toContain("runtime cycle · 2");
   });
 
+  it("lists the heaviest cuts instead of drawing a cycle too large to draw (#767)", async () => {
+    // A ring of 25 units, each also importing the unit 7 further: one cycle, larger than the 20 boxes drawn.
+    const keys = Array.from({ length: 25 }, (_, index) => `u${String(index).padStart(2, "0")}`);
+    const ring = input(
+      keys.map((key) => [key, 0, 1]),
+      keys.flatMap((key, index) => [[key, keys[(index + 1) % 25], index === 3 ? 4 : 1, "cycle"], [key, keys[(index + 7) % 25], 1, "cycle"]] as const),
+    );
+    const listed = await layoutDiagram(ring, { cuts: "cycles", byCoupling: true, maxNodes: 20 });
+    expect(listed.nodes).toEqual([]);
+    expect(listed.edges).toEqual([]);
+    expect(listed.cycles).toEqual([]);
+    expect(listed.text.hidden[0]).toMatch(/^25 units form 1 cycle, too large to draw: breaking it takes \d+ cuts \(\d+ file pairs\)\.$/);
+    expect(listed.text.hidden.at(-1)).toMatch(/^All \d+ cuts, marked in the matrix: graph-it diagram --view matrix$/);
+    expect(listed.text.hidden.slice(2, -1).every((line) => / → .* · next: graph-it architecture --level units --from \S+ --to \S+$/.test(line))).toBe(true);
+    expectSafeMarkup(renderDiagramSvg(listed));
+    // A folder level names its own matrix command, and no unit command per cut.
+    const folder = await layoutDiagram({ ...ring, scope: "src", noun: "groups" }, { cuts: "only", maxNodes: 20 });
+    expect(folder.text.hidden[0]).toMatch(/^25 groups form 1 cycle, too large to draw/);
+    expect(folder.text.hidden.at(-1)).toMatch(/^All \d+ cuts, marked in the matrix: graph-it diagram --folder "src" --view matrix$/);
+    expect(folder.text.hidden.some((line) => line.includes("next:"))).toBe(false);
+    // More than 12 cuts in a small level: listed too, the 10 heaviest first.
+    const many = Array.from({ length: 14 }, (_, index) => `m${String(index).padStart(2, "0")}`);
+    const mesh = input(many.map((key) => [key, 0, 1]), many.flatMap((from) => many.filter((to) => to !== from).map((to) => [from, to, from === "m00" ? 3 : 1, "cycle"] as const)));
+    const meshView = await layoutDiagram(mesh, { cuts: "cycles", maxNodes: 60 });
+    expect(meshView.nodes).toEqual([]);
+    expect(meshView.text.hidden[1]).toBe("The 10 heaviest cuts:");
+    expect(meshView.text.hidden.slice(2, 12)).toHaveLength(10);
+  });
+
   it("draws an empty level and an edge-less one", async () => {
     const empty = await layoutDiagram(input([]));
     expect(empty.nodes).toEqual([]);
@@ -505,7 +534,7 @@ describe("architecture diagram rendering", () => {
     const single = await layoutDiagram({ ...input([["solo", 0, 1]]), date: undefined });
     expectSoundGeometry(single);
     expect(single.text.caption).toBe("units · revision 0123456789ab");
-    expect(single.nodes[0].meta).toBe("1 file · layer 0");
+    expect(single.nodes[0].meta).toBe("1 file");
   });
 
   it("makes the HTML follow the colour scheme and the SVG take an explicit theme", async () => {
@@ -528,7 +557,7 @@ describe("architecture matrix diagram", () => {
     expectSoundMatrix(layout);
     expect(layout.rows.map((row) => row.text)).toEqual(["1 b", "2 a"]);
     expect(layout.cells.map((cell) => [cell.kind, cell.count])).toEqual([["down", 123_456], ["diagonal", 4]]);
-    expect(layout.text.hidden).toEqual(["1 more unit not drawn: the 2 largest are drawn"]);
+    expect(layout.text.hidden).toEqual(["drawn: the 2 largest units; 1 more unit not drawn"]);
     expect(layout.grid.width / 2).toBeGreaterThan(28);
   });
 

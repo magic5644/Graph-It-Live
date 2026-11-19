@@ -4,7 +4,6 @@ import {
   formatOutput,
   relativizeWorkspacePaths,
   renderCliOutput,
-  validateFormatForCommand,
 } from "../../src/cli/formatter";
 import { sessionStats } from "../../src/shared/sessionStats";
 
@@ -34,35 +33,6 @@ describe("CLI_OUTPUT_FORMATS", () => {
     expect(CLI_OUTPUT_FORMATS).toContain("svg");
     expect(() => formatOutput(objectData, "svg", "summary")).toThrow('Format "svg" is only produced by graph-it diagram.');
     expect(() => formatOutput(objectData, "diagram-spec", "architecture")).toThrow('Format "diagram-spec" is only produced by graph-it diagram');
-  });
-});
-
-describe("validateFormatForCommand", () => {
-  it("allows mermaid for all formatOutput-based commands", () => {
-    const commands = [
-      "scan",
-      "summary",
-      "trace",
-      "explain",
-      "path",
-      "path-in",
-      "check-dependencies",
-      "cycles",
-      "architecture",
-      "check",
-      "tool",
-    ];
-
-    for (const command of commands) {
-      expect(() => validateFormatForCommand("mermaid", command)).not.toThrow();
-    }
-  });
-
-  it("allows all formats for non-mermaid-restricted commands", () => {
-    for (const fmt of ["text", "json", "toon", "markdown"] as const) {
-      expect(() => validateFormatForCommand(fmt, "summary")).not.toThrow();
-      expect(() => validateFormatForCommand(fmt, "explain")).not.toThrow();
-    }
   });
 });
 
@@ -415,17 +385,30 @@ describe("formatOutput - mermaid", () => {
     expect(out).toContain("--> ");
   });
 
-  it("falls back to a generic graph when payload is not graph-shaped", () => {
-    const out = formatOutput(objectData, "mermaid", "summary");
-    expect(out).toContain("graph TD");
-    expect(out).toContain("summary");
-    expect(out).toContain("state");
+  it("exits 4 instead of drawing the keys of a payload with no graph", () => {
+    expect(() => formatOutput(objectData, "mermaid", "summary")).toThrow(
+      expect.objectContaining({ exitCode: 4, message: "This graph-it summary result has no graph to draw as --format mermaid: use text, json, toon or markdown." }),
+    );
+    expect(() => formatOutput("done", "mermaid", "scan")).toThrow(expect.objectContaining({ exitCode: 4 }));
   });
 
-  it("applies generic fallback to primitive payloads", () => {
-    const out = formatOutput("done", "mermaid", "scan");
-    expect(out).toContain("graph TD");
-    expect(out).toContain("done");
+  it("draws the root alone for a trace with no call, and the file alone for a file with no dependency", () => {
+    const trace = formatOutput({ rootSymbol: { symbolName: "main" }, callChain: [] }, "mermaid", "trace");
+    expect(trace).toContain('S0["main"]');
+    expect(trace).toContain("%% no call found from this symbol");
+    const deps = formatOutput({ filePath: "/w/a.ts", relativePath: "a.ts", outgoing: { dependencies: [] }, incoming: { referencingFiles: [] } }, "mermaid", "check-dependencies");
+    expect(deps).toContain("a.ts");
+    expect(deps).toContain("%% no incoming or outgoing dependency");
+  });
+
+  it("refuses html, which only export and diagram write (exit 4)", () => {
+    expect(() => formatOutput({}, "html", "summary")).toThrow(expect.objectContaining({ exitCode: 4 }));
+  });
+
+  it("keeps markdown free of a keys diagram when the payload has no graph", () => {
+    const out = formatOutput(objectData, "markdown", "summary");
+    expect(out).not.toContain("```mermaid");
+    expect(out).toContain("```json");
   });
 
   it("strips control characters from Mermaid node labels", () => {
@@ -722,6 +705,13 @@ describe("relativizeWorkspacePaths", () => {
     expect(relativizeWorkspacePaths("/repo-backup/src/a.ts", "/repo")).toBe(
       "/repo-backup/src/a.ts",
     );
+  });
+
+  it("writes the root itself as . (the toon workspaceRoot header), regex characters included (#767)", () => {
+    expect(relativizeWorkspacePaths("workspaceRoot: /repo\nscannedFiles: 2", "/repo")).toBe("workspaceRoot: .\nscannedFiles: 2");
+    expect(relativizeWorkspacePaths("root=/a/r.e+po,x", "/a/r.e+po")).toBe("root=.,x");
+    expect(relativizeWorkspacePaths("/a/rXe+po", "/a/r.e+po")).toBe("/a/rXe+po");
+    expect(relativizeWorkspacePaths("c:/work/repo", "C:\\work\\repo")).toBe(".");
   });
 });
 

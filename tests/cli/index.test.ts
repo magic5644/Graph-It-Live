@@ -17,7 +17,7 @@ import * as fsSync from "node:fs";
 import * as osMod from "node:os";
 import * as pathMod from "node:path";
 import { CliError, ExitCode } from "../../src/cli/errors";
-import { commandWantsHelp, createProgress, createReplRuntime, createRuntime, findCommandStart, stripGlobalOptions } from "../../src/cli/index";
+import { assertGlobalOptions, commandWantsHelp, createProgress, createReplRuntime, createRuntime, findCommandStart, readCommandLine, stripGlobalOptions } from "../../src/cli/index";
 
 describe("findCommandStart", () => {
   it("finds the command when it is the first token", () => {
@@ -72,6 +72,36 @@ describe("stripGlobalOptions", () => {
 
   it("drops a trailing string flag with no value", () => {
     expect(stripGlobalOptions(["src/a.ts", "--format"])).toEqual(["src/a.ts"]);
+  });
+});
+
+describe("readCommandLine (#767)", () => {
+  it("returns the checked format and the command's arguments without the global options", () => {
+    expect(readCommandLine("path", ["src/a.ts"], "json", ["-w", "/repo", "path", "--communities", "louvain", "src/a.ts", "-f", "json"]))
+      .toEqual({ format: "json", args: ["src/a.ts", "--communities", "louvain"] });
+    expect(readCommandLine("scan", [], undefined, ["scan", "--reindex"])).toEqual({ format: "text", args: [] });
+  });
+
+  it("refuses an unknown option before the command, with the closest global option (exit 1)", () => {
+    expect(() => readCommandLine("scan", [], undefined, ["--worksapce", "/repo", "scan"])).toThrow(expect.objectContaining({
+      exitCode: ExitCode.GENERAL_ERROR,
+      message: "Unknown option --worksapce. Did you mean --workspace? Global options: --workspace, --format, --help, --version, --reindex, --no-cache.",
+    }));
+  });
+
+  it("names a misspelt global option whose value parseArgs took for the command", () => {
+    expect(() => assertGlobalOptions(["--worksapce", ".", "scan"], ".")).toThrow("Unknown option --worksapce. Did you mean --workspace?");
+    expect(() => assertGlobalOptions(["-w", ".", "--reindex", "scan"], "scan")).not.toThrow();
+  });
+
+  it("refuses --format without a value (exit 1) and an undeclared format (exit 4)", () => {
+    expect(() => readCommandLine("scan", [], true, ["scan", "--format"])).toThrow(expect.objectContaining({ exitCode: ExitCode.GENERAL_ERROR, message: expect.stringContaining("--format needs a value") }));
+    expect(() => readCommandLine("scan", [], "", ["scan", "--format="])).toThrow("--format needs a value");
+    expect(() => readCommandLine("scan", [], "html", ["scan", "-f", "html"])).toThrow(expect.objectContaining({ exitCode: ExitCode.UNSUPPORTED_FORMAT }));
+  });
+
+  it("falls back to the parsed positionals when the command is not found in argv", () => {
+    expect(readCommandLine("summary", ["src/a.ts"], undefined, [])).toEqual({ format: "text", args: ["src/a.ts"] });
   });
 });
 

@@ -80,12 +80,21 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
   it.each([
     ["json", (out: string) => expect(JSON.parse(out).articlesCount).toBeGreaterThan(0)],
     ["toon", (out: string) => expect(out).toContain("wiki articles=")],
-    ["text", (out: string) => expect(out).toContain("# Wiki generated")],
+    ["markdown", (out: string) => expect(out).toContain("# Wiki generated")],
   ] as const)("wiki honours the global %s format", (format, check) => {
     const result = cli("-w", tmpDir, "wiki", "--output", "out", "--format", format);
 
     expect(result.status).toBe(0);
     check(result.stdout);
+  });
+
+  it("writes the markdown wiki without --format, and refuses text, which it does not write (exit 4)", () => {
+    expect(cli("-w", tmpDir, "wiki", "--output", "out").stdout).toContain("# Wiki generated");
+    const refused = cli("-w", tmpDir, "wiki", "--output", "out2", "--format", "text");
+
+    expect(refused.status).toBe(4);
+    expect(refused.stderr).toBe("Error: graph-it wiki does not write --format text: use markdown, json, toon.\n");
+    expect(fs.existsSync(path.join(tmpDir, "out2"))).toBe(false);
   });
 
   it("accepts the global -f option after the context command", () => {

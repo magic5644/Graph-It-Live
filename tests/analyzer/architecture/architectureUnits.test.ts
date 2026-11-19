@@ -301,7 +301,8 @@ describe("exploreUnitEvidence", () => {
     expect(new Set([...first.pairs, ...second.pairs].map((pair) => `${pair.source}>${pair.target}`)).size).toBe(3);
     expect(explore({ from: "apps/web", to: "packages/core", offset: 10 }).pairs).toEqual([]);
     expect(explore({ from: "packages/core", to: "apps/web" }).page.total).toBe(0);
-    expect(() => explore({ from: "nowhere", to: "apps/web" })).toThrow('Unknown unit "nowhere"');
+    expect(() => explore({ from: "nowhere", to: "apps/web" })).toThrow(/^Unknown unit "nowhere"\. The units level lists all \d+ units\.$/);
+    expect(() => explore({ from: "apps/wbe", to: "packages/core" })).toThrow('Unknown unit "apps/wbe". Did you mean: apps/web?');
     expect(() => explore({ from: "apps/web", to: "@acme/web" })).toThrow("a unit edge joins two units");
     expect(() => explore({ from: "apps/web", to: "packages/core", revision: "0".repeat(64) })).toThrow("Architecture changed");
   });

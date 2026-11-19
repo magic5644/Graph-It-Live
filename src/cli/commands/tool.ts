@@ -51,6 +51,7 @@ import type {
   VerifyDependencyUsageParams,
 } from "../../mcp/types";
 import { resolveToolFilePaths, toolSchemas, validateToolParams } from "../../mcp/types";
+import { closestNames } from "../../analyzer/utils/SymbolLookup";
 import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
@@ -119,6 +120,17 @@ export async function run(
 
   // Parse --args JSON and --key=value / --key value flags from remaining args
   const params = parseToolArgs(args.slice(1), booleanParams(toolName));
+  // The MCP schemas strip unknown keys: a misspelt parameter would run the tool without it.
+  const known = Object.keys(toolInputSchema(toolName).properties ?? {});
+  const unknown = Object.keys(params).find((key) => !known.includes(key));
+  if (unknown !== undefined) {
+    const [closest] = closestNames(known, unknown, 1);
+    const hint = closest ? ` Did you mean --${closest}?` : "";
+    throw new CliError(
+      `Unknown parameter --${unknown} for tool ${toolName}.${hint} Run graph-it tool ${toolName} --help for its parameters.`,
+      ExitCode.GENERAL_ERROR,
+    );
+  }
 
   // Validate params via Zod before indexing so bad input fails fast
   const validation = validateToolParams(toolName, params);

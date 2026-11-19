@@ -1328,7 +1328,7 @@ export interface GetIndexStatusResult extends OutOfRootReport {
   isReady: boolean;
   /** Whether reverse index is enabled */
   reverseIndexEnabled: boolean;
-  /** Number of files in the cache */
+  /** Files whose analysis is held in memory: 0 right after a restore from the on-disk cache, capped on large workspaces */
   cacheSize: number;
   /** Reverse index statistics (if available) */
   reverseIndexStats?: {

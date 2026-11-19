@@ -216,6 +216,6 @@ export async function run(
     );
   }
 
-  // text / markdown / toon fall back to the markdown-style report
+  // text and markdown: the same markdown report (main() refuses every other format, exit 4)
   return renderText(current, history, cumulative);
 }

@@ -18,6 +18,8 @@ export async function run(
 ): Promise<string> {
   await runtime.ensureIndexed();
 
-  const status = await executeGetIndexStatus();
+  // cacheSize counts the in-memory analysis cache: 0 right after a restore from .graph-it/cache,
+  // which reads as an empty index; reverseIndexStats.indexedFiles is the indexed file count.
+  const { cacheSize: _cacheSize, ...status } = await executeGetIndexStatus();
   return formatOutput(status, format, "scan");
 }

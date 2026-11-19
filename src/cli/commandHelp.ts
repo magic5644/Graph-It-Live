@@ -21,7 +21,7 @@ Options:
   --directed             Use directed traversal
   --cursor <cursor>      Continue a previous response
   --detail <level>       compact|standard|full (default: standard)
-  --format <format>      text|json|toon (markdown and mermaid print json)
+  --format <format>      text|json|toon (default: text)
   --workspace, -w        Workspace root directory (default: auto-detected)
   --help, -h             Show help
 
@@ -42,8 +42,8 @@ to rebuild from scratch when results look wrong.
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
-  --help, -h        Show this help; after <name>, list that tool's parameters
+  --format, -f      Output format: text|json|toon|markdown (default: text)
+  --help, -h        Show this help
 
 Examples:
   graph-it scan
@@ -58,7 +58,7 @@ Arguments:
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
+  --format, -f      Output format: text|json|toon|markdown (default: text)
   --help, -h        Show this help
 
 Examples:
@@ -73,6 +73,7 @@ Arguments:
   <file>#<symbol>   Entry symbol in format: path/to/file.ts#FunctionName
 
 Options:
+  --maxDepth N      Call depth to follow, 1-100 (default: 10)
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
   --help, -h        Show this help
@@ -90,7 +91,7 @@ Arguments:
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
+  --format, -f      Output format: text|json|toon|markdown (default: text)
   --help, -h        Show this help
 
 Examples:
@@ -104,6 +105,7 @@ Arguments:
   <file>            Entry file to start crawling from
 
 Options:
+  --maxDepth N      Import depth to crawl, 1-100 (default: 3)
   --communities M   Community grouping: path (by folder, default) | louvain (by imports)
   --workspace, -w   Workspace root directory (default: auto-detected)
   --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
@@ -154,7 +156,7 @@ Arguments:
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
+  --format, -f      Output format: text|json|toon|markdown (default: text)
   --help, -h        Show this help
 
 Examples:
@@ -276,7 +278,7 @@ Options:
   --view VIEW        units|folder|matrix (default: units, or folder with dir or --folder);
                      matrix draws the units, or with --folder that folder's groups
   --folder KEY       Unit or folder key, as graph-it architecture --folder takes it
-  --format, -f       svg|html (default: html, or svg when --output ends with .svg);
+  --format, -f       html|svg|diagram-spec (default: html, or svg when --output ends with .svg);
                      the HTML page follows the reader's light or dark scheme
   --theme THEME      light|dark colours of --format svg (default: light)
   --output FILE      File in the workspace, relative to its root (default:
@@ -328,7 +330,7 @@ Options:
                     Files only dead files and tests import follow (cascade, via), and each
                     dead file names its tests that import nothing else (tests).
   --workspace, -w   Workspace root directory (default: auto-detected)
-  --format, -f      Output format: text|json|toon|markdown|mermaid (default: text)
+  --format, -f      Output format: text|json|toon|markdown (default: text)
   --help, -h        Show this help
 
 Examples:
@@ -346,9 +348,10 @@ Options:
   --base <ref>       Required: Git ref to diff against (e.g. origin/main)
   --head <ref>        Optional: Git ref for the changed side (default: working tree)
   --depth N            Optional: max dependency-impact traversal depth
-  --max-files N        Optional: cap on files analyzed
+  --maxFiles N         Optional: cap on changed files analyzed (default: 200);
+                       --max-files is accepted too
   --workspace, -w      Workspace root directory (default: auto-detected)
-  --format, -f         Output format: text|json|toon|markdown|mermaid|sarif (default: text);
+  --format, -f         Output format: text|json|toon|markdown|sarif (default: text);
                        sarif lists the new violations of graphit.architecture.json
   --help, -h           Show this help
 
@@ -428,15 +431,16 @@ Examples:
 `,
   export: `graph-it export — Export dependency graph as standalone HTML
 
-Usage: graph-it export [scope] --format html [options]
+Usage: graph-it export [scope] [options]
 
 Arguments:
   [scope]              Optional: relative path to scope the exported graph to
 
 Options:
-  --output, -o <file>  Output HTML file path (default: graph.html)
+  --output, -o <file>  .html file in the workspace, relative to its root (default:
+                       graph.html); - writes to stdout
   --communities <mode>  Community grouping: path (by folder, default) | louvain (by imports)
-  --format, -f          Must be "html" — this is the only supported format
+  --format, -f          html, the only format (default: html)
   --workspace, -w       Workspace root directory (default: auto-detected)
   --help, -h            Show this help
 
@@ -561,6 +565,17 @@ const FALLBACK_HELP = `graph-it <command> --help
 Run "graph-it --help" to see all available commands.
 `;
 
+/** Commands that never read the workspace index: --reindex and --no-cache do nothing there. */
+const INDEX_FREE = new Set(["install", "update", "stats", "serve"]);
+
+const INDEX_OPTIONS = `
+Index cache:
+  --reindex         Discard the cached index and rebuild it from scratch
+  --no-cache        Neither read nor write the index cache (also GRAPH_IT_NO_CACHE=1)
+`;
+
 export function getCommandHelp(command: string): string {
-  return COMMAND_HELP[command] ?? `Unknown command "${command}".\n\n${FALLBACK_HELP}`;
+  const help = COMMAND_HELP[command];
+  if (help === undefined) return `Unknown command "${command}".\n\n${FALLBACK_HELP}`;
+  return INDEX_FREE.has(command) ? help : help + INDEX_OPTIONS;
 }

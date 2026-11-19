@@ -20,11 +20,12 @@ async function lstatOrUndefined(target: string): Promise<fs.Stats | undefined> {
 }
 
 /** The absolute path of a workspace file, refused (exit 5) outside the workspace or through a link out of it. */
-function resolveInWorkspace(workspaceRoot: string, file: string): string {
+export function resolveInWorkspace(workspaceRoot: string, file: string): string {
   try {
     return validateWorkspacePath(path.resolve(workspaceRoot, file), workspaceRoot);
-  } catch (error) {
-    throw new CliError(`Refusing to write ${file}: ${(error as Error).message}`, ExitCode.SECURITY_VIOLATION);
+  } catch {
+    // The user's own spelling: the validator's message holds absolute paths.
+    throw new CliError(`Refusing to write ${file}: it is outside the workspace, or behind a link that leaves it.`, ExitCode.SECURITY_VIOLATION);
   }
 }
 

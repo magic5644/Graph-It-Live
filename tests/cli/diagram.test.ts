@@ -19,10 +19,13 @@ describe("graph-it diagram options", () => {
     expect(readDiagramOptions(["--output", "-"], "html")).toMatchObject({ file: "-" });
     // Without --format, the extension of --output decides; an explicit --format wins.
     expect(readDiagramOptions(["--output", "docs/Units.SVG"], "text")).toMatchObject({ format: "svg", file: "docs/Units.SVG" });
-    expect(readDiagramOptions(["--output", "units.svg"], "html")).toMatchObject({ format: "html" });
+    expect(() => readDiagramOptions(["--output", "units.svg"], "html")).toThrow("--output units.svg does not match --format html: name it *.html, or pass the format of that file.");
+    expect(() => readDiagramOptions(["--output", "a.html"], "svg")).toThrow("--output a.html does not match --format svg: name it *.svg");
+    expect(readDiagramOptions(["--output", "page.HTM"], "html")).toMatchObject({ format: "html", file: "page.HTM" });
     expect(readDiagramOptions(["--output", "-"], "text")).toMatchObject({ format: "html" });
     expect(readDiagramOptions([], "diagram-spec")).toMatchObject({ format: "diagram-spec", file: "architecture.diagram-spec.json" });
-    expect(readDiagramOptions(["--output", "units.svg"], "diagram-spec")).toMatchObject({ format: "diagram-spec", file: "units.svg" });
+    expect(readDiagramOptions(["--output", "units.json"], "diagram-spec")).toMatchObject({ format: "diagram-spec", file: "units.json" });
+    expect(() => readDiagramOptions(["--view", "matrix"], "diagram-spec")).toThrow(expect.objectContaining({ exitCode: 4 }));
   });
 
   it("reads the view, the folder key with / on every OS, the theme and the rules files", () => {
@@ -179,7 +182,7 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
     const ensureIndexed = vi.mocked(runtime.ensureIndexed);
     ensureIndexed.mockClear();
     const error = await run(["--output", outside()], runtime, "text").catch((failure: unknown) => failure);
-    expect(classifyError(error)).toMatchObject({ exitCode: ExitCode.SECURITY_VIOLATION, message: expect.stringContaining("outside workspace") });
+    expect(classifyError(error)).toMatchObject({ exitCode: ExitCode.SECURITY_VIOLATION, message: expect.stringContaining("it is outside the workspace") });
     expect(ensureIndexed).not.toHaveBeenCalled();
     expect(fs.existsSync(path.join(path.dirname(root), "outside.html"))).toBe(false);
   });

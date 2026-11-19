@@ -21,12 +21,6 @@ export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" 
 
 export const CLI_OUTPUT_FORMATS: readonly CliOutputFormat[] = ["text", "json", "toon", "markdown", "mermaid", "html", "csv", "sarif", "svg", "diagram-spec"];
 
-/** Commands that can produce graph / mermaid output */
-const GRAPH_COMMANDS = new Set(["trace", "path", "scan", "architecture"]);
-
-const MAX_GENERIC_DEPTH = 3;
-const MAX_GENERIC_ITEMS_PER_LEVEL = 20;
-const MAX_GENERIC_NODES = 220;
 const MAX_MERMAID_LABEL_LENGTH = 120;
 const MAX_MERMAID_LINES = 700;
 const MAX_GRAPH_NODES = 260;
@@ -34,16 +28,6 @@ const MAX_GRAPH_EDGES = 500;
 const MAX_TRACE_EDGES = 500;
 const MAX_CALLCHAIN_EDGES = 500;
 const MAX_DEPENDENCY_RELATIONS = 400;
-
-/**
- * Check whether a format is valid for the given command.
- * Throws CliError with UNSUPPORTED_FORMAT if not.
- */
-export function validateFormatForCommand(format: CliOutputFormat, _command: string): void {
-  if (format === "mermaid") {
-    return;
-  }
-}
 
 /**
  * Format any data payload for CLI output.
@@ -54,8 +38,6 @@ export function formatOutput(
   command: string,
   workspaceRoot?: string,
 ): string {
-  validateFormatForCommand(format, command);
-
   switch (format) {
     case "json":
       return formatJson(data);
@@ -69,7 +51,7 @@ export function formatOutput(
     case "mermaid":
       return formatMermaid(data, command, workspaceRoot);
     case "html":
-      throw new Error('Format "html" must be handled before formatOutput — use runExportHtml directly.');
+      throw new CliError('Format "html" is only written by graph-it export and graph-it diagram.', ExitCode.UNSUPPORTED_FORMAT);
     case "csv":
       throw new CliError('Format "csv" is only produced by graph-it architecture --matrix.', ExitCode.UNSUPPORTED_FORMAT);
     case "sarif":
@@ -322,16 +304,9 @@ function formatMarkdown(data: unknown, command: string, workspaceRoot?: string):
   // The json fence below stays raw data (absolute ids); only the candidates table is workspace-relative.
   const header = `## graph-it ${command}\n\n${formatCandidates(data, workspaceRoot)}`;
 
-  const mermaid = tryBuildMermaid(data, workspaceRoot) ?? buildMermaidFromGenericJson(data, command);
-  if (mermaid) {
-    return header + "```mermaid\n" + mermaid + "\n```\n\n" + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
-  }
-
-  if (GRAPH_COMMANDS.has(command)) {
-    return header + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
-  }
-
-  return header + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
+  const mermaid = tryBuildMermaid(data, workspaceRoot);
+  const diagram = mermaid ? "```mermaid\n" + mermaid + "\n```\n\n" : "";
+  return header + diagram + "```json\n" + JSON.stringify(data, null, 2) + "\n```";
 }
 
 const ESCAPED_PIPE = String.raw`\|`;
@@ -399,9 +374,14 @@ function formatCandidates(data: unknown, workspaceRoot: string | undefined): str
   return [`**reason:** ${obj["reason"]}`, "", ...table, "", ""].join("\n");
 }
 
+/** A diagram of the result's graph; a result with none exits 4 rather than drawing its JSON keys. */
 function formatMermaid(data: unknown, command: string, workspaceRoot?: string): string {
-  const mermaid = tryBuildMermaid(data, workspaceRoot) ?? buildMermaidFromGenericJson(data, command);
-  return mermaid;
+  const mermaid = tryBuildMermaid(data, workspaceRoot);
+  if (mermaid) return mermaid;
+  throw new CliError(
+    `This graph-it ${command} result has no graph to draw as --format mermaid: use text, json, toon or markdown.`,
+    ExitCode.UNSUPPORTED_FORMAT,
+  );
 }
 
 // ============================================================================
@@ -467,7 +447,7 @@ function tryBuildMermaid(data: unknown, workspaceRoot?: string): string | null {
         callerSymbolId: pickMermaidString([entry["callerSymbolId"]], "?"),
         calledSymbolId: pickMermaidString([entry["calledSymbolId"]], "?"),
       }));
-    return buildMermaidFromCallChain(chain, workspaceRoot);
+    return buildMermaidFromCallChain(chain, workspaceRoot, rootSymbolName(obj));
   }
 
   // check-dependencies result (incoming + outgoing)
@@ -488,6 +468,12 @@ function tryBuildMermaid(data: unknown, workspaceRoot?: string): string | null {
   }
 
   return null;
+}
+
+/** The trace root's name, drawn alone when it calls nothing. */
+function rootSymbolName(trace: Record<string, unknown>): string | undefined {
+  const name = toRecord(trace["rootSymbol"])?.["symbolName"];
+  return typeof name === "string" ? name : undefined;
 }
 
 function valueToMermaidString(value: unknown, fallback = "?"): string {
@@ -709,8 +695,11 @@ function buildMermaidFromTrace(trace: TraceLike, workspaceRoot?: string): string
 function buildMermaidFromCallChain(
   chain: { callerSymbolId: string; calledSymbolId: string }[],
   workspaceRoot?: string,
+  rootLabel?: string,
 ): string | null {
-  if (chain.length === 0) return null;
+  if (chain.length === 0) {
+    return rootLabel ? finalizeMermaid(["graph TD", `  S0["${escapeMermaidLabel(rootLabel)}"]`, "%% no call found from this symbol"]) : null;
+  }
 
   const nodeLines = ["graph TD"];
   const edgeLines = new Set<string>();
@@ -767,13 +756,11 @@ function buildMermaidFromDependencyCheck(data: DependencyCheckLike): string | nu
 
   const outgoing = data.outgoing?.dependencies ?? [];
   const incoming = data.incoming?.referencingFiles ?? [];
-  if (outgoing.length === 0 && incoming.length === 0) {
-    return null;
-  }
 
   const lines = ["graph LR"];
   const nodes = new Map<string, string>();
   const centerId = declareMermaidNode(nodes, lines, "D", centerRaw, toNodeLabel(centerRaw));
+  if (outgoing.length === 0 && incoming.length === 0) lines.push("%% no incoming or outgoing dependency");
 
   const visibleOutgoingCount = Math.min(outgoing.length, MAX_DEPENDENCY_RELATIONS);
   for (let i = 0; i < visibleOutgoingCount; i += 1) {
@@ -804,120 +791,6 @@ function buildMermaidFromDependencyCheck(data: DependencyCheckLike): string | nu
   return finalizeMermaid(lines);
 }
 
-function toPrimitiveLabel(value: unknown): string {
-  switch (typeof value) {
-    case "string":
-      return value;
-    case "number":
-    case "bigint":
-    case "boolean":
-      return `${value}`;
-    case "undefined":
-      return "undefined";
-    case "symbol":
-      return value.description ?? "symbol";
-    default:
-      return value === null ? "null" : "value";
-  }
-}
-
-function summarizeValue(value: unknown): string {
-  if (value === null) return "null";
-  if (Array.isArray(value)) return `array[${value.length}]`;
-  if (typeof value === "object") return "object";
-  return toPrimitiveLabel(value);
-}
-
-interface GenericMermaidState {
-  rootId: string;
-  nodeIndex: number;
-  nodeLines: string[];
-  edges: string[];
-}
-
-function createGenericMermaidState(): GenericMermaidState {
-  return {
-    rootId: "G0",
-    nodeIndex: 1,
-    nodeLines: [],
-    edges: [],
-  };
-}
-
-function pushGenericNode(state: GenericMermaidState, label: string): string {
-  const nodeId = `G${state.nodeIndex}`;
-  state.nodeIndex += 1;
-  state.nodeLines.push(`  ${nodeId}["${escapeMermaidLabel(label)}"]`);
-  return nodeId;
-}
-
-function addGenericEdge(state: GenericMermaidState, fromId: string, toId: string): void {
-  state.edges.push(`  ${fromId} --> ${toId}`);
-}
-
-function appendArrayNodes(state: GenericMermaidState, values: unknown[]): void {
-  const limit = Math.min(values.length, Math.min(MAX_GENERIC_ITEMS_PER_LEVEL, MAX_GENERIC_NODES));
-  for (let i = 0; i < limit; i += 1) {
-    const nodeId = pushGenericNode(state, `[${i}] ${summarizeValue(values[i])}`);
-    addGenericEdge(state, state.rootId, nodeId);
-  }
-  if (values.length > limit) {
-    const truncId = pushGenericNode(state, `… ${values.length - limit} more item(s)`);
-    addGenericEdge(state, state.rootId, truncId);
-  }
-}
-
-function appendNestedObjectNodes(
-  state: GenericMermaidState,
-  parentId: string,
-  value: Record<string, unknown>,
-): void {
-  const nestedEntries = Object.entries(value).slice(0, Math.max(0, MAX_GENERIC_ITEMS_PER_LEVEL - 5));
-  for (const [nestedKey, nestedValue] of nestedEntries) {
-    if (state.nodeIndex >= MAX_GENERIC_NODES) return;
-    const nestedId = pushGenericNode(state, `${nestedKey}: ${summarizeValue(nestedValue)}`);
-    addGenericEdge(state, parentId, nestedId);
-  }
-}
-
-function appendObjectNodes(state: GenericMermaidState, value: Record<string, unknown>): void {
-  const entries = Object.entries(value);
-  const limit = Math.min(entries.length, Math.min(MAX_GENERIC_ITEMS_PER_LEVEL, MAX_GENERIC_NODES));
-
-  for (let i = 0; i < limit; i += 1) {
-    const [key, entryValue] = entries[i];
-    const nodeId = pushGenericNode(state, `${key}: ${summarizeValue(entryValue)}`);
-    addGenericEdge(state, state.rootId, nodeId);
-
-    if (MAX_GENERIC_DEPTH > 1 && typeof entryValue === "object" && entryValue !== null && !Array.isArray(entryValue)) {
-      appendNestedObjectNodes(state, nodeId, entryValue as Record<string, unknown>);
-    }
-  }
-
-  if (entries.length > limit && state.nodeIndex < MAX_GENERIC_NODES) {
-    const truncId = pushGenericNode(state, `… ${entries.length - limit} more key(s)`);
-    addGenericEdge(state, state.rootId, truncId);
-  }
-}
-
-function buildMermaidFromGenericJson(data: unknown, command: string): string {
-  const lines = ["graph TD"];
-  const state = createGenericMermaidState();
-  lines.push(`  ${state.rootId}["${escapeMermaidLabel(command)}"]`);
-
-  if (Array.isArray(data)) {
-    appendArrayNodes(state, data);
-  } else if (typeof data === "object" && data !== null) {
-    appendObjectNodes(state, data as Record<string, unknown>);
-  } else {
-    const primitiveId = pushGenericNode(state, summarizeValue(data));
-    addGenericEdge(state, state.rootId, primitiveId);
-  }
-
-  lines.push(...state.nodeLines, ...state.edges);
-  return finalizeMermaid(lines);
-}
-
 // ============================================================================
 // Workspace-relative rewriting
 // ============================================================================
@@ -942,8 +815,10 @@ export function relativizeWorkspacePaths(output: string, workspaceRoot: string):
     return output;
   }
 
-  // The trailing slash keeps a sibling like "/repo-backup" from matching "/repo".
-  return output.replaceAll(`${normalizedRoot}/`, "");
+  // The trailing slash keeps a sibling like "/repo-backup" from matching "/repo"; the root itself
+  // (workspaceRoot field) becomes ".", unless more path characters follow it.
+  const escapedRoot = normalizedRoot.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
+  return output.replaceAll(`${normalizedRoot}/`, "").replaceAll(new RegExp(String.raw`${escapedRoot}(?![\w./-])`, "g"), ".");
 }
 
 /**

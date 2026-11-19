@@ -104,4 +104,12 @@ describe('context command', () => {
       exitCode: ExitCode.GENERAL_ERROR,
     });
   });
+
+  it('names the option the user typed, one line per issue, not a Zod issue list (#767)', async () => {
+    await expect(run(['why', '--max-nodes', '9999', '--detail', 'huge'], runtime, 'text')).rejects.toMatchObject({
+      exitCode: ExitCode.GENERAL_ERROR,
+      message: expect.stringMatching(/^--max-nodes: .+; --detail: .+\. Run graph-it context --help for the options\.$/),
+    });
+    await expect(run([], runtime, 'text')).rejects.toMatchObject({ message: expect.not.stringContaining('"code"') });
+  });
 });
