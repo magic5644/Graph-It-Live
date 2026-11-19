@@ -22,6 +22,14 @@ describe("architecture table views (#767)", () => {
     expect(text).toContain("Unit edges:\n  From  To      File pairs  Kind\n  app   core|x  3           down");
   });
 
+  it("adds a Name column only when a unit's name differs from its folder (#774)", () => {
+    const named = { ...units, units: [{ ...units.units[0], name: "app" }, { ...units.units[1], name: "@acme/core" }] };
+    expect(renderArchitectureView(unitsView(named), "text")).toContain("Units:\n  Unit    Name        Layer  Role     Files\n  app     app         1      unknown  2\n  core|x  @acme/core  0      library  1");
+    expect(renderArchitectureView(unitsView(named), "markdown")).toContain("| Unit | Name | Layer | Role | Files |");
+    const sameNames = { ...units, units: units.units.map((unit) => ({ ...unit, name: unit.key })) };
+    expect(renderArchitectureView(unitsView(sameNames), "text")).toContain("Units:\n  Unit    Layer  Role     Files");
+  });
+
   it("renders markdown tables with escaped pipes, and says none for an empty table", () => {
     const markdown = renderArchitectureView(unitsView({ ...units, unitEdges: [] }), "markdown");
     expect(markdown).toMatch(/^## Units\n/);
