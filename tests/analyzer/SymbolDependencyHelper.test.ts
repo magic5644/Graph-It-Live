@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { describe, it, expect, vi } from 'vitest';
 import { SymbolDependencyHelper } from '../../src/analyzer/SymbolDependencyHelper';
 
@@ -30,6 +31,16 @@ describe('SymbolDependencyHelper', () => {
       '/root/src/b.ts'
     );
     expect(noMatch).toBe(false);
+  });
+
+  // #774: re-resolving every resolved dependency against every target file dominated a warm init.
+  it('never resolves again a target that is already an absolute path', async () => {
+    const resolver = vi.fn(async () => '/root/src/b.ts');
+    const helper = new SymbolDependencyHelper({ resolve: resolver });
+    const other = path.join(path.parse(process.cwd()).root, 'root', 'src', 'c.ts');
+
+    expect(await helper.doesDependencyTargetFile({ targetFilePath: other } as never, '/root/src/a.ts', '/root/src/b.ts')).toBe(false);
+    expect(resolver).not.toHaveBeenCalled();
   });
 
   it('extracts names and builds normalized symbol ids', () => {

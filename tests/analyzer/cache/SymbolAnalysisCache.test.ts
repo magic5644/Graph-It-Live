@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AstWorkerHost } from "@/analyzer/ast/AstWorkerHost";
 import { IndexCache, restoreOrBuildIndex, SymbolAnalysisCache, SYMBOL_CACHE_SCHEMA } from "@/analyzer/cache/IndexCache";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
+import { PathResolver } from "@/analyzer/utils/PathResolver";
 import { normalizePath } from "@/analyzer/types";
 
 const GRAPH = {
@@ -16,7 +17,7 @@ describe("SymbolAnalysisCache", () => {
   let tmpDir: string;
   let cacheDir: string;
   let file: string;
-  const symbolsJson = () => path.join(cacheDir, "symbols.json");
+  const symbolsFile = () => path.join(cacheDir, "symbols.cache");
   const open = () => new SymbolAnalysisCache(cacheDir);
 
   beforeEach(() => {
@@ -72,23 +73,51 @@ describe("SymbolAnalysisCache", () => {
   });
 
   it.each([
-    ["another format", (data: Record<string, unknown>) => ({ ...data, schema: SYMBOL_CACHE_SCHEMA + 1 })],
-    ["another analyzer version", (data: Record<string, unknown>) => ({ ...data, version: "not-this-version" })],
-    ["no entries", (data: Record<string, unknown>) => ({ ...data, entries: undefined })],
+    ["another format", (lines: string[]) => [JSON.stringify({ ...JSON.parse(lines[0]), schema: SYMBOL_CACHE_SCHEMA + 1 }), ...lines.slice(1)]],
+    ["another analyzer version", (lines: string[]) => [JSON.stringify({ ...JSON.parse(lines[0]), version: "not-this-version" }), ...lines.slice(1)]],
+    ["a corrupt header", (lines: string[]) => ["{ truncated", ...lines.slice(1)]],
   ])("starts empty on a file of %s", (_label, edit) => {
     const cache = open();
     cache.setGraph(file, "v1", GRAPH);
     cache.save();
-    fs.writeFileSync(symbolsJson(), JSON.stringify(edit(JSON.parse(fs.readFileSync(symbolsJson(), "utf-8")))));
+    fs.writeFileSync(symbolsFile(), edit(fs.readFileSync(symbolsFile(), "utf-8").split("\n")).join("\n"));
 
     expect(open().getGraph(file, "v1")).toBeUndefined();
   });
 
-  it("starts empty on a corrupt or missing file", () => {
+  it("starts empty on a missing file, and skips a truncated last entry", () => {
     expect(open().getGraph(file, "v1")).toBeUndefined();
-    fs.mkdirSync(cacheDir, { recursive: true });
-    fs.writeFileSync(symbolsJson(), "{ truncated");
-    expect(open().getGraph(file, "v1")).toBeUndefined();
+    const other = path.join(tmpDir, "b.ts");
+    fs.writeFileSync(other, "");
+    const cache = open();
+    cache.setGraph(file, "v1", GRAPH);
+    cache.setGraph(other, "v1", GRAPH);
+    cache.save();
+    const text = fs.readFileSync(symbolsFile(), "utf-8");
+    fs.writeFileSync(symbolsFile(), text.slice(0, text.lastIndexOf("\t")));
+
+    const restored = open();
+    expect(restored.getGraph(file, "v1")).toEqual(GRAPH);
+    expect(restored.getGraph(other, "v1")).toBeUndefined();
+  });
+
+  // Quotes and tabs need JSON escaping; Windows forbids both in file names.
+  it.skipIf(process.platform === "win32")("stores each file's own path once, whatever characters it holds", () => {
+    const odd = path.join(tmpDir, 'dir "quoted" tab\there', "a.ts");
+    fs.mkdirSync(path.dirname(odd), { recursive: true });
+    fs.writeFileSync(odd, "");
+    const key = normalizePath(odd);
+    const graph = { symbols: [{ ...GRAPH.symbols[0], id: `${key}:a` }], dependencies: [{ ...GRAPH.dependencies[0], sourceSymbolId: `${key}:a` }] };
+    const cache = open();
+    cache.setGraph(odd, "v1", graph);
+    cache.setInternalGraph(odd, "v1", new Map([[`${key}:a`, new Set([`${key}:b`])]]));
+    cache.save();
+
+    const restored = open();
+    expect(restored.getGraph(odd, "v1")).toEqual(graph);
+    expect(restored.getInternalGraph(odd, "v1")).toEqual(new Map([[`${key}:a`, new Set([`${key}:b`])]]));
+    const line = fs.readFileSync(symbolsFile(), "utf-8").split("\n")[1];
+    expect(line.split(JSON.stringify(key)).length - 1).toBe(1);
   });
 
   it("never caches a Vue file whose template is another file", () => {
@@ -111,10 +140,10 @@ describe("SymbolAnalysisCache", () => {
     expect(open().getGraph(gone, "v1")).toBeUndefined();
     expect(open().getGraph(file, "v1")).toEqual(GRAPH);
 
-    fs.rmSync(symbolsJson());
+    fs.rmSync(symbolsFile());
     cache.getGraph(file, "v1");
     cache.save();
-    expect(fs.existsSync(symbolsJson())).toBe(false);
+    expect(fs.existsSync(symbolsFile())).toBe(false);
   });
 
   it("does not throw when the cache directory cannot be written", () => {
@@ -133,7 +162,7 @@ describe("SymbolAnalysisCache", () => {
 
     new IndexCache(tmpDir, []).clear();
 
-    expect(fs.existsSync(symbolsJson())).toBe(false);
+    expect(fs.existsSync(symbolsFile())).toBe(false);
   });
 
   // #774: a warm `init` re-analyzed every file in the AST worker. Counts worker calls, never wall clock.
@@ -146,6 +175,7 @@ describe("SymbolAnalysisCache", () => {
       "src/lib.rs": "pub fn rusty() -> i32 { 1 }\n",
       "src/Widget.vue": '<script lang="ts">\nexport const size = 1;\n</script>\n<template><div /></template>\n',
       "src/main.go": "package main\n\nfunc Exported() {}\n",
+      "src/ext.ts": 'import { x, y, z } from "external-pkg";\nimport { used } from "./a";\nimport { b } from "./b";\nexport const e = x() + y() + z() + used() + b;\n',
     };
 
     beforeEach(() => {
@@ -167,9 +197,11 @@ describe("SymbolAnalysisCache", () => {
           reverseIndexOptions: { excludeNodeModules: true, ignoreTypeImports: false },
           buildFullIndex: () => spider.buildFullIndex(),
         });
+        const resolved = vi.spyOn(PathResolver.prototype, "resolve");
         const { entries } = await spider.scanDeadCode();
+        const external = resolved.mock.calls.filter(([, specifier]) => specifier === "external-pkg").length;
         const relative = (calls: unknown[][]) => calls.map(([p]) => path.relative(tmpDir, p as string).replaceAll("\\", "/")).sort();
-        return { entries, analyzed: relative(analyzed.mock.calls), internal: relative(internal.mock.calls) };
+        return { entries, analyzed: relative(analyzed.mock.calls), internal: relative(internal.mock.calls), external };
       } finally {
         await spider.dispose();
         vi.restoreAllMocks();
@@ -183,7 +215,12 @@ describe("SymbolAnalysisCache", () => {
       expect(cold.internal.length).toBeGreaterThan(0);
 
       const warm = await run();
-      expect(warm).toEqual({ entries: cold.entries, analyzed: [], internal: [] });
+      expect(warm.entries).toEqual(cold.entries);
+      expect([warm.analyzed, warm.internal]).toEqual([[], []]);
+      // An unresolvable specifier is resolved once per scan (and once more by the barrel lookup), not per
+      // dependency and target file (#774): 3 dependencies x 2 target files resolved it 9 times.
+      expect(cold.external).toBeLessThanOrEqual(2);
+      expect(warm.external).toBeLessThanOrEqual(2);
 
       fs.appendFileSync(path.join(tmpDir, "src/a.ts"), "export function added() { return 2; }\n");
       const changed = await run();
@@ -198,7 +235,7 @@ describe("SymbolAnalysisCache", () => {
 
       expect(second.analyzed).toEqual(first.analyzed);
       expect(second.analyzed.length).toBeGreaterThan(0);
-      expect(fs.existsSync(symbolsJson())).toBe(false);
+      expect(fs.existsSync(symbolsFile())).toBe(false);
     }, 120_000);
   });
 });

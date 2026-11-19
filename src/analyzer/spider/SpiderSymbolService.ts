@@ -148,6 +148,8 @@ export class SpiderSymbolService {
   private analysisCache: SymbolAnalysisCache | null = null;
   /** Module resolutions shared by the targets of a running dead-code scan, which reads one snapshot. */
   private scanResolutions: Map<string, Promise<string | null>> | undefined;
+  /** Dependency targets resolved during the running dead-code scan (resolveDependencyTarget). */
+  private scanDependencyResolutions: Map<string, Promise<string | null>> | undefined;
 
   async getSymbolGraph(filePath: string): Promise<SymbolGraph> {
     if (!path.isAbsolute(filePath)) {
@@ -178,13 +180,21 @@ export class SpiderSymbolService {
       
       // Resolve targetFilePath in dependencies from module specifier to absolute path
       // This is critical for cross-platform path comparison in verifyDependencyUsage
-      // Use language-specific resolver (Python, TypeScript, etc.)
+      // Use language-specific resolver (Python, TypeScript, etc.), once per specifier: a file's
+      // dependencies repeat the specifier of each import they come through.
+      const resolutions = new Map<string, Promise<string | null>>();
+      const resolveOnce = (specifier: string): Promise<string | null> => {
+        let resolved = resolutions.get(specifier);
+        if (!resolved) {
+          resolved = this.resolveDependencyTarget(key, specifier);
+          resolutions.set(specifier, resolved);
+        }
+        return resolved;
+      };
       const resolvedDependencies = await Promise.all(
         result.dependencies.map(async (dep) => {
           try {
-            // Get language-specific analyzer
-            const analyzer = this.languageService.getAnalyzer(key);
-            const resolved = await analyzer.resolvePath(key, dep.targetFilePath);
+            const resolved = await resolveOnce(dep.targetFilePath);
             if (resolved) {
               const targetFilePath = normalizePath(resolved);
               const symbolName = this.symbolDependencyHelper.extractSymbolName(dep.targetSymbolId);
@@ -228,6 +238,29 @@ export class SpiderSymbolService {
     const result = await this.astWorkerHost.analyzeFile(key, content);
     this.analysisCache?.setGraph(key, content, result);
     return result;
+  }
+
+  /**
+   * A dependency's specifier resolved by its file's language analyzer, null when it resolves to no file. A
+   * dead-code scan reads each (file, specifier) once: the symbol graphs of a scan's files outlive the LRU cache.
+   */
+  private resolveDependencyTarget(fromFilePath: string, specifier: string): Promise<string | null> {
+    const resolveNow = async () => {
+      try {
+        return await this.languageService.getAnalyzer(fromFilePath).resolvePath(fromFilePath, specifier);
+      } catch {
+        return null;
+      }
+    };
+    const memo = this.scanDependencyResolutions;
+    if (!memo) return resolveNow();
+    const key = `${normalizePath(fromFilePath)}\0${specifier}`;
+    let resolved = memo.get(key);
+    if (!resolved) {
+      resolved = resolveNow();
+      memo.set(key, resolved);
+    }
+    return resolved;
   }
 
   private async internalExportGraph(key: string, content: string): Promise<Map<string, Set<string>>> {
@@ -963,8 +996,15 @@ export class SpiderSymbolService {
   ): Promise<SymbolDependency[]> {
     const { dependencies } = await this.getSymbolGraph(sourcePath);
     const candidates = dependencies.filter(keep);
+    const target = normalizePath(targetFilePath);
+    // getSymbolGraph resolved every target it could: a specifier left is resolved again (memoized in a scan).
     const matches = await Promise.all(
-      candidates.map((dep) => this.symbolDependencyHelper.doesDependencyTargetFile(dep, sourcePath, targetFilePath))
+      candidates.map(async (dep) => {
+        if (normalizePath(dep.targetFilePath) === target) return true;
+        if (path.isAbsolute(dep.targetFilePath)) return false;
+        const resolved = await this.resolveDependencyTarget(sourcePath, dep.targetFilePath);
+        return resolved !== null && normalizePath(resolved) === target;
+      })
     );
     return candidates.filter((_, i) => matches[i]);
   }
@@ -1201,6 +1241,7 @@ export class SpiderSymbolService {
     const { filesToScan, filesBeyondLimit } = await this.collectScanFiles(scopePath, options);
     const context: DeadCodeContext = { reExportMemo: new Map(), excluded: [] };
     this.scanResolutions = new Map();
+    this.scanDependencyResolutions = new Map();
 
     try {
       const { results, skippedFiles } = await this.scanEachFile(filesToScan, 'scanDeadCode', options, async (filePath) => ({
@@ -1216,6 +1257,7 @@ export class SpiderSymbolService {
       };
     } finally {
       this.scanResolutions = undefined;
+      this.scanDependencyResolutions = undefined;
     }
   }
 
