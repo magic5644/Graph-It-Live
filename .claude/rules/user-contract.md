@@ -51,4 +51,5 @@ Apply this file by explicit routing to any issue, change or review of what a use
 
 - Run each changed command, tool or view black-box as a user or an agent would, including its failure cases, on a fixture and, when the output depends on size, on a large public repository (cal.com, svelte.dev or nuxt.com, never private code).
 - Open every visual output (SVG, HTML page, webview, diagram) and look at it.
+- For a command that analyzes a workspace: time it cold and warm on the large repository (a warm run that redoes all the work is a defect), run it once on a fresh clone without generated or build outputs (an import that resolves to no file is reported, never silently changes counts), and open visual outputs with ≥ 50 units (every node labelled, colour never the only key).
 - Paste the commands run and their outcome in the pull request *User-facing check* section. A pull request touching these surfaces without it is not ready, and a review that only reads the diff does not approve it.
