@@ -215,6 +215,11 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     expectFailure(["export", "--output", "../g.html"], 5, "Refusing to write ../g.html: it is outside the workspace");
     // #774: a dry run writes nothing, yet refuses an outside --output like a real run.
     expectFailure(["init", "--dry-run", "--output", "../x"], 5, "--output must be a directory inside the workspace: ../x");
+    const dryRun = cli(["init", "--dry-run", "--output", "out"]);
+    expect(dryRun.status, dryRun.stderr).toBe(0);
+    expect(dryRun.stdout).toContain("Report: not written (dry run): out;");
+    expect(JSON.parse(cli(["init", "--dry-run", "--output", "out", "--format", "json"]).stdout).reportNotWritten).toBe("out");
+    expect(fs.existsSync(path.join(root, "out"))).toBe(false);
     expectFailure(["export", "--output", "g.svg"], 1, "--output g.svg does not match --format html");
     expectFailure(["diagram", "--format", "svg", "--output", "a.html"], 1, "--output a.html does not match --format svg");
     expectFailure(["diagram", "--format", "diagram-spec", "--view", "matrix"], 4, "--format diagram-spec describes --view units or folder");

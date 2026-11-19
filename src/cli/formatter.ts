@@ -16,7 +16,7 @@ import { estimateTokenSavings } from "../shared/toon";
 import { encodeToonSections, formatToonScalarHeader } from "../shared/toonSections";
 import { sessionStats } from "../shared/sessionStats";
 import { compactOutput } from "../shared/compactOutput";
-import { describeUnresolvedImports, type UnresolvedImportsReport } from "../analyzer/utils/unresolvedImports";
+import { describeUnresolvedImports, type UnresolvedImportsField } from "../analyzer/utils/unresolvedImports";
 
 export type CliOutputFormat = "text" | "json" | "toon" | "markdown" | "mermaid" | "html" | "csv" | "sarif" | "svg" | "diagram-spec";
 
@@ -338,7 +338,7 @@ function formatUnreferencedFilesMarkdown(data: Record<string, unknown>, command:
   ];
   if (data["truncated"] === true) lines.push("", `**Partial result:** maxFiles left ${cell(data["filesBeyondLimit"])} file(s) unscanned.`);
   if (typeof data["hint"] === "string") lines.push("", cell(data["hint"]));
-  const unresolved = toRecord(data["unresolvedImports"]) as UnresolvedImportsReport | undefined;
+  const unresolved = toRecord(data["unresolvedImports"]) as UnresolvedImportsField | undefined;
   const unresolvedText = unresolved === undefined ? null : describeUnresolvedImports(unresolved);
   if (unresolvedText !== null) lines.push("", `**Unresolved imports:** ${cell(unresolvedText)}`);
   lines.push("");

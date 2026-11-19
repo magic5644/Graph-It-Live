@@ -75,6 +75,7 @@ function bullets(entries: Array<[string, unknown]>): string[] {
 /** Imports resolving to no file or to an excluded file (#774): the counts, what to do and a few examples; nothing at 0. */
 function unresolvedImports(value: unknown): string[] {
   const report = (value ?? {}) as Data;
+  if (report.tracked === false) return [`_${text(report.warning)}_`, ""];
   const count = typeof report.count === "number" ? report.count : 0;
   const excluded = typeof report.excludedCount === "number" ? report.excludedCount : 0;
   if (count + excluded === 0) return [];

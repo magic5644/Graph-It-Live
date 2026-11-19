@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withUnresolvedImports } from "@/analyzer/deadcode/DeadCodeScanner";
 import type { UnreferencedFile } from "@/analyzer/deadcode/deadCodeConfidence";
 import {
@@ -9,6 +9,9 @@ import {
   nearestExistingDir,
   reportUnresolvedImports,
   EXCLUDED_IMPORTS_NEXT,
+  existsWithAnyExtension,
+  projectFolders,
+  UNTRACKED_IMPORTS,
   locateUnfollowedImports,
   UNRESOLVED_IMPORTS_NEXT,
   unresolvedImportsField,
@@ -31,6 +34,27 @@ describe("unresolvedImports (#774)", () => {
 
     it("is the target's folder when it exists", () => {
       expect(nearestExistingDir(path.join(root, "src/a/x.generated"), root)).toBe(normalizePath(path.join(root, "src/a")));
+    });
+
+    it("treats a path it cannot stat (a file where a folder should be) as no folder", () => {
+      fs.writeFileSync(path.join(root, "src", "file.ts"), "");
+      expect(nearestExistingDir(path.join(root, "src/file.ts/gen/x"), root)).toBe(normalizePath(path.join(root, "src")));
+    });
+
+    // Same answer on every file system: macOS and Windows resolve `./Config` to config.ts, Linux does not.
+    it("finds a file by base name with any extension, ignoring case", () => {
+      fs.writeFileSync(path.join(root, "src", "config.json"), "{}");
+      fs.writeFileSync(path.join(root, "src", "theme.css"), "");
+      fs.writeFileSync(path.join(root, "src", "util.ts"), "");
+      fs.mkdirSync(path.join(root, "src", "gen"));
+
+      expect(existsWithAnyExtension(path.join(root, "src/config"))).toBe(true);
+      expect(existsWithAnyExtension(path.join(root, "src/theme"))).toBe(true);
+      expect(existsWithAnyExtension(path.join(root, "src/Util"))).toBe(true);
+      expect(existsWithAnyExtension(path.join(root, "src/util.ts"))).toBe(true);
+      expect(existsWithAnyExtension(path.join(root, "src/gen"))).toBe(false);
+      expect(existsWithAnyExtension(path.join(root, "src/missing"))).toBe(false);
+      expect(existsWithAnyExtension(path.join(root, "nope/x"))).toBe(false);
     });
 
     it("climbs out of missing folders, never above the root", () => {
@@ -93,6 +117,16 @@ describe("unresolvedImports (#774)", () => {
     expect(describeUnresolvedImports(onlyExcluded)).not.toContain("to no file");
   });
 
+  it("keys project folders normalized: Windows separators and drive case hit one entry, never above the root", () => {
+    const find = vi.fn((dir: string) => (dir.toLowerCase().includes("app") ? String.raw`C:\repo\app` : String.raw`D:\other`));
+    const projectOf = projectFolders(String.raw`C:\repo`, find);
+
+    expect(projectOf(String.raw`C:\repo\app\src`)).toBe("c:/repo/app");
+    expect(projectOf("c:/repo/app/src")).toBe("c:/repo/app");
+    expect(find).toHaveBeenCalledOnce();
+    expect(projectOf(String.raw`C:\repo\lib`)).toBe("c:/repo");
+  });
+
   describe("locateUnfollowedImports", () => {
     let root: string;
     beforeEach(() => {
@@ -126,8 +160,9 @@ describe("unresolvedImports (#774)", () => {
     });
   });
 
-  it("is a field only when tracked: none without a reverse index", () => {
-    expect(unresolvedImportsField(null, ROOT)).toEqual({});
+  it("says it is not tracked without a reverse index, never leaves the field out", () => {
+    expect(unresolvedImportsField(null, ROOT)).toEqual({ unresolvedImports: UNTRACKED_IMPORTS });
+    expect(describeUnresolvedImports(UNTRACKED_IMPORTS)).toContain("not counted while the reverse index is off");
     expect(unresolvedImportsField([loader], ROOT).unresolvedImports?.count).toBe(1);
   });
 

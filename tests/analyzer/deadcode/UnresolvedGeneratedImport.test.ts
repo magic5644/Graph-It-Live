@@ -116,6 +116,17 @@ describe("unresolved import of a generated file (#774)", () => {
     expect(await generatedMissing()).toBe(true);
   }, 60_000);
 
+  // An extensionless import of a data file, and a case variant of a source file, resolve to an existing file.
+  it("never reports an import whose base name exists with another extension or case", async () => {
+    fs.writeFileSync(path.join(root, "backend/src/settings.json"), "{}\n");
+    fs.writeFileSync(path.join(root, "backend/src/extra.ts"), 'import cfg from "./settings";\nimport { users } from "./resolvers/Users";\nexport const x = [cfg, users];\n');
+    const spider = await indexed();
+
+    const specifiers = (await spider.getUnresolvedImports())?.map(({ specifier }) => specifier);
+    expect(specifiers).not.toContain("./settings");
+    expect(specifiers).not.toContain("./resolvers/Users");
+  }, 60_000);
+
   it("is unknown (null) without a reverse index", async () => {
     const spider = new SpiderBuilder().withRootDir(root).withReverseIndex(false).build();
 

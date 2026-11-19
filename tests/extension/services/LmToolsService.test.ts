@@ -350,6 +350,7 @@ describe('LmToolsService', () => {
     const result = await invokeTool('graph-it-live_get_index_status', {});
 
     expect(result).not.toHaveProperty('outOfRootImports');
+    expect(result).toMatchObject({ unresolvedImports: { tracked: false } });
     expect((result as { warning: string }).warning).toContain('enableBackgroundIndexing');
   });
 
