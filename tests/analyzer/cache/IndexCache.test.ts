@@ -8,7 +8,6 @@ import {
   INDEX_CACHE_SCHEMA,
   LOCK_STALE_MS,
   restoreOrBuildIndex,
-  SymbolAnalysisCache,
   type ReverseIndexOptions,
 } from "@/analyzer/cache/IndexCache";
 import type { Spider } from "@/analyzer/Spider";
@@ -357,7 +356,14 @@ describe("IndexCache", () => {
 
       await run(spider, open());
 
-      expect(spider.useSymbolAnalysisCache).toHaveBeenCalledExactlyOnceWith(expect.any(SymbolAnalysisCache));
+      expect(spider.useSymbolAnalysisCache).toHaveBeenCalledExactlyOnceWith(cacheDir);
+    });
+
+    it("releases the lock when the symbol analysis cache cannot be set", async () => {
+      const spider = createSpider({ useSymbolAnalysisCache: vi.fn(() => { throw new Error("no cache"); }) });
+
+      await expect(run(spider, open())).rejects.toThrow("no cache");
+      expect(fs.existsSync(lockPath)).toBe(false);
     });
 
     it("writes the built index, then releases the lock", async () => {

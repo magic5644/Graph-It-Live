@@ -13,23 +13,20 @@
  *   held waits, then restores what the holder wrote instead of indexing again.
  */
 
-import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { SourceFileCollector } from "../SourceFileCollector";
 import type { Spider } from "../Spider";
-import type { SymbolDependency, SymbolInfo } from "../types";
 import { getLogger } from "../../shared/logger";
 import { normalizePath } from "../../shared/path";
 import { configFingerprint } from "./configFingerprint";
+import { ANALYZER_VERSION, ensureGitignore, SYMBOLS_FILE } from "./SymbolAnalysisCache";
 
 const log = getLogger("IndexCache");
 
 /** Layout version of .graph-it/cache/ itself. Bump when file names or roles change. */
 export const INDEX_CACHE_SCHEMA = 2;
 
-/** Injected at build time into every Node bundle; "0.0.0-dev" in local builds. */
-const ANALYZER_VERSION = process.env.CLI_VERSION ?? "0.0.0-dev";
 
 /**
  * Above this fraction of added/changed/deleted files, a full rebuild is cheaper
@@ -45,10 +42,6 @@ const META_FILE = "meta.json";
 const REVERSE_INDEX_FILE = "reverse-index.json";
 const CALLGRAPH_FILE = "callgraph.db";
 const LOCK_FILE = "index.lock";
-const SYMBOLS_FILE = "symbols.cache";
-
-/** Format of symbols.cache. Bump when it or an AST analyzer's output changes shape or meaning. */
-export const SYMBOL_CACHE_SCHEMA = 2;
 
 /** Spider options that change the reverse index content. The call graph ignores them. */
 export interface ReverseIndexOptions {
@@ -87,15 +80,6 @@ function writeFileAtomic(filePath: string, data: string | Uint8Array): void {
   const tmpPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.tmp`);
   fs.writeFileSync(tmpPath, data);
   fs.renameSync(tmpPath, filePath);
-}
-
-/** `.graph-it/` holds only generated state, so it ignores itself in git. */
-function ensureGitignore(cacheDir: string): void {
-  try {
-    fs.writeFileSync(path.join(path.dirname(cacheDir), ".gitignore"), "*\n", { flag: "wx" });
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-  }
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -376,138 +360,6 @@ export class IndexCache {
   }
 }
 
-type SymbolGraph = { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
-
-/**
- * One file's AST analyses, valid while its content hashes to `hash`: JSON text with the file's own path
- * replaced by OWN_PATH, as compact in memory as on disk. Paths are unresolved: no config is read.
- */
-interface SymbolCacheEntry {
-  hash: string;
-  graph?: string;
-  /** Internal export dependency graph: [export, callees][] */
-  internal?: string;
-}
-
-// JSON.stringify escapes every control character, so this raw one never occurs in its output: the swap is exact.
-const OWN_PATH = "\u0001";
-// One file per line: key, hash, graph, internal graph, separated by tabs, which JSON text never holds raw either.
-const FIELD = "\t";
-const WRITE_CHUNK = 1 << 20;
-// A Vue template read from another file (`<template src>`) changes the analysis, not the file's content.
-const EXTERNAL_VUE_TEMPLATE = /<template\b[^>]*\ssrc\s*=/i;
-
-const hashOf = (content: string): string => createHash("sha256").update(content).digest("hex");
-/** The path as it appears inside JSON strings. */
-const jsonText = (key: string): string => JSON.stringify(key).slice(1, -1);
-const pack = (key: string, value: unknown): string => JSON.stringify(value).replaceAll(jsonText(key), OWN_PATH);
-const unpack = <T>(key: string, text: string): T => JSON.parse(text.replaceAll(OWN_PATH, jsonText(key))) as T;
-
-/**
- * The AST worker's analyses (symbols and dependencies, internal export graph) of each file, keyed by
- * content hash in `.graph-it/cache/symbols.cache`, so a warm run analyzes only the files that changed (#774).
- * Entries stay text until read: each read is a fresh copy, and a large workspace costs little memory.
- */
-export class SymbolAnalysisCache {
-  private entries: Map<string, SymbolCacheEntry> | undefined;
-  private dirty = false;
-
-  constructor(private readonly dir: string) {}
-
-  getGraph(filePath: string, content: string): SymbolGraph | undefined {
-    const key = normalizePath(filePath);
-    const text = this.entry(key, content)?.graph;
-    return text === undefined ? undefined : unpack(key, text);
-  }
-
-  setGraph(filePath: string, content: string, graph: SymbolGraph): void {
-    const key = normalizePath(filePath);
-    this.update(key, content, { graph: pack(key, graph) });
-  }
-
-  getInternalGraph(filePath: string, content: string): Map<string, Set<string>> | undefined {
-    const key = normalizePath(filePath);
-    const text = this.entry(key, content)?.internal;
-    return text === undefined ? undefined : new Map(unpack<[string, string[]][]>(key, text).map(([name, callees]) => [name, new Set(callees)]));
-  }
-
-  setInternalGraph(filePath: string, content: string, graph: Map<string, Set<string>>): void {
-    const key = normalizePath(filePath);
-    this.update(key, content, { internal: pack(key, [...graph].map(([name, callees]) => [name, [...callees]])) });
-  }
-
-  /** Write what changed since the last save, dropping deleted files, a chunk at a time. Best-effort, like IndexCache.save(). */
-  save(): void {
-    if (!this.dirty || !this.entries) return;
-    const filePath = path.join(this.dir, SYMBOLS_FILE);
-    const tmpPath = path.join(this.dir, `.${SYMBOLS_FILE}.${process.pid}.tmp`);
-    let fd: number | undefined;
-    let created = false;
-    try {
-      fs.mkdirSync(this.dir, { recursive: true });
-      ensureGitignore(this.dir);
-      fd = fs.openSync(tmpPath, "w");
-      created = true;
-      let chunk = JSON.stringify({ schema: SYMBOL_CACHE_SCHEMA, version: ANALYZER_VERSION });
-      for (const [key, entry] of this.entries) {
-        if (!fs.existsSync(key)) {
-          this.entries.delete(key);
-          continue;
-        }
-        chunk += `\n${JSON.stringify(key)}${FIELD}${entry.hash}${FIELD}${entry.graph ?? ""}${FIELD}${entry.internal ?? ""}`;
-        if (chunk.length >= WRITE_CHUNK) {
-          fs.writeSync(fd, chunk);
-          chunk = "";
-        }
-      }
-      fs.writeSync(fd, chunk);
-      fs.closeSync(fd);
-      fd = undefined;
-      fs.renameSync(tmpPath, filePath);
-      this.dirty = false;
-    } catch (error) {
-      if (fd !== undefined) fs.closeSync(fd);
-      if (created) fs.rmSync(tmpPath, { force: true });
-      log.warn("Could not save symbol cache:", error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  private entry(key: string, content: string): SymbolCacheEntry | undefined {
-    const entry = this.load().get(key);
-    return entry?.hash === hashOf(content) ? entry : undefined;
-  }
-
-  private update(key: string, content: string, payload: Omit<SymbolCacheEntry, "hash">): void {
-    if (key.toLowerCase().endsWith(".vue") && EXTERNAL_VUE_TEMPLATE.test(content)) return;
-    const hash = hashOf(content);
-    const previous = this.load().get(key);
-    this.load().set(key, { ...(previous?.hash === hash ? previous : {}), ...payload, hash });
-    this.dirty = true;
-  }
-
-  /** Read once; a missing, corrupt, other-format or other-version file starts empty. */
-  private load(): Map<string, SymbolCacheEntry> {
-    if (this.entries) return this.entries;
-    this.entries = new Map();
-    let lines: string[];
-    try {
-      lines = fs.readFileSync(path.join(this.dir, SYMBOLS_FILE), "utf-8").split("\n");
-      const header = JSON.parse(lines[0]) as { schema?: unknown; version?: unknown };
-      if (header.schema !== SYMBOL_CACHE_SCHEMA || header.version !== ANALYZER_VERSION) return this.entries;
-    } catch {
-      // Nothing usable cached: every file is analyzed once, then saved.
-      return this.entries;
-    }
-    for (const line of lines.slice(1)) {
-      const [key, hash, graph, internal] = line.split(FIELD);
-      // A truncated last line has fewer fields: that file is analyzed again.
-      if (internal === undefined) continue;
-      this.entries.set(JSON.parse(key) as string, { hash, graph: graph || undefined, internal: internal || undefined });
-    }
-    return this.entries;
-  }
-}
-
 /** What one restoreOrBuildIndex() call did. */
 export interface CachedIndexOutcome {
   /** Source files held in the index once this run finished. */
@@ -545,8 +397,8 @@ export async function restoreOrBuildIndex(
 ): Promise<CachedIndexOutcome> {
   const { cache } = options;
   const release = cache ? await cache.lock(options.onWait) : NO_LOCK;
-  spider.useSymbolAnalysisCache(cache?.enabled ? new SymbolAnalysisCache(cache.dir) : null);
   try {
+    spider.useSymbolAnalysisCache(cache?.enabled ? cache.dir : null);
     const cached = cache?.readReverseIndex(options.reverseIndexOptions);
     // enableReverseIndex() re-checks the index version and rootDir on its own.
     const restored = cached ? spider.enableReverseIndex(cached) : false;

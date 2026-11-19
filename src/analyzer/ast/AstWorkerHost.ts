@@ -8,6 +8,7 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
+import { createHash } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { Worker } from 'node:worker_threads';
@@ -41,6 +42,7 @@ export class AstWorkerHost {
   private isStopping = false;
   private isDisposed = false;
   private stopPromise: Promise<void> | null = null;
+  private build: string | undefined;
 
   /**
    * @param workerPath - Absolute path to the compiled astWorker.js bundle
@@ -81,6 +83,21 @@ export class AstWorkerHost {
       // If still not found, use the most common path and let it fail with a clear error
       this.workerPath = foundPath || path.join(process.cwd(), 'dist/astWorker.js');
     }
+  }
+
+  /**
+   * Content hash of the worker bundle: identifies the analyzer that produced an analysis, in every
+   * build (a local build keeps version 0.0.0-dev). "missing" when the bundle cannot be read.
+   */
+  public buildId(): string {
+    if (this.build === undefined) {
+      try {
+        this.build = createHash('sha256').update(fs.readFileSync(this.workerPath)).digest('hex');
+      } catch {
+        this.build = 'missing';
+      }
+    }
+    return this.build;
   }
 
   /**
