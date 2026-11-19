@@ -404,6 +404,11 @@ export function createReplRuntime(values: Record<string, unknown>): CliRuntime {
 
 /** Handle the no-command case: launch REPL in TTY, print help otherwise. */
 async function handleNoCommand(values: Record<string, unknown>): Promise<void> {
+  try {
+    assertGlobalOptions(process.argv.slice(2), "");
+  } catch (err) {
+    process.exit(reportError(err));
+  }
   if (process.stdin.isTTY) {
     let runtime: CliRuntime;
     try {
@@ -472,11 +477,6 @@ async function main(): Promise<void> {
   }
 
   if (!command) {
-    try {
-      assertGlobalOptions(process.argv.slice(2), "");
-    } catch (err) {
-      process.exit(reportError(err));
-    }
     await handleNoCommand(values);
     return;
   }
