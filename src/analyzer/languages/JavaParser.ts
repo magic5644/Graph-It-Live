@@ -6,6 +6,7 @@ import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
 import { FileReader } from "../FileReader";
 import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
 import { extractFilePath } from "../utils/PathExtractor";
+import { ReportReads } from "../utils/ReportReads";
 import { WasmParserFactory } from "./WasmParserFactory";
 
 /**
@@ -127,22 +128,53 @@ export class JavaParser implements ILanguageAnalyzer {
      * (`src/main/java/com/acme/app` for `com.acme.app.Missing`), existing or not (#774). Null for the standard library,
      * wildcards, static imports and nested classes (their prefix is no folder), and packages the workspace lacks.
      */
-    async localTargetOf(fromFile: string, moduleSpecifier: string): Promise<string | null> {
+    async localTargetOf(fromFile: string, moduleSpecifier: string, reads = new ReportReads()): Promise<string | null> {
         const segments = moduleSpecifier.split('.');
         // A class name starts upper case; a lower-case last segment is the package of a wildcard import (`a.b.*`).
         if (this.isJavaStdlibImport(moduleSpecifier) || moduleSpecifier.endsWith('.*') || segments.length < 2
             || !/^[A-Z]/.test(segments.at(-1) ?? '') || segments.some(s => s === '' || s === '..' || s.includes('/'))) {
             return null;
         }
-        const roots: string[] = [];
-        for (let dir = path.dirname(extractFilePath(fromFile)); this.isWithinRoot(dir); dir = path.dirname(dir)) {
-            roots.push(dir);
-            if (dir === path.dirname(dir)) break;
+        // Normalized string comparison: the importing file is indexed, so in the workspace; no realpath, and no path
+        // resolution per folder, for each of thousands of imports (#774).
+        this.normalizedRoot ??= normalizePath(path.resolve(this.rootDir));
+        const root = this.normalizedRoot;
+        const rootPrefix = root.endsWith('/') ? root : `${root}/`;
+        const packagePath = segments.slice(0, -1).join('/');
+        const file = extractFilePath(fromFile);
+        // Indexed paths are absolute already: path.resolve() per import is the costliest step otherwise.
+        const fromDir = normalizePath(path.dirname(path.isAbsolute(file) ? file : path.resolve(file)));
+        if (fromDir !== root && !fromDir.startsWith(rootPrefix)) return null;
+        // The files of a folder import the same packages: each folder climbs once per package and report.
+        let packageDirs = this.packageDirs.get(reads);
+        if (!packageDirs) {
+            packageDirs = new Map();
+            this.packageDirs.set(reads, packageDirs);
         }
-        const packageDirs = roots.map((root) => path.join(root, ...segments.slice(0, -1)));
-        const found = await Promise.all(packageDirs.map((dir) => fs.stat(dir).then((stat) => stat.isDirectory(), () => false)));
-        const index = found.indexOf(true);
-        return index < 0 ? null : normalizePath(path.join(packageDirs[index], `${segments.at(-1)}.java`));
+        const key = `${fromDir}\0${packagePath}`;
+        let packageDir = packageDirs.get(key);
+        if (packageDir === undefined) {
+            packageDir = this.nearestPackageDir(fromDir, packagePath, root, rootPrefix, reads);
+            packageDirs.set(key, packageDir);
+        }
+        return packageDir === null ? null : `${packageDir}/${segments.at(-1)}.java`;
+    }
+
+    /** The workspace root, normalized: computed once, not per import. */
+    private normalizedRoot?: string;
+
+    /** Per report, the nearest package folder found from a folder (`<folder>\0<package path>`). */
+    private readonly packageDirs = new WeakMap<ReportReads, Map<string, string | null>>();
+
+    /** The nearest existing `<folder>/<packagePath>` from `dir` up to the workspace root, else null. */
+    private nearestPackageDir(dir: string, packagePath: string, root: string, rootPrefix: string, reads: ReportReads): string | null {
+        for (;;) {
+            const packageDir = dir.endsWith('/') ? dir + packagePath : `${dir}/${packagePath}`;
+            if (reads.isDirectory(packageDir)) return packageDir;
+            if (dir === root) return null;
+            const parent = dir.slice(0, dir.lastIndexOf('/'));
+            dir = parent.startsWith(rootPrefix) ? parent : root;
+        }
     }
 
     async resolvePath(_fromFile: string, moduleSpecifier: string): Promise<string | null> {
