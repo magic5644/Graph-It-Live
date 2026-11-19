@@ -1701,7 +1701,7 @@ export class LmToolsService {
           try {
             const params = ExportArchitectureDiagramParamsSchema.parse(withoutResponseFormat(options.input));
             const { exportArchitectureDiagram } = await import('../../mcp/tools/architecture.js');
-            const result = await exportArchitectureDiagram(rootDir, (filePath) => spider.analyze(filePath), params, abort.signal);
+            const result = await exportArchitectureDiagram(rootDir, (filePath) => spider.analyzeFromIndex(filePath), params, abort.signal);
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);

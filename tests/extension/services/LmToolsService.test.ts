@@ -158,6 +158,7 @@ function createProvider(overrides: Partial<{
     getCacheStatsAsync: vi.fn().mockResolvedValue({ dependencyCache: { size: 0 } }),
     getSymbolDependents: vi.fn().mockResolvedValue([]),
     analyze: vi.fn().mockResolvedValue([]),
+    analyzeFromIndex: vi.fn().mockResolvedValue([]),
     traceFunctionExecution: vi.fn().mockResolvedValue({ rootSymbol: { id: '', filePath: '', symbolName: '' }, callChain: [], visitedSymbols: [], maxDepthReached: false }),
   };
 
@@ -532,7 +533,8 @@ describe('LmToolsService', () => {
       expect(signal.aborted).toBe(true);
       const analyze = exportArchitectureDiagram.mock.calls[0][1] as (file: string) => Promise<unknown>;
       await analyze('/workspace/src/a.ts');
-      expect(vi.mocked(provider.getSpiderForLmTools)()?.analyze).toHaveBeenCalledWith('/workspace/src/a.ts');
+      // Unchanged files come from the index: a warm diagram re-parses nothing (#774).
+      expect(vi.mocked(provider.getSpiderForLmTools)()?.analyzeFromIndex).toHaveBeenCalledWith('/workspace/src/a.ts');
       expect(result).toEqual({ format: 'svg', counts: '2 units', markup: '<svg />' });
     });
 
