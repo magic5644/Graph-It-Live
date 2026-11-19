@@ -13,7 +13,7 @@ import {
   capNodes,
   diagramHeader,
   type DrawOptions,
-  fitLabel,
+  fitName,
   legendHeight,
   nodeTitle,
   textBound,
@@ -84,7 +84,7 @@ export function layoutMatrix(input: DiagramInput, options: DrawOptions = {}): Ma
   const edgeOf = new Map(edges.map((edge) => [`${edge.from}>${edge.to}`, edge]));
   const cuts = new Set(cycleCuts(matrix).flatMap((cycle) => cycle.cells.map((cell) => `${cell.row}>${cell.column}`)));
   const cycleKindOf = (members: readonly string[]) => edges.find((edge) => edge.kind === "cycle" && members.includes(edge.from))?.cycleKind ?? "runtime";
-  const labels = matrix.rows.map((row, index) => `${index + 1} ${fitLabel(row.label)}`);
+  const labels = matrix.rows.map((row, index) => `${index + 1} ${fitName(row.label)}`);
   // The widest number of a cell or a column header.
   const widest = Math.max(matrix.rows.length, ...matrix.cells.map((matrixCell) => matrixCell.fileEdgeCount));
   const cell = snap(Math.max(MIN_CELL, textWidth(String(widest), SIZES.meta) + 8));
