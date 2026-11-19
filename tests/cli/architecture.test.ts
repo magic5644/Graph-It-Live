@@ -239,7 +239,8 @@ describe('architecture command', () => {
     beforeEach(() => {
       mocks.collectAllSourceFiles.mockResolvedValue([app, core]);
       mocks.executeAnalyzeDependencies.mockImplementation(({ filePath }: { filePath: string }) =>
-        Promise.resolve({ dependencies: filePath === app ? [{ path: core }] : [{ path: app }] }));
+        // The analyzer passes normalized paths: forward slashes and a lowercase drive on Windows.
+        Promise.resolve({ dependencies: normalizePath(filePath) === normalizePath(app) ? [{ path: core }] : [{ path: app }] }));
     });
 
     it('prints the matrix as text and markdown tables, not the summary', async () => {

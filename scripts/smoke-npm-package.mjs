@@ -90,7 +90,7 @@ try {
 
   assert.equal(run(bin, ['--version'], workspace).trim(), `graph-it-live v${version}`);
   pass('graph-it --version');
-  assert.match(run(bin, ['summary'], workspace), /indexedFiles: [1-9]/);
+  assert.match(run(bin, ['summary'], workspace), /^files: [1-9]/m);
   pass('graph-it summary');
   // The HTML page inlines vis-network from the package: no node_modules/vis-network in the install.
   run(bin, ['export', '--format', 'html', '--output', 'graph.html'], workspace);
