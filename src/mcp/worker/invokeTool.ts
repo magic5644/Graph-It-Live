@@ -168,7 +168,7 @@ export async function invokeTool(
   try {
     if (signal.aborted) throw createAbortError();
     // Validate parameters using Zod schema
-    const validation = validateToolParams(tool, params);
+    const validation = validateToolParams(tool, params, { worker: true });
     if (!validation.success) {
       postMessage({
         type: "error",
