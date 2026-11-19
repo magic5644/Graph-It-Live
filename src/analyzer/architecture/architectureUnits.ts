@@ -57,7 +57,7 @@ function readText(file: string): string | undefined {
 /** The `name = "..."` of a TOML `[section]` (Cargo.toml `[package]`, pyproject.toml `[project]`). */
 function tomlName(text: string | undefined, section: string): string | undefined {
   const body = text?.split(/^\[/m).find((part) => part.startsWith(`${section}]`));
-  return body?.match(/^[ \t]*name[ \t]*=[ \t]*["']([^"'\n]+)["']/m)?.[1];
+  return body === undefined ? undefined : /^[ \t]*name[ \t]*=[ \t]*["']([^"'\n]+)["']/m.exec(body)?.[1];
 }
 
 /**
@@ -77,10 +77,10 @@ function manifestName(folder: string): string | undefined {
     // Unreadable folder: no .csproj name.
   }
   const name = packageName(at("package.json"))
-    ?? pom?.match(/<artifactId>\s*([^<\s]+)\s*<\/artifactId>/)?.[1]
+    ?? (pom === undefined ? undefined : /<artifactId>\s*([^<\s]+)\s*<\/artifactId>/.exec(pom)?.[1])
     ?? tomlName(readText(at("Cargo.toml")), "package")
     ?? tomlName(pyproject, "project") ?? tomlName(pyproject, "tool.poetry")
-    ?? readText(at("go.mod"))?.match(/^module[ \t]+(\S+)/m)?.[1]
+    ?? /^module[ \t]+(\S+)/m.exec(readText(at("go.mod")) ?? "")?.[1]
     ?? (csproj.length === 1 ? path.basename(csproj[0], ".csproj") : undefined);
   return name?.trim() || undefined;
 }
