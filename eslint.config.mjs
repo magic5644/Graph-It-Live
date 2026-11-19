@@ -69,4 +69,16 @@ export default [
       "no-await-in-loop": "warn",
     },
   },
+  {
+    files: ["src/analyzer/**/*.ts"],
+    rules: {
+      "no-restricted-syntax": [
+        "error",
+        {
+          selector: "CallExpression[callee.property.name=/^get(Start|End)LineNumber$/]",
+          message: "ts-morph recounts the lines from the file start on each call (quadratic, #774): use startLineOf()/endLineOf() from src/analyzer/utils/lineNumbers.",
+        },
+      ],
+    },
+  },
 ];

@@ -20,6 +20,7 @@ import { parseSfc, scriptKindOf } from './sfc/sfcBlocks';
 import { closestNames, symbolNotFoundMessage } from './utils/SymbolLookup';
 import { pythonImportBindings, pythonReExports, pythonStarExports } from './utils/pyRsImports';
 import { isPublicPythonName, pythonDeclarations, type PythonDeclarationKind } from './utils/pythonSignatures';
+import { startLineOf } from './utils/lineNumbers';
 
 /** Export name `export * from '<module>'` is reported under. */
 const wildcardExport = (specifier: string | undefined): string => `* from '${specifier}'`;
@@ -191,7 +192,7 @@ export class SignatureAnalyzer {
           parameters: this.extractParameters(ctor.getParameters()),
           returnType: className,
           isAsync: false,
-          line: ctor.getStartLineNumber(),
+          line: startLineOf(ctor),
         });
       }
 
@@ -209,7 +210,7 @@ export class SignatureAnalyzer {
           isStatic: method.isStatic(),
           visibility,
           typeParameters: method.getTypeParameters().map(tp => this.safeGetText(tp)),
-          line: method.getStartLineNumber(),
+          line: startLineOf(method),
         });
       }
     }
@@ -226,7 +227,7 @@ export class SignatureAnalyzer {
           parameters: this.extractParameters(arrowFunc.getParameters()),
           returnType: this.safeGetTypeNodeText(arrowFunc.getReturnTypeNode(), 'unknown'),
           isAsync: arrowFunc.isAsync(),
-          line: varDecl.getStartLineNumber(),
+          line: startLineOf(varDecl),
         });
       }
     }
@@ -1413,7 +1414,7 @@ export class SignatureAnalyzer {
       returnType: this.safeGetTypeNodeText(func.getReturnTypeNode(), 'void'),
       isAsync: func.isAsync(),
       typeParameters: func.getTypeParameters().map(tp => this.safeGetText(tp)),
-      line: func.getStartLineNumber(),
+      line: startLineOf(func),
     };
   }
 

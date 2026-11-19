@@ -13,6 +13,7 @@ import { defaultExportNameOf, isComponentFactory } from "./utils/declarations";
 import { analyzeReactIdentity } from "./ReactIdentity";
 import { isSfcFile, langOf, parseSfc, scriptKindOf, type ScriptLang } from "./sfc/sfcBlocks";
 import { analyzeVueTemplate } from "./sfc/vueTemplate";
+import { endLineOf, startLineOf } from "./utils/lineNumbers";
 
 /** A symbol referenced from a declaration, with the line where it is used */
 type UsedSymbol = {
@@ -142,7 +143,7 @@ function addLocalReference(identifier: Node, name: string, dependencies: UsedSym
   if (Node.isPropertyAccessExpression(identifier.getParent())) return;
   const jsx = JSX_FILE.test(identifier.getSourceFile().getFilePath());
   if (!isRuntimeReference(identifier, jsx) || (jsx && isIntrinsicTag(identifier)) || isShadowed(identifier, name)) return;
-  addUnique(dependencies, localUse(filePathOf(identifier.getSourceFile()), name, identifier.getStartLineNumber()));
+  addUnique(dependencies, localUse(filePathOf(identifier.getSourceFile()), name, startLineOf(identifier)));
 }
 
 /** `import('./m')` written as the body of `lazy(() => import('./m'))`: the component is loaded, not called. */
@@ -551,8 +552,8 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
     symbols.push({
       name,
       kind: node.getKindName(),
-      line: node.getStartLineNumber(),
-      endLine: node.getEndLineNumber(),
+      line: startLineOf(node),
+      endLine: endLineOf(node),
       isExported,
       id: `${filePath}:${name}`,
       category: getCategory(node),
@@ -822,7 +823,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
         symbolId: `${filePath}:${calledName}`,
         filePath,
         isTypeOnly: false,
-        line: expression.getStartLineNumber(),
+        line: startLineOf(expression),
       });
     }
   }
@@ -854,7 +855,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       symbolId: `${filePath}:${className}.${methodName}`,
       filePath,
       isTypeOnly: false,
-      line: expression.getStartLineNumber(),
+      line: startLineOf(expression),
     });
   }
 
@@ -1004,7 +1005,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       const modulePath = literal.getLiteralText();
       // `typeof import("./m")` is the whole module object: every export.
       const name = importType.getQualifier()?.getText().split(".")[0] ?? "*";
-      addUnique(dependencies, { symbolId: `${modulePath}:${name}`, filePath: modulePath, isTypeOnly: true, line: importType.getStartLineNumber() });
+      addUnique(dependencies, { symbolId: `${modulePath}:${name}`, filePath: modulePath, isTypeOnly: true, line: startLineOf(importType) });
     }
 
     return dependencies;
@@ -1054,7 +1055,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       symbolId: this.buildTargetSymbolId({ originalName, modulePath: importInfo.modulePath }),
       filePath: importInfo.modulePath,
       isTypeOnly: importInfo.isType,
-      line: identifier.getStartLineNumber(),
+      line: startLineOf(identifier),
       ...(relation && { relation }),
     };
   }
@@ -1087,7 +1088,7 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
           symbolId: targetSymbolId,
           filePath: modulePath,
           isTypeOnly: false,
-          line: callExpr.getStartLineNumber(),
+          line: startLineOf(callExpr),
           ...(isLazyImport(callExpr) && { relation: "REFERENCES" as const }),
         });
       }
@@ -1194,8 +1195,8 @@ export class SymbolAnalyzer implements ISymbolAnalyzer {
       symbols.push({
         name: fullName,
         kind: memberKindForCategory,
-        line: member.getStartLineNumber(),
-        endLine: member.getEndLineNumber(),
+        line: startLineOf(member),
+        endLine: endLineOf(member),
         isExported: false, // Methods are not directly exported
         id: `${filePath}:${fullName}`,
         parentSymbolId,

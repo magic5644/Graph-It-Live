@@ -5,6 +5,7 @@ import { mapWithConcurrency } from '../../shared/concurrency';
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from '../../shared/constants';
 import { getLogger } from '../../shared/logger';
 import { AstWorkerHost } from '../ast/AstWorkerHost';
+import type { SymbolAnalysisCache } from '../cache/IndexCache';
 import { Cache } from '../Cache';
 import { FileReader } from '../FileReader';
 import { LanguageService } from '../LanguageService';
@@ -143,6 +144,8 @@ export class SpiderSymbolService {
   }
 
   private readonly textIndex: DeadCodeTextIndex;
+  /** AST analyses persisted across runs, keyed by content hash; null analyzes every file. */
+  private analysisCache: SymbolAnalysisCache | null = null;
   /** Module resolutions shared by the targets of a running dead-code scan, which reads one snapshot. */
   private scanResolutions: Map<string, Promise<string | null>> | undefined;
 
@@ -171,7 +174,7 @@ export class SpiderSymbolService {
 
     try {
       const content = await this.fileReader.readFile(filePath);
-      const result = await this.astWorkerHost.analyzeFile(key, content);
+      const result = await this.analyzeContent(key, content);
       
       // Resolve targetFilePath in dependencies from module specifier to absolute path
       // This is critical for cross-platform path comparison in verifyDependencyUsage
@@ -215,6 +218,26 @@ export class SpiderSymbolService {
     }
   }
 
+  useAnalysisCache(cache: SymbolAnalysisCache | null): void {
+    this.analysisCache = cache;
+  }
+
+  private async analyzeContent(key: string, content: string): Promise<SymbolGraph> {
+    const cached = this.analysisCache?.getGraph(key, content);
+    if (cached) return cached;
+    const result = await this.astWorkerHost.analyzeFile(key, content);
+    this.analysisCache?.setGraph(key, content, result);
+    return result;
+  }
+
+  private async internalExportGraph(key: string, content: string): Promise<Map<string, Set<string>>> {
+    const cached = this.analysisCache?.getInternalGraph(key, content);
+    if (cached) return cached;
+    const graph = await this.astWorkerHost.getInternalExportDependencyGraph(key, content);
+    this.analysisCache?.setInternalGraph(key, content, graph);
+    return graph;
+  }
+
   /**
    * Unused exports of a file, each with its confidence and reasons (`deadCodeConfidence.ts`). An export only
    * test files use is listed too, at `medium`. `context` lets a workspace scan read each file's re-exports and
@@ -233,7 +256,7 @@ export class SpiderSymbolService {
 
       const referencingFiles = await this.findReferencingFiles(target);
       const content = await this.fileReader.readFile(target);
-      const internalGraph = withSameFileCalls(await this.astWorkerHost.getInternalExportDependencyGraph(target, content), symbols, dependencies, target);
+      const internalGraph = withSameFileCalls(await this.internalExportGraph(target, content), symbols, dependencies, target);
       const textFacts = this.workspaceTextFacts(context);
       const { entryPoints, packageDeepImport, frameworksByPackage } = await textFacts;
       const publishedDeepImport = inDeepImportedPackage(target, packageDeepImport);
@@ -1247,6 +1270,7 @@ export class SpiderSymbolService {
   ): Promise<{ results: Array<T | undefined>; skippedFiles: number }> {
     let skippedFiles = 0;
     let done = 0;
+    // A cancelled scan keeps the analyses it made: each is valid for its file's content.
     const results = await mapWithConcurrency(files, DEAD_CODE_SCAN_CONCURRENCY, async (filePath) => {
       if (signal) {
         await setImmediate();
@@ -1261,7 +1285,7 @@ export class SpiderSymbolService {
       } finally {
         onProgress?.(++done, files.length);
       }
-    });
+    }).finally(() => this.analysisCache?.save());
     return { results, skippedFiles };
   }
 

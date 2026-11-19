@@ -199,11 +199,15 @@ async function measureCli(workspace, target, runs, scratch) {
   const scan = cli('scan');
   const callers = cli('tool', 'query_call_graph', '--filePath', target.file,
     '--symbolName', target.symbol, '--direction', 'callers');
+  const init = cli('init', '--dry-run');
   const metrics = {
     'cli.coldStart': await sample(runs, () => runCli(['--version'], scratch)),
     'scan.cold': await sample(runs, scan, () => rmSync(cacheDir(workspace), { recursive: true, force: true })),
     'scan.warm': await sample(runs, scan),
     'scan.afterEdit': await sample(runs, scan, (run) => edit(path.join(workspace, target.edit), run)),
+    // #774: a warm init must reuse every unchanged file's symbol analysis.
+    'init.cold': await sample(runs, init, () => rmSync(cacheDir(workspace), { recursive: true, force: true })),
+    'init.warm': await sample(runs, init),
     'callGraph.cold': await sample(runs, callers, () => rmSync(path.join(cacheDir(workspace), 'callgraph.db'), { force: true })),
     'callGraph.warm': await sample(runs, callers),
   };

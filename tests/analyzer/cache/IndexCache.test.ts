@@ -8,6 +8,7 @@ import {
   INDEX_CACHE_SCHEMA,
   LOCK_STALE_MS,
   restoreOrBuildIndex,
+  SymbolAnalysisCache,
   type ReverseIndexOptions,
 } from "@/analyzer/cache/IndexCache";
 import type { Spider } from "@/analyzer/Spider";
@@ -324,6 +325,7 @@ describe("IndexCache", () => {
       clearCache: vi.fn(),
       getSerializedReverseIndex: vi.fn(() => "SERIALIZED"),
       getCacheStats: vi.fn(() => ({ reverseIndexStats: { indexedFiles: 3 } })),
+      useSymbolAnalysisCache: vi.fn(),
       ...overrides,
     });
     const run = (spider: ReturnType<typeof createSpider>, cache: IndexCache | null, build = vi.fn(async () => ({ indexedFiles: 4, cancelled: false }))) =>
@@ -339,6 +341,15 @@ describe("IndexCache", () => {
       expect(spider.clearCache).toHaveBeenCalled();
       expect(outcome).toEqual({ filesIndexed: 3, filesFound: 4, filesAnalyzed: 4, fromCache: false, cancelled: false });
       expect(fs.existsSync(cacheDir)).toBe(false);
+      expect(spider.useSymbolAnalysisCache).toHaveBeenCalledExactlyOnceWith(null);
+    });
+
+    it("gives the spider a symbol analysis cache in the cache directory", async () => {
+      const spider = createSpider();
+
+      await run(spider, open());
+
+      expect(spider.useSymbolAnalysisCache).toHaveBeenCalledExactlyOnceWith(expect.any(SymbolAnalysisCache));
     });
 
     it("writes the built index, then releases the lock", async () => {
