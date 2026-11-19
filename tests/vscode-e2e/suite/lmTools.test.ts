@@ -184,7 +184,7 @@ suite('LM Tools Registration Test Suite', () => {
     assert.strictEqual(capped.filesBeyondLimit, Number(full.scannedFiles) - 1, JSON.stringify(capped));
 
     const invalid = await scan({ maxFiles: 0 });
-    assert.match(String(invalid.error), /^maxFiles: /, JSON.stringify(invalid));
+    assert.strictEqual(invalid.error, '"maxFiles" must be >= 1; got 0.', JSON.stringify(invalid));
   });
 
   test('Total Graph-It-Live tool count is exactly 25', function () {

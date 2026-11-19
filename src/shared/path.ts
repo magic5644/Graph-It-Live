@@ -84,17 +84,26 @@ export function getRelativePath(absolutePath: string, workspaceRoot: string): st
  * messages): paths are workspace-relative on every surface (#769).
  */
 export function relativizeWorkspacePaths(output: string, workspaceRoot: string): string {
-  // Every path in the index goes through normalizePath (forward slashes,
-  // lowercased Windows drive letter), so matching that one canonical form is
-  // enough — no separate native-separator handling is needed.
-  const normalizedRoot = normalizePath(workspaceRoot);
+  const normalizedRoot = normalizePath(workspaceRoot).replace(/\/+$/, "");
   // A filesystem root ("/", "c:/") would turn every absolute path, or every "/", into noise.
-  if (/^(?:[a-z]:)?\/?$/i.test(normalizedRoot)) {
+  if (/^(?:[a-z]:)?$/i.test(normalizedRoot)) {
     return output;
   }
 
-  // The trailing slash keeps a sibling like "/repo-backup" from matching "/repo"; the root itself
-  // (workspaceRoot field) becomes ".", unless more path characters follow it.
-  const escapedRoot = normalizedRoot.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
-  return output.replaceAll(`${normalizedRoot}/`, "").replaceAll(new RegExp(String.raw`${escapedRoot}(?![\w./-])`, "g"), ".");
+  // Paths come normalized from the index (c:/repo/a.ts), native from a resolved parameter or a
+  // message (C:\repo\a.ts), and JSON-escaped (C:\\repo\\a.ts): match the root in each form, and
+  // turn the separators of the path segments after it into "/". Windows paths ignore case.
+  const separator = String.raw`(?:\\\\|\\|/)`;
+  const root = normalizedRoot
+    .split("/")
+    .map((part) => part.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`))
+    .join(separator);
+  const segment = String.raw`[^\s"'\x60<>|*?:,;\\/]+`;
+  const flags = /^[a-z]:/i.test(normalizedRoot) ? "gi" : "g";
+  // Without a following segment, the root itself becomes "." unless more path characters follow
+  // it, so a sibling like "/repo-backup" does not match "/repo".
+  const pattern = new RegExp(String.raw`${root}((?:${separator}${segment})+)|${root}(?![\w.\\/-])`, flags);
+  return output.replaceAll(pattern, (_match, tail: string | undefined) =>
+    tail === undefined ? "." : tail.replace(new RegExp(`^${separator}`), "").replaceAll(new RegExp(separator, "g"), "/"),
+  );
 }

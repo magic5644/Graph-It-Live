@@ -1102,7 +1102,7 @@ describe('LmToolsService', () => {
       const result = await invokeTool(TOOL, { filePath: 'src/a.ts', symbolName: 'myFn', offset: 2, tokenBudget: 500 });
 
       expect(queryCallGraphInDb).toHaveBeenCalledWith(db, '/workspace', {
-        filePath: expect.stringMatching(/\/workspace\/src\/a\.ts$/), symbolName: 'myFn', offset: 2, tokenBudget: 500,
+        filePath: expect.stringMatching(/[\\/]workspace[\\/]src[\\/]a\.ts$/), symbolName: 'myFn', offset: 2, tokenBudget: 500,
       });
       expect(result).toEqual(answer);
     });
