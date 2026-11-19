@@ -118,6 +118,26 @@ describe("IndexCache", () => {
       expect(open().readReverseIndex(OPTIONS)).toBeNull();
     });
 
+    it("drops a cache another dev build wrote, keeps its own, and reads a release guard without a build (#774)", () => {
+      try {
+        vi.stubEnv("GRAPH_IT_BUILD", "build-a");
+        open().save({ reverseIndex: { data: "INDEX", options: OPTIONS } });
+        expect(readMeta().build).toBe("build-a");
+        expect(open().isValid()).toBe(true);
+
+        vi.stubEnv("GRAPH_IT_BUILD", "build-b");
+        expect(open().isValid()).toBe(false);
+        expect(open().readReverseIndex(OPTIONS)).toBeNull();
+
+        vi.stubEnv("GRAPH_IT_BUILD", "");
+        const { build: _build, ...releaseMeta } = readMeta();
+        fs.writeFileSync(path.join(cacheDir, "meta.json"), JSON.stringify(releaseMeta));
+        expect(open().isValid()).toBe(true);
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
     it("rejects a missing or corrupt guard", () => {
       expect(open().isValid()).toBe(false);
       open().save({ reverseIndex: { data: "INDEX", options: OPTIONS } });
