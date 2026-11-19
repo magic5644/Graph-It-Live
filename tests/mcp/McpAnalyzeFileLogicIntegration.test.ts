@@ -250,7 +250,7 @@ struct Point {
 
       await expect(
         executeAnalyzeFileLogic(params),
-      ).rejects.toThrow(/UNSUPPORTED_FILE_TYPE/i);
+      ).rejects.toThrow(/Unsupported file type/);
     });
 
     it("should return error for .md file", async () => {
@@ -263,7 +263,7 @@ struct Point {
 
       await expect(
         executeAnalyzeFileLogic(params),
-      ).rejects.toThrow(/UNSUPPORTED_FILE_TYPE/i);
+      ).rejects.toThrow(/Unsupported file type/);
     });
 
     it("should accept .ts, .tsx, .js, .jsx, .py, .rs extensions", async () => {

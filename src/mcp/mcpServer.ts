@@ -754,6 +754,8 @@ const WORKER_TOOLS: ReadonlyArray<{
   title: string;
   schema: z.ZodObject;
   annotations: ToolAnnotations;
+  /** Worker parameters derived from the validated ones, when the tool needs the response format. */
+  toWorker?: (params: Record<string, unknown>, format: ResponseFormat) => Record<string, unknown>;
 }> = [
   { tool: "analyze_dependencies", title: "Analyze File Dependencies", schema: AnalyzeDependenciesParamsSchema, annotations: READ_ONLY },
   { tool: "find_referencing_files", title: "Find Files That Import This File", schema: FindReferencingFilesParamsSchema, annotations: READ_ONLY },
@@ -776,11 +778,18 @@ const WORKER_TOOLS: ReadonlyArray<{
   { tool: "check_architecture", title: "Check Architecture Rules", schema: CheckArchitectureParamsSchema, annotations: READ_ONLY },
   // Overwrites output, or architecture.<format> for a diagram over the inline cap.
   { tool: "export_architecture_diagram", title: "Export Architecture Diagram", schema: ExportArchitectureDiagramParamsSchema, annotations: DESTRUCTIVE },
-  { tool: "query_natural_language", title: "Query Codebase with Natural Language", schema: QueryNaturalLanguageParamsSchema, annotations: READ_ONLY },
+  {
+    tool: "query_natural_language",
+    title: "Query Codebase with Natural Language",
+    schema: QueryNaturalLanguageParamsSchema.omit({ outputFormat: true }),
+    annotations: READ_ONLY,
+    // response_format is the only format knob: TOON gets the compact subgraph, json and markdown the full one.
+    toWorker: (params, format) => ({ ...params, outputFormat: format === "toon" ? "toon" : "json" }),
+  },
   { tool: "generate_wiki", title: "Generate Markdown Wiki from Call Graph", schema: GenerateWikiParamsSchema, annotations: WRITES },
 ];
 
-for (const { tool, title, schema, annotations } of WORKER_TOOLS) {
+for (const { tool, title, schema, annotations, toWorker } of WORKER_TOOLS) {
   const name = `graphitlive_${tool}`;
   server.registerTool(
     name,
@@ -800,7 +809,7 @@ for (const { tool, title, schema, annotations } of WORKER_TOOLS) {
       const workerCheck = await ensureWorkerReady();
       if (workerCheck.error) return formatToolResponse(workerCheck.response, response_format, name);
 
-      const response = await invokeToolWithResponse(tool, params);
+      const response = await invokeToolWithResponse(tool, toWorker ? toWorker(params, response_format) : params);
       return formatToolResponse(response, response_format, name, (params as { detail?: GraphContextDetail }).detail);
     },
   );

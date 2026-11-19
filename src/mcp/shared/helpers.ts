@@ -282,7 +282,7 @@ export async function validateAnalysisInput(filePath: string): Promise<{
   // T064: Enhanced input validation - Absolute path check
   if (!path.isAbsolute(filePath)) {
     throw new Error(
-      `FILE_NOT_FOUND: Path must be absolute. Got relative path: ${filePath}`,
+      `filePath must be resolved against the workspace first: ${filePath}`,
     );
   }
 
@@ -292,7 +292,7 @@ export async function validateAnalysisInput(filePath: string): Promise<{
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     throw new Error(
-      `FILE_NOT_FOUND: Cannot access file '${filePath}'. ${errorMessage}`,
+      `File not found: ${filePath}. ${errorMessage}`,
       { cause: error }
     );
   }
@@ -301,9 +301,8 @@ export async function validateAnalysisInput(filePath: string): Promise<{
   const ext = path.extname(filePath).toLowerCase();
   if (!SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS.includes(ext as typeof SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS[number])) {
     throw new Error(
-      `UNSUPPORTED_FILE_TYPE: File extension '${ext}' is not supported for symbol analysis. ` +
-        `Supported extensions: ${SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS.join(", ")}. ` +
-        `File: ${filePath}`,
+      `Unsupported file type '${ext}' for symbol analysis: ${filePath}. ` +
+        `Supported extensions: ${SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS.join(", ")}.`,
     );
   }
 

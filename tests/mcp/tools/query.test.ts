@@ -500,13 +500,18 @@ describe("queryNaturalLanguageWithDb", () => {
   });
 });
 
-describe("QueryNaturalLanguageSchema outputFormat description", () => {
-  it("documents TOON vs JSON tradeoffs for LLM client indexing", () => {
-    const shape = QueryNaturalLanguageSchema.shape.outputFormat;
-    const description = shape.description ?? "";
+describe("queryNaturalLanguageWithDb fileFilter (#769)", () => {
+  const dbWithPaths = (...paths: string[]) => ({
+    exec: vi.fn((sql: string) => (sql.startsWith("SELECT DISTINCT path") ? [{ columns: ["path"], values: paths.map((p) => [p]) }] : [])),
+  });
 
-    expect(description).toContain("TOON");
-    expect(description).toContain("fewer tokens");
-    expect(description).toContain("JSON.parse()");
+  it("refuses a fileFilter that matches no indexed file", async () => {
+    await expect(queryNaturalLanguageWithDb(dbWithPaths(FILE_A) as never, WORKSPACE, { question: "x?", fileFilter: "nope/**" }))
+      .rejects.toThrow("fileFilter matches no indexed file: nope/**.");
+  });
+
+  it("runs the query when the fileFilter matches an indexed file", async () => {
+    await expect(queryNaturalLanguageWithDb(dbWithPaths(FILE_A) as never, WORKSPACE, { question: "x?", fileFilter: "src/**" }))
+      .resolves.toHaveProperty("question");
   });
 });

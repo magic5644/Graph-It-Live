@@ -58,6 +58,9 @@ describe("export_architecture_diagram schema", () => {
     [{ output: "/etc/diagram.svg" }, "Must be relative to the workspace"],
     [{ output: String.raw`C:\diagram.svg` }, "Must be relative to the workspace"],
     [{ output: "" }, "output"],
+    [{ diagramFormat: "svg", output: "out/x.html" }, "output must end with .svg for diagramFormat svg; got out/x.html"],
+    [{ diagramFormat: "html", output: "out/x.svg" }, "output must end with .html for diagramFormat html"],
+    [{ diagramFormat: "diagram-spec", output: "out/x.svg" }, "output must end with .json for diagramFormat diagram-spec"],
     [{ unknown: true }, "unknown"],
   ])("refuses %j", (params, message) => {
     const result = ExportArchitectureDiagramParamsSchema.safeParse(params);

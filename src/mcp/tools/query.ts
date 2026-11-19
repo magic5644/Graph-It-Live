@@ -16,7 +16,8 @@ import { QueryEngine } from "../../analyzer/QueryEngine";
 import type { QueryRequest, QueryResultEdge, QueryResultNode } from "../../shared/query-types";
 import { normalizePath } from "../../shared/path";
 import { estimateTokens, jsonToToon } from "../../shared/toon";
-import { z } from "zod/v4";
+import { compileFileScope } from "../../analyzer/graph-context/FileScopeMatcher";
+import type { QueryNaturalLanguageParams } from "../types";
 import { workerState } from "../shared/state";
 
 // ---------------------------------------------------------------------------
@@ -54,46 +55,10 @@ function encodeCompositeAsToon(compactJsonStr: string, workspaceRoot: string): s
 // Zod schema (exported for mcpServer registration)
 // ---------------------------------------------------------------------------
 
-export const QueryNaturalLanguageSchema = z.object({
-  question: z
-    .string()
-    .max(1024)
-    .describe("Natural language question about the codebase"),
-  depth: z
-    .number()
-    .int()
-    .min(1)
-    .max(5)
-    .default(2)
-    .optional()
-    .describe("BFS traversal depth from seed nodes (default: 2, min: 1, max: 5)"),
-  tokenBudget: z
-    .number()
-    .int()
-    .min(500)
-    .max(16000)
-    .default(4000)
-    .optional()
-    .describe("Maximum token budget for the output subgraph (default: 4000, min: 500, max: 16000)"),
-  fileFilter: z
-    .string()
-    .max(256)
-    .optional()
-    .describe("Glob pattern to restrict search scope (e.g. 'src/analyzer/**')"),
-  outputFormat: z
-    .enum(["toon", "json"])
-    .default("toon")
-    .optional()
-    .describe(
-      "Output format. 'toon' (default): compact TOON encoding (header+rows), " +
-        "typically 30-50% fewer tokens than JSON for node/edge lists — prefer this " +
-        "unless you need to re-parse structured JSON programmatically. " +
-        "'json': short-key JSON object per node/edge — use when the calling client " +
-        "needs to JSON.parse() the result directly (e.g. building its own graph structure).",
-    ),
-});
-
-export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguageSchema>;
+export {
+  QueryNaturalLanguageParamsSchema as QueryNaturalLanguageSchema,
+  type QueryNaturalLanguageParams,
+} from "../types";
 
 // ---------------------------------------------------------------------------
 // Result type
@@ -192,6 +157,8 @@ export async function queryNaturalLanguageWithDb(
   params: QueryNaturalLanguageParams,
   llmClient: LlmClient | null = null,
 ): Promise<QueryNaturalLanguageResult> {
+  if (params.fileFilter !== undefined) assertFileFilterMatches(db, workspaceRoot, params.fileFilter);
+
   // Build QueryRequest. llmClient defaults to null: over MCP the calling LLM
   // synthesizes the answer itself, so no second LLM round-trip is wanted.
   // The CLI has no such caller and passes a resolved client for keyword extraction.
@@ -234,4 +201,13 @@ export async function queryNaturalLanguageWithDb(
     toon: toonOutput,
     meta: { ...result.meta, tokenEstimate: estimateTokens(toonOutput) },
   };
+}
+
+/** A fileFilter that matches no indexed file is an error, never an empty answer. */
+function assertFileFilterMatches(db: Database, workspaceRoot: string, fileFilter: string): void {
+  const scope = compileFileScope(workspaceRoot, fileFilter);
+  const paths = db.exec("SELECT DISTINCT path FROM nodes")[0]?.values ?? [];
+  if (!paths.some((row) => scope.matches(normalizePath(String(row[0]))))) {
+    throw new Error(`fileFilter matches no indexed file: ${fileFilter}. Pass a workspace-relative glob such as src/** or src/**/*.ts.`);
+  }
 }

@@ -75,32 +75,9 @@ export async function executeAnalyzeFileLogic(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
 
-    // T065: Enhanced error code mapping
-    // Check for timeout errors
-    if (errorMessage.includes("timeout") || errorMessage.includes("timed out")) {
-      throw new Error(
-        `LSP_TIMEOUT: LSP call hierarchy analysis timed out for ${filePath} (exceeded 5 seconds)`,
-        { cause: error }
-      );
-    }
-
-    // Check for LSP availability errors
-    if (errorMessage.includes("LSP") || errorMessage.includes("language server")) {
-      throw new Error(
-        `LSP_UNAVAILABLE: Language server protocol is not available for ${filePath}. ${errorMessage}`,
-        { cause: error }
-      );
-    }
-
-    // Check for file system errors
     if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
-      throw new Error(`FILE_NOT_FOUND: File does not exist: ${filePath}`, { cause: error });
+      throw new Error(`File not found: ${filePath}`, { cause: error });
     }
-
-    // Generic analysis failure
-    throw new Error(
-      `ANALYSIS_FAILED: Symbol analysis failed for ${filePath}. ${errorMessage}`,
-      { cause: error }
-    );
+    throw new Error(`Cannot analyze the logic of ${filePath}: ${errorMessage}`, { cause: error });
   }
 }

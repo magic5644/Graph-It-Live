@@ -217,7 +217,7 @@ export class WikiGenerator {
     const files = allFiles.filter(scopePredicate);
     if (allFiles.length > 0 && files.length === 0) {
       throw new Error(
-        `No indexed file matches the wiki filters (${this.describeFilters()}). Check --scope and --exclude.`,
+        `No indexed file matches the wiki filters (${this.describeFilters()}). Check the scope and exclude filters.`,
       );
     }
     this.articlePaths = this.assignArticlePaths(files);
