@@ -5,7 +5,7 @@ import { mapWithConcurrency } from '../../shared/concurrency';
 import { SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS } from '../../shared/constants';
 import { getLogger } from '../../shared/logger';
 import { AstWorkerHost } from '../ast/AstWorkerHost';
-import type { SymbolAnalysisCache } from '../cache/IndexCache';
+import type { SymbolAnalysisCache } from '../cache/SymbolAnalysisCache';
 import { Cache } from '../Cache';
 import { FileReader } from '../FileReader';
 import { LanguageService } from '../LanguageService';

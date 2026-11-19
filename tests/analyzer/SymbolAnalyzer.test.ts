@@ -565,6 +565,27 @@ describe('SymbolAnalyzer - symbols do not depend on the files analyzed before (#
     expect(new SymbolAnalyzer().analyzeFileContent('/ws/empty.ts', '').symbols).toEqual([]);
     expect(new SymbolAnalyzer().getExportedSymbols('/ws/barrel.ts', 'export * from "./missing";')).toEqual([]);
   });
+
+  // #774: symbols.cache keeps one file's analysis across runs, whatever the worker parsed before it.
+  it.each([
+    ['a module', '/ws/m.ts', 'export namespace Shared { export const own = 1; }\nexport function f() { return g(); }\nfunction g() { return Shared.own; }\nexport interface Window { mine: true }'],
+    ['a global script', '/ws/s.ts', 'namespace Shared { export const own = 1; }\nfunction g() { return Shared.own; }\ninterface Window { mine: true }\nvar topLevel = g();'],
+    ['a JS script', '/ws/s.js', 'function g() { return 1; }\nvar topLevel = g();'],
+  ])('analyzes %s the same alone and after files that merge into it', (_kind, file, source) => {
+    const others: Array<[string, string]> = [
+      ['/ws/global.ts', 'namespace Shared { export const other = 2; }\nfunction g() { return 2; }\ninterface Window { theirs: true }\nvar topLevel = 0;'],
+      ['/ws/ambient.d.ts', 'declare module "/ws/m" { export const injected: number; }\ndeclare global { interface Window { ambient: true } }\nexport {};'],
+      ['/ws/aug.ts', 'export {};\ndeclare module "./m" { export function f(): string; export const added: number; }'],
+    ];
+    const alone = new SymbolAnalyzer();
+    const expected = { ...alone.analyzeFileContent(file, source), internal: [...alone.getInternalExportDependencyGraph(file, source)] };
+    const warm = new SymbolAnalyzer();
+    for (const [other, text] of others) warm.analyzeFileContent(other, text);
+    const after = { ...warm.analyzeFileContent(file, source), internal: [...warm.getInternalExportDependencyGraph(file, source)] };
+
+    expect(after).toEqual(expected);
+    expect(expected.symbols.length).toBeGreaterThan(0);
+  }, 30_000);
 });
 
 describe('SymbolAnalyzer - React references (#575)', () => {
