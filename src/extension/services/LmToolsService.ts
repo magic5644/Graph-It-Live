@@ -22,20 +22,24 @@ import {
   createSuccessResponse,
   INVALIDATE_FILES_MAX,
   QueryNaturalLanguageParamsSchema,
+  CrawlDependencyGraphParamsSchema,
+  QueryCallGraphParamsSchema,
   ReviewPrParamsSchema,
   ScanDeadCodeParamsSchema,
+  toolSchemas,
   type ExportArchitectureDiagramParams,
   type GraphContextParams,
   type QueryNaturalLanguageParams,
   type ReviewPrParams,
 } from '@/mcp/types';
 import { formatToolResponse, type ResponseFormat } from '@/mcp/responseFormatter';
+import { formatParamIssues, parseToolParams } from '@/mcp/paramIssues';
+import type { ZodType } from 'zod/v4';
 import { LM_RESPONSE_FORMAT_PROPERTY } from '@/mcp/toolDescriptions';
 import type { Dependency, SymbolDependency } from '@/analyzer/types';
-import { checkSymbolInFile, closestNames, symbolNotFoundMessage } from '@/analyzer/utils/SymbolLookup';
+import { checkSymbolInFile, symbolNotFoundMessage } from '@/analyzer/utils/SymbolLookup';
 import { mapWithConcurrency } from '@/shared/concurrency';
 import { convertSpiderToLspFormat } from '@/shared/converters';
-import { lookupCallGraphSymbol, symbolNamesInFile } from '@/analyzer/callgraph/CallGraphSymbolLookup';
 import { normalizePath } from '@/shared/path';
 import {
   toWorkspaceRelativePath,
@@ -303,6 +307,10 @@ export class LmToolsService {
         if (token.isCancellationRequested) throw new vscode.CancellationError();
         const formatError = invalidResponseFormat(options.input);
         if (formatError !== undefined) return this.errorResult(formatError);
+        // A tool with an MCP twin takes exactly its parameters: unknown or invalid ones are refused (#769).
+        const schema = (toolSchemas as Partial<Record<string, ZodType>>)[name.replace('graph-it-live_', '')];
+        const validation = schema === undefined ? undefined : parseToolParams(schema, withoutResponseFormat(options.input));
+        if (validation?.success === false) return this.errorResult(validation.error);
         const startedAt = Date.now();
         const result = await tool.invoke(options, token);
         return result
@@ -383,11 +391,15 @@ export class LmToolsService {
   }
 
   private resolveWorkspacePath(inputPath: string): string {
-    if (inputPath.length > 1024 || inputPath.includes('\0') || !nodePath.isAbsolute(inputPath)) {
-      throw new Error('File path must be an absolute path of at most 1024 characters.');
+    if (inputPath.length > 1024 || inputPath.includes('\0')) {
+      throw new Error('File path must be at most 1024 characters, without null bytes.');
     }
 
-    const resolvedPath = nodePath.resolve(inputPath);
+    // Workspace-relative paths resolve against the first folder, like the MCP tools (#769).
+    const root = this.getWorkspaceRoot();
+    const resolvedPath = nodePath.isAbsolute(inputPath) || root === undefined
+      ? nodePath.resolve(inputPath)
+      : nodePath.resolve(root, inputPath);
     for (const folder of vscode.workspace.workspaceFolders ?? []) {
       try {
         validateWorkspacePath(resolvedPath, folder.uri.fsPath);
@@ -499,36 +511,17 @@ export class LmToolsService {
           if (!spider) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          const { maxDepth } = options.input;
           const entryFile = this.resolveWorkspacePath(options.input.entryFile);
-          const rootDir = this.getWorkspaceRoot();
+          const rootDir = this.getWorkspaceRoot() ?? '';
           const controller = new AbortController();
           const cancellation = token.onCancellationRequested(() => controller.abort());
           try {
-            const graph = await spider.crawl(entryFile, {
-              maxDepth,
-              signal: controller.signal,
-            });
-            return new vscode.LanguageModelToolResult([
-              new vscode.LanguageModelTextPart(
-                JSON.stringify({
-                  entryFile,
-                  nodeCount: graph.nodes.length,
-                  edgeCount: graph.edges.length,
-                  nodes: graph.nodes.map((n) => ({
-                    path: n,
-                    relativePath: rootDir ? toRelativePath(n, rootDir) : n,
-                  })),
-                  edges: graph.edges.map((e) => ({
-                    source: e.source,
-                    target: e.target,
-                    sourceRelative: rootDir ? toRelativePath(e.source, rootDir) : e.source,
-                    targetRelative: rootDir ? toRelativePath(e.target, rootDir) : e.target,
-                    ...(e.typeOnly ? { typeOnly: true } : {}),
-                  })),
-                }),
-              ),
-            ]);
+            // Same paging, token budget, usage filter and communities as the MCP tool (#769).
+            const params = CrawlDependencyGraphParamsSchema.parse({ ...(withoutResponseFormat(options.input) as object), entryFile });
+            const { crawlDependencyGraph } = await import('../../mcp/tools/graph.js');
+            const maxDepth = vscode.workspace.getConfiguration('graph-it-live').get<number>('maxDepth', 50);
+            const result = await crawlDependencyGraph({ spider, rootDir, maxDepth }, params, controller.signal);
+            return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(JSON.stringify(result))]);
           } catch (error) {
             if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
               throw new vscode.CancellationError();
@@ -1572,39 +1565,13 @@ export class LmToolsService {
               'Call graph index not available. Open the Call Graph panel (graph-it-live.showCallGraph) first to build the index.',
             );
           }
-          const { direction = 'both', depth = 2, relationTypes } = options.input;
           const filePath = this.resolveWorkspacePath(options.input.filePath);
           try {
-            const db = indexer.getDb();
-            const lookup = lookupCallGraphSymbol(db, { ...options.input, filePath });
-            if (lookup.symbol === null && lookup.reason === 'not_found') {
-              // A missing symbol is an error with the closest names, as on the MCP server (#769).
-              const rootDir = this.getWorkspaceRoot();
-              const label = rootDir ? toRelativePath(filePath, rootDir) : filePath;
-              const names = closestNames(symbolNamesInFile(db, filePath), options.input.symbolName);
-              return this.errorResult(symbolNotFoundMessage(options.input.symbolName, label, names));
-            }
-            if (lookup.symbol === null) {
-              return new vscode.LanguageModelToolResult([
-                new vscode.LanguageModelTextPart(
-                  JSON.stringify({
-                    symbol: null, reason: lookup.reason, candidates: lookup.candidates,
-                    callers: [], callees: [], totalCallers: 0, totalCallees: 0, depth, direction,
-                  }),
-                ),
-              ]);
-            }
-            const { symbol } = lookup;
-            const symbolId = symbol.id;
-            const callers = (direction === 'callers' || direction === 'both')
-              ? this.callGraphBfs(db, symbolId, 'callers', depth, relationTypes ?? null) : [];
-            const callees = (direction === 'callees' || direction === 'both')
-              ? this.callGraphBfs(db, symbolId, 'callees', depth, relationTypes ?? null) : [];
-            return new vscode.LanguageModelToolResult([
-              new vscode.LanguageModelTextPart(
-                JSON.stringify({ symbol, callers, callees, totalCallers: callers.length, totalCallees: callees.length, depth, direction }),
-              ),
-            ]);
+            // Same lookup, BFS, defaults and paging as the MCP tool (#769).
+            const params = QueryCallGraphParamsSchema.parse({ ...(withoutResponseFormat(options.input) as object), filePath });
+            const { queryCallGraphInDb } = await import('../../mcp/tools/callgraph.js');
+            const result = queryCallGraphInDb(indexer.getDb(), this.getWorkspaceRoot() ?? '', params);
+            return new vscode.LanguageModelToolResult([new vscode.LanguageModelTextPart(JSON.stringify(result))]);
           } catch (error) {
             return this.errorResult(error instanceof Error ? error.message : String(error));
           }
@@ -1689,21 +1656,15 @@ export class LmToolsService {
           if (!spider || !rootDir) {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
-          // Same maxFiles rule as MCP and CLI; scopePath may be workspace-relative here.
-          const maxFiles = ScanDeadCodeParamsSchema.shape.maxFiles.safeParse(options.input.maxFiles);
-          if (!maxFiles.success) {
-            return this.errorResult(`maxFiles: ${maxFiles.error.issues[0]?.message ?? 'invalid value'}`);
-          }
-          const minConfidence = ScanDeadCodeParamsSchema.shape.minConfidence.safeParse(options.input.minConfidence);
-          if (!minConfidence.success) {
-            return this.errorResult(`minConfidence: ${minConfidence.error.issues[0]?.message ?? 'invalid value'}`);
-          }
+          // Same parameters as the MCP tool, verbose included (#769).
+          const parsed = ScanDeadCodeParamsSchema.safeParse({ ...(withoutResponseFormat(options.input) as object), scopePath });
+          if (!parsed.success) return this.errorResult(formatParamIssues(ScanDeadCodeParamsSchema, parsed.error.issues));
           // A whole-workspace scan can take minutes: chat can cancel it between files.
           const abort = new AbortController();
           const cancellation = token.onCancellationRequested(() => abort.abort());
           try {
             const scan = options.input.unreferencedFiles === true ? scanUnreferencedFiles : scanDeadCode;
-            const result = await scan(spider, rootDir, { scopePath, maxFiles: maxFiles.data, minConfidence: minConfidence.data }, abort.signal);
+            const result = await scan(spider, rootDir, parsed.data, abort.signal);
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);

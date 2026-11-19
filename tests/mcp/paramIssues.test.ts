@@ -37,7 +37,7 @@ describe("formatParamIssues (#769)", () => {
     [{ filePath: "a", budget: 100 }, '"budget" must be >= 500; got 100.'],
     [{ filePath: "a", budget: "x" }, '"budget" must be 0 or a number; got "x".'],
     [{ filePath: "a", revision: "zz" }, '"revision" must be a string matching /^[0-9a-f]{4}$/; got "zz".'],
-    [{ filePath: "a", tags: ["a", "b", "c"] }, '"tags" must be at most 2 items; got an array.'],
+    [{ filePath: "a", tags: ["a", "b", "c"] }, '"tags" must be at most 2 items; got 3 items.'],
     [{ filePath: "a", name: "x" }, '"name" must be at least 2 characters; got "x".'],
     [{ filePath: "a", seeds: ["x"] }, '"seeds[0]" must be an object; got "x".'],
     [{ filePath: "a", seeds: [{ file: "x", line: 1 }] }, 'Unknown parameter "line" in "seeds[0]".'],

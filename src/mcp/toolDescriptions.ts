@@ -5,9 +5,9 @@
  *
  * Each description is a one-sentence summary followed by labelled lines.
  * A plain string line is shared by every surface. A `{ mcp, lm }` line differs
- * per surface because the LM tools are implemented separately
- * (src/extension/services/LmToolsService.ts) with smaller input schemas and no
- * tokenBudget paging; a surface whose key is absent omits the line.
+ * per surface where the runtimes differ (index lifecycle, git root, timeouts);
+ * a surface whose key is absent omits the line. An LM tool with an MCP twin
+ * takes exactly the MCP parameters (scripts/sync-tool-descriptions.mjs).
  *
  * Tool names are written with the MCP prefix (`graphitlive_`); the LM text
  * rewrites them to the LM prefix (`graph-it-live_`).
@@ -83,16 +83,10 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
   crawl_dependency_graph: {
     summary: "Builds the transitive file dependency graph reachable from one entry file.",
     lines: [
-      {
-        mcp: "WHEN: project architecture, full dependency tree from an entry point, circular-import detection.",
-        lm: "WHEN: project architecture, full dependency tree from an entry point.",
-      },
+      "WHEN: project architecture, full dependency tree from an entry point, circular-import detection.",
       "WHY: crawls real import edges across the workspace rather than inferring structure from file names.",
-      {
-        mcp: "RETURNS: nodes (path, extension, dependency count, dependent count, circular flag, communityId/communityKey: by folder, or by import structure with communityMode 'louvain'), edges (import relations) and circularDependencies with cycleKinds in the same order (type-only when every import closing the cycle is type-only, else runtime); paginated via offset/limit.",
-        lm: "RETURNS: nodes (workspace-relative path) and edges (import relations, source and target, typeOnly: true for a type-only import). maxDepth defaults to the configured graph-it-live.maxDepth, else 3.",
-      },
-      { mcp: `LIMITS: ${TOKEN_BUDGET_LIMIT}` },
+      "RETURNS: nodes (path, extension, dependency count, dependent count, circular flag, communityId/communityKey: by folder, or by import structure with communityMode 'louvain'), edges (import relations) and circularDependencies with cycleKinds in the same order (type-only when every import closing the cycle is type-only, else runtime); paginated via offset/limit.",
+      `LIMITS: ${TOKEN_BUDGET_LIMIT}`,
       OPEN_ENDED_HINT,
     ],
   },
@@ -306,20 +300,14 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.",
     lines: [
       `WHEN: "who calls X" (direction=callers, depth=1), "what does X call" (direction=callees), multi-hop traversal ("three levels deep"), or cycle detection across modules.`,
-      {
-        mcp: "WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and runtime references (REFERENCES) rather than import edges. Type-only references (USES) are added with includeTypeOnly.",
-        lm: "WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS), runtime references (REFERENCES) and type-only references (USES) rather than import edges. Every relation type is returned unless relationTypes narrows it.",
-      },
+      "WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and runtime references (REFERENCES) rather than import edges. Type-only references (USES) are added with includeTypeOnly.",
       REACT_BASELINE,
-      {
-        mcp: "RETURNS: the matched symbol, its callers and callees with file and line, relation type, and a cyclic flag per edge.",
-        lm: "RETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2.",
-      },
+      "RETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2. A symbol missing from the file is an error naming the closest ones.",
       "SELECTING: two same-name methods in one file return reason=ambiguous with candidates; pass one candidate's symbolId or startLine to select it exactly. A stale selector returns reason=stale_selector (ids embed the line and change after edits); 'Class.method' names are not supported.",
       "NOT THIS TOOL: for every file that imports a file, use graphitlive_find_referencing_files.",
       {
         mcp: `LIMITS: the first call indexes the workspace (3-8s); later queries are fast. Output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.`,
-        lm: `LIMITS: ${LM_CALL_GRAPH_INDEX}`,
+        lm: `LIMITS: ${LM_CALL_GRAPH_INDEX} ${TOKEN_BUDGET_LIMIT}`,
       },
     ],
   },
@@ -332,12 +320,12 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "CONFIDENCE: every item has confidence and reasons. high (importers-use-other-exports): the file is imported, no importer uses the export and no other evidence of use was found: a deletion candidate. medium: test-only-use (only tests use it), dynamic-import-in-workspace (a computed import() / require() / import_module may reach the file, or a Python importer reads attributes by computed name), convention:decorated (a Python decorator may register it), named-in-own-file (its file writes the name again: dropping export may be the fix), name-written-elsewhere (Rust: another Rust file writes the name), convention:test-file, convention:generated (the file header says it is generated), published-deep-import (a published package without an exports map that the workspace imports by deep path, so outside projects may too). low (no-importer): nothing imports the file, often an entry point by convention (script, handler, config), review only. minConfidence (default high) sets the lowest level listed; byConfidence counts every item found and hint says how to list the others.",
       {
         mcp: "ENTRY POINTS: an export a manifest declares is never listed, nor what it re-exports or calls: package.json main, module, browser, types, exports, bin (npm default index.js for a publishable package without them), pyproject / setup.cfg / setup.py scripts and entry points, __main__.py, __all__, the pub items of a Cargo lib crate, Rust #[no_mangle] / #[proc_macro] functions, the handlers of serverless.yml functions and of SAM template.yaml AWS::Serverless::Function resources (CodeUri + Handler, Node and Python), the module.name a Dockerfile, compose or Procfile writes, in its folder or below (declared:<manifest>#CMD); so is a JSX or Vue default export (convention:framework-default-export), and every export of a file a graphql-codegen config (codegen.yml/.yaml/.json/.ts) generates (generated:<config>#generates[...], counted in generatedFiles). verbose=true lists them as excluded, each with its reason (declared:package.json#main, attribute:#[no_mangle], ...).",
-        lm: "ENTRY POINTS: an export a manifest declares is never listed, nor what it re-exports or calls: package.json main, module, browser, types, exports, bin (npm default index.js for a publishable package without them), pyproject / setup.cfg / setup.py scripts and entry points, __main__.py, __all__, the pub items of a Cargo lib crate, Rust #[no_mangle] / #[proc_macro] functions, the handlers of serverless.yml functions and of SAM template.yaml AWS::Serverless::Function resources (CodeUri + Handler, Node and Python), the module.name a Dockerfile, compose or Procfile writes, in its folder or below (declared:<manifest>#CMD); so is a JSX or Vue default export (convention:framework-default-export), and every export of a file a graphql-codegen config (codegen.yml/.yaml/.json/.ts) generates (generated:<config>#generates[...], counted in generatedFiles).",
+        lm: "ENTRY POINTS: an export a manifest declares is never listed, nor what it re-exports or calls: package.json main, module, browser, types, exports, bin (npm default index.js for a publishable package without them), pyproject / setup.cfg / setup.py scripts and entry points, __main__.py, __all__, the pub items of a Cargo lib crate, Rust #[no_mangle] / #[proc_macro] functions, the handlers of serverless.yml functions and of SAM template.yaml AWS::Serverless::Function resources (CodeUri + Handler, Node and Python), the module.name a Dockerfile, compose or Procfile writes, in its folder or below (declared:<manifest>#CMD); so is a JSX or Vue default export (convention:framework-default-export), and every export of a file a graphql-codegen config (codegen.yml/.yaml/.json/.ts) generates (generated:<config>#generates[...], counted in generatedFiles). verbose=true lists them as excluded, each with its reason (declared:package.json#main, attribute:#[no_mangle], ...).",
       },
       "UNREFERENCED FILES: unreferencedFiles=true lists whole files instead (the cheapest deletions), from the reverse index without symbol analysis: low (no-importer) when no workspace file imports the file, directly or as a barrel's target; medium (test-only-use) when only tests import it, with testImporters = the tests to delete or clean up with it, a quick cleanup win. Other reasons as for exports: dynamic-import-in-workspace, convention:generated, published-deep-import. Each file has exports (0 for a script or side-effect module); minConfidence defaults to low. Left out, and listed as excluded with verbose: test files, manifest entry points, files whose path a non-test file writes (named-in:<file>: a bundler entry, a package.json script, a CI workflow or action, a Makefile, justfile, Taskfile or .sh script, working-directory and cd honoured; lint and format configs name nothing), JSX/Vue default exports, files a framework loads by file name (convention:framework-route, when a package.json above depends on it: Next.js app/pages routes, SvelteKit, Remix, Nuxt incl. layers, Astro, Expo Router, Gatsby, Storybook stories), files a bundler loads (import.meta.glob, new URL(..., import.meta.url), an HTML page's src / href, never its inline data), files named by a run-time template (config.${mode}.ts), migrations folders (convention:migration), .<tool>rc files, .d.ts/.d.mts/.d.cts declarations, tool configs (*.config.ts), files a folder's .gitignore ignores (build output) and Python package __init__.py. CASCADE: then the files only those dead files and tests import, chains and dead cycles included, listed after them with reason cascade, via = their dead importers, at a confidence never above theirs (low for a cycle nothing else imports); an entry point, a live importer, a dead file something may still load (dynamic import) or a dead file that runs as a program (no export like main.ts, or a __main__ guard) stops it. Every dead file has tests = the tests that import nothing but dead files, to delete with it.",
       {
         mcp: "LIMITS: needs background indexing to have finished; duration grows with file count (about 90 s for 12,000 files), the call stops after 10 minutes and other tool calls wait until it ends, so narrow scopePath or set maxFiles on very large repositories; an export reached only through a dynamic lookup can still be listed.",
-        lm: "LIMITS: scopePath must be an absolute path inside the workspace; results are incomplete while background indexing runs; duration grows with file count (about 90 s for 12,000 files); an export reached only through a dynamic lookup can still be listed.",
+        lm: "LIMITS: scopePath is a folder inside the workspace, workspace-relative or absolute; results are incomplete while background indexing runs; duration grows with file count (about 90 s for 12,000 files); an export reached only through a dynamic lookup can still be listed.",
       },
     ],
   },
@@ -427,9 +415,10 @@ export function mcpToolDescription(name: DescribedToolName, parameters: readonly
   return parameters.length === 0 ? text : `${text}\nPARAMETERS: ${parameters.join(", ")}.`;
 }
 
-/** `modelDescription` of the VS Code Language Model tool `graph-it-live_<name>`. */
-export function lmToolDescription(name: DescribedToolName): string {
-  return render(name, "lm").replaceAll("graphitlive_", "graph-it-live_");
+/** `modelDescription` of the VS Code Language Model tool `graph-it-live_<name>`, closed by its parameters like the MCP one. */
+export function lmToolDescription(name: DescribedToolName, parameters: readonly string[] = []): string {
+  const text = render(name, "lm").replaceAll("graphitlive_", "graph-it-live_");
+  return parameters.length === 0 ? text : `${text}\nPARAMETERS: ${parameters.join(", ")}.`;
 }
 
 /** `response_format` values of every MCP and Language Model tool. */

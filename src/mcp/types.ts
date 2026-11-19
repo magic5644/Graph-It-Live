@@ -292,7 +292,7 @@ export const SetWorkspaceParamsSchema = z.object({
 export type SetWorkspaceParams = z.infer<typeof SetWorkspaceParamsSchema>;
 
 export const AnalyzeDependenciesParamsSchema = z.object({
-  filePath: FilePathSchema.describe("Absolute path to the file to analyze"),
+  filePath: FilePathSchema.describe("Workspace-relative or absolute path to the file to analyze"),
 }).strict();
 export type AnalyzeDependenciesParams = z.infer<
   typeof AnalyzeDependenciesParamsSchema
@@ -319,7 +319,7 @@ const GraphToolOffsetSchema = z
   .describe("Items to skip, usually the nextOffset of the previous response (default: 0)");
 
 export const CrawlDependencyGraphParamsSchema = z.object({
-  entryFile: FilePathSchema.describe("Absolute path to the entry file"),
+  entryFile: FilePathSchema.describe("Workspace-relative or absolute path to the entry file"),
   maxDepth: z
     .number()
     .min(1)
@@ -365,7 +365,7 @@ export type CrawlDependencyGraphParams = z.infer<
 
 export const FindReferencingFilesParamsSchema = z.object({
   targetPath: FilePathSchema.describe(
-    "Absolute path to the file to find references for",
+    "Workspace-relative or absolute path to the file to find references for",
   ),
 }).strict();
 export type FindReferencingFilesParams = z.infer<
@@ -374,10 +374,10 @@ export type FindReferencingFilesParams = z.infer<
 
 export const VerifyDependencyUsageParamsSchema = z.object({
   sourceFile: FilePathSchema.describe(
-    "Absolute path to the source file (the one importing using symbols)",
+    "Workspace-relative or absolute path to the source file (the one importing using symbols)",
   ),
   targetFile: FilePathSchema.describe(
-    "Absolute path to the target file (the one providing symbols)",
+    "Workspace-relative or absolute path to the target file (the one providing symbols)",
   ),
 }).strict();
 export type VerifyDependencyUsageParams = z.infer<
@@ -386,7 +386,7 @@ export type VerifyDependencyUsageParams = z.infer<
 
 export const ResolveModulePathParamsSchema = z.object({
   fromFile: FilePathSchema.describe(
-    "Absolute path of the file containing the import",
+    "Workspace-relative or absolute path of the file containing the import",
   ),
   moduleSpecifier: GenericStringSchema.describe(
     'The module specifier to resolve (e.g., "./utils", "@/components/Button")',
@@ -410,7 +410,7 @@ export const InvalidateFilesParamsSchema = z.object({
     .array(FilePathSchema)
     .max(INVALIDATE_FILES_MAX)
     .describe(
-      `Array of absolute file paths to invalidate from the cache (max: ${INVALIDATE_FILES_MAX} per call; use rebuild_index for the whole workspace). Needed only for edits the file watcher missed: it invalidates changed files on its own.`,
+      `Array of file paths, workspace-relative or absolute, to invalidate from the cache (max: ${INVALIDATE_FILES_MAX} per call; use rebuild_index for the whole workspace). Needed only for edits the file watcher missed: it invalidates changed files on its own.`,
     ),
 }).strict();
 export type InvalidateFilesParams = z.infer<typeof InvalidateFilesParamsSchema>;
@@ -420,7 +420,7 @@ export type RebuildIndexParams = z.infer<typeof RebuildIndexParamsSchema>;
 
 export const GetSymbolGraphParamsSchema = z.object({
   filePath: FilePathSchema.describe(
-    "Absolute path to the file to analyze for symbols",
+    "Workspace-relative or absolute path to the file to analyze for symbols",
   ),
 }).strict();
 export type GetSymbolGraphParams = z.infer<typeof GetSymbolGraphParamsSchema>;
@@ -436,7 +436,7 @@ const MinConfidenceSchema = z
 
 export const FindUnusedSymbolsParamsSchema = z.object({
   filePath: FilePathSchema.describe(
-    "Absolute path to the file to check for unused exported symbols",
+    "Workspace-relative or absolute path to the file to check for unused exported symbols",
   ),
   minConfidence: MinConfidenceSchema,
 }).strict();
@@ -446,7 +446,7 @@ export type FindUnusedSymbolsParams = z.infer<
 
 export const TraceFunctionExecutionParamsSchema = z.object({
   filePath: FilePathSchema.describe(
-    "Absolute path to the file containing the root symbol",
+    "Workspace-relative or absolute path to the file containing the root symbol",
   ),
   symbolName: SymbolNameSchema.describe(
     "Name of the root symbol to trace from",
@@ -466,7 +466,7 @@ export type TraceFunctionExecutionParams = z.infer<
 
 // NEW: Schema for analyze_breaking_changes
 export const AnalyzeBreakingChangesParamsSchema = z.object({
-  filePath: FilePathSchema.describe("Absolute path to the file to analyze"),
+  filePath: FilePathSchema.describe("Workspace-relative or absolute path to the file to analyze"),
   symbolName: SymbolNameSchema.optional().describe(
     "Optional: Only analyze changes to this specific symbol",
   ),
@@ -489,7 +489,7 @@ export type ReviewPrParams = z.infer<typeof ReviewPrParamsSchema>;
 
 // NEW: Schema for get_impact_analysis
 export const GetImpactAnalysisParamsSchema = z.object({
-  filePath: FilePathSchema.describe("Absolute path to the file being modified"),
+  filePath: FilePathSchema.describe("Workspace-relative or absolute path to the file being modified"),
   symbolName: SymbolNameSchema.describe("Name of the symbol being modified"),
   includeTransitive: z
     .boolean()
@@ -510,7 +510,7 @@ export type GetImpactAnalysisParams = z.infer<
 
 // Schema for `graph-it explain` (intra-file call hierarchy)
 export const AnalyzeFileLogicParamsSchema = z.object({
-  filePath: FilePathSchema.describe("Absolute path to the file to analyze"),
+  filePath: FilePathSchema.describe("Workspace-relative or absolute path to the file to analyze"),
   includeExternal: z
     .boolean()
     .optional()
@@ -522,7 +522,7 @@ export type AnalyzeFileLogicParams = z.infer<
 
 // NEW: Schema for generate_codemap (comprehensive file codemap)
 export const GenerateCodemapParamsSchema = z.object({
-  filePath: FilePathSchema.describe("Absolute path to the file to generate a codemap for"),
+  filePath: FilePathSchema.describe("Workspace-relative or absolute path to the file to generate a codemap for"),
 }).strict();
 export type GenerateCodemapParams = z.infer<
   typeof GenerateCodemapParamsSchema
@@ -531,7 +531,7 @@ export type GenerateCodemapParams = z.infer<
 // NEW: Schema for query_call_graph (cross-file call graph query)
 export const QueryCallGraphParamsSchema = z.object({
   filePath: FilePathSchema.describe(
-    "Absolute path to the file containing the target symbol.",
+    "Workspace-relative or absolute path to the file containing the target symbol.",
   ),
   symbolName: SymbolNameSchema.describe(
     "Name of the symbol to query (function, class, method). A bare name shared by several symbols in the file returns reason='ambiguous' with candidates; qualified names such as 'Class.method' are not supported.",

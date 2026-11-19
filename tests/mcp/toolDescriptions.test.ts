@@ -18,6 +18,7 @@ import {
   toolSummary,
 } from '../../src/mcp/toolDescriptions';
 import { toolSchemas } from '../../src/mcp/types';
+import { schemaParameters } from '../../src/mcp/paramIssues';
 
 interface LmToolContribution {
   name: string;
@@ -37,7 +38,8 @@ describe('tool descriptions registry', () => {
   it.each(lmTools.map((tool) => [tool.name, tool] as const))(
     'package.json modelDescription of %s matches the registry',
     (_name, tool) => {
-      expect(tool.modelDescription).toBe(lmToolDescription(shortName(tool)));
+      const properties = Object.keys((tool as LmToolContribution & { inputSchema: { properties: object } }).inputSchema.properties);
+      expect(tool.modelDescription).toBe(lmToolDescription(shortName(tool), properties));
     },
   );
 
@@ -60,18 +62,30 @@ describe('tool descriptions registry', () => {
     }
   });
 
-  it('LM descriptions do not advertise MCP-only paging or output parameters', () => {
+  it('every description names every parameter of its tool, on both surfaces (#769)', () => {
     for (const tool of lmTools) {
-      expect(lmToolDescription(shortName(tool)), tool.name).not.toMatch(/nextOffset|response_format/);
+      const properties = Object.keys((tool as LmToolContribution & { inputSchema: { properties: object } }).inputSchema.properties);
+      for (const parameter of properties) {
+        expect(tool.modelDescription, `${tool.name} names ${parameter}`).toMatch(new RegExp(String.raw`\b${parameter}\b`));
+      }
     }
-    // Only the LM get_symbol_callers schema has includeTypeOnly.
-    expect(lmToolDescription('query_call_graph')).not.toContain('includeTypeOnly');
+  });
+
+  it('gives an LM tool with an MCP twin exactly the MCP parameters (#769)', () => {
+    for (const tool of lmTools as Array<LmToolContribution & { inputSchema: { properties: object; additionalProperties?: boolean } }>) {
+      const schema = (toolSchemas as Record<string, Parameters<typeof schemaParameters>[0]>)[shortName(tool)];
+      if (schema === undefined) continue;
+      expect(Object.keys(tool.inputSchema.properties), tool.name).toEqual([...schemaParameters(schema), 'response_format']);
+      expect(tool.inputSchema.additionalProperties, tool.name).toBe(false);
+    }
   });
 
   it('starts every description with its summary and keeps surface-only lines apart', () => {
     expect(mcpToolDescription('crawl_dependency_graph')).toMatch(/^Builds the transitive file dependency graph[^\n]*\n\nWHEN:/);
     expect(mcpToolDescription('crawl_dependency_graph')).toContain('LIMITS: output capped by tokenBudget');
-    expect(lmToolDescription('crawl_dependency_graph')).not.toContain('LIMITS:');
+    // The LM tool runs the MCP crawl (#769): same paging, same LIMITS line.
+    expect(lmToolDescription('crawl_dependency_graph')).toContain('LIMITS: output capped by tokenBudget');
+    expect(lmToolDescription('scan_dead_code')).not.toContain('LIMITS: needs background indexing');
     expect(mcpToolDescription('query_call_graph')).toContain('graphitlive_find_referencing_files');
     expect(lmToolDescription('query_call_graph')).toContain('graph-it-live_find_referencing_files');
     expect(toolSummary('get_symbol_graph')).toBe(mcpToolDescription('get_symbol_graph').split('\n')[0]);

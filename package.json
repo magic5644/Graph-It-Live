@@ -535,29 +535,35 @@
         "displayName": "Graph-It-Live: Graph Context",
         "icon": "$(symbol-misc)",
         "userDescription": "Retrieve bounded unified graph context for codebase questions and paths",
-        "modelDescription": "Returns a token-bounded subgraph answering a question about the codebase - the default entry point for graph questions.\n\nWHEN: any question spanning file dependencies, symbol calls, implementations, tests or impact; reach for a specialised tool only when this cannot express the cut you need.\nWHY: one deterministic gateway over the same index the specialised tools use, with an explicit token budget so large graphs come back bounded instead of truncated arbitrarily.\nMODES: search, neighbors, path, impact, refactor, overview.\nRETURNS: nodes and edges with workspace-relative paths, an index revision and a freshness flag, and a cursor when results are paginated.\nLIMITS: needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error.",
+        "modelDescription": "Returns a token-bounded subgraph answering a question about the codebase - the default entry point for graph questions.\n\nWHEN: any question spanning file dependencies, symbol calls, implementations, tests or impact; reach for a specialised tool only when this cannot express the cut you need.\nWHY: one deterministic gateway over the same index the specialised tools use, with an explicit token budget so large graphs come back bounded instead of truncated arbitrarily.\nMODES: search, neighbors, path, impact, refactor, overview.\nRETURNS: nodes and edges with workspace-relative paths, an index revision and a freshness flag, and a cursor when results are paginated.\nLIMITS: needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error.\nPARAMETERS: question, seeds, mode, from, to, relations, scope, depth, maxNodes, tokenBudget, directed, cursor, detail, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "question": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 1024
             },
             "seeds": {
+              "maxItems": 500,
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
                   "id": {
-                    "type": "string"
-                  },
-                  "label": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 10240
                   },
                   "filePath": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 1024
                   },
                   "symbolName": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 500
+                  },
+                  "label": {
+                    "type": "string",
+                    "maxLength": 10240
                   }
                 }
               }
@@ -577,16 +583,20 @@
               "type": "object",
               "properties": {
                 "id": {
-                  "type": "string"
-                },
-                "label": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 10240
                 },
                 "filePath": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 1024
                 },
                 "symbolName": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "label": {
+                  "type": "string",
+                  "maxLength": 10240
                 }
               }
             },
@@ -594,27 +604,47 @@
               "type": "object",
               "properties": {
                 "id": {
-                  "type": "string"
-                },
-                "label": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 10240
                 },
                 "filePath": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 1024
                 },
                 "symbolName": {
-                  "type": "string"
+                  "type": "string",
+                  "maxLength": 500
+                },
+                "label": {
+                  "type": "string",
+                  "maxLength": 10240
                 }
               }
             },
             "relations": {
+              "maxItems": 12,
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "string",
+                "enum": [
+                  "CONTAINS",
+                  "IMPORTS",
+                  "CALLS",
+                  "INHERITS",
+                  "IMPLEMENTS",
+                  "USES",
+                  "TESTED_BY",
+                  "IMPACTED_BY",
+                  "BELONGS_TO",
+                  "REFERENCES",
+                  "EXPLAINS",
+                  "DOCUMENTS"
+                ]
               }
             },
             "scope": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 256
             },
             "depth": {
               "type": "integer",
@@ -635,7 +665,9 @@
               "type": "boolean"
             },
             "cursor": {
-              "type": "string"
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
             },
             "detail": {
               "type": "string",
@@ -643,20 +675,20 @@
                 "compact",
                 "standard",
                 "full"
-              ],
-              "description": "Output detail; use compact for token-efficient agent context"
+              ]
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       {
@@ -671,28 +703,30 @@
         "displayName": "Graph-It-Live: Find Files Referencing",
         "icon": "$(references)",
         "userDescription": "Find all files that import or depend on a specific file",
-        "modelDescription": "Lists every file that imports or references a given file (reverse dependency lookup).\n\nWHEN: impact analysis, \"who uses this file\", refactoring-safety checks before changing or deleting a file.\nWHY: served from a prebuilt reverse index, so it covers the whole workspace rather than the files already in context.\nRETURNS: workspace-relative path, import type, line and module specifier of each referencing file, typeOnly: true when its imports of the target are all type-only.\nBARRELS: files that import the target's exports through re-export barrels (export { x } from, export *, chained) are listed after the direct importers, with via = the barrel they import.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
+        "modelDescription": "Lists every file that imports or references a given file (reverse dependency lookup).\n\nWHEN: impact analysis, \"who uses this file\", refactoring-safety checks before changing or deleting a file.\nWHY: served from a prebuilt reverse index, so it covers the whole workspace rather than the files already in context.\nRETURNS: workspace-relative path, import type, line and module specifier of each referencing file, typeOnly: true when its imports of the target are all type-only.\nBARRELS: files that import the target's exports through re-export barrels (export { x } from, export *, chained) are listed after the direct importers, with via = the barrel they import.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.\nPARAMETERS: targetPath, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "targetPath": {
               "type": "string",
-              "description": "The absolute path to the file to find references for"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the file to find references for"
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "targetPath"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -707,28 +741,30 @@
         "displayName": "Graph-It-Live: Analyze Dependencies",
         "icon": "$(package)",
         "userDescription": "List all dependencies and imports of a file, with resolved paths and metadata",
-        "modelDescription": "Lists the import/export statements of one file, with each specifier resolved to a path on disk.\n\nWHEN: \"what does this file import\", \"what are this file's dependencies\".\nWHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.\nRETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic, side-effect, mod = Rust `mod x;` declaration), line number, typeOnly: true when every import of the target is type-only (TypeScript import type, Python if TYPE_CHECKING:). Unresolved and external imports are left out.\nSUPPORTS: TypeScript, JavaScript, Vue 3 (<script src> and <template src> are dependencies), Svelte, GraphQL.",
+        "modelDescription": "Lists the import/export statements of one file, with each specifier resolved to a path on disk.\n\nWHEN: \"what does this file import\", \"what are this file's dependencies\".\nWHY: read from the parsed source, so tsconfig path aliases, implicit extensions and index files are already resolved.\nRETURNS: one entry per resolved workspace file - module specifier, workspace-relative path, import type (import, require, export, dynamic, side-effect, mod = Rust `mod x;` declaration), line number, typeOnly: true when every import of the target is type-only (TypeScript import type, Python if TYPE_CHECKING:). Unresolved and external imports are left out.\nSUPPORTS: TypeScript, JavaScript, Vue 3 (<script src> and <template src> are dependencies), Svelte, GraphQL.\nPARAMETERS: filePath, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "filePath": {
               "type": "string",
-              "description": "The absolute path to the file to analyze"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the file to analyze"
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "filePath"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -743,32 +779,75 @@
         "displayName": "Graph-It-Live: Crawl Dependency Graph",
         "icon": "$(type-hierarchy)",
         "userDescription": "Traverse the full transitive dependency graph from an entry file",
-        "modelDescription": "Builds the transitive file dependency graph reachable from one entry file.\n\nWHEN: project architecture, full dependency tree from an entry point.\nWHY: crawls real import edges across the workspace rather than inferring structure from file names.\nRETURNS: nodes (workspace-relative path) and edges (import relations, source and target, typeOnly: true for a type-only import). maxDepth defaults to the configured graph-it-live.maxDepth, else 3.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
+        "modelDescription": "Builds the transitive file dependency graph reachable from one entry file.\n\nWHEN: project architecture, full dependency tree from an entry point, circular-import detection.\nWHY: crawls real import edges across the workspace rather than inferring structure from file names.\nRETURNS: nodes (path, extension, dependency count, dependent count, circular flag, communityId/communityKey: by folder, or by import structure with communityMode 'louvain'), edges (import relations) and circularDependencies with cycleKinds in the same order (type-only when every import closing the cycle is type-only, else runtime); paginated via offset/limit.\nLIMITS: output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.\nPARAMETERS: entryFile, maxDepth, limit, offset, onlyUsed, communityMode, tokenBudget, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "entryFile": {
               "type": "string",
-              "description": "The absolute path to the entry file from which to start crawling"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the entry file"
             },
             "maxDepth": {
+              "description": "Maximum depth to crawl (default: from config, min: 1, max: 100)",
               "type": "number",
-              "description": "Maximum depth to crawl (optional, defaults to the configured maxDepth setting)"
+              "minimum": 1,
+              "maximum": 100
+            },
+            "limit": {
+              "description": "Maximum number of nodes to return (for pagination, max: 10000)",
+              "type": "number",
+              "minimum": 1,
+              "maximum": 10000
+            },
+            "offset": {
+              "description": "Number of nodes to skip (for pagination, max: 100000)",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "onlyUsed": {
+              "description": "If true, only returns edges where symbols are actually used (requires AST analysis, slower)",
+              "type": "boolean"
+            },
+            "communityMode": {
+              "description": "How nodes are grouped into communityId/communityKey: 'path' (default) by folder, 'louvain' by import structure (deterministic Louvain over the crawled graph)",
+              "type": "string",
+              "enum": [
+                "path",
+                "louvain"
+              ]
+            },
+            "tokenBudget": {
+              "description": "Maximum output size in tokens (default: 4000, 500-16000, or 0 for no limit). A larger result is cut and reports truncated=true, omitted counts and nextOffset; pass nextOffset as offset to read the rest.",
+              "default": 4000,
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": 0
+                },
+                {
+                  "type": "integer",
+                  "minimum": 500,
+                  "maximum": 16000
+                }
+              ]
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "entryFile"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -783,28 +862,30 @@
         "displayName": "Graph-It-Live: Get Symbol Graph",
         "icon": "$(symbol-structure)",
         "userDescription": "Get all symbols (functions, classes, variables) defined in a file and their relationships",
-        "modelDescription": "Lists the symbols a file exports and the symbols OUTSIDE the file that each of them depends on.\n\nWHEN: \"which function in this file calls the database / uses X\", scoping a refactor to one symbol rather than the whole file.\nWHY: ts-morph AST parsing, so import aliases are tracked back to their original names and type-only imports are separated from runtime ones.\nRETURNS: every symbol of the file (name, kind, line, category, internal ones included) and symbol-to-symbol edges tagged runtime or type-only.\nNOT THIS TOOL: for calls between symbols defined in the same file, use graph-it-live_generate_codemap (its call flow section). This tool crosses the file boundary outward; that one stays inside it.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
+        "modelDescription": "Lists the symbols a file exports and the symbols OUTSIDE the file that each of them depends on.\n\nWHEN: \"which function in this file calls the database / uses X\", scoping a refactor to one symbol rather than the whole file.\nWHY: ts-morph AST parsing, so import aliases are tracked back to their original names and type-only imports are separated from runtime ones.\nRETURNS: every symbol of the file (name, kind, line, category, internal ones included) and symbol-to-symbol edges tagged runtime or type-only.\nNOT THIS TOOL: for calls between symbols defined in the same file, use graph-it-live_generate_codemap (its call flow section). This tool crosses the file boundary outward; that one stays inside it.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.\nPARAMETERS: filePath, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "filePath": {
               "type": "string",
-              "description": "The absolute path to the file to inspect"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the file to analyze for symbols"
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "filePath"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -819,38 +900,39 @@
         "displayName": "Graph-It-Live: Find Unused Exported Symbols",
         "icon": "$(trash)",
         "userDescription": "Find exported symbols that are not used anywhere in the project (dead code)",
-        "modelDescription": "Lists the symbols a file exports that nothing else in the workspace imports.\n\nWHEN: dead-code cleanup in one file, or checking which parts of an API are consumed.\nWHY: cross-references the file's exports against the reverse index, then widens the used set through the file's internal call graph so a symbol reached only indirectly is not reported.\nRETURNS: unused exported symbols (name, kind, line, category, confidence, reasons, evidence: importer count and first importers), unused and total counts, unused percentage, byConfidence.\nCONFIDENCE: every item has confidence and reasons. high (importers-use-other-exports): the file is imported, no importer uses the export and no other evidence of use was found: a deletion candidate. medium: test-only-use (only tests use it), dynamic-import-in-workspace (a computed import() / require() / import_module may reach the file, or a Python importer reads attributes by computed name), convention:decorated (a Python decorator may register it), named-in-own-file (its file writes the name again: dropping export may be the fix), name-written-elsewhere (Rust: another Rust file writes the name), convention:test-file, convention:generated (the file header says it is generated), published-deep-import (a published package without an exports map that the workspace imports by deep path, so outside projects may too). low (no-importer): nothing imports the file, often an entry point by convention (script, handler, config), review only. minConfidence (default high) sets the lowest level listed; byConfidence counts every item found and hint says how to list the others.\nENTRY POINTS: an export a manifest declares is never listed, nor what it re-exports or calls: package.json main, module, browser, types, exports, bin (npm default index.js for a publishable package without them), pyproject / setup.cfg / setup.py scripts and entry points, __main__.py, __all__, the pub items of a Cargo lib crate, Rust #[no_mangle] / #[proc_macro] functions, the handlers of serverless.yml functions and of SAM template.yaml AWS::Serverless::Function resources (CodeUri + Handler, Node and Python), the module.name a Dockerfile, compose or Procfile writes, in its folder or below (declared:<manifest>#CMD); so is a JSX or Vue default export (convention:framework-default-export), and every export of a file a graphql-codegen config (codegen.yml/.yaml/.json/.ts) generates (generated:<config>#generates[...], counted in generatedFiles).\nLIMITS: methods and nested functions are never exports; an export reached only through a string-keyed lookup can still be listed, so confirm a medium or low item before deleting.",
+        "modelDescription": "Lists the symbols a file exports that nothing else in the workspace imports.\n\nWHEN: dead-code cleanup in one file, or checking which parts of an API are consumed.\nWHY: cross-references the file's exports against the reverse index, then widens the used set through the file's internal call graph so a symbol reached only indirectly is not reported.\nRETURNS: unused exported symbols (name, kind, line, category, confidence, reasons, evidence: importer count and first importers), unused and total counts, unused percentage, byConfidence.\nCONFIDENCE: every item has confidence and reasons. high (importers-use-other-exports): the file is imported, no importer uses the export and no other evidence of use was found: a deletion candidate. medium: test-only-use (only tests use it), dynamic-import-in-workspace (a computed import() / require() / import_module may reach the file, or a Python importer reads attributes by computed name), convention:decorated (a Python decorator may register it), named-in-own-file (its file writes the name again: dropping export may be the fix), name-written-elsewhere (Rust: another Rust file writes the name), convention:test-file, convention:generated (the file header says it is generated), published-deep-import (a published package without an exports map that the workspace imports by deep path, so outside projects may too). low (no-importer): nothing imports the file, often an entry point by convention (script, handler, config), review only. minConfidence (default high) sets the lowest level listed; byConfidence counts every item found and hint says how to list the others.\nENTRY POINTS: an export a manifest declares is never listed, nor what it re-exports or calls: package.json main, module, browser, types, exports, bin (npm default index.js for a publishable package without them), pyproject / setup.cfg / setup.py scripts and entry points, __main__.py, __all__, the pub items of a Cargo lib crate, Rust #[no_mangle] / #[proc_macro] functions, the handlers of serverless.yml functions and of SAM template.yaml AWS::Serverless::Function resources (CodeUri + Handler, Node and Python), the module.name a Dockerfile, compose or Procfile writes, in its folder or below (declared:<manifest>#CMD); so is a JSX or Vue default export (convention:framework-default-export), and every export of a file a graphql-codegen config (codegen.yml/.yaml/.json/.ts) generates (generated:<config>#generates[...], counted in generatedFiles).\nLIMITS: methods and nested functions are never exports; an export reached only through a string-keyed lookup can still be listed, so confirm a medium or low item before deleting.\nPARAMETERS: filePath, minConfidence, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "filePath": {
               "type": "string",
-              "description": "The absolute path to the file to check for unused exports"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the file to check for unused exported symbols"
             },
             "minConfidence": {
+              "description": "Lowest confidence listed (default: high). high: the file is imported, no importer uses the export and no other evidence of use was found: a deletion candidate. medium: only tests use it, a computed import may reach it, a decorator may register it, its name is written again in its file (or, in Rust, in another file), or it sits in a test file. low: nothing imports the file (entry point by convention, script, config), review only. Unlisted items are counted in byConfidence.",
               "type": "string",
               "enum": [
                 "high",
                 "medium",
                 "low"
-              ],
-              "default": "high",
-              "description": "Lowest confidence listed (default: high). high: the file is imported, no importer uses the export and no other evidence of use was found: a deletion candidate. medium: only tests use it, a computed import may reach it, a decorator may register it, its name is written again in its file (or, in Rust, in another file), or it sits in a test file. low: nothing imports the file (entry point by convention, script, config), review only. Unlisted items are counted in byConfidence."
+              ]
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "filePath"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -865,7 +947,7 @@
         "displayName": "Graph-It-Live: Get Symbol Callers",
         "icon": "$(call-incoming)",
         "userDescription": "Find all symbols across the project that call or use a given exported symbol",
-        "modelDescription": "Lists the call sites of one given symbol - one hop, from the call graph index.\n\nWHEN: the plain question \"who calls X\"; finding call sites before a rename; spotting a symbol with no callers.\nWHY: reads CALLS and REFERENCES edges from the indexed call graph, so it returns the symbols that call or render X, each labelled. File-level imports are not callers; use graph-it-live_get_symbol_dependents for those.\nRETURNS: one entry per caller symbol with workspace-relative path, line of its first edge, relation (CALLS, REFERENCES or USES; a call wins over a reference, a reference over a type use) and a type-only flag, plus runtime, reference and type-only counts. Type-only references are added only with includeTypeOnly. The source field says whether the call graph or the symbol dependents fallback answered (the call graph is used once indexed; line is null in the fallback).\nPICKING BETWEEN THE THREE: this one for call sites; graph-it-live_get_symbol_dependents for every reference (imports included) computed fresh from source; graph-it-live_query_call_graph when you need more than one hop, callees as well as callers, or relation types such as INHERITS and IMPLEMENTS.",
+        "modelDescription": "Lists the call sites of one given symbol - one hop, from the call graph index.\n\nWHEN: the plain question \"who calls X\"; finding call sites before a rename; spotting a symbol with no callers.\nWHY: reads CALLS and REFERENCES edges from the indexed call graph, so it returns the symbols that call or render X, each labelled. File-level imports are not callers; use graph-it-live_get_symbol_dependents for those.\nRETURNS: one entry per caller symbol with workspace-relative path, line of its first edge, relation (CALLS, REFERENCES or USES; a call wins over a reference, a reference over a type use) and a type-only flag, plus runtime, reference and type-only counts. Type-only references are added only with includeTypeOnly. The source field says whether the call graph or the symbol dependents fallback answered (the call graph is used once indexed; line is null in the fallback).\nPICKING BETWEEN THE THREE: this one for call sites; graph-it-live_get_symbol_dependents for every reference (imports included) computed fresh from source; graph-it-live_query_call_graph when you need more than one hop, callees as well as callers, or relation types such as INHERITS and IMPLEMENTS.\nPARAMETERS: filePath, symbolName, includeTypeOnly, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -885,11 +967,11 @@
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
@@ -910,41 +992,46 @@
         "displayName": "Graph-It-Live: Get Impact Analysis",
         "icon": "$(report)",
         "userDescription": "Analyze the scope and risk of changing a symbol — shows affected files and symbols",
-        "modelDescription": "Reports everything affected by changing one symbol, direct and transitive.\n\nWHEN: assessing a refactor before starting it, or prioritising which call sites to update first.\nWHY: walks the symbol reverse index outward, keeping runtime and type-only impact separate and aggregating per file.\nRETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct) and affected files. Transitive impact only with includeTransitive. An unknown symbol returns an error listing close name matches.\nAn item that renders or passes the symbol without calling it (<Card />, onClick={save}) is a runtime impact with relation=REFERENCES.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
+        "modelDescription": "Reports everything affected by changing one symbol, direct and transitive.\n\nWHEN: assessing a refactor before starting it, or prioritising which call sites to update first.\nWHY: walks the symbol reverse index outward, keeping runtime and type-only impact separate and aggregating per file.\nRETURNS: impact level (high, medium, low), total impact count, runtime versus type-only breakdown, impacted symbols with depth (1 = direct) and affected files. Transitive impact only with includeTransitive. An unknown symbol returns an error listing close name matches.\nAn item that renders or passes the symbol without calling it (<Card />, onClick={save}) is a runtime impact with relation=REFERENCES.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.\nPARAMETERS: filePath, symbolName, includeTransitive, maxDepth, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "filePath": {
               "type": "string",
-              "description": "The absolute path to the file containing the symbol"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the file being modified"
             },
             "symbolName": {
               "type": "string",
-              "description": "The name of the symbol to analyze impact for"
+              "maxLength": 500,
+              "description": "Name of the symbol being modified"
             },
             "includeTransitive": {
-              "type": "boolean",
-              "description": "Whether to include transitive (indirect) dependents (default: false)"
+              "description": "Include transitive dependents (default: false)",
+              "type": "boolean"
             },
             "maxDepth": {
+              "description": "Maximum depth for transitive analysis (default: 3, min: 1, max: 20)",
               "type": "number",
-              "description": "Maximum transitive depth to traverse when includeTransitive is true (default: 3)"
+              "minimum": 1,
+              "maximum": 20
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "filePath",
             "symbolName"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -959,7 +1046,7 @@
         "displayName": "Graph-It-Live: Get Index Status",
         "icon": "$(pulse)",
         "userDescription": "Check if the dependency index is ready and get cache statistics",
-        "modelDescription": "Reports the state of the dependency index backing the other tools.\n\nWHEN: checking readiness before a large analysis, or explaining unexpectedly empty or incomplete results.\nWHY: distinguishes \"no results\" from \"index not built yet\", and tells whether imports were skipped because they resolve outside the workspace root (a monorepo sub-package misses its sibling packages).\nRETURNS: index state, readiness flag, whether the reverse index exists, cache size, reverse-index statistics (files indexed included), cacheFiles (on-disk bytes of the cached reverse index and call graph), and outOfRootImports (with examples, the relative monorepoRoot and a warning when above 0).",
+        "modelDescription": "Reports the state of the dependency index backing the other tools.\n\nWHEN: checking readiness before a large analysis, or explaining unexpectedly empty or incomplete results.\nWHY: distinguishes \"no results\" from \"index not built yet\", and tells whether imports were skipped because they resolve outside the workspace root (a monorepo sub-package misses its sibling packages).\nRETURNS: index state, readiness flag, whether the reverse index exists, cache size, reverse-index statistics (files indexed included), cacheFiles (on-disk bytes of the cached reverse index and call graph), and outOfRootImports (with examples, the relative monorepoRoot and a warning when above 0).\nPARAMETERS: response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -967,13 +1054,14 @@
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       {
@@ -988,7 +1076,7 @@
         "displayName": "Graph-It-Live: Parse Imports",
         "icon": "$(list-tree)",
         "userDescription": "Parse and list all import statements in a file with resolved paths",
-        "modelDescription": "Returns the import statements of one file: module specifier, import type and line.\n\nWHEN: inspecting import style or alias usage, without the resolved paths.\nWHY: uses the language-aware parser pipeline, so it is more accurate than a text search.\nRETURNS: module specifier as written, import type, line number.\nLIMITS: lists only imports that resolve to a workspace file, once per file - use graph-it-live_resolve_module_path to debug one that does not.",
+        "modelDescription": "Returns the import statements of one file: module specifier, import type and line.\n\nWHEN: inspecting import style or alias usage, without the resolved paths.\nWHY: uses the language-aware parser pipeline, so it is more accurate than a text search.\nRETURNS: module specifier as written, import type, line number.\nLIMITS: lists only imports that resolve to a workspace file, once per file - use graph-it-live_resolve_module_path to debug one that does not.\nPARAMETERS: filePath, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1000,11 +1088,11 @@
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
@@ -1024,28 +1112,30 @@
         "displayName": "Graph-It-Live: Generate Code Map",
         "icon": "$(file-code)",
         "userDescription": "Generate an AI-friendly code map summarizing a file's structure, symbols, and call flow",
-        "modelDescription": "Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.\n\nWHEN: getting oriented in an unfamiliar file, or gathering the full context of a file before refactoring it.\nWHY: one call in place of analyze_dependencies, get_symbol_graph and find_referencing_files together, plus the calls between the file's own symbols.\nRETURNS: path, language, line count, exported and internal symbols, dependencies and dependents (typeOnly: true for a type-only import), intra-file call flow, cycle detection.\nSUPPORTS: TypeScript, JavaScript, Python, Rust, Vue 3, Svelte.",
+        "modelDescription": "Returns one file's exports, internals, dependencies, dependents and internal call flow in a single call.\n\nWHEN: getting oriented in an unfamiliar file, or gathering the full context of a file before refactoring it.\nWHY: one call in place of analyze_dependencies, get_symbol_graph and find_referencing_files together, plus the calls between the file's own symbols.\nRETURNS: path, language, line count, exported and internal symbols, dependencies and dependents (typeOnly: true for a type-only import), intra-file call flow, cycle detection.\nSUPPORTS: TypeScript, JavaScript, Python, Rust, Vue 3, Svelte.\nPARAMETERS: filePath, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "filePath": {
               "type": "string",
-              "description": "The absolute path to the file to generate a code map for"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the file to generate a codemap for"
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "filePath"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -1060,7 +1150,7 @@
         "displayName": "Graph-It-Live: Expand Node Dependencies",
         "icon": "$(expand-all)",
         "userDescription": "Discover new dependencies from a file, excluding an already-known set (incremental graph exploration)",
-        "modelDescription": "Returns the dependencies of one file that are not already in a set of paths you provide.\n\nWHEN: exploring a large graph incrementally, or lazily loading one node at a time.\nWHY: crawls the file's transitive dependencies and drops what you already hold, so only newly discovered files come back.\nRETURNS: the new nodes and edges only, with the same fields as crawl_dependency_graph.",
+        "modelDescription": "Returns the dependencies of one file that are not already in a set of paths you provide.\n\nWHEN: exploring a large graph incrementally, or lazily loading one node at a time.\nWHY: crawls the file's transitive dependencies and drops what you already hold, so only newly discovered files come back.\nRETURNS: the new nodes and edges only, with the same fields as crawl_dependency_graph.\nPARAMETERS: filePath, knownPaths, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1079,11 +1169,11 @@
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
@@ -1103,33 +1193,36 @@
         "displayName": "Graph-It-Live: Verify Dependency Usage",
         "icon": "$(check)",
         "userDescription": "Check if an import between two files is actually used or is a dead import",
-        "modelDescription": "Reports whether a source file actually uses any symbol from a target file it imports.\n\nWHEN: identifying unused imports, or confirming a dependency edge is real before acting on it.\nWHY: AST analysis of actual references, so an import that is never used is distinguished from one that is.\nRETURNS: boolean.",
+        "modelDescription": "Reports whether a source file actually uses any symbol from a target file it imports.\n\nWHEN: identifying unused imports, or confirming a dependency edge is real before acting on it.\nWHY: AST analysis of actual references, so an import that is never used is distinguished from one that is.\nRETURNS: boolean.\nPARAMETERS: sourceFile, targetFile, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "sourceFile": {
               "type": "string",
-              "description": "The absolute path to the file that imports the target"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the source file (the one importing using symbols)"
             },
             "targetFile": {
               "type": "string",
-              "description": "The absolute path to the imported file"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the target file (the one providing symbols)"
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "sourceFile",
             "targetFile"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -1144,31 +1237,34 @@
         "displayName": "Graph-It-Live: Invalidate File Cache",
         "icon": "$(discard)",
         "userDescription": "Flush cached dependency data for specific files so the next analysis re-reads them",
-        "modelDescription": "Drops the cached analysis for specific files so the next query re-reads them.\n\nWHEN: results look stale after edits the file watcher missed. Paths must lie inside an open workspace folder.\nWHY: analysis is cached per file; the cache is otherwise refreshed by the file watcher.\nRETURNS: how many files were invalidated, which were cleared, and which held no cache entry.",
+        "modelDescription": "Drops the cached analysis for specific files so the next query re-reads them.\n\nWHEN: results look stale after edits the file watcher missed. Paths must lie inside an open workspace folder.\nWHY: analysis is cached per file; the cache is otherwise refreshed by the file watcher.\nRETURNS: how many files were invalidated, which were cleared, and which held no cache entry.\nPARAMETERS: filePaths, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "filePaths": {
+              "maxItems": 10000,
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "string",
+                "maxLength": 1024
               },
-              "description": "Absolute paths of the files to invalidate from the cache"
+              "description": "Array of file paths, workspace-relative or absolute, to invalidate from the cache (max: 10000 per call; use rebuild_index for the whole workspace). Needed only for edits the file watcher missed: it invalidates changed files on its own."
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "filePaths"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -1183,7 +1279,7 @@
         "displayName": "Graph-It-Live: Rebuild Full Index",
         "icon": "$(sync)",
         "userDescription": "Clear all cached dependency data and rebuild the full project index from scratch",
-        "modelDescription": "Clears all cached analysis and re-indexes the whole workspace.\n\nWHEN: after a branch switch or large refactor when the index no longer matches the tree; invalidate_files is enough for a few files.\nWHY: restores a graph that is consistent with what is on disk.\nRETURNS: rebuild duration and new cache size.\nLIMITS: takes seconds on a large workspace.",
+        "modelDescription": "Clears all cached analysis and re-indexes the whole workspace.\n\nWHEN: after a branch switch or large refactor when the index no longer matches the tree; invalidate_files is enough for a few files.\nWHY: restores a graph that is consistent with what is on disk.\nRETURNS: rebuild duration and new cache size.\nLIMITS: takes seconds on a large workspace.\nPARAMETERS: response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1191,13 +1287,14 @@
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       {
@@ -1212,7 +1309,7 @@
         "displayName": "Graph-It-Live: Get Symbol Dependents",
         "icon": "$(call-outgoing)",
         "userDescription": "Find all symbols across the codebase that directly depend on (use) a specific symbol",
-        "modelDescription": "Lists the symbols that use one given symbol - one hop, computed from source at call time.\n\nWHEN: changing a signature and needing every call site, or assessing the blast radius of a symbol-level change.\nWHY: walks the symbol graphs of every file that references the target, so file-level imports count as well as calls.\nRETURNS: caller symbol id, file path and workspace-relative path per dependent, plus a total count.\nPICKING BETWEEN THE THREE: this one for every reference, including file-level imports, computed fresh; graph-it-live_get_symbol_callers for call sites only; graph-it-live_query_call_graph for multi-hop traversal, callees, or relation types.",
+        "modelDescription": "Lists the symbols that use one given symbol - one hop, computed from source at call time.\n\nWHEN: changing a signature and needing every call site, or assessing the blast radius of a symbol-level change.\nWHY: walks the symbol graphs of every file that references the target, so file-level imports count as well as calls.\nRETURNS: caller symbol id, file path and workspace-relative path per dependent, plus a total count.\nPICKING BETWEEN THE THREE: this one for every reference, including file-level imports, computed fresh; graph-it-live_get_symbol_callers for call sites only; graph-it-live_query_call_graph for multi-hop traversal, callees, or relation types.\nPARAMETERS: filePath, symbolName, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1228,11 +1325,11 @@
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
@@ -1253,37 +1350,42 @@
         "displayName": "Graph-It-Live: Trace Function Execution",
         "icon": "$(type-hierarchy-sub)",
         "userDescription": "Trace the full recursive call chain starting from a function or method",
-        "modelDescription": "Follows the call chain outward from one symbol, recursively, across files.\n\nWHEN: tracing a request through controller, service and repository, or mapping what a feature actually reaches.\nWHY: follows calls through multiple files instead of stopping at direct dependencies; stops at external modules, at maxDepth, or on a cycle.\nRETURNS: root symbol, call chain entries (depth, caller, callee, resolved path, 1-based line, relation=REFERENCES for a reference that is not a call), visited symbols, and whether maxDepth was hit. A name the imported module does not export has a null resolved path.\nREFERENCES: a function passed as an argument (register(save), items.map(format), Python cb=save, Java this::save, C# Register(Save)), and in .jsx/.tsx files a JSX component (<Card />, <UI.Card />) or an attribute value (onClick={save}, render={Row}), is a REFERENCES edge: rendered or passed, never reported as a call; register(save()) and onClick={() => save()} are CALLS edges at their line. REACT: Imports resolve through aliases, barrels and default exports to the declaration (a default export keeps its declared name), and memo(), forwardRef() and lazy(() => import('./literal')) to the wrapped component. Lowercase intrinsic tags, parameters or locals named like a function, members of objects other than this/self, non-literal or unknown wrappers, and unimported or ambiguous names stay unresolved, never guessed; props contracts are not analysed. VUE: a Vue 3 .vue file has a component node named after the file at its <template>; a template <Child />, handler (@click=save) or interpolation is a REFERENCES edge from it and save() a CALLS edge, also from an HTML <template src> of the workspace. Global, auto-imported and dynamic :is components stay unresolved.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
+        "modelDescription": "Follows the call chain outward from one symbol, recursively, across files.\n\nWHEN: tracing a request through controller, service and repository, or mapping what a feature actually reaches.\nWHY: follows calls through multiple files instead of stopping at direct dependencies; stops at external modules, at maxDepth, or on a cycle.\nRETURNS: root symbol, call chain entries (depth, caller, callee, resolved path, 1-based line, relation=REFERENCES for a reference that is not a call), visited symbols, and whether maxDepth was hit. A name the imported module does not export has a null resolved path.\nREFERENCES: a function passed as an argument (register(save), items.map(format), Python cb=save, Java this::save, C# Register(Save)), and in .jsx/.tsx files a JSX component (<Card />, <UI.Card />) or an attribute value (onClick={save}, render={Row}), is a REFERENCES edge: rendered or passed, never reported as a call; register(save()) and onClick={() => save()} are CALLS edges at their line. REACT: Imports resolve through aliases, barrels and default exports to the declaration (a default export keeps its declared name), and memo(), forwardRef() and lazy(() => import('./literal')) to the wrapped component. Lowercase intrinsic tags, parameters or locals named like a function, members of objects other than this/self, non-literal or unknown wrappers, and unimported or ambiguous names stay unresolved, never guessed; props contracts are not analysed. VUE: a Vue 3 .vue file has a component node named after the file at its <template>; a template <Child />, handler (@click=save) or interpolation is a REFERENCES edge from it and save() a CALLS edge, also from an HTML <template src> of the workspace. Global, auto-imported and dynamic :is components stay unresolved.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.\nPARAMETERS: filePath, symbolName, maxDepth, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "filePath": {
               "type": "string",
-              "description": "The absolute path to the file containing the function"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the file containing the root symbol"
             },
             "symbolName": {
               "type": "string",
-              "description": "The name of the function or method to trace"
+              "maxLength": 500,
+              "description": "Name of the root symbol to trace from"
             },
             "maxDepth": {
+              "description": "Maximum depth to trace the call chain (default: 10, min: 1, max: 100)",
               "type": "number",
-              "description": "Maximum call chain depth to follow (default: 10)"
+              "minimum": 1,
+              "maximum": 100
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "filePath",
             "symbolName"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -1298,7 +1400,7 @@
         "displayName": "Graph-It-Live: Analyze File Logic",
         "icon": "$(code)",
         "userDescription": "Analyze the intra-file call hierarchy — which functions call which within a single file",
-        "modelDescription": "Returns the call hierarchy among the symbols defined INSIDE one file, ignoring anything it imports.\n\nWHEN: understanding how a file works internally, or spotting recursion before a refactor.\nWHY: built from the file's AST, so no language server is needed. Calls are matched by name within the file.\nRETURNS: nodes (symbol id, LSP SymbolKind number, type, export status, start/end line range), call edges with call-site line numbers, and cycle detection with the symbols involved.\nNOT THIS TOOL: for what this file's symbols reach in OTHER files, use graph-it-live_get_symbol_graph.\nSUPPORTS: TypeScript, JavaScript, Python, Rust.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.",
+        "modelDescription": "Returns the call hierarchy among the symbols defined INSIDE one file, ignoring anything it imports.\n\nWHEN: understanding how a file works internally, or spotting recursion before a refactor.\nWHY: built from the file's AST, so no language server is needed. Calls are matched by name within the file.\nRETURNS: nodes (symbol id, LSP SymbolKind number, type, export status, start/end line range), call edges with call-site line numbers, and cycle detection with the symbols involved.\nNOT THIS TOOL: for what this file's symbols reach in OTHER files, use graph-it-live_get_symbol_graph.\nSUPPORTS: TypeScript, JavaScript, Python, Rust.\nFor an open-ended question, start with graph-it-live_graph_context and come here when you need this specific cut.\nPARAMETERS: filePath, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1310,11 +1412,11 @@
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
@@ -1334,33 +1436,36 @@
         "displayName": "Graph-It-Live: Resolve Module Path",
         "icon": "$(link)",
         "userDescription": "Resolve a module specifier (e.g. './utils', '@/components/Button') to its absolute file path",
-        "modelDescription": "Resolves one module specifier, as seen from a given file, to a path on disk.\n\nWHEN: \"where does this import point\", or debugging alias and extension resolution.\nWHY: applies tsconfig path aliases, implicit extensions (.ts, .tsx, .js, .jsx, .vue, .svelte, .gql) and index-file resolution.\nRETURNS: whether resolution succeeded and the resolved workspace-relative path.",
+        "modelDescription": "Resolves one module specifier, as seen from a given file, to a path on disk.\n\nWHEN: \"where does this import point\", or debugging alias and extension resolution.\nWHY: applies tsconfig path aliases, implicit extensions (.ts, .tsx, .js, .jsx, .vue, .svelte, .gql) and index-file resolution.\nRETURNS: whether resolution succeeded and the resolved workspace-relative path.\nPARAMETERS: fromFile, moduleSpecifier, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "fromFile": {
               "type": "string",
-              "description": "Absolute path of the file containing the import statement"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path of the file containing the import"
             },
             "moduleSpecifier": {
               "type": "string",
-              "description": "The module specifier to resolve (e.g. './utils', '@/components/Button', 'lodash')"
+              "maxLength": 10240,
+              "description": "The module specifier to resolve (e.g., \"./utils\", \"@/components/Button\")"
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "fromFile",
             "moduleSpecifier"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -1375,41 +1480,46 @@
         "displayName": "Graph-It-Live: Analyze Breaking Changes",
         "icon": "$(warning)",
         "userDescription": "Detect breaking changes when modifying function signatures, interface members, or type aliases",
-        "modelDescription": "Compares two versions of a file and reports which signature changes break callers.\n\nWHEN: validating an edit before committing, or writing migration notes for an API change.\nWHY: diffs the parsed signatures rather than the text, so added optional parameters are separated from breaking ones.\nRETURNS: breaking changes (type, symbol, description, severity, old and new value, line) and non-breaking changes. Without newContent the current file on disk is used.\nDETECTS: added required parameter, removed parameter, changed parameter or return type, optional made required, reduced visibility, removed or changed interface member, changed type alias.\nINPUT: oldContent must be the full previous file content, not a placeholder. With symbolName, an unknown symbol returns an error listing close name matches, a symbol missing from a non-empty oldContent that declares nothing returns an error, and a symbol new in newContent is reported as a non-breaking change.",
+        "modelDescription": "Compares two versions of a file and reports which signature changes break callers.\n\nWHEN: validating an edit before committing, or writing migration notes for an API change.\nWHY: diffs the parsed signatures rather than the text, so added optional parameters are separated from breaking ones.\nRETURNS: breaking changes (type, symbol, description, severity, old and new value, line) and non-breaking changes. Without newContent the current file on disk is used.\nDETECTS: added required parameter, removed parameter, changed parameter or return type, optional made required, reduced visibility, removed or changed interface member, changed type alias.\nINPUT: oldContent must be the full previous file content, not a placeholder. With symbolName, an unknown symbol returns an error listing close name matches, a symbol missing from a non-empty oldContent that declares nothing returns an error, and a symbol new in newContent is reported as a non-breaking change.\nPARAMETERS: filePath, symbolName, oldContent, newContent, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "filePath": {
               "type": "string",
-              "description": "Absolute path to the file being modified"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the file to analyze"
+            },
+            "symbolName": {
+              "description": "Optional: Only analyze changes to this specific symbol",
+              "type": "string",
+              "maxLength": 500
             },
             "oldContent": {
               "type": "string",
-              "description": "The previous file content to compare against"
-            },
-            "symbolName": {
-              "type": "string",
-              "description": "Optional: restrict analysis to a specific symbol name"
+              "maxLength": 1048576,
+              "description": "The old version of the file content"
             },
             "newContent": {
+              "description": "The new version of the file content (if not provided, reads current file)",
               "type": "string",
-              "description": "The new file content (if omitted, reads the current file from disk)"
+              "maxLength": 1048576
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "filePath",
             "oldContent"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -1424,40 +1534,48 @@
         "displayName": "Graph-It-Live: Query Call Graph",
         "icon": "$(type-hierarchy)",
         "userDescription": "Query cross-file callers and callees of a symbol via BFS traversal on the indexed call graph database",
-        "modelDescription": "Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.\n\nWHEN: \"who calls X\" (direction=callers, depth=1), \"what does X call\" (direction=callees), multi-hop traversal (\"three levels deep\"), or cycle detection across modules.\nWHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS), runtime references (REFERENCES) and type-only references (USES) rather than import edges. Every relation type is returned unless relationTypes narrows it.\nREFERENCES: a function passed as an argument (register(save), items.map(format), Python cb=save, Java this::save, C# Register(Save)), and in .jsx/.tsx files a JSX component (<Card />, <UI.Card />) or an attribute value (onClick={save}, render={Row}), is a REFERENCES edge: rendered or passed, never reported as a call; register(save()) and onClick={() => save()} are CALLS edges at their line. REACT: Imports resolve through aliases, barrels and default exports to the declaration (a default export keeps its declared name), and memo(), forwardRef() and lazy(() => import('./literal')) to the wrapped component. Lowercase intrinsic tags, parameters or locals named like a function, members of objects other than this/self, non-literal or unknown wrappers, and unimported or ambiguous names stay unresolved, never guessed; props contracts are not analysed. VUE: a Vue 3 .vue file has a component node named after the file at its <template>; a template <Child />, handler (@click=save) or interpolation is a REFERENCES edge from it and save() a CALLS edge, also from an HTML <template src> of the workspace. Global, auto-imported and dynamic :is components stay unresolved.\nRETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2.\nSELECTING: two same-name methods in one file return reason=ambiguous with candidates; pass one candidate's symbolId or startLine to select it exactly. A stale selector returns reason=stale_selector (ids embed the line and change after edits); 'Class.method' names are not supported.\nNOT THIS TOOL: for every file that imports a file, use graph-it-live_find_referencing_files.\nLIMITS: needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error.",
+        "modelDescription": "Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.\n\nWHEN: \"who calls X\" (direction=callers, depth=1), \"what does X call\" (direction=callees), multi-hop traversal (\"three levels deep\"), or cycle detection across modules.\nWHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and runtime references (REFERENCES) rather than import edges. Type-only references (USES) are added with includeTypeOnly.\nREFERENCES: a function passed as an argument (register(save), items.map(format), Python cb=save, Java this::save, C# Register(Save)), and in .jsx/.tsx files a JSX component (<Card />, <UI.Card />) or an attribute value (onClick={save}, render={Row}), is a REFERENCES edge: rendered or passed, never reported as a call; register(save()) and onClick={() => save()} are CALLS edges at their line. REACT: Imports resolve through aliases, barrels and default exports to the declaration (a default export keeps its declared name), and memo(), forwardRef() and lazy(() => import('./literal')) to the wrapped component. Lowercase intrinsic tags, parameters or locals named like a function, members of objects other than this/self, non-literal or unknown wrappers, and unimported or ambiguous names stay unresolved, never guessed; props contracts are not analysed. VUE: a Vue 3 .vue file has a component node named after the file at its <template>; a template <Child />, handler (@click=save) or interpolation is a REFERENCES edge from it and save() a CALLS edge, also from an HTML <template src> of the workspace. Global, auto-imported and dynamic :is components stay unresolved.\nRETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2. A symbol missing from the file is an error naming the closest ones.\nSELECTING: two same-name methods in one file return reason=ambiguous with candidates; pass one candidate's symbolId or startLine to select it exactly. A stale selector returns reason=stale_selector (ids embed the line and change after edits); 'Class.method' names are not supported.\nNOT THIS TOOL: for every file that imports a file, use graph-it-live_find_referencing_files.\nLIMITS: needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error. output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.\nPARAMETERS: filePath, symbolName, symbolId, startLine, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "filePath": {
               "type": "string",
-              "description": "Absolute path to the file containing the target symbol"
+              "maxLength": 1024,
+              "description": "Workspace-relative or absolute path to the file containing the target symbol."
             },
             "symbolName": {
               "type": "string",
-              "description": "Name of the symbol to query (function, class, method). A bare name shared by several symbols in the file returns reason 'ambiguous' with candidates; qualified names such as 'Class.method' are not supported"
+              "maxLength": 500,
+              "description": "Name of the symbol to query (function, class, method). A bare name shared by several symbols in the file returns reason='ambiguous' with candidates; qualified names such as 'Class.method' are not supported."
             },
             "symbolId": {
+              "description": "Exact node id taken from a previous result or candidate (valid for the current index only, since ids embed the line). Narrows symbolName to that node; a stale id returns reason='stale_selector'.",
               "type": "string",
-              "description": "Exact node id from a previous result or candidate, valid for the current index only (ids embed the line). A stale id returns reason 'stale_selector'"
+              "maxLength": 500
             },
             "startLine": {
-              "type": "number",
-              "description": "Declaration line of the symbol, 0-based like startLine in results and candidates (editor line 3 is 2). Selects one of several same-name symbols"
+              "description": "Declaration line of the symbol, 0-based like 'startLine' in results and candidates (editor line 3 is 2). Selects one of several same-name symbols.",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
             },
             "direction": {
+              "description": "Direction of traversal: 'callers', 'callees', or 'both' (default: 'both')",
               "type": "string",
               "enum": [
                 "callers",
                 "callees",
                 "both"
-              ],
-              "description": "Traversal direction: 'callers' (who calls this), 'callees' (what it calls), or 'both' (default)"
+              ]
             },
             "depth": {
+              "description": "Maximum BFS traversal depth (default: 2, min: 1, max: 10)",
               "type": "number",
-              "description": "Maximum BFS traversal depth (default: 2, max: 10)"
+              "minimum": 1,
+              "maximum": 10
             },
             "relationTypes": {
+              "description": "Filter by relation types (default: CALLS, INHERITS, IMPLEMENTS and REFERENCES; USES is added with includeTypeOnly)",
               "type": "array",
               "items": {
                 "type": "string",
@@ -1468,24 +1586,49 @@
                   "USES",
                   "REFERENCES"
                 ]
-              },
-              "description": "Filter by relation types (default: all types included)"
+              }
+            },
+            "includeTypeOnly": {
+              "description": "Also include USES edges (type-only references such as interfaces and type aliases). Default is false. Ignored when relationTypes is set.",
+              "type": "boolean"
+            },
+            "offset": {
+              "description": "Items to skip, usually the nextOffset of the previous response (default: 0)",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "tokenBudget": {
+              "description": "Maximum output size in tokens (default: 4000, 500-16000, or 0 for no limit). A larger result is cut and reports truncated=true, omitted counts and nextOffset; pass nextOffset as offset to read the rest.",
+              "default": 4000,
+              "anyOf": [
+                {
+                  "type": "number",
+                  "const": 0
+                },
+                {
+                  "type": "integer",
+                  "minimum": 500,
+                  "maximum": 16000
+                }
+              ]
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "filePath",
             "symbolName"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -1500,44 +1643,50 @@
         "displayName": "Graph-It-Live: Scan Dead Code",
         "icon": "$(trash)",
         "userDescription": "Workspace-wide scan for unused exported symbols (dead code) across the entire project or a scoped directory",
-        "modelDescription": "Lists the unused exported symbols across a whole workspace or directory.\n\nWHEN: auditing code quality, or cleaning up before a refactor; use find_unused_symbols for a single file.\nWHY: combines the reverse index with per-file symbol analysis, so the scan stays linear instead of comparing every file against every other.\nRETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists (each with confidence, reasons and evidence), byConfidence, scan duration, and truncated with filesBeyondLimit when maxFiles stopped the scan. Without maxFiles every analysable file in scope is scanned (no upper bound). truncated=true means a partial result: report it as partial, never as the whole workspace.\nCONFIDENCE: every item has confidence and reasons. high (importers-use-other-exports): the file is imported, no importer uses the export and no other evidence of use was found: a deletion candidate. medium: test-only-use (only tests use it), dynamic-import-in-workspace (a computed import() / require() / import_module may reach the file, or a Python importer reads attributes by computed name), convention:decorated (a Python decorator may register it), named-in-own-file (its file writes the name again: dropping export may be the fix), name-written-elsewhere (Rust: another Rust file writes the name), convention:test-file, convention:generated (the file header says it is generated), published-deep-import (a published package without an exports map that the workspace imports by deep path, so outside projects may too). low (no-importer): nothing imports the file, often an entry point by convention (script, handler, config), review only. minConfidence (default high) sets the lowest level listed; byConfidence counts every item found and hint says how to list the others.\nENTRY POINTS: an export a manifest declares is never listed, nor what it re-exports or calls: package.json main, module, browser, types, exports, bin (npm default index.js for a publishable package without them), pyproject / setup.cfg / setup.py scripts and entry points, __main__.py, __all__, the pub items of a Cargo lib crate, Rust #[no_mangle] / #[proc_macro] functions, the handlers of serverless.yml functions and of SAM template.yaml AWS::Serverless::Function resources (CodeUri + Handler, Node and Python), the module.name a Dockerfile, compose or Procfile writes, in its folder or below (declared:<manifest>#CMD); so is a JSX or Vue default export (convention:framework-default-export), and every export of a file a graphql-codegen config (codegen.yml/.yaml/.json/.ts) generates (generated:<config>#generates[...], counted in generatedFiles).\nUNREFERENCED FILES: unreferencedFiles=true lists whole files instead (the cheapest deletions), from the reverse index without symbol analysis: low (no-importer) when no workspace file imports the file, directly or as a barrel's target; medium (test-only-use) when only tests import it, with testImporters = the tests to delete or clean up with it, a quick cleanup win. Other reasons as for exports: dynamic-import-in-workspace, convention:generated, published-deep-import. Each file has exports (0 for a script or side-effect module); minConfidence defaults to low. Left out, and listed as excluded with verbose: test files, manifest entry points, files whose path a non-test file writes (named-in:<file>: a bundler entry, a package.json script, a CI workflow or action, a Makefile, justfile, Taskfile or .sh script, working-directory and cd honoured; lint and format configs name nothing), JSX/Vue default exports, files a framework loads by file name (convention:framework-route, when a package.json above depends on it: Next.js app/pages routes, SvelteKit, Remix, Nuxt incl. layers, Astro, Expo Router, Gatsby, Storybook stories), files a bundler loads (import.meta.glob, new URL(..., import.meta.url), an HTML page's src / href, never its inline data), files named by a run-time template (config.${mode}.ts), migrations folders (convention:migration), .<tool>rc files, .d.ts/.d.mts/.d.cts declarations, tool configs (*.config.ts), files a folder's .gitignore ignores (build output) and Python package __init__.py. CASCADE: then the files only those dead files and tests import, chains and dead cycles included, listed after them with reason cascade, via = their dead importers, at a confidence never above theirs (low for a cycle nothing else imports); an entry point, a live importer, a dead file something may still load (dynamic import) or a dead file that runs as a program (no export like main.ts, or a __main__ guard) stops it. Every dead file has tests = the tests that import nothing but dead files, to delete with it.\nLIMITS: scopePath must be an absolute path inside the workspace; results are incomplete while background indexing runs; duration grows with file count (about 90 s for 12,000 files); an export reached only through a dynamic lookup can still be listed.",
+        "modelDescription": "Lists the unused exported symbols across a whole workspace or directory.\n\nWHEN: auditing code quality, or cleaning up before a refactor; use find_unused_symbols for a single file.\nWHY: combines the reverse index with per-file symbol analysis, so the scan stays linear instead of comparing every file against every other.\nRETURNS: files scanned, files holding dead code, total unused symbols, per-file unused symbol lists (each with confidence, reasons and evidence), byConfidence, scan duration, and truncated with filesBeyondLimit when maxFiles stopped the scan. Without maxFiles every analysable file in scope is scanned (no upper bound). truncated=true means a partial result: report it as partial, never as the whole workspace.\nCONFIDENCE: every item has confidence and reasons. high (importers-use-other-exports): the file is imported, no importer uses the export and no other evidence of use was found: a deletion candidate. medium: test-only-use (only tests use it), dynamic-import-in-workspace (a computed import() / require() / import_module may reach the file, or a Python importer reads attributes by computed name), convention:decorated (a Python decorator may register it), named-in-own-file (its file writes the name again: dropping export may be the fix), name-written-elsewhere (Rust: another Rust file writes the name), convention:test-file, convention:generated (the file header says it is generated), published-deep-import (a published package without an exports map that the workspace imports by deep path, so outside projects may too). low (no-importer): nothing imports the file, often an entry point by convention (script, handler, config), review only. minConfidence (default high) sets the lowest level listed; byConfidence counts every item found and hint says how to list the others.\nENTRY POINTS: an export a manifest declares is never listed, nor what it re-exports or calls: package.json main, module, browser, types, exports, bin (npm default index.js for a publishable package without them), pyproject / setup.cfg / setup.py scripts and entry points, __main__.py, __all__, the pub items of a Cargo lib crate, Rust #[no_mangle] / #[proc_macro] functions, the handlers of serverless.yml functions and of SAM template.yaml AWS::Serverless::Function resources (CodeUri + Handler, Node and Python), the module.name a Dockerfile, compose or Procfile writes, in its folder or below (declared:<manifest>#CMD); so is a JSX or Vue default export (convention:framework-default-export), and every export of a file a graphql-codegen config (codegen.yml/.yaml/.json/.ts) generates (generated:<config>#generates[...], counted in generatedFiles). verbose=true lists them as excluded, each with its reason (declared:package.json#main, attribute:#[no_mangle], ...).\nUNREFERENCED FILES: unreferencedFiles=true lists whole files instead (the cheapest deletions), from the reverse index without symbol analysis: low (no-importer) when no workspace file imports the file, directly or as a barrel's target; medium (test-only-use) when only tests import it, with testImporters = the tests to delete or clean up with it, a quick cleanup win. Other reasons as for exports: dynamic-import-in-workspace, convention:generated, published-deep-import. Each file has exports (0 for a script or side-effect module); minConfidence defaults to low. Left out, and listed as excluded with verbose: test files, manifest entry points, files whose path a non-test file writes (named-in:<file>: a bundler entry, a package.json script, a CI workflow or action, a Makefile, justfile, Taskfile or .sh script, working-directory and cd honoured; lint and format configs name nothing), JSX/Vue default exports, files a framework loads by file name (convention:framework-route, when a package.json above depends on it: Next.js app/pages routes, SvelteKit, Remix, Nuxt incl. layers, Astro, Expo Router, Gatsby, Storybook stories), files a bundler loads (import.meta.glob, new URL(..., import.meta.url), an HTML page's src / href, never its inline data), files named by a run-time template (config.${mode}.ts), migrations folders (convention:migration), .<tool>rc files, .d.ts/.d.mts/.d.cts declarations, tool configs (*.config.ts), files a folder's .gitignore ignores (build output) and Python package __init__.py. CASCADE: then the files only those dead files and tests import, chains and dead cycles included, listed after them with reason cascade, via = their dead importers, at a confidence never above theirs (low for a cycle nothing else imports); an entry point, a live importer, a dead file something may still load (dynamic import) or a dead file that runs as a program (no export like main.ts, or a __main__ guard) stops it. Every dead file has tests = the tests that import nothing but dead files, to delete with it.\nLIMITS: scopePath is a folder inside the workspace, workspace-relative or absolute; results are incomplete while background indexing runs; duration grows with file count (about 90 s for 12,000 files); an export reached only through a dynamic lookup can still be listed.\nPARAMETERS: scopePath, maxFiles, minConfidence, verbose, unreferencedFiles, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "scopePath": {
+              "description": "Folder to scope the scan, workspace-relative or absolute (default: workspace root). Must be inside the workspace.",
               "type": "string",
-              "description": "Optional absolute path to a directory to restrict the scan scope (defaults to entire workspace)"
+              "maxLength": 1024
             },
             "maxFiles": {
-              "type": "number",
-              "description": "Optional cap on analysed files (default: every analysable file in scope, no upper bound). When the cap stops the scan, truncated=true and filesBeyondLimit > 0: the result is partial."
+              "description": "Optional cap on analysed files (default: every analysable file in scope, no upper bound). When the cap stops the scan, truncated=true and filesBeyondLimit > 0: the result is partial.",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
             },
             "minConfidence": {
+              "description": "Lowest confidence listed (default: high). high: the file is imported, no importer uses the export and no other evidence of use was found: a deletion candidate. medium: only tests use it, a computed import may reach it, a decorator may register it, its name is written again in its file (or, in Rust, in another file), or it sits in a test file. low: nothing imports the file (entry point by convention, script, config), review only. Unlisted items are counted in byConfidence.",
               "type": "string",
               "enum": [
                 "high",
                 "medium",
                 "low"
-              ],
-              "default": "high",
-              "description": "Lowest confidence listed (default: high). high: the file is imported, no importer uses the export and no other evidence of use was found: a deletion candidate. medium: only tests use it, a computed import may reach it, a decorator may register it, its name is written again in its file (or, in Rust, in another file), or it sits in a test file. low: nothing imports the file (entry point by convention, script, config), review only. Unlisted items are counted in byConfidence."
+              ]
+            },
+            "verbose": {
+              "description": "Also list the unused exports left out as excluded, each with its reason: the manifest field that declares it (declared:package.json#exports[\"./x\"]), a Rust attribute, or convention:framework-default-export (default: false)",
+              "type": "boolean"
             },
             "unreferencedFiles": {
-              "type": "boolean",
-              "default": false,
-              "description": "List whole files no production file imports instead of unused exports (default: false): low (no-importer) when nothing imports the file, medium (test-only-use) when only tests do. minConfidence then defaults to low. medium items list testImporters, the tests to delete or clean up with the file. Left out: test files, manifest entry points, files a non-test file names by path (bundler entry, package.json script), JSX/Vue default exports, .d.ts files, *.config.* files, files a folder's .gitignore ignores, Python package __init__.py."
+              "description": "List whole files no production file imports instead of unused exports (default: false): low (no-importer) when nothing imports the file, medium (test-only-use) when only tests do. minConfidence then defaults to low. medium items list testImporters, the tests to delete or clean up with the file. Left out (excluded with verbose): test files, manifest entry points, files a non-test file names by path (bundler entry, package.json script, CI workflow, Makefile, shell script), JSX/Vue default exports, framework route files (Next.js, SvelteKit, Remix, Nuxt, Astro...), files a bundler loads (import.meta.glob, new URL, HTML entry), migrations, .d.ts files, *.config.* files, files a folder's .gitignore ignores, Python package __init__.py. Then the files only dead files and tests import (reason cascade, via = their dead importers); tests = the tests that import nothing but dead files.",
+              "type": "boolean"
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
-          }
+          },
+          "additionalProperties": false
         }
       },
       {
@@ -1552,40 +1701,46 @@
         "displayName": "Graph-It-Live: Review PR",
         "icon": "$(git-pull-request)",
         "userDescription": "Review a local Git diff against a base ref and report its risk with per-symbol evidence",
-        "modelDescription": "Reviews a local Git diff and reports the risk it carries, with per-symbol evidence.\n\nWHEN: before opening a pull request, or as a CI gate.\nWHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.\nRETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed. With graphit.architecture.json, `architecture` says whether the diff degrades or improves the declared rules: new, resolved and unchanged violations per rule, unit cycles, rules-file edits; a new error violation raises the risk. A changed .vue lists the props and events it adds or removes by name (no type check), a contract typed by an imported type or built at runtime as partial.\nLIMITS: runs git in the first workspace folder; impact counts are incomplete while background indexing runs; maxFiles caps changed files (default 200, no upper bound), time and memory grow with it.",
+        "modelDescription": "Reviews a local Git diff and reports the risk it carries, with per-symbol evidence.\n\nWHEN: before opening a pull request, or as a CI gate.\nWHY: combines the parsed signatures of both revisions with the workspace index, so signature changes are scored against their real callers.\nRETURNS: deterministic risk level, per-symbol evidence, impact counts, and an explicit list of what could not be analysed. With graphit.architecture.json, `architecture` says whether the diff degrades or improves the declared rules: new, resolved and unchanged violations per rule, unit cycles, rules-file edits; a new error violation raises the risk. A changed .vue lists the props and events it adds or removes by name (no type check), a contract typed by an imported type or built at runtime as partial.\nLIMITS: runs git in the first workspace folder; impact counts are incomplete while background indexing runs; maxFiles caps changed files (default 200, no upper bound), time and memory grow with it.\nPARAMETERS: baseRef, headRef, maxFiles, maxDepth, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "baseRef": {
               "type": "string",
+              "maxLength": 10240,
               "description": "Git base ref to compare against, for example origin/main"
             },
             "headRef": {
+              "description": "Optional Git head ref; defaults to the checked-out worktree",
               "type": "string",
-              "description": "Optional Git head ref; defaults to the checked-out worktree"
+              "maxLength": 10240
             },
             "maxFiles": {
-              "type": "number",
-              "description": "Optional maximum number of changed files to analyse (default 200, no upper bound)"
+              "description": "Optional cap on changed files analysed (default: 200, no upper bound)",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
             },
             "maxDepth": {
-              "type": "number",
-              "description": "Optional impact traversal depth (1-10, default 3)"
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "baseRef"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -1600,40 +1755,49 @@
         "displayName": "Graph-It-Live: Natural Language Query",
         "icon": "$(search)",
         "userDescription": "Return the call-graph subgraph relevant to a plain-language question about the codebase",
-        "modelDescription": "Returns the subgraph relevant to a plain-language question, for you to turn into an answer.\n\nWHEN: exploring a codebase from a concept rather than a known file or symbol name.\nWHY: extracts keywords (English, French, German, Spanish, Chinese or Russian questions, mapped to English identifier stems), scores seed nodes by keyword specificity and file path over the call graph index, then traverses outward from them. English identifier-like keywords in the question (\"reference compute python\") give the most precise seeds.\nRETURNS: the question, the extracted keywords, the subgraph, and timing and truncation metadata.\nLIMITS: returns graph data, not prose - you write the answer from it; needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error.",
+        "modelDescription": "Returns the subgraph relevant to a plain-language question, for you to turn into an answer.\n\nWHEN: exploring a codebase from a concept rather than a known file or symbol name.\nWHY: extracts keywords (English, French, German, Spanish, Chinese or Russian questions, mapped to English identifier stems), scores seed nodes by keyword specificity and file path over the call graph index, then traverses outward from them. English identifier-like keywords in the question (\"reference compute python\") give the most precise seeds.\nRETURNS: the question, the extracted keywords, the subgraph, and timing and truncation metadata.\nLIMITS: returns graph data, not prose - you write the answer from it; needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error.\nPARAMETERS: question, depth, tokenBudget, fileFilter, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "question": {
               "type": "string",
-              "description": "Plain-language question about the codebase"
+              "maxLength": 1024,
+              "description": "Natural language question about the codebase"
             },
             "depth": {
-              "type": "number",
-              "description": "Optional traversal depth from the matched symbols (1-5, default 2)"
+              "description": "BFS traversal depth from seed nodes (default: 2, min: 1, max: 5)",
+              "default": 2,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 5
             },
             "tokenBudget": {
-              "type": "number",
-              "description": "Optional token budget for the subgraph (500-16000, default 4000)"
+              "description": "Maximum token budget for the output subgraph (default: 4000)",
+              "default": 4000,
+              "type": "integer",
+              "minimum": 500,
+              "maximum": 16000
             },
             "fileFilter": {
+              "description": "Workspace-relative glob restricting the search (e.g. 'src/analyzer/**'); a glob matching no indexed file is an error",
               "type": "string",
-              "description": "Optional workspace-relative glob restricting the search, for example src/**"
+              "maxLength": 256
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
           },
           "required": [
             "question"
-          ]
+          ],
+          "additionalProperties": false
         }
       },
       {
@@ -1648,67 +1812,76 @@
         "displayName": "Graph-It-Live: Export Architecture Diagram",
         "icon": "$(type-hierarchy)",
         "userDescription": "Draw a static architecture diagram of the workspace as SVG or self-contained HTML",
-        "modelDescription": "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix) as SVG or self-contained HTML, or returns its data as a diagram spec.\n\nWHEN: \"draw the architecture\", \"give me a diagram for the README / the PR / the design doc\", or to share as a picture the structure that graph-it architecture reports as data. For a polished or branded diagram drawn by a diagram skill, use diagramFormat 'diagram-spec' and draw only the nodes and edges it lists.\nWHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.\nRETURNS: format, counts (one line, e.g. '7 units · 3 layers · 1 cycle · 0 violations', covering the whole level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>, architecture.diagram-spec.json for a spec) with its size in characters. A diagram-spec is JSON (schemas/diagram-spec.schema.json): every node with label, layer, file count and role, layers, weighted edges with kind and broken rules, cycles, violations and the caption lines.\nLIMITS: import relations only (static analysis); at most 60 nodes drawn (a spec lists them all), the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.",
+        "modelDescription": "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix) as SVG or self-contained HTML, or returns its data as a diagram spec.\n\nWHEN: \"draw the architecture\", \"give me a diagram for the README / the PR / the design doc\", or to share as a picture the structure that graph-it architecture reports as data. For a polished or branded diagram drawn by a diagram skill, use diagramFormat 'diagram-spec' and draw only the nodes and edges it lists.\nWHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.\nRETURNS: format, counts (one line, e.g. '7 units · 3 layers · 1 cycle · 0 violations', covering the whole level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>, architecture.diagram-spec.json for a spec) with its size in characters. A diagram-spec is JSON (schemas/diagram-spec.schema.json): every node with label, layer, file count and role, layers, weighted edges with kind and broken rules, cycles, violations and the caption lines.\nLIMITS: import relations only (static analysis); at most 60 nodes drawn (a spec lists them all), the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.\nPARAMETERS: view, folder, diagramFormat, theme, rules, config, baseline, output, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "view": {
+              "description": "'units' (default): every unit; 'folder': the groups of the unit or folder named by folder (default when folder is set); 'matrix': the dependency structure matrix of that level",
               "type": "string",
               "enum": [
                 "units",
                 "folder",
                 "matrix"
-              ],
-              "description": "Optional: units (default) draws every unit; folder the groups of the unit or folder named by folder (default when folder is set); matrix the dependency structure matrix of that level"
+              ]
             },
             "folder": {
+              "description": "Unit or folder key, '/'-separated as explore_architecture returns it (e.g. 'src/analyzer')",
               "type": "string",
-              "description": "Optional unit or folder key, /-separated, for example src/analyzer"
+              "minLength": 1,
+              "maxLength": 1024
             },
             "diagramFormat": {
+              "description": "'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme; 'diagram-spec': the level's data as JSON (schemas/diagram-spec.schema.json) for a diagram skill",
               "type": "string",
               "enum": [
                 "svg",
                 "html",
                 "diagram-spec"
-              ],
-              "description": "Optional: svg (default), html (one self-contained page following the reader light or dark scheme) or diagram-spec (the level's data as JSON for a diagram skill)"
+              ]
             },
             "theme": {
+              "description": "Colours of the SVG (default: light); svg only",
               "type": "string",
               "enum": [
                 "light",
                 "dark"
-              ],
-              "description": "Optional SVG colours (default light); svg only"
+              ]
             },
             "rules": {
-              "type": "boolean",
-              "description": "Optional: draw the violations of graphit.architecture.json in the error colour"
+              "description": "Draw the violations of graphit.architecture.json in the error colour, and the baseline's accepted ones dashed",
+              "type": "boolean"
             },
             "config": {
+              "description": "Rules file with rules, relative to the workspace (default: graphit.architecture.json)",
               "type": "string",
-              "description": "Optional rules file with rules, relative to the workspace (default graphit.architecture.json)"
+              "minLength": 1,
+              "maxLength": 1024
             },
             "baseline": {
+              "description": "Accepted violations with rules, relative to the workspace (default: graphit.architecture.baseline.json when it exists)",
               "type": "string",
-              "description": "Optional accepted violations file with rules, relative to the workspace (default graphit.architecture.baseline.json when it exists)"
+              "minLength": 1,
+              "maxLength": 1024
             },
             "output": {
+              "description": "File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec)",
               "type": "string",
-              "description": "Optional file to write, relative to the workspace; without it a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec)"
+              "minLength": 1,
+              "maxLength": 1024
             },
             "response_format": {
               "type": "string",
               "enum": [
                 "toon",
-                "markdown",
-                "json"
+                "json",
+                "markdown"
               ],
               "default": "toon",
-              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'markdown' (readable lists and tables), or 'json' (the raw object, for code that parses it)"
+              "description": "Output format: 'toon' (default, compact Token-Oriented Object Notation), 'json' (the raw object, for code that parses it), or 'markdown' (a readable report of this tool's result)"
             }
-          }
+          },
+          "additionalProperties": false
         }
       }
     ],

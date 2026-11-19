@@ -172,8 +172,8 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
     ]);
     expect(lm).toContain("src/Page.tsx#Missing symbol: missing");
     expect(await answers(mcpSurface(), RELATIONS)).toEqual(lm);
-    // Documented defaults: the LM tool returns every relation, MCP and the CLI add USES only on request.
-    expect(await answers(lmSurface())).toEqual(lm);
+    // One documented default on every surface (#769): USES only on request.
+    expect(await answers(lmSurface())).toEqual(runtimeOnly);
     expect(await answers(mcpSurface())).toEqual(runtimeOnly);
     // The CLI indexes in its own process, on a copy of the MCP workspace.
     const cliRoot = fs.realpathSync(fs.mkdtempSync(path.join(path.dirname(mcp.tmpDir), "react-cli-")));
