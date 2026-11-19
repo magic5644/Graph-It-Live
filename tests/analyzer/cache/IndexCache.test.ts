@@ -65,9 +65,9 @@ describe("IndexCache", () => {
     });
 
     // #774: the persisted symbol analyses grow with the workspace too.
-    it("counts symbols.json", () => {
+    it("counts symbols.cache", () => {
       fs.mkdirSync(cacheDir, { recursive: true });
-      fs.writeFileSync(path.join(cacheDir, "symbols.json"), "{}\n");
+      fs.writeFileSync(path.join(cacheDir, "symbols.cache"), "{}\n");
 
       expect(IndexCache.fileSizes(cacheDir).symbolsBytes).toBe(3);
     });
