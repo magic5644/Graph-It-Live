@@ -4,6 +4,7 @@ import { IndexCache } from "../../analyzer/cache/IndexCache";
 import { closestPathsHint } from "../../analyzer/utils/SymbolLookup";
 import { normalizePath } from "../../shared/path";
 import { reportOutOfRootImports } from "../../analyzer/utils/workspaceBoundary";
+import { unresolvedImportsField } from "../../analyzer/utils/unresolvedImports";
 import { workerState } from "../shared/state";
 import type {
     GetIndexStatusResult,
@@ -32,6 +33,7 @@ export async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
     cacheSize: cacheStats.dependencyCache.size,
     reverseIndexStats: cacheStats.reverseIndexStats,
     ...reportOutOfRootImports(spider.getOutOfRootImports(), spider.workspaceRoot),
+    ...unresolvedImportsField(await spider.getUnresolvedImports(), spider.workspaceRoot),
     progress:
       indexStatus.state === "indexing"
         ? {

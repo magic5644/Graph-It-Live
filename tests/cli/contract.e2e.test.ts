@@ -213,6 +213,8 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
       expect(result.stderr, args.join(" ")).toContain(message);
     };
     expectFailure(["export", "--output", "../g.html"], 5, "Refusing to write ../g.html: it is outside the workspace");
+    // #774: a dry run writes nothing, yet refuses an outside --output like a real run.
+    expectFailure(["init", "--dry-run", "--output", "../x"], 5, "--output must be a directory inside the workspace: ../x");
     expectFailure(["export", "--output", "g.svg"], 1, "--output g.svg does not match --format html");
     expectFailure(["diagram", "--format", "svg", "--output", "a.html"], 1, "--output a.html does not match --format svg");
     expectFailure(["diagram", "--format", "diagram-spec", "--view", "matrix"], 4, "--format diagram-spec describes --view units or folder");
@@ -221,6 +223,33 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     const positional = cli(["diagram", "--format", "svg", "--output", "-", "src"]);
     expect(positional.status, positional.stderr).toBe(0);
     expect(positional.stdout).toContain("folder src");
+  });
+
+  // #774: a generated file not built yet is reported by every command that lists dead files, with the same facts.
+  it("reports an import resolving to no file the same way in check, summary and init", () => {
+    const fixture = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-unresolved-")));
+    try {
+      fs.cpSync(path.join(REPO_ROOT, "tests/fixtures/unresolved-generated-import"), fixture, { recursive: true });
+      const run = (...args: string[]) => spawnSync(process.execPath, [DIST_ENTRY, ...args], { cwd: fixture, encoding: "utf-8" });
+      const json = (...args: string[]) => JSON.parse(run(...args, "--format", "json").stdout);
+      const check = json("check", "--unreferencedFiles");
+
+      expect(check.unresolvedImports).toEqual({
+        count: 1,
+        examples: [{ file: "src/loader.ts", specifier: "./resolvers.generated" }],
+        next: "Run the build or codegen that emits the missing files, or add the importing files to .graphitignore.",
+      });
+      expect(check.unreferencedFiles.map((file: { reasons: string[] }) => file.reasons)).toEqual([
+        ["no-importer", "unresolved-import-in-workspace"],
+        ["no-importer", "unresolved-import-in-workspace"],
+      ]);
+      expect(json("summary").unresolvedImports).toEqual(check.unresolvedImports);
+      expect(json("init", "--dry-run").unresolvedImports).toEqual(check.unresolvedImports);
+      expect(run("init", "--dry-run").stdout).toContain("Unresolved imports: 1 import of workspace files resolves to no file (e.g. src/loader.ts imports ./resolvers.generated)");
+      expect(run("check", "--unreferencedFiles", "--format", "markdown").stdout).toContain("**Unresolved imports:** 1 import");
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
   });
 
   it("keeps the review gate's --max-files spelling and refuses --groups with --level units", () => {

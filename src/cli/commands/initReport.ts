@@ -12,6 +12,7 @@
 import * as path from "node:path";
 import { ASSESSMENT_THRESHOLDS, matrixAction, type ArchitectureAssessment, type DeadFileGroup, type MatrixFinding, type GroupedCycles, type QuickWin } from "../../analyzer/architecture/architectureAssessment.js";
 import { ROOT_UNIT } from "../../analyzer/architecture/architectureUnits.js";
+import { describeUnresolvedImports, type UnresolvedImportsReport } from "../../analyzer/utils/unresolvedImports.js";
 
 /** What happened to the config and baseline files. */
 export type InitStatus = "created" | "updated" | "unchanged" | "kept" | "dry-run";
@@ -41,6 +42,8 @@ export interface InitResult {
   guard: { preCommit: string; ci: string; sarif: string };
   assessment: ArchitectureAssessment;
   diagrams: InitDiagram[];
+  /** Relative and alias imports resolving to no file (#774): the dead files may be imported by the missing ones. */
+  unresolvedImports?: UnresolvedImportsReport;
 }
 
 /** Items listed per section in a terminal; report.md, the page, json and toon list them all. */
@@ -238,9 +241,16 @@ function summaryLines(result: InitResult, all: readonly ReportSection[]): string
       : `Size: ${plural(t.files, "file")} in ${focus}, ${plural(t.units, "unit")} with its neighbours, ${plural(t.unitEdges, "unit edge")} through it`,
     `Cycles: ${plural(t.unitCycles, "runtime unit cycle")}, ${plural(t.mutualImports, "runtime mutual file import")}${hotSpotText}; type-only: ${plural(t.typeOnlyUnitCycles, "unit cycle")}, ${plural(t.typeOnlyMutualImports, "mutual file import")}; lazy: ${plural(t.lazyUnitCycles, "unit cycle")}, ${plural(t.lazyMutualImports, "mutual file import")}`,
     `Dead files: ${plural(t.deadFiles, "file")} no production file imports, ${plural(t.deadFileLines, "line")} with their tests${testOnlyText}`,
+    ...unresolvedLine(result.unresolvedImports),
     `Unused exports: ${t.unusedExports} high-confidence in ${plural(t.deadCodeFiles, "file")} listed; not listed: ${t.unusedExportsMedium} medium${mediumText}, graph-it check --minConfidence medium; ${t.unusedExportsLow} low, graph-it check --minConfidence low`,
     `Top action: ${topText}`,
   ];
+}
+
+/** The summary line on imports resolving to no file, placed under the dead files it may make wrong; none at 0. */
+function unresolvedLine(report: UnresolvedImportsReport | undefined): string[] {
+  const line = report === undefined ? null : describeUnresolvedImports(report);
+  return line === null ? [] : [`Unresolved imports: ${line}`];
 }
 
 /**

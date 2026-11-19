@@ -30,6 +30,7 @@ describe("workspace tools", () => {
     const idleSpider = {
       getIndexStatus: () => ({ state: "complete", processed: 0, total: 0, percentage: 0 }),
       getOutOfRootImports: () => ({ count: 0, examples: [] }),
+      getUnresolvedImports: async () => null,
       getCacheStatsAsync: async () => ({
         dependencyCache: { size: 0 },
         reverseIndexStats: { indexedFiles: 708, targetFiles: 243, totalReferences: 1415 },
@@ -110,6 +111,7 @@ describe("workspace tools", () => {
           ...idleSpider,
           workspaceRoot: worker,
           getOutOfRootImports: () => ({ count: 1, examples: ["@core/x"] }),
+          getUnresolvedImports: async () => null,
         });
 
         const result = await executeGetIndexStatus();
@@ -125,6 +127,22 @@ describe("workspace tools", () => {
       } finally {
         fs.rmSync(mono, { recursive: true, force: true });
       }
+    });
+
+    // #774: an import of a generated file not built yet, counted with its importer, workspace-relative.
+    it("reports the imports resolving to no file, and nothing when the reverse index is off", async () => {
+      const root = "/no-such-dir/graph-it-774";
+      setupWorkerState({
+        ...idleSpider,
+        workspaceRoot: root,
+        getUnresolvedImports: async () => [{ importer: `${root}/src/loader.ts`, specifier: "./gen", reach: `${root}/src` }],
+      });
+
+      const result = await executeGetIndexStatus();
+
+      expect(result.unresolvedImports).toEqual({ count: 1, examples: [{ file: "src/loader.ts", specifier: "./gen" }], next: expect.stringContaining("codegen") });
+      setupWorkerState({ ...idleSpider, getUnresolvedImports: async () => null });
+      expect(await executeGetIndexStatus()).not.toHaveProperty("unresolvedImports");
     });
 
     it("passes the cache provenance fields of warmup through", async () => {
@@ -154,6 +172,7 @@ describe("workspace tools", () => {
           currentFile: "src/index.ts",
         }),
         getOutOfRootImports: () => ({ count: 0, examples: [] }),
+        getUnresolvedImports: async () => null,
       getCacheStatsAsync: async () => ({
           dependencyCache: { size: 3 },
           reverseIndexStats: {
@@ -258,6 +277,7 @@ describe("workspace tools", () => {
         buildFullIndex: vi.fn(async () => ({ indexedFiles: 3, duration: 1, cancelled: false })),
         isReverseIndexEnabled: vi.fn(() => true),
         getOutOfRootImports: () => ({ count: 0, examples: [] }),
+        getUnresolvedImports: async () => null,
       getCacheStatsAsync: async () => ({
           dependencyCache: { size: 3 },
           reverseIndexStats: {
@@ -287,6 +307,7 @@ describe("workspace tools", () => {
         clearCache: vi.fn(),
         buildFullIndex,
         getOutOfRootImports: () => ({ count: 0, examples: [] }),
+        getUnresolvedImports: async () => null,
       getCacheStatsAsync: async () => ({
           dependencyCache: { size: 5 },
           reverseIndexStats: null,
@@ -318,6 +339,7 @@ describe("workspace tools", () => {
         clearCache: vi.fn(),
         buildFullIndex: vi.fn(async () => ({ indexedFiles: 1, duration: 1, cancelled: false })),
         getOutOfRootImports: () => ({ count: 0, examples: [] }),
+        getUnresolvedImports: async () => null,
       getCacheStatsAsync: async () => ({ dependencyCache: { size: 1 }, reverseIndexStats: null }),
       });
 
@@ -336,6 +358,7 @@ describe("workspace tools", () => {
         clearCache: vi.fn(),
         buildFullIndex: vi.fn(async () => ({ indexedFiles: 1200, duration: 1, cancelled: false })),
         getOutOfRootImports: () => ({ count: 0, examples: [] }),
+        getUnresolvedImports: async () => null,
       getCacheStatsAsync: async () => ({
           dependencyCache: { size: 500 },
           reverseIndexStats: { indexedFiles: 1200, targetFiles: 900, totalReferences: 4000 },

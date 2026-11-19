@@ -626,6 +626,50 @@ describe('ReverseIndex', () => {
             const serialized = { ...index.serialize(), version: 2 };
             expect(ReverseIndex.deserialize(serialized, rootDir)).toBeNull();
         });
+
+        it('lists every unresolved import with its source, packages included (#774)', () => {
+            index.addDependencies(a, [], hash, [], ['./gen', 'react']);
+            index.addDependencies(b, [], hash, [], []);
+
+            expect(index.getUnresolvedImports()).toEqual([
+                { sourcePath: a, specifier: './gen' },
+                { sourcePath: a, specifier: 'react' },
+            ]);
+        });
+
+        // A warm run: the importer's mtime never moves when its target appears or disappears (#774).
+        describe('validateIndex re-analyses unchanged importers', () => {
+            let tmpDir: string;
+            const file = (name: string) => normalizePath(path.join(tmpDir, name));
+
+            beforeEach(async () => {
+                tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-unresolved-')));
+                index = new ReverseIndex(tmpDir);
+                for (const name of ['loader.ts', 'other.ts', 'gen.ts']) fs.writeFileSync(path.join(tmpDir, name), 'export {};\n');
+            });
+            afterEach(() => fs.rmSync(tmpDir, { recursive: true, force: true }));
+
+            it('adds the importer whose unresolved import names a new file, once', async () => {
+                index.addDependencies(file('loader.ts'), [], (await ReverseIndex.getFileHashFromDisk(file('loader.ts')))!, [], ['./gen']);
+                index.addDependencies(file('other.ts'), [], (await ReverseIndex.getFileHashFromDisk(file('other.ts')))!, [], ['react']);
+
+                const result = await index.validateIndex(1, [file('loader.ts'), file('other.ts'), file('gen.ts'), file('gen.ts')]);
+
+                expect(result.staleFiles).toEqual([file('gen.ts'), file('loader.ts')]);
+            });
+
+            it('adds the importers of a deleted file, not the deleted file itself', async () => {
+                const dep = { path: file('gen.ts'), type: 'import' as const, line: 1, module: './gen' };
+                index.addDependencies(file('loader.ts'), [dep], (await ReverseIndex.getFileHashFromDisk(file('loader.ts')))!);
+                index.addDependencies(file('gen.ts'), [], (await ReverseIndex.getFileHashFromDisk(file('gen.ts')))!);
+                fs.rmSync(path.join(tmpDir, 'gen.ts'));
+
+                const result = await index.validateIndex(1, [file('loader.ts'), file('other.ts')]);
+
+                expect(result.missingFiles).toEqual([file('gen.ts')]);
+                expect(result.staleFiles).toEqual([file('other.ts'), file('loader.ts')]);
+            });
+        });
     });
 
     // The architecture view reads indexed files from here instead of parsing them again (#383).

@@ -28,6 +28,7 @@ vi.mock("@/mcp/tools", async (importOriginal) => ({
           { relativePath: "scripts/seed.ts", exports: 1, confidence: "low", reasons: ["no-importer"] },
           { relativePath: "backend/src/gone.ts", exports: 0, confidence: "medium", reasons: ["test-only-use"] },
         ],
+        unresolvedImports: { count: 1, examples: [{ file: "backend/src/loader.ts", specifier: "./gen" }], next: "Run the codegen." },
       }
       : { entries: byLevel[minConfidence ?? "high"], byConfidence: { high: 1, medium: 2, low: 3 } };
   }),
@@ -72,6 +73,8 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     // #742: the scan's endLine reaches the ranking: lines 2 to 5 of an imported file, one file to edit.
     expect(result.assessment.quickWins.find((win) => win.kind === "dead-code")).toMatchObject({ gain: 4, effort: 1 });
     expect(result.assessment.matrixFindings.map((finding) => finding.kind)).toEqual(expect.arrayContaining(["entry-row"]));
+    // #774: the unreferenced-file scan's unresolved imports, reported once, next to the dead files.
+    expect(result.unresolvedImports).toEqual({ count: 1, examples: [{ file: "backend/src/loader.ts", specifier: "./gen" }], next: "Run the codegen." });
   });
 
   it("changes nothing on a second run", async () => {
@@ -221,6 +224,8 @@ describe("graph-it init", { timeout: 60_000 }, () => {
 
   it.each([
     ["--output outside the workspace", ["--output", "../elsewhere"], ExitCode.SECURITY_VIOLATION],
+    // #774: a dry run writes nothing, yet refuses the same --output.
+    ["--output outside the workspace on a dry run", ["--dry-run", "--output", "../elsewhere"], ExitCode.SECURITY_VIOLATION],
     ["an unsupported format", [], ExitCode.UNSUPPORTED_FORMAT],
   ])("refuses %s before any work", async (name, args, exitCode) => {
     const error = await errorOf(run(args, runtime, name.includes("format") ? "csv" : "json", offline));

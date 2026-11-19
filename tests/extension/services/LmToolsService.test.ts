@@ -1,3 +1,4 @@
+import { reportUnresolvedImports } from '@/analyzer/utils/unresolvedImports';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -276,6 +277,7 @@ describe('LmToolsService', () => {
       getCacheStatsAsync: vi.fn().mockResolvedValue({ dependencyCache: { size: 0 } }),
       hasReverseIndex: vi.fn().mockReturnValue(true),
       getOutOfRootImports: vi.fn().mockReturnValue({ count: 2, examples: ['@core/x', '../../core/y'] }),
+      getUnresolvedImports: vi.fn().mockResolvedValue(null),
       workspaceRoot: '/no-such-dir/graph-it-264/apps/worker',
     };
     new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
@@ -290,6 +292,26 @@ describe('LmToolsService', () => {
     expect((result as { warning: string }).warning).toContain('2 imports resolve outside the workspace root');
   });
 
+  // #774: the same report as the MCP tool and the CLI, from the same function.
+  it('reports the imports resolving to no file in get_index_status', async () => {
+    const workspaceRoot = '/no-such-dir/graph-it-774';
+    const imports = [{ importer: `${workspaceRoot}/src/loader.ts`, specifier: './gen', reach: `${workspaceRoot}/src` }];
+    const spider = {
+      getIndexStatus: vi.fn().mockReturnValue({ state: 'complete' }),
+      getCacheStatsAsync: vi.fn().mockResolvedValue({ dependencyCache: { size: 0 } }),
+      hasReverseIndex: vi.fn().mockReturnValue(true),
+      getOutOfRootImports: vi.fn().mockReturnValue({ count: 0, examples: [] }),
+      getUnresolvedImports: vi.fn().mockResolvedValue(imports),
+      workspaceRoot,
+    };
+    new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
+
+    const result = await invokeTool('graph-it-live_get_index_status', {});
+
+    expect((result as { unresolvedImports: unknown }).unresolvedImports).toEqual(reportUnresolvedImports(imports, workspaceRoot));
+    expect(result).toMatchObject({ unresolvedImports: { count: 1, examples: [{ file: 'src/loader.ts', specifier: './gen' }] } });
+  });
+
   it('reports the on-disk size of the shared cache files in get_index_status', async () => {
     const workspaceRoot = mkdtempSync(path.join(tmpdir(), 'graph-it-lm-cache-'));
     try {
@@ -301,6 +323,7 @@ describe('LmToolsService', () => {
         getCacheStatsAsync: vi.fn().mockResolvedValue({ dependencyCache: { size: 0 } }),
         hasReverseIndex: vi.fn().mockReturnValue(true),
         getOutOfRootImports: vi.fn().mockReturnValue({ count: 0, examples: [] }),
+        getUnresolvedImports: vi.fn().mockResolvedValue(null),
         workspaceRoot,
       };
       new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
@@ -319,6 +342,7 @@ describe('LmToolsService', () => {
       getCacheStatsAsync: vi.fn().mockResolvedValue({ dependencyCache: { size: 0 } }),
       hasReverseIndex: vi.fn().mockReturnValue(false),
       getOutOfRootImports: vi.fn().mockReturnValue(null),
+      getUnresolvedImports: vi.fn().mockResolvedValue(null),
       workspaceRoot: '/no-such-dir/graph-it-264',
     };
     new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
@@ -1587,7 +1611,7 @@ describe('LmToolsService', () => {
         skippedFiles: [],
         filesBeyondLimit: 0,
       });
-      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode } }), logger }).registerAll();
+      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode, getUnresolvedImports: async () => null } }), logger }).registerAll();
 
       const result = await invokeTool('graph-it-live_scan_dead_code', { scopePath: '/workspace/src', maxFiles: 50, minConfidence: 'medium' });
 
@@ -1612,7 +1636,7 @@ describe('LmToolsService', () => {
         skippedFiles: 0,
         filesBeyondLimit: 0,
       });
-      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode, scanUnreferencedFiles } }), logger }).registerAll();
+      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode, scanUnreferencedFiles, getUnresolvedImports: async () => null } }), logger }).registerAll();
 
       const result = await invokeTool('graph-it-live_scan_dead_code', { unreferencedFiles: true, maxFiles: 10 });
 
@@ -1623,7 +1647,7 @@ describe('LmToolsService', () => {
 
     it('rejects an unknown minConfidence before scanning', async () => {
       const scanDeadCode = vi.fn();
-      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode } }), logger }).registerAll();
+      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode, getUnresolvedImports: async () => null } }), logger }).registerAll();
 
       expect(JSON.stringify(await invokeTool('graph-it-live_scan_dead_code', { minConfidence: 'sure' }))).toContain('minConfidence');
       expect(scanDeadCode).not.toHaveBeenCalled();
@@ -1632,7 +1656,7 @@ describe('LmToolsService', () => {
     const emptyScan = { entries: [], excluded: [], scannedFiles: 0, skippedFiles: 0, filesBeyondLimit: 0 };
     /** Registers the tools over a spider whose scan is `scanDeadCode`, and returns that mock. */
     const withScan = <T extends (...args: never[]) => unknown>(scanDeadCode: T): T => {
-      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode } }), logger }).registerAll();
+      new LmToolsService({ provider: createProvider({ spider: { scanDeadCode, getUnresolvedImports: async () => null } }), logger }).registerAll();
       return scanDeadCode;
     };
 

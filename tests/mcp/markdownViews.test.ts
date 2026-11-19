@@ -35,6 +35,16 @@ describe("markdown views (#769)", () => {
     expect(renderToolMarkdown("graphitlive_graph_context", { mode: "search", nodes: [] })).toContain("_No node matches the request._");
   });
 
+  it("says when imports resolve to no file, with examples, in the index status and the dead-code scan (#774)", () => {
+    const unresolvedImports = { count: 3, examples: [{ file: "src/loader.ts", specifier: "./gen" }], next: "Run the codegen." };
+    for (const tool of ["graphitlive_get_index_status", "graphitlive_scan_dead_code"]) {
+      const text = renderToolMarkdown(tool, { scopePath: ".", unresolvedImports });
+      expect(text).toContain("**Unresolved imports: 3.** Files they would import may be listed as unused. Run the codegen.");
+      expect(text).toContain("| src/loader.ts | ./gen |");
+      expect(renderToolMarkdown(tool, { scopePath: ".", unresolvedImports: { count: 0, examples: [] } })).not.toContain("Unresolved");
+    }
+  });
+
   it("sizes a code fence past the backtick runs of the markup", () => {
     const text = renderToolMarkdown("graphitlive_export_architecture_diagram", { format: "diagram-spec", markup: "```x```" });
     expect(text).toContain("````json\n```x```\n````");

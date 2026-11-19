@@ -85,6 +85,11 @@ export class ReverseIndexManager {
     return this.reverseIndex?.getUnresolvedImportersOf(filePath) ?? [];
   }
 
+  /** Null when the reverse index is off: unresolved imports are recorded only while it is built. */
+  getUnresolvedImports(): Array<{ sourcePath: string; specifier: string }> | null {
+    return this.reverseIndex?.getUnresolvedImports() ?? null;
+  }
+
   /** Empty when the reverse index is off. */
   getIndexedFiles(): string[] {
     return this.reverseIndex?.getIndexedFiles() ?? [];

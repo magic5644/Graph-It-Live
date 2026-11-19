@@ -30,6 +30,8 @@ export type DeadCodeConfidence = "high" | "medium" | "low";
  * - `importers-use-other-exports`: the file has importers and none uses the export. `high`.
  * - `cascade`: unreferenced files only: every production file that imports the file is dead itself (`via`), so it
  *   goes with them. Never above its own level nor theirs; a dead cycle nothing else imports is `low`.
+ * - `unresolved-import-in-workspace`: unreferenced files only: a relative or alias import resolves to no file (a
+ *   generated file not built yet) whose folder holds the file, so that missing file may import it. One level lower.
  */
 export type DeadCodeReason =
   | "no-importer"
@@ -42,7 +44,8 @@ export type DeadCodeReason =
   | "convention:generated"
   | "published-deep-import"
   | "importers-use-other-exports"
-  | "cascade";
+  | "cascade"
+  | "unresolved-import-in-workspace";
 
 export const DEAD_CODE_CONFIDENCES = ["high", "medium", "low"] as const satisfies readonly DeadCodeConfidence[];
 

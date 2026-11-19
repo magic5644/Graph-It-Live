@@ -21,7 +21,7 @@ describe("deadcode tools", () => {
   });
 
   const setupWorkerState = (spiderMock: any) => {
-    workerState.spider = spiderMock;
+    workerState.spider = { getUnresolvedImports: async () => null, ...spiderMock };
     workerState.parser = {} as any;
     workerState.resolver = {} as any;
     workerState.config = {
