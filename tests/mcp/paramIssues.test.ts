@@ -53,6 +53,14 @@ describe("formatParamIssues (#769)", () => {
     expect(message).not.toMatch(/Invalid input|expected .* received/);
   });
 
+  it("names at most five unknown parameters and lists the parameters once", () => {
+    const extra = Object.fromEntries(Array.from({ length: 8 }, (_, i) => [`zz${i}`, 1]));
+    const message = error({ filePath: "a", ...extra });
+    expect(message.match(/Unknown parameter/g)).toHaveLength(5);
+    expect(message).toContain("And 3 more unknown parameters.");
+    expect(message.match(/Parameters:/g)).toHaveLength(1);
+  });
+
   it("shortens a long received string and keeps a refinement message on a nested path", () => {
     expect(error({ filePath: "a", name: 7 })).toBe('"name" must be a string; got 7.');
     const long = "x".repeat(100);

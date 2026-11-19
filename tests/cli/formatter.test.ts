@@ -667,6 +667,10 @@ describe("formatOutput - mermaid synthetic ids for other shapes (#265)", () => {
 });
 
 describe("relativizeWorkspacePaths", () => {
+  it.each(["/", "C:\\", "c:/", ""])("leaves the output alone for a filesystem root %j", (root) => {
+    expect(relativizeWorkspacePaths("/repo/src/a.ts c:/x.ts", root)).toBe("/repo/src/a.ts c:/x.ts");
+  });
+
   it("strips the workspace root from every occurrence", () => {
     const output = [
       "[/repo/src/a.ts:A:3,A,class,/repo/src/a.ts,3,0]",

@@ -22,7 +22,7 @@ export function markdownCell(text: string): string {
 
 function text(value: unknown): string {
   if (value === undefined || value === null) return "";
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
+  return markdownText(typeof value === "object" ? JSON.stringify(value) : String(value));
 }
 
 function rows(value: unknown): Row[] {
@@ -297,7 +297,7 @@ const VIEWS: Record<string, View> = {
     "",
     ...bullets([["Content", d.counts]]),
     ...(d.path === undefined
-      ? fence(d.format === "diagram-spec" ? "json" : text(d.format), text(d.markup))
+      ? fence(d.format === "diagram-spec" ? "json" : text(d.format), String(d.markup ?? ""))
       : [`Written to ${code(d.path)} (${text(d.characters)} characters).`, ""]),
   ],
   query_natural_language: (d) => [
