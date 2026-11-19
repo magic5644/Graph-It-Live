@@ -22,7 +22,9 @@ vi.mock('node:fs', () => ({
 import {
   htmlEscape,
   inkFor,
+  GROUP_FONT,
   MAX_DRAWN_GROUPS,
+  MIN_LABEL_PX,
   hubScoreColor,
   hubScoreBorderWidth,
   nodeColor,
@@ -351,13 +353,20 @@ describe('renderHtmlPage: the export page', () => {
     expect(normalizePath(mockReadFileSync.mock.calls[0][0] as string)).toMatch(/\/node_modules\/vis-network\/standalone\/umd\/vis-network\.min\.c?js$/);
   });
 
-  /** Runs the page script against minimal vis-network and DOM fakes. */
-  function runPage(html: string) {
+  /**
+   * Runs the page script against minimal vis-network and DOM fakes. `area`: the free area the graph is fitted to;
+   * the fake lays nodes out as physics does, work-free: a grid whose side grows with the node count, nodes with no
+   * edge flung far out, each node as wide as its label.
+   */
+  function runPage(html: string, area = { width: 1e6, height: 1e6 }) {
     const script = html.split('<script>')[2].split('</script>')[0];
     class DataSet {
       items = new Map<string, Record<string, unknown>>();
-      clear(): void { this.items.clear(); }
-      add(list: Record<string, unknown>[]): void { list.forEach(item => this.items.set(String(item.id), item)); }
+      /** Bumped on every change: the fake layout is cached per version. */
+      version = 0;
+      getIds(): string[] { return [...this.items.keys()]; }
+      clear(): void { this.items.clear(); this.version++; }
+      add(list: Record<string, unknown>[]): void { list.forEach(item => this.items.set(String(item.id), item)); this.version++; }
       update(list: Record<string, unknown>[]): void {
         list.forEach(item => this.items.set(String(item.id), { ...this.items.get(String(item.id)), ...item }));
       }
@@ -371,13 +380,66 @@ describe('renderHtmlPage: the export page', () => {
     // Layout-done callbacks, run by stabilized() in registration order as vis-network does.
     const pending: (() => void)[] = [];
     const calls = { fit: [] as unknown[], selected: [] as unknown[] };
+    type Box = { left: number; right: number; top: number; bottom: number };
     class Network {
-      getPositions(): Record<string, unknown> { return {}; }
+      moved = new Map<string, { x: number; y: number }>();
+      view = { scale: 1, x: 0, y: 0 };
+      constructor(_container: unknown, private readonly data: { nodes: DataSet; edges: DataSet }) {}
+      getPositions(ids?: string[]): Record<string, { x: number; y: number }> {
+        return Object.fromEntries((ids ?? []).map((id) => {
+          const b = this.getBoundingBox(id);
+          return [id, { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 }];
+        }));
+      }
+      getBoundingBox(id: string): Box {
+        const node = this.data.nodes.get(id) as { label: string; font?: { size: number } };
+        const size = node.font?.size ?? 11;
+        const width = Math.max(...node.label.split('\n').map((line) => line.length)) * size * 0.6 + 12;
+        const height = node.label.split('\n').length * size * 1.2 + 8;
+        const { index: indexOf, linked, side } = this.layout();
+        const index = indexOf.get(id)!;
+        const at = this.moved.get(id) ?? (linked.has(id) || linked.size === 0
+          ? { x: (index % side) * 220 + (Math.floor(index / side) % 2) * 90, y: Math.floor(index / side) * 50 }
+          : { x: 4000 + index * 50, y: -3000 });
+        return { left: at.x - width / 2, right: at.x + width / 2, top: at.y - height / 2, bottom: at.y + height / 2 };
+      }
+      cache?: { key: string; index: Map<string, number>; linked: Set<string>; side: number };
+      layout() {
+        const key = `${this.data.nodes.version}:${this.data.edges.version}`;
+        if (this.cache?.key !== key) {
+          const ids = this.data.nodes.getIds();
+          const linked = new Set((this.data.edges.get() as { from: string; to: string }[]).flatMap((e) => [e.from, e.to]));
+          this.cache = { key, index: new Map(ids.map((id, index) => [id, index])), linked, side: Math.ceil(Math.sqrt(ids.length)) };
+        }
+        return this.cache;
+      }
+      moveNode(id: string, x: number, y: number): void { this.moved.set(id, { x, y }); }
+      getScale(): number { return this.view.scale; }
+      moveTo(options: { scale: number; position?: { x: number; y: number } }): void {
+        this.view = { ...this.view, ...options.position, scale: options.scale };
+      }
+      /** On screen (free-area pixels, origin top left) at the current view. */
+      screenBox(id: string): Box {
+        const box = this.getBoundingBox(id);
+        const { scale, x, y } = this.view;
+        const screen = (wx: number, wy: number) => ({ sx: (wx - x) * scale + area.width / 2, sy: (wy - y) * scale + area.height / 2 });
+        const [a, b] = [screen(box.left, box.top), screen(box.right, box.bottom)];
+        return { left: a.sx, top: a.sy, right: b.sx, bottom: b.sy };
+      }
       on(event: string, handler: (params: { nodes: string[]; edges: string[] }) => void): void { handlers[event] = handler; }
       once(_event: string, callback: () => void): void { pending.push(callback); }
       setOptions(): void {}
+      redraw(): void {}
+      stopSimulation(): void {}
       stabilize(): void {}
-      fit(options?: unknown): void { calls.fit.push(options); }
+      fit(options?: unknown): void {
+        calls.fit.push(options);
+        const boxes = this.data.nodes.getIds().map((id) => this.getBoundingBox(id));
+        if (boxes.length === 0) return;
+        const [left, right] = [Math.min(...boxes.map((b) => b.left)), Math.max(...boxes.map((b) => b.right))];
+        const [top, bottom] = [Math.min(...boxes.map((b) => b.top)), Math.max(...boxes.map((b) => b.bottom))];
+        this.view = { scale: Math.min(area.width / (right - left), area.height / (bottom - top)), x: (left + right) / 2, y: (top + bottom) / 2 };
+      }
       selectNodes(ids: string[]): void { calls.selected.push(ids); }
     }
     const elements = new Map<string, Record<string, unknown>>();
@@ -392,24 +454,29 @@ describe('renderHtmlPage: the export page', () => {
         setAttribute: (name: string, value: string) => { (node.attributes as Record<string, string>)[name] = value; },
         addEventListener: (event: string, listener: () => void) => { listeners[event] = listener; },
         querySelectorAll: () => [],
+        getBoundingClientRect: () => ({ top: 0, bottom: 0 }),
       };
       return node;
     };
     const documentListeners: Record<string, (event: unknown) => void> = {};
+    elements.set('graph', { ...element(), clientWidth: area.width, clientHeight: area.height });
     const document = {
       getElementById: (id: string) => elements.get(id) ?? elements.set(id, element()).get(id),
       createElement: element,
       addEventListener: (event: string, listener: (event: unknown) => void) => { documentListeners[event] = listener; },
     };
-    const run = new Function('vis', 'document', `${script}; return { nodes, edges, expanded, drawnGroups, render, applyFilter, setAllExpanded,
+    const run = new Function('vis', 'document', `${script}; return { nodes, edges, expanded, pinnedGroups, render, applyFilter, setAllExpanded,
       revealFocus: typeof revealFocus === 'function' ? revealFocus : undefined };`);
-    const page = run({ DataSet, Network }, document);
+    let network: Network | undefined;
+    const page = run({ DataSet, Network: class extends Network {
+      constructor(container: unknown, data: { nodes: DataSet; edges: DataSet }) { super(container, data); network = this; }
+    } }, document);
     const text = (node: Record<string, unknown>): string =>
       [node.textContent, ...(node.children as Record<string, unknown>[]).map(text)].join(' ');
     const stabilized = () => pending.splice(0).forEach(callback => callback());
     const findings = () => (document.getElementById('findings-list')!.children as Record<string, unknown>[]);
     const matrixListeners = () => (document.getElementById('matrix-view')!.listeners as Record<string, (event: unknown) => void>);
-    return { ...page, handlers, calls, stabilized, findings, text, matrixListeners, documentListeners, panelText: () => text(document.getElementById('panel')!) };
+    return { ...page, network: network!, handlers, calls, stabilized, findings, text, matrixListeners, documentListeners, drawnCount: () => text(document.getElementById('drawn-count')!), panelText: () => text(document.getElementById('panel')!) };
   }
 
   it('inlines vis-network and produces the page structure', () => {
@@ -515,7 +582,7 @@ describe('renderHtmlPage: the export page', () => {
     page.setAllExpanded(false);
 
     expect(page.nodes.get().map((n: { id: string; shape: string }) => [n.id, n.shape])).toEqual([
-      ['group:1', 'ellipse'], ['group:2', 'ellipse'], ['group:0', 'ellipse'],
+      ['group:1', 'box'], ['group:2', 'box'], ['group:0', 'box'],
     ]);
     expect(page.nodes.get('group:1').label).toBe('core\n2 file(s)');
     const groupEdges = page.edges.get().map((e: { from: string; to: string; label: string }) => [e.from, e.to, e.label]);
@@ -590,74 +657,157 @@ describe('renderHtmlPage: the export page', () => {
   });
 
   describe('a page of 96 units (#774)', () => {
-    // 96 units of 3 files, each importing the next one; named by package, keyed by folder.
+    // As a large monorepo: 96 units from 3 000 files down to 2 (12 501 files), long scoped package names
+    // (one in four unnamed: its folder), each unit importing 1 to 3 larger ones, 4 units importing none.
     const UNITS = 96;
-    const unitKey = (index: number) => `packages/lib-${index}`;
-    const unitName = (index: number) => `@scope/a-rather-long-library-name-${index}`;
+    const ISOLATED = new Set([20, 47, 71, 90]);
+    const WORDS = ['orchestrator', 'document', 'accounting', 'notification', 'declaration', 'storage', 'runtime-config', 'access-rights', 'scheduler', 'importer'];
+    const unitKey = (index: number) => `${['apps', 'packages', 'services'][index % 3]}/${WORDS[index % 10]}-${index}`;
+    const unitName = (index: number) => (index % 4 === 3 ? unitKey(index) : `@acme-platform/${WORDS[index % 10]}-${WORDS[(index * 7) % 10]}-${index}`);
+    const fileCount = (index: number) => Math.max(2, Math.round(3000 * (2 / 3000) ** Math.sqrt(index / (UNITS - 1))));
     function bigGraph(): GraphData {
       const graph: GraphData = { nodes: [], edges: [], nodeMetadata: {} };
-      for (let unit = 1; unit <= UNITS; unit++) {
-        for (let file = 0; file < 1 + (unit % 3); file++) {
-          const id = `/ws/${unitKey(unit)}/src/f${file}.ts`;
-          graph.nodes.push(id);
-          graph.nodeMetadata![id] = { hubScore: 0, communityId: unit, communityKey: unitKey(unit) };
+      const file = (unit: number, index: number) => `/ws/${unitKey(unit)}/src/f${index}.ts`;
+      for (let unit = 0; unit < UNITS; unit++) {
+        for (let index = 0; index < fileCount(unit); index++) {
+          graph.nodes.push(file(unit, index));
+          graph.nodeMetadata![file(unit, index)] = { hubScore: 0, communityId: unit + 1, communityKey: unitKey(unit) };
+          if (index > 0) graph.edges.push({ source: file(unit, index), target: file(unit, index - 1) });
         }
-        graph.edges.push({ source: `/ws/${unitKey(unit)}/src/f0.ts`, target: `/ws/${unitKey((unit % UNITS) + 1)}/src/f0.ts` });
+        if (unit === 0 || ISOLATED.has(unit)) continue;
+        // The larger units, the first ones most: hubs.
+        for (const target of new Set([0, (unit * 5) % unit, (unit * 13) % unit].slice(0, 1 + (unit % 3)))) {
+          if (!ISOLATED.has(target)) graph.edges.push({ source: file(unit, 0), target: file(target, 0) });
+        }
       }
       return graph;
     }
-    const groupNames = Object.fromEntries(Array.from({ length: UNITS }, (_, index) => [unitKey(index + 1), unitName(index + 1)]));
-    const config = (): HtmlPageConfig => ({ ...baseConfig, graphData: bigGraph(), groupNames });
-    type GroupNode = { id: string; label: string; title: string; font: { color: string } };
+    const graphData = bigGraph();
+    const groupNames = Object.fromEntries(Array.from({ length: UNITS }, (_, index) => [unitKey(index), unitName(index)]));
+    const config = (): HtmlPageConfig => ({ ...baseConfig, graphData, groupNames });
+    type GroupNode = { id: string; label: string; title: string; font: { color: string; size: number } };
     const groupNodes = (page: ReturnType<typeof runPage>) => (page.nodes.get() as GroupNode[]).filter((node) => node.id.startsWith('group:'));
+    const unitOf = (node: GroupNode) => Number(node.id.slice(6)) - 1;
 
-    it('labels every group node with its display name, cut to fit, whole in the tooltip with its folder', () => {
+    it('is the large monorepo it stands for', () => {
+      expect(graphData.nodes.length).toBeGreaterThan(12_000);
+      expect([fileCount(0), fileCount(UNITS - 1)]).toEqual([3000, 2]);
+    });
+
+    it('labels every group node with its display name, its distinct end kept, whole in the tooltip with its folder', () => {
       const page = runPage(render(config()));
+      page.stabilized();
       const drawn = groupNodes(page);
       expect(drawn.length).toBeGreaterThan(0);
       for (const node of drawn) {
-        const unit = Number(node.id.slice(6));
+        const unit = unitOf(node);
         const [name] = node.label.split('\n');
-        expect(name).toMatch(/\S/);
-        expect(name.length).toBeLessThanOrEqual(24);
-        expect(unitName(unit).startsWith(name.replace(/…$/, ''))).toBe(true);
-        expect(node.title).toContain(`${unitName(unit)} (${unitKey(unit)})`);
+        expect(name.length).toBeLessThanOrEqual(20);
+        const [head, tail = ''] = name.split('…');
+        expect(unitName(unit).startsWith(head) && unitName(unit).endsWith(tail)).toBe(true);
+        // The end tells the units apart: their number is in the label.
+        expect(name.endsWith(`-${unit}`)).toBe(true);
+        expect(node.title).toContain(unitName(unit) === unitKey(unit) ? `${unitKey(unit)}:` : `${unitName(unit)} (${unitKey(unit)})`);
       }
     });
 
-    it('draws the largest groups only past the cap, lists every group in the legend, and draws one on click or filter', () => {
+    // The free areas of a 1800×1100 and a 1280×800 window.
+    for (const area of [{ width: 1400, height: 977 }, { width: 880, height: 677 }]) {
+      it(`opens on readable labels, every drawn node inside the ${area.width}×${area.height} free area`, () => {
+        const page = runPage(render(config()), area);
+        // Each layout pass ends with a fit, which may draw fewer groups and lay them out again.
+        for (let pass = 0; pass < 10; pass++) page.stabilized();
+        const drawn = groupNodes(page);
+        expect(drawn.length).toBeGreaterThanOrEqual(8);
+        expect(drawn.length).toBeLessThanOrEqual(MAX_DRAWN_GROUPS);
+        // The legend says how many are drawn when it is fewer than the cap.
+        expect(page.drawnCount() || String(MAX_DRAWN_GROUPS)).toBe(String(drawn.length));
+        // The largest units are the ones drawn, the disconnected ones packed with them.
+        expect(drawn.map(unitOf).sort((a, b) => a - b)).toEqual(Array.from({ length: drawn.length }, (_, index) => index));
+        const scale = page.network.getScale();
+        expect(GROUP_FONT * scale).toBeGreaterThanOrEqual(MIN_LABEL_PX);
+        // No group box hides another one's label.
+        const boxes = drawn.map((node) => page.network.getBoundingBox(node.id));
+        for (const [i, a] of boxes.entries()) {
+          for (const b of boxes.slice(i + 1)) {
+            expect(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top).toBe(true);
+          }
+        }
+        for (const node of drawn) {
+          const box = page.network.screenBox(node.id);
+          expect(box.left).toBeGreaterThanOrEqual(-0.5);
+          expect(box.top).toBeGreaterThanOrEqual(-0.5);
+          expect(box.right).toBeLessThanOrEqual(area.width + 0.5);
+          expect(box.bottom).toBeLessThanOrEqual(area.height + 0.5);
+        }
+      });
+    }
+
+    it('packs the units with no drawn edge under the others instead of far away', () => {
+      const page = runPage(render(config()), { width: 1400, height: 977 });
+      page.stabilized();
+      const loose = groupNodes(page).filter((node) => ISOLATED.has(unitOf(node)));
+      expect(loose.length).toBeGreaterThan(0);
+      const linked = groupNodes(page).filter((node) => !ISOLATED.has(unitOf(node))).map((node) => page.network.getBoundingBox(node.id));
+      const [left, right, bottom] = [Math.min(...linked.map((b) => b.left)), Math.max(...linked.map((b) => b.right)), Math.max(...linked.map((b) => b.bottom))];
+      for (const node of loose) {
+        const box = page.network.getBoundingBox(node.id);
+        expect(box.top).toBeGreaterThan(bottom);
+        expect(box.left).toBeGreaterThanOrEqual(left);
+        expect(box.right).toBeLessThanOrEqual(right);
+      }
+    });
+
+    it('centres on readable labels when even the fewest groups cannot fit, and fits files plainly', () => {
+      const page = runPage(render(config()), { width: 60, height: 40 });
+      for (let pass = 0; pass < 10; pass++) page.stabilized();
+      expect(groupNodes(page)).toHaveLength(8);
+      expect(page.network.getScale()).toBe(MIN_LABEL_PX / GROUP_FONT);
+      // A filter shows every match, never fewer: past the fit, the view centres at the readable size.
+      page.applyFilter('scheduler');
+      page.stabilized();
+      expect(groupNodes(page).length).toBeGreaterThan(8);
+      expect(page.network.getScale()).toBe(MIN_LABEL_PX / GROUP_FONT);
+      // Files shown: a plain fit.
+      page.applyFilter('');
+      page.setAllExpanded(true);
+      page.stabilized();
+      expect(groupNodes(page)).toHaveLength(0);
+      expect(page.network.getScale()).toBeLessThan(MIN_LABEL_PX / GROUP_FONT);
+    });
+
+    it('draws a clicked or filtered group past the cap, and lists every group in the legend', () => {
       const html = render(config());
       const page = runPage(html);
+      page.stabilized();
       expect(groupNodes(page)).toHaveLength(MAX_DRAWN_GROUPS);
       expect(page.expanded.size).toBe(0);
-      // The 32 units with 3 files (unit % 3 === 2) are the largest: all drawn.
-      const drawnIds = new Set(groupNodes(page).map((node) => node.id));
-      for (let unit = 2; unit <= UNITS; unit += 3) expect(drawnIds.has(`group:${unit}`)).toBe(true);
-      expect(html).toContain(`${UNITS} groups: the ${MAX_DRAWN_GROUPS} largest are drawn.`);
-      for (let unit = 1; unit <= UNITS; unit++) {
-        expect(html).toContain(`data-group="${unit}"`);
-        expect(html).toContain(`${unitName(unit)} <span class="secondary">${unitKey(unit)}</span>`);
+      expect(html).toContain(`${UNITS} groups: the <span id="drawn-count">${MAX_DRAWN_GROUPS}</span> largest are drawn.`);
+      for (let unit = 0; unit < UNITS; unit++) {
+        expect(html).toContain(`data-group="${unit + 1}"`);
+        expect(html).toContain(unitName(unit) === unitKey(unit) ? `${unitKey(unit)} — ` : `${unitName(unit)} <span class="secondary">${unitKey(unit)}</span>`);
       }
       // A legend click on an undrawn unit draws it, then selects and centres it.
-      const item = { dataset: { group: '1' } };
-      page.documentListeners.click({ target: { closest: () => item } });
-      expect(groupNodes(page).map((node) => node.id)).toContain('group:1');
+      page.documentListeners.click({ target: { closest: () => ({ dataset: { group: '96' } }) } });
+      expect(groupNodes(page).map((node) => node.id)).toContain('group:96');
       page.stabilized();
-      expect(page.calls.selected.at(-1)).toEqual(['group:1']);
+      expect(page.calls.selected.at(-1)).toEqual(['group:96']);
       // Enter on a focused item does the same; another key does nothing.
       const prevented = vi.fn();
-      page.documentListeners.keydown({ key: 'Tab', preventDefault: prevented, target: { closest: () => ({ dataset: { group: '4' } }) } });
+      page.documentListeners.keydown({ key: 'Tab', preventDefault: prevented, target: { closest: () => ({ dataset: { group: '95' } }) } });
       expect(prevented).not.toHaveBeenCalled();
-      page.documentListeners.keydown({ key: 'Enter', preventDefault: prevented, target: { closest: () => ({ dataset: { group: '4' } }) } });
+      page.documentListeners.keydown({ key: 'Enter', preventDefault: prevented, target: { closest: () => ({ dataset: { group: '95' } }) } });
       expect(prevented).toHaveBeenCalled();
-      expect(groupNodes(page).map((node) => node.id)).toContain('group:4');
+      expect(groupNodes(page).map((node) => node.id)).toContain('group:95');
       // A click elsewhere draws nothing more.
       const count = groupNodes(page).length;
       page.documentListeners.click({ target: { closest: () => null } });
       expect(groupNodes(page)).toHaveLength(count);
       // The filter reaches every group, drawn or not.
-      page.applyFilter('lib-7');
-      expect(groupNodes(page).map((node) => node.id).sort((a, b) => a.localeCompare(b))).toEqual(['group:7', 'group:70', 'group:71', 'group:72', 'group:73', 'group:74', 'group:75', 'group:76', 'group:77', 'group:78', 'group:79']);
+      page.applyFilter('-access-rights-');
+      const matching = Array.from({ length: UNITS }, (_, unit) => unit).filter((unit) => unitName(unit).includes('-access-rights-'));
+      expect(matching.length).toBeGreaterThan(MAX_DRAWN_GROUPS / 10);
+      expect(groupNodes(page).map(unitOf).sort((a, b) => a - b)).toEqual(matching);
     });
 
     it('lays the graph out right of the legend and the findings, never under them', () => {
@@ -676,7 +826,7 @@ describe('renderHtmlPage: the export page', () => {
       };
       for (const background of [...COMMUNITY_PALETTE, '#2d2d2d']) {
         const [light, dark] = [luminance(background), luminance(inkFor(background))].sort((a, b) => b - a);
-        // WCAG AA for large bold text (the group labels are 16px bold): 3:1.
+        // WCAG AA for large bold text (the group labels are 24px bold): 3:1.
         expect((light + 0.05) / (dark + 0.05)).toBeGreaterThanOrEqual(3);
       }
       const page = runPage(render(config()));

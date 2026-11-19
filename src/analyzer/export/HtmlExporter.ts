@@ -80,6 +80,11 @@ export interface HtmlPageConfig {
 const EXPANDED_FILE_LIMIT = 200;
 /** Group nodes drawn at most, the largest first (#774): past it labels get too small to read, the legend lists every group and draws one on click. */
 export const MAX_DRAWN_GROUPS = 40;
+/** Group label size in graph units, and the smallest it may show on screen once the first view is fitted (#774). */
+export const GROUP_FONT = 24;
+export const MIN_LABEL_PX = 11;
+/** The page never draws fewer of the largest groups to keep their labels readable. */
+const MIN_DRAWN_GROUPS = 8;
 /** Width of the left strip the findings and the legend take: the graph is laid out right of it, never under them. */
 const SIDE_WIDTH = 400;
 
@@ -257,13 +262,13 @@ function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: Rea
     ` — ${group.fileCount} file(s), ${group.internalEdgeCount} internal edge(s)</span></div>`,
   ).join('\n');
   const capped = groups.length > MAX_DRAWN_GROUPS
-    ? `<div class="legend-hint">${groups.length} groups: the ${MAX_DRAWN_GROUPS} largest are drawn. Click a group here, or filter, to draw another.</div>\n`
+    ? `<div class="legend-hint">${groups.length} groups: the <span id="drawn-count">${MAX_DRAWN_GROUPS}</span> largest are drawn. Click a group here, or filter, to draw another.</div>\n`
     : '';
   const framework = (Object.keys(FRAMEWORK_IDENTITIES) as Framework[]).filter(name => frameworks.has(name)).map(name =>
     `<div class="legend-item"><img alt="" width="20" height="20" src="${frameworkImage(name)}"><span>${FRAMEWORK_IDENTITIES[name].label} component files</span></div>`,
   ).join('\n');
   return `<div id="legend"><div class="legend-title">Groups (${htmlEscape(communityMode)})</div>\n${capped}${items}\n${framework}${overlay ? '\n' + overlayLegend(overlay) : ''}` +
-    '<div class="legend-hint">Ellipse = group, box = file. Double-click a group to expand it, a file to collapse its group. ' +
+    '<div class="legend-hint">Large bold box = group, small box = file. Double-click a group to expand it, a file to collapse its group. ' +
     'Click an edge to list the file pairs behind its count.</div></div>';
 }
 
@@ -338,7 +343,7 @@ const OVERLAY_TAIL = String.raw`
       ids.forEach(id => expanded.add(fileById.get(id).group));
       // A unit already expanded has no group node: its files stand for it.
       const groups = units.map(unit => groupByKey.get(unit)).filter(g => g !== undefined);
-      groups.forEach(g => drawnGroups.add(g));
+      groups.forEach(g => pinnedGroups.add(g));
       const groupIds = ids.length > 0 ? groups.filter(g => !expanded.has(g)).map(groupNodeId)
         : groups.flatMap(g => expanded.has(g) ? filesData.filter(f => f.group === g).map(f => f.id) : [groupNodeId(g)]);
       render();
@@ -543,7 +548,11 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
     const fileById = new Map(filesData.map(f => [f.id, f]));
     const expanded = new Set(${model.files.length <= EXPANDED_FILE_LIMIT && model.groups.length <= MAX_DRAWN_GROUPS} ? groupsData.map(g => g.id) : []);
     // The largest groups are drawn; the legend (a list of every group) and the filter draw the others.
-    const drawnGroups = new Set(groupsData.slice().sort((a, b) => b.fileCount - a.fileCount || a.id - b.id).slice(0, ${MAX_DRAWN_GROUPS}).map(g => g.id));${overlay ? overlayHead(overlay, model) : ''}
+    // The largest groups are drawn (fewer when their labels would not stay readable); the legend and the filter pin others.
+    const groupRank = new Map(groupsData.slice().sort((a, b) => b.fileCount - a.fileCount || a.id - b.id).map((g, rank) => [g.id, rank]));
+    let drawLimit = ${MAX_DRAWN_GROUPS};
+    const pinnedGroups = new Set();
+    const isDrawn = id => groupRank.get(id) < drawLimit || pinnedGroups.has(id);${overlay ? overlayHead(overlay, model) : ''}
     let filterText = '';
 
     const nodes = new vis.DataSet([]);
@@ -573,6 +582,8 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
         color: { border: '#555', highlight: { border: '#fff', background: '#3a3a3a' } },
         margin: { top: 4, bottom: 4, left: 6, right: 6 },
       },
+      // Seeded: a page opens on the same layout every time.
+      layout: { randomSeed: 1 },
       interaction: { dragNodes: true, zoomView: true, dragView: true, hover: true },
     };
     const network = new vis.Network(container, { nodes, edges }, options);
@@ -590,14 +601,15 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
     function groupMatches(g) { return !filterText || matches(g.label) || filesData.some(f => f.group === g.id && matches(f.label)); }
 
     // Every group node carries its name, cut to fit; the tooltip has it whole, with its key when it differs.
-    const shortName = name => name.length > 24 ? name.slice(0, 23) + '…' : name;
+    // The middle goes: a scope is shared by many units, the end tells them apart.
+    const shortName = name => name.length > 20 ? name.slice(0, 6) + '…' + name.slice(-13) : name;
     function groupNode(g, position) {
       return {
-        id: groupNodeId(g.id), shape: 'ellipse', ...position,
+        id: groupNodeId(g.id), shape: 'box', ...position,
         label: shortName(g.label) + '\n' + g.fileCount + ' file(s)',
         title: g.label + (g.key && g.key !== g.label ? ' (' + g.key + ')' : '') + ': ' + g.fileCount + ' file(s), ' + g.internalEdgeCount + ' internal edge(s). Double-click to expand.',
         color: { background: g.color, border: '#ddd' }, borderWidth: 2,
-        font: { color: g.ink, size: 16, bold: true },
+        font: { color: g.ink, size: ${GROUP_FONT}, bold: true },
       };
     }
     function fileNode(f, position) {
@@ -616,7 +628,7 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
       const positions = network.getPositions();
       const shown = [];
       for (const g of groupsData) {
-        if (!expanded.has(g.id) && groupMatches(g) && (filterText || drawnGroups.has(g.id))) shown.push(groupNode(g, positions[groupNodeId(g.id)]));
+        if (!expanded.has(g.id) && groupMatches(g) && (filterText || isDrawn(g.id))) shown.push(groupNode(g, positions[groupNodeId(g.id)]));
       }
       for (const f of filesData) {
         if (expanded.has(f.group) && fileMatches(f)) shown.push(fileNode(f, positions[f.id] ?? positions[groupNodeId(f.group)]));
@@ -672,8 +684,110 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
         physicsOn = false;
         document.getElementById('btn-physics').classList.remove('active');
         document.getElementById('progress').style.display = 'none';
-        network.fit();
+        fitView();
       });
+    }
+
+    // Two boxes overlapping by less across than down move apart sideways, else up and down, each by half.
+    function pushApart(a, b, gap) {
+      const across = (a.w + b.w) / 2 + gap - Math.abs(a.x - b.x);
+      const down = (a.h + b.h) / 2 + gap - Math.abs(a.y - b.y);
+      if (across <= 0 || down <= 0) return false;
+      const axis = across < down ? 'x' : 'y';
+      const shift = Math.min(across, down) / 2;
+      const sign = a[axis] < b[axis] || (a[axis] === b[axis] && a.id < b.id) ? -1 : 1;
+      a[axis] += sign * shift;
+      b[axis] -= sign * shift;
+      return true;
+    }
+    // Physics leaves wide group boxes on top of each other: they are pushed apart until none hides another's label.
+    function separateGroups() {
+      const boxes = boxesOf(nodes.getIds().filter(isGroupNode));
+      for (let sweep = 0; sweep < 200; sweep++) {
+        let moved = false;
+        for (let i = 0; i < boxes.length; i++) {
+          for (let j = i + 1; j < boxes.length; j++) moved = pushApart(boxes[i], boxes[j], 8) || moved;
+        }
+        if (!moved) break;
+      }
+      boxes.forEach(b => network.moveNode(b.id, b.x, b.y));
+    }
+
+    // Nodes with no drawn edge go in rows under the others: physics alone flings them to the edges, and the fit shrinks every label.
+    // Node boxes centred on their current positions: vis-network's own boxes only follow a move at the next draw.
+    function boxesOf(ids) {
+      const at = network.getPositions(ids);
+      return ids.map(id => {
+        const b = network.getBoundingBox(id);
+        return { id, x: at[id].x, y: at[id].y, w: b.right - b.left, h: b.bottom - b.top };
+      });
+    }
+    function rangeOf(boxes) {
+      return {
+        left: Math.min(...boxes.map(b => b.x - b.w / 2)), right: Math.max(...boxes.map(b => b.x + b.w / 2)),
+        top: Math.min(...boxes.map(b => b.y - b.h / 2)), bottom: Math.max(...boxes.map(b => b.y + b.h / 2)),
+      };
+    }
+    function packLoose() {
+      const linked = new Set(edges.get().flatMap(e => [e.from, e.to]));
+      const ids = nodes.getIds();
+      const loose = boxesOf(ids.filter(id => !linked.has(id)));
+      const boxes = boxesOf(ids.filter(id => linked.has(id)));
+      if (loose.length === 0 || boxes.length === 0) return;
+      const gap = 20;
+      const { left, right, bottom } = rangeOf(boxes);
+      let x = left;
+      let y = bottom + gap;
+      let rowHeight = 0;
+      for (const box of loose) {
+        if (x > left && x + box.w > right) {
+          x = left;
+          y += rowHeight + gap;
+          rowHeight = 0;
+        }
+        network.moveNode(box.id, x + box.w / 2, y + box.h / 2);
+        x += box.w + gap;
+        rowHeight = Math.max(rowHeight, box.h);
+      }
+    }
+    // network.fit() on the boxes as they now stand, below the toolbar, with a 5 % margin.
+    function fitAll() {
+      const ids = nodes.getIds();
+      if (ids.length === 0) return;
+      const { left, right, top, bottom } = rangeOf(boxesOf(ids));
+      const toolbar = Math.max(0, document.getElementById('toolbar').getBoundingClientRect().bottom - container.getBoundingClientRect().top);
+      const scale = 0.95 * Math.min(container.clientWidth / (right - left), (container.clientHeight - toolbar) / (bottom - top));
+      network.moveTo({ position: { x: (left + right) / 2, y: (top + bottom) / 2 - toolbar / 2 / scale }, scale });
+    }
+    // Every node fitted to the free area with group labels of ${MIN_LABEL_PX}px at least: on the collapsed view, fewer of the
+    // largest groups are drawn until they fit (the scale grows about as 1 / sqrt(groups)); else the view centres at that size.
+    function fitView() {
+      // No simulation may move a node after the layout below; then size the boxes of nodes added since the last
+      // draw (stabilizing draws nothing): getBoundingBox reads them.
+      network.stopSimulation();
+      network.redraw();
+      layoutView();
+      // Paints the moves and the view now: a requested redraw may never come once physics is off.
+      network.redraw();
+    }
+    function layoutView() {
+      packLoose();
+      separateGroups();
+      fitAll();
+      const minScale = ${MIN_LABEL_PX / GROUP_FONT};
+      const scale = network.getScale();
+      const groups = nodes.getIds().filter(isGroupNode).length;
+      if (groups === 0 || expanded.size > 0 || scale >= minScale) return;
+      if (!filterText && drawLimit > ${MIN_DRAWN_GROUPS}) {
+        // At most a quarter fewer per pass: a smaller set lays out tighter, the estimate alone overshoots.
+        const estimate = Math.max(Math.floor(groups * (scale / minScale) ** 2), Math.ceil(groups * 0.75));
+        drawLimit = Math.max(${MIN_DRAWN_GROUPS}, Math.min(drawLimit - 1, estimate));
+        const count = document.getElementById('drawn-count');
+        if (count) count.textContent = String(drawLimit);
+        render();
+        return;
+      }
+      network.moveTo({ scale: minScale });
     }
 
     // Panel content is built with textContent only: labels and paths come from the repository.
@@ -748,7 +862,7 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
 
     // A legend group: drawn (past the cap), then selected and centred.
     function showGroup(id) {
-      drawnGroups.add(id);
+      pinnedGroups.add(id);
       render();
       network.once('stabilizationIterationsDone', () => {
         const ids = (expanded.has(id) ? filesData.filter(f => f.group === id).map(f => f.id) : [groupNodeId(id)]).filter(n => nodes.get(n));
