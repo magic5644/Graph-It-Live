@@ -60,6 +60,20 @@ function tomlName(text: string | undefined, section: string): string | undefined
   return body === undefined ? undefined : /^[ \t]*name[ \t]*=[ \t]*["']([^"'\n]+)["']/m.exec(body)?.[1];
 }
 
+/** Text of `text` outside every `open`…`close` block; an unclosed block runs to the end. */
+function outside(text: string, open: string, close: string): string {
+  return text.split(open).map((part, index) => {
+    if (index === 0) return part;
+    const end = part.indexOf(close);
+    return end < 0 ? "" : part.slice(end + close.length);
+  }).join("");
+}
+
+/** A pom.xml without its comments and its `<parent>` block: what is left names this module (#774). */
+function mavenOwnPart(pom: string | undefined): string | undefined {
+  return pom === undefined ? undefined : outside(outside(pom, "<!--", "-->"), "<parent>", "</parent>");
+}
+
 /**
  * The name a project folder's manifest gives it, as a reader of the project knows it: package.json `name`, the
  * Maven `artifactId`, Cargo.toml `[package]` and pyproject.toml `[project]` (or Poetry) `name`, the Go module path,
@@ -68,7 +82,7 @@ function tomlName(text: string | undefined, section: string): string | undefined
  */
 function manifestName(folder: string): string | undefined {
   const at = (file: string) => path.join(folder, file);
-  const pom = readText(at("pom.xml"))?.replaceAll(/<parent>[\s\S]*?<\/parent>|<!--[\s\S]*?-->/g, "");
+  const pom = mavenOwnPart(readText(at("pom.xml")));
   const pyproject = readText(at("pyproject.toml"));
   let csproj: string[] = [];
   try {

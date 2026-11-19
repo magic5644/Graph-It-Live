@@ -115,6 +115,14 @@ describe("assignUnits", () => {
     expect(names.get("services/billing")).toBe("Billing");
   });
 
+  it("reads a Maven artifactId outside comments, a split comment and an unclosed one (#774)", () => {
+    write("a/pom.xml", "<project><!--<!-- --><artifactId>a-own</artifactId><!-- <artifactId>x</artifactId>");
+    write("b/pom.xml", "<project><parent><artifactId>p</artifactId></parent><!-- <parent> --><artifactId>b-own</artifactId></project>");
+    write("c/pom.xml", "<project><!-- unclosed <artifactId>hidden</artifactId>");
+    const { names } = assignUnits(root, ["a/src/X.java", "b/src/X.java", "c/src/X.java"]);
+    expect(Object.fromEntries(names)).toEqual({ a: "a-own", b: "b-own", c: "c" });
+  });
+
   it("names a unit as its manifest does, in any language, and keeps the folder key otherwise", () => {
     write("pom.xml", "<project><artifactId>acme-parent</artifactId></project>");
     write("core/pom.xml", "<project>\n  <!-- <artifactId>commented</artifactId> -->\n  <parent>\n    <artifactId>acme-parent</artifactId>\n  </parent>\n  <artifactId> acme-core </artifactId>\n  <dependencies><dependency><artifactId>junit</artifactId></dependency></dependencies>\n</project>");

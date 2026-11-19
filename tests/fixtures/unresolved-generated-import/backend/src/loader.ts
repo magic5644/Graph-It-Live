@@ -5,5 +5,5 @@ import { resolvers } from "./resolvers.generated";
 export const reload = debounce(() => performance.now(), 100);
 
 export async function loadResolvers(): Promise<Record<string, unknown>> {
-  return resolvers();
+  return await resolvers();
 }
