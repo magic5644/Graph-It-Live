@@ -18,7 +18,7 @@ import { compileFileScope } from './FileScopeMatcher';
 import { GraphContextCommunities, type GraphContextCommunity } from './GraphContextCommunities';
 import { toEvidence } from './GraphContextEvidence';
 import { findShortestPath } from './GraphContextPathFinder';
-import { resolveSeeds } from './GraphContextResolver';
+import { resolveSeeds, unresolvedSeedMessage } from './GraphContextResolver';
 import { GraphContextScorer } from './GraphContextScorer';
 
 const DEFAULT_DEPTH = 2;
@@ -87,6 +87,9 @@ export class GraphContextRetriever {
       federatedSnapshot,
       request.scope,
     );
+    if (request.scope !== undefined && snapshot.nodes.length === 0) {
+      throw new Error(`Scope matches no indexed file: ${request.scope}. Pass a workspace-relative folder or glob such as src/ or src/**/*.ts.`);
+    }
     const selection = mode === 'path'
       ? this.retrievePath(request, snapshot)
       : mode === 'overview'
@@ -213,6 +216,8 @@ export class GraphContextRetriever {
 
     const fromResolution = resolveSeeds(request.from, snapshot);
     const toResolution = resolveSeeds(request.to, snapshot);
+    if (fromResolution.notFound) throw new Error(`from: ${unresolvedSeedMessage(request.from, snapshot)}`);
+    if (toResolution.notFound) throw new Error(`to: ${unresolvedSeedMessage(request.to, snapshot)}`);
     const ambiguous = collectAmbiguous([fromResolution.candidates, toResolution.candidates], [
       fromResolution.ambiguous,
       toResolution.ambiguous,
@@ -470,6 +475,7 @@ function resolveRequestedSeeds(
 
   for (const requestedSeed of requestedSeeds ?? []) {
     const resolution = resolveSeeds(requestedSeed, snapshot);
+    if (resolution.notFound) throw new Error(unresolvedSeedMessage(requestedSeed, snapshot));
     if (resolution.selected) seeds.push({ ...resolution.selected, score: 1, isSeed: true });
     if (resolution.ambiguous) ambiguous.push(...resolution.candidates);
   }

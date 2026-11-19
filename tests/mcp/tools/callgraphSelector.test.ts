@@ -87,8 +87,8 @@ describe("executeQueryCallGraph exact selector", () => {
   it("reports a stale selector and an unknown qualified name", async () => {
     const stale = await executeQueryCallGraph({ filePath: FILE, symbolName: "compute", symbolId: `${FILE}:compute:77` });
     expect(stale.reason).toBe("stale_selector");
-    const qualified = await executeQueryCallGraph({ filePath: FILE, symbolName: "OtherCalculator.compute" });
-    expect(qualified.reason).toBe("not_found");
+    await expect(executeQueryCallGraph({ filePath: FILE, symbolName: "OtherCalculator.compute" }))
+      .rejects.toThrow("Symbol 'OtherCalculator.compute' not found");
   });
 
   it("validates the selector fields in the MCP schema", () => {

@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   CLI_OUTPUT_FORMATS,
   formatOutput,
-  relativizeWorkspacePaths,
   renderCliOutput,
 } from "../../src/cli/formatter";
+import { relativizeWorkspacePaths } from "../../src/shared/path";
 import { sessionStats } from "../../src/shared/sessionStats";
 
 // Sample data used across tests

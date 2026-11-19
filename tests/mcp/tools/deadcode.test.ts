@@ -298,7 +298,7 @@ describe("deadcode tools", () => {
       setupWorkerState(spiderMock);
 
       await expect(executeScanDeadCode({ scopePath: "/outside/workspace" })).rejects.toThrow(
-        "INVALID_SCOPE_PATH",
+        "scopePath must stay inside the workspace.",
       );
       expect(spiderMock.scanDeadCode).not.toHaveBeenCalled();
     });

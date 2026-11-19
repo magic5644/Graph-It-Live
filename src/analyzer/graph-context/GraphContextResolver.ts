@@ -7,6 +7,7 @@ import type {
   GraphContextSeed,
   GraphContextSnapshot,
 } from '@/shared/graph-context-types';
+import { closestNames } from '../utils/SymbolLookup';
 import { compileFileScope } from './FileScopeMatcher';
 
 const SCORE_EXACT_ID = 1;
@@ -153,4 +154,26 @@ function notFoundResolution(): GraphContextResolution {
     ambiguous: false,
     notFound: true,
   };
+}
+
+/** Error text for a requested seed or endpoint that matches no node, with the closest names. */
+export function unresolvedSeedMessage(seed: GraphContextSeed, snapshot: GraphContextSnapshot): string {
+  const filePath = seed.filePath ? normalizeRelativePath(seed.filePath) : undefined;
+  const target = seed.id ?? ([filePath, seed.symbolName].filter(Boolean).join('#') || seed.label || '');
+  const inFile = (node: GraphContextNode): boolean =>
+    filePath === undefined || (node.path !== undefined && normalizeRelativePath(node.path) === filePath);
+  let names: string[];
+  let wanted: string;
+  if (seed.symbolName) {
+    names = snapshot.nodes.filter(node => isSymbolNode(node) && inFile(node)).map(node => node.name);
+    wanted = seed.symbolName;
+  } else if (filePath) {
+    names = snapshot.nodes.flatMap(node => (node.kind === 'file' && node.path ? [normalizeRelativePath(node.path)] : []));
+    wanted = filePath;
+  } else {
+    names = snapshot.nodes.map(node => (seed.id ? node.id : node.name));
+    wanted = target;
+  }
+  const close = closestNames([...new Set(names)], wanted);
+  return `Seed not found: ${target}.${close.length > 0 ? ` Did you mean: ${close.join(', ')}?` : ''}`;
 }

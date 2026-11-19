@@ -18,7 +18,7 @@ import { normalizePath } from "../../shared/path.js";
 import { CliError, ExitCode } from "../errors.js";
 import { readIntegerOption } from "../options.js";
 import type { CliOutputFormat } from "../formatter.js";
-import { relativizeWorkspacePaths } from "../formatter.js";
+import { relativizeWorkspacePaths } from "../../shared/path.js";
 import type { CliRuntime } from "../runtime.js";
 
 // ---------------------------------------------------------------------------

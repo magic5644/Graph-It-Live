@@ -11,7 +11,7 @@
 import { buildGroupedDiagram } from "../analyzer/wiki/DiagramBuilder";
 import { CliError, ExitCode } from "./errors";
 import type { GraphData } from "../shared/graph-types";
-import { normalizePath } from "../shared/path";
+import { normalizePath, relativizeWorkspacePaths } from "../shared/path";
 import { estimateTokenSavings } from "../shared/toon";
 import { encodeToonSections, formatToonScalarHeader } from "../shared/toonSections";
 import { sessionStats } from "../shared/sessionStats";
@@ -795,31 +795,6 @@ function buildMermaidFromDependencyCheck(data: DependencyCheckLike): string | nu
 // Workspace-relative rewriting
 // ============================================================================
 
-/**
- * Strip the workspace root from every absolute path in a rendered output string.
- *
- * Symbol ids carry their file's absolute path (`<absPath>:<symbol>`), so a
- * result with N rows repeats the workspace root N times — on this repo that is
- * roughly a quarter of the bytes of a TOON payload, all of it machine-specific
- * noise that an LLM cannot use.
- *
- * Applied to TOON only: `--format json` is a stable contract for scripts, which
- * may legitimately depend on `filePath` being absolute.
- */
-export function relativizeWorkspacePaths(output: string, workspaceRoot: string): string {
-  // Every path in the index goes through normalizePath (forward slashes,
-  // lowercased Windows drive letter), so matching that one canonical form is
-  // enough — no separate native-separator handling is needed.
-  const normalizedRoot = normalizePath(workspaceRoot);
-  if (normalizedRoot.length === 0) {
-    return output;
-  }
-
-  // The trailing slash keeps a sibling like "/repo-backup" from matching "/repo"; the root itself
-  // (workspaceRoot field) becomes ".", unless more path characters follow it.
-  const escapedRoot = normalizedRoot.replaceAll(/[.*+?^${}()|[\]\\]/g, String.raw`\$&`);
-  return output.replaceAll(`${normalizedRoot}/`, "").replaceAll(new RegExp(String.raw`${escapedRoot}(?![\w./-])`, "g"), ".");
-}
 
 /**
  * Final rendering step before the CLI writes to stdout.

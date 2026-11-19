@@ -8,6 +8,7 @@
  * NO import * as vscode from 'vscode' allowed!
  */
 
+import * as fs from "node:fs";
 import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import { COMMUNITY_MODES } from "../shared/graph-types";
@@ -18,6 +19,8 @@ import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import { DEAD_CODE_CONFIDENCES, type DeadCodeConfidence, type UnusedSymbol } from "../analyzer/deadcode/deadCodeConfidence";
 import type { OutOfRootReport } from "../analyzer/utils/workspaceBoundary";
 import { parseToolParams } from "./paramIssues";
+import { closestPathsHint } from "../analyzer/utils/SymbolLookup";
+import { normalizePath } from "../shared/path";
 import {
   getRelativePath as _getRelativePath,
 } from "../shared/path";
@@ -849,7 +852,7 @@ export type ExportArchitectureDiagramParams = z.infer<typeof ExportArchitectureD
 // NEW: Schema for scan_dead_code (workspace-wide dead code scan)
 export const ScanDeadCodeParamsSchema = z.object({
   scopePath: FilePathSchema.optional().describe(
-    "Absolute path to a directory to scope the scan (default: workspace root). Must be inside the workspace.",
+    "Folder to scope the scan, workspace-relative or absolute (default: workspace root). Must be inside the workspace.",
   ),
   // No upper bound: heap stays flat on a full scan (12,000 files measured), only duration grows.
   maxFiles: z
@@ -1007,7 +1010,26 @@ const TOOL_FILE_PATH_PARAMS: Partial<Record<McpToolName, readonly string[]>> = {
   get_impact_analysis: ["filePath"],
   generate_codemap: ["filePath"],
   query_call_graph: ["filePath"],
+  scan_dead_code: ["scopePath"],
 };
+
+/** Parameters naming a folder instead of a file. */
+const FOLDER_PATH_PARAMS = new Set(["scopePath"]);
+
+/** invalidate_files may name deleted files: the index forgets them. */
+const MAY_BE_MISSING = new Set<McpToolName>(["invalidate_files"]);
+
+/** The validated absolute path, or an error naming the closest existing paths. */
+function resolveExistingPath(tool: McpToolName, key: string, value: string, rootDir: string): string {
+  const absolute = validateFilePath(value, rootDir);
+  if (MAY_BE_MISSING.has(tool)) return absolute;
+  const folder = FOLDER_PATH_PARAMS.has(key);
+  const stats = fs.statSync(absolute, { throwIfNoEntry: false });
+  if (stats && stats.isDirectory() === folder) return absolute;
+  const label = normalizePath(nodePath.relative(rootDir, absolute)) || ".";
+  if (stats) throw new Error(`"${key}" must name a ${folder ? "folder" : "file"}: ${label} is a ${folder ? "file" : "folder"}.`);
+  throw new Error(`${folder ? "Folder" : "File"} not found: ${label}.${closestPathsHint(absolute, rootDir)}`);
+}
 
 /**
  * Validate the file-path parameters of a tool call and replace each one with
@@ -1022,9 +1044,9 @@ export function resolveToolFilePaths<T>(tool: McpToolName, params: T, rootDir: s
   for (const key of keys) {
     const value = resolved[key];
     if (typeof value === "string") {
-      resolved[key] = validateFilePath(value, rootDir);
+      resolved[key] = resolveExistingPath(tool, key, value, rootDir);
     } else if (Array.isArray(value)) {
-      resolved[key] = value.map((item: string) => validateFilePath(item, rootDir));
+      resolved[key] = value.map((item: string) => resolveExistingPath(tool, key, item, rootDir));
     }
   }
   return resolved as T;
@@ -1168,7 +1190,7 @@ export interface CrawlDependencyGraphResult {
   /** Circular dependencies detected (if any) */
   circularDependencies: string[][];
   /** Kind of each circular dependency, same order: `type-only` when every import closing it is type-only (#745) */
-  circularDependencyKinds: CycleKind[];
+  cycleKinds: CycleKind[];
   /** Offset of the next page when nodes remain; pass it back as offset */
   nextOffset?: number;
   /** Set when a tokenBudget was applied: true if nodes or edges were cut */

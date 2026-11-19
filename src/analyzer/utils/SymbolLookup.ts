@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { normalizePath } from "../../shared/path";
 import type { SymbolInfo } from "../types";
 
 export type SymbolCheck =
@@ -64,4 +67,13 @@ function editDistance(a: string, b: string): number {
     }
   }
   return row[b.length];
+}
+
+/** ` Did you mean: a, b?` with the workspace-relative names closest to a missing path, in its folder; else "". */
+export function closestPathsHint(absolutePath: string, workspaceRoot: string): string {
+  const folder = path.dirname(absolutePath);
+  const names = fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory() ? fs.readdirSync(folder) : [];
+  const close = closestNames(names, path.basename(absolutePath));
+  const relative = (name: string) => normalizePath(path.relative(workspaceRoot, path.join(folder, name)));
+  return close.length > 0 ? ` Did you mean: ${close.map(relative).join(", ")}?` : "";
 }

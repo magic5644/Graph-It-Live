@@ -325,20 +325,17 @@ export async function validateAnalysisInput(filePath: string): Promise<{
 export function validateScopePath(scopePath: string, rootDir: string): void {
   // Reject null bytes (common injection vector)
   if (scopePath.includes("\0")) {
-    throw new Error(`INVALID_SCOPE_PATH: Path contains null bytes: ${scopePath}`);
+    throw new Error("scopePath contains a null byte.");
   }
 
   if (!path.isAbsolute(scopePath)) {
-    throw new Error(`INVALID_SCOPE_PATH: Scope path must be absolute. Got: ${scopePath}`);
+    throw new Error(`scopePath must be resolved against the workspace first: ${scopePath}`);
   }
 
   try {
     validateWorkspacePath(scopePath, rootDir);
   } catch (error) {
-    throw new Error(
-      `INVALID_SCOPE_PATH: Scope path '${scopePath}' is outside workspace root '${rootDir}'`,
-      { cause: error },
-    );
+    throw new Error("scopePath must stay inside the workspace.", { cause: error });
   }
 }
 

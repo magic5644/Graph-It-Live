@@ -626,7 +626,7 @@ Starting from `<file>`, follows all import edges recursively and returns:
 - `nodes`: every reachable file, with `relativePath`, `dependencyCount`, `dependentCount`, `hubScore`, `communityId` and `communityKey` (omitted for files in no community)
 - `edges`: direct dependency edges (`source`, `target`, `sourceRelative`, `targetRelative`)
 - `circularDependencies`: each cycle as a list of file paths
-- `circularDependencyKinds`: `runtime` or `type-only` for each cycle, in the same order as `circularDependencies`
+- `cycleKinds`: `runtime` or `type-only` for each cycle, in the same order as `circularDependencies`
 - `nodeCount`, `edgeCount` and the effective `maxDepth`
 
 **Output (text, abridged):**
@@ -735,7 +735,7 @@ graph-it check-dependencies src/index.ts
 
 List confirmed circular-dependency cycles that involve a given file.
 
-Each cycle is tagged in `cycleKinds` (same order as `confirmedCycles`): `type-only` when every import closing it is type-only (TypeScript `import type`, every specifier `type`, `export type`; Python imports under `if TYPE_CHECKING:`), `runtime` as soon as one import is a value import. `typeOnlyCycleCount` counts the type-only ones. MCP `crawl_dependency_graph` returns the same tags in `circularDependencyKinds`, and `analyze_dependencies`, `find_referencing_files` and `generate_codemap` mark each type-only dependency `typeOnly: true`.
+Each cycle is tagged in `cycleKinds` (same order as `confirmedCycles`): `type-only` when every import closing it is type-only (TypeScript `import type`, every specifier `type`, `export type`; Python imports under `if TYPE_CHECKING:`), `runtime` as soon as one import is a value import. `typeOnlyCycleCount` counts the type-only ones. MCP `crawl_dependency_graph` returns the same tags in `cycleKinds`, and `analyze_dependencies`, `find_referencing_files` and `generate_codemap` mark each type-only dependency `typeOnly: true`.
 
 A Rust `mod x;` declaration places `x` in the module tree (the file named by a `#[path = "..."]` attribute when there is one, resolved as rustc does): the graph keeps that edge (`type: mod` in `find_referencing_files`), but no cycle detector counts it, so a child module that uses an item of its parent is not a cycle. Cycles between modules that use each other are still reported. The architecture graph leaves `mod` declarations out, since folder groups already show the module tree.
 
@@ -2147,7 +2147,7 @@ graph-it tool crawl_dependency_graph --entryFile=/abs/path/to/index.ts --maxDept
 graph-it tool crawl_dependency_graph --entryFile=/abs/path/to/index.ts --tokenBudget=8000
 ```
 
-**Output fields:** `nodes[]`, `edges[]`, `circularDependencies[]`, `circularDependencyKinds[]` (`runtime` or `type-only`, same order), `nodeCount`, `edgeCount`, `truncated`, `omitted`
+**Output fields:** `nodes[]`, `edges[]`, `circularDependencies[]`, `cycleKinds[]` (`runtime` or `type-only`, same order), `nodeCount`, `edgeCount`, `truncated`, `omitted`
 
 `--tokenBudget` (500–16,000, default 4,000, or `0` for no limit) caps the
 output size. Nodes keep crawl order (nearest first). A cut sets

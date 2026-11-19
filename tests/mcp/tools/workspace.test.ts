@@ -208,6 +208,18 @@ describe("workspace tools", () => {
       expect(result.reverseIndexUpdated).toBe(true);
     });
 
+    it("counts a file on disk as invalidated even when it was not cached (#769)", () => {
+      const dir = fs.mkdtempSync(path.join(os.tmpdir(), "invalidate-"));
+      const file = path.join(dir, "a.ts");
+      fs.writeFileSync(file, "");
+      try {
+        setupWorkerState({ invalidateFile: () => false, isReverseIndexEnabled: () => true });
+        expect(executeInvalidateFiles({ filePaths: [file] })).toMatchObject({ invalidatedFiles: [file], notFoundFiles: [] });
+      } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+      }
+    });
+
     it("reverseIndexUpdated reflects enabled state, not entry presence", () => {
       // Semantic bug guard: enabled-but-empty index must still report updated=true
       // hasReverseIndex() (entries check) would return false here; isReverseIndexEnabled() returns true
@@ -229,7 +241,9 @@ describe("workspace tools", () => {
       setupWorkerState({ invalidateFile: vi.fn(() => false), isReverseIndexEnabled: () => true });
       workerState.callGraphIndexedRoot = "/test";
 
-      executeInvalidateFiles({ filePaths: ["/test/src/a.ts", String.raw`C:\test\src\b.ts`] });
+      // Neither file exists: the call fails, after scheduling them anyway.
+      expect(() => executeInvalidateFiles({ filePaths: ["/test/src/a.ts", String.raw`C:\test\src\b.ts`] }))
+        .toThrow("File not found: src/a.ts (and 1 more): neither on disk nor in the index.");
 
       expect([...workerState.callGraphPendingFiles]).toEqual(["/test/src/a.ts", "c:/test/src/b.ts"]);
       expect(workerState.callGraphIndexedRoot).toBeNull();
