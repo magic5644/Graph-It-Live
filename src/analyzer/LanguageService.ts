@@ -9,20 +9,10 @@ import { PythonSymbolAnalyzer } from "./languages/PythonSymbolAnalyzer";
 import { RustParser } from "./languages/RustParser";
 import { RustSymbolAnalyzer } from "./languages/RustSymbolAnalyzer";
 import { ILanguageAnalyzer, ISymbolAnalyzer } from "./types";
+import { Language } from "./language";
 import { extractFilePath } from "./utils/PathExtractor";
 
-/**
- * Language detection based on file extension
- */
-export enum Language {
-  TypeScript = "typescript",
-  Python = "python",
-  Rust = "rust",
-  CSharp = "csharp",
-  Go = "go",
-  Java = "java",
-  Unknown = "unknown",
-}
+export { Language };
 
 /**
  * Factory service for obtaining language-specific analyzers.
