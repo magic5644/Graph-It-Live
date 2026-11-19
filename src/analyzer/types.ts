@@ -313,6 +313,16 @@ export interface ILanguageAnalyzer {
     fromFile: string,
     moduleSpecifier: string,
   ): Promise<ImportResolution>;
+
+  /**
+   * Where an import that resolved to nothing deterministically points in the workspace, whether it exists or not
+   * (a generated file not built yet), or null when the specifier may name a library. Without it, the TS/JS path
+   * resolver decides (relative and alias specifiers) (#774).
+   */
+  localTargetOf?(
+    fromFile: string,
+    moduleSpecifier: string,
+  ): Promise<string | null>;
 }
 
 /** Outcome of resolving one import against the workspace root boundary. */

@@ -1,0 +1,8 @@
+{
+  "name": "backend",
+  "private": true,
+  "main": "src/server.ts",
+  "scripts": {
+    "codegen": "node scripts/codegen.mjs"
+  }
+}

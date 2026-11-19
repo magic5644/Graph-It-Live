@@ -330,7 +330,7 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool('graph-it-live_get_index_status', {});
 
-      expect(result).toMatchObject({ cacheFiles: { reverseIndexBytes: 0, callGraphBytes: 3 } });
+      expect(result).toMatchObject({ cacheFiles: { reverseIndexBytes: 0, callGraphBytes: 3, symbolsBytes: 0 } });
     } finally {
       rmSync(workspaceRoot, { recursive: true, force: true });
     }

@@ -72,14 +72,18 @@ function bullets(entries: Array<[string, unknown]>): string[] {
   return shown.length === 0 ? [] : [...shown.map(([label, value]) => `- ${label}: ${markdownText(text(value))}`), ""];
 }
 
-/** Relative and alias imports resolving to no file (#774): the count, what to do and a few examples; nothing at 0. */
+/** Imports resolving to no file or to an excluded file (#774): the counts, what to do and a few examples; nothing at 0. */
 function unresolvedImports(value: unknown): string[] {
   const report = (value ?? {}) as Data;
-  if (typeof report.count !== "number" || report.count === 0) return [];
+  const count = typeof report.count === "number" ? report.count : 0;
+  const excluded = typeof report.excludedCount === "number" ? report.excludedCount : 0;
+  if (count + excluded === 0) return [];
   return [
-    `**Unresolved imports: ${report.count}.** Files they would import may be listed as unused. ${text(report.next)}`,
+    `**Unresolved imports: ${count} resolving to no file, ${excluded} to a file excluded from the analysis.** ` +
+      `Files they would import may be listed as unused. ${text(report.next)}`,
     "",
     ...table("Unresolved import examples", report.examples, ["file", "specifier"]),
+    ...table("Excluded import examples", report.excludedExamples, ["file", "specifier"]),
   ];
 }
 

@@ -161,6 +161,29 @@ export class RustParser implements ILanguageAnalyzer {
   }
 
   /**
+   * Where an unresolved `mod x;` or `#[path = "..."] mod x;` points, existing or not (#774): the declaration names
+   * the file. `use` paths are left out: by name alone `serde_json::value` is a crate, and `crate::`, `self::`,
+   * `super::` paths may end in an item (a type, an enum variant), not a module, so a missing file cannot be told.
+   */
+  async localTargetOf(fromFile: string, moduleSpecifier: string): Promise<string | null> {
+    const file = extractFilePath(fromFile);
+    if (isFileSpecifier(moduleSpecifier)) {
+      const target = path.resolve(path.dirname(file), moduleSpecifier);
+      return isInsideDir(target, path.resolve(this.rootDir)) ? normalizePath(target) : null;
+    }
+    if (!/^\w+$/u.test(moduleSpecifier)) return null;
+    let content: string;
+    try {
+      content = await fs.readFile(file, "utf8");
+    } catch {
+      return null;
+    }
+    // shortcut: a `mod x;` in a comment or nested inline module counts too; a false hit only reports an import.
+    const declared = new RegExp(String.raw`\bmod\s+${moduleSpecifier}\s*;`, "iu").test(content);
+    return declared ? normalizePath(path.join(moduleDir(file), `${moduleSpecifier}.rs`)) : null;
+  }
+
+  /**
    * Resolve Rust module path to absolute file path
    * IMPORTANT: Filters out external crates (std, serde, rustpython_vm, etc.)
    * Only resolves local modules to prevent false cycles

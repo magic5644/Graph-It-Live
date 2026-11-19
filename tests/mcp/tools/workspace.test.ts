@@ -84,7 +84,7 @@ describe("workspace tools", () => {
         const result = await executeGetIndexStatus();
 
         // callgraph.db not written yet: 0, not absent.
-        expect(result.cacheFiles).toEqual({ reverseIndexBytes: 2, callGraphBytes: 0 });
+        expect(result.cacheFiles).toEqual({ reverseIndexBytes: 2, callGraphBytes: 0, symbolsBytes: 0 });
       } finally {
         fs.rmSync(dir, { recursive: true, force: true });
       }
@@ -140,7 +140,7 @@ describe("workspace tools", () => {
 
       const result = await executeGetIndexStatus();
 
-      expect(result.unresolvedImports).toEqual({ count: 1, examples: [{ file: "src/loader.ts", specifier: "./gen" }], next: expect.stringContaining("codegen") });
+      expect(result.unresolvedImports).toEqual({ count: 1, examples: [{ file: "src/loader.ts", specifier: "./gen" }], excludedCount: 0, excludedExamples: [], next: expect.stringContaining("codegen") });
       setupWorkerState({ ...idleSpider, getUnresolvedImports: async () => null });
       expect(await executeGetIndexStatus()).not.toHaveProperty("unresolvedImports");
     });

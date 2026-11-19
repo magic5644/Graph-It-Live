@@ -262,6 +262,12 @@ describe('ReverseIndex', () => {
             expect(index.hasEntries()).toBe(true);
         });
 
+        // A Python-only workspace whose files import nothing local failed the dead-code scan (#774).
+        it('hasEntries is true once a file is indexed, even without any import edge', () => {
+            index.addDependencies('/test/project/src/a.py', [], { mtime: 1, size: 1 });
+            expect(index.hasEntries()).toBe(true);
+        });
+
         it('hasFile should track indexed files', () => {
             expect(index.hasFile('/test/project/src/a.ts')).toBe(false);
             
@@ -635,6 +641,13 @@ describe('ReverseIndex', () => {
                 { sourcePath: a, specifier: './gen' },
                 { sourcePath: a, specifier: 'react' },
             ]);
+        });
+
+        it('lists the imports whose target was never indexed, with their specifier (#774)', () => {
+            index.addDependencies(a, [{ path: b, type: 'import', line: 1, module: './b' }, { path: '/test/project/gen/x.ts', type: 'import', line: 2, module: '../gen/x' }], hash);
+            index.addDependencies(b, [], hash);
+
+            expect(index.getUnindexedTargets()).toEqual([{ sourcePath: a, specifier: '../gen/x', targetPath: '/test/project/gen/x.ts' }]);
         });
 
         // A warm run: the importer's mtime never moves when its target appears or disappears (#774).
