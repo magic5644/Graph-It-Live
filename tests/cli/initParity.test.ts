@@ -39,7 +39,7 @@ function pageValue<T>(page: string, name: string): T {
   return JSON.parse(match[1]) as T;
 }
 
-/** Unit keys of the edges drawn in each cycle style of an SVG (edge titles start "from → to:"). */
+/** Unit names of the edges drawn in each cycle style of an SVG (edge titles start "from → to:"). */
 function svgCycleUnits(svg: string): Record<Kind, Set<string>> {
   const units: Record<Kind, Set<string>> = { cycle: new Set(), "type-only": new Set(), lazy: new Set() };
   for (const [, kind, from, to] of svg.matchAll(/class="edge s-(cycle|type-only|lazy)"[^>]*><title>([^<→]+) → ([^<:]+): /g)) {
@@ -83,7 +83,11 @@ describe("graph-it init: report, diagrams and page in phase (#745)", { timeout: 
       "type-only": new Set(["types/a", "types/b"]),
       lazy: new Set(["lazy/page", "lazy/router"]),
     });
-    expect(svgCycleUnits(read("out/units.svg"))).toEqual(report);
+    // units.svg and the page name each unit by its display name (#774).
+    const nameOf = new Map(assessment.unitNames.map((unit) => [unit.key, unit.name]));
+    const named = Object.fromEntries(Object.entries(report).map(([kind, keys]) => [kind, new Set([...keys].map((key) => nameOf.get(key)))]));
+    expect(named["type-only"]).toEqual(new Set(["@acme/types-a", "@acme/types-b"]));
+    expect(svgCycleUnits(read("out/units.svg"))).toEqual(named);
 
     const page = read("out/index.html");
     const overlay = pageValue<{ edgeKinds: [number, number, string][]; deadFiles: string[] }>(page, "overlay");
@@ -94,7 +98,36 @@ describe("graph-it init: report, diagrams and page in phase (#745)", { timeout: 
     for (const [from, to, kind] of overlay.edgeKinds) {
       if (kind in pageUnits) pageUnits[kind as Kind].add(unitOf(from)!).add(unitOf(to)!);
     }
-    expect(pageUnits).toEqual(report);
+    expect(pageUnits).toEqual(named);
+  });
+
+  it("names each unit by one name in every format: text, markdown, json, toon, units.svg, matrix.svg, the page (#774)", async () => {
+    const names = new Set(result.assessment.unitNames.map((unit) => unit.name));
+    // The fixture's units named by package differ from their folder, so a renderer showing the folder fails.
+    expect([...names].filter((name) => name.startsWith("@acme/")).length).toBeGreaterThan(5);
+    const runtime = { workspaceRoot: root, progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null } as unknown as CliRuntime;
+    const offline: InitIo = { interactive: false, confirm: vi.fn() };
+    const svgLabels = (svg: string) => new Set([...svg.matchAll(/<text class="label"[^>]*>(?:\d+ )?([^<]+)<\/text>/g)].map((match) => match[1]));
+    const groups = pageValue<{ label: string }[]>(read("out/index.html"), "groupsData");
+    const named = {
+      units: svgLabels(read("out/units.svg")),
+      matrix: svgLabels(read("out/matrix.svg")),
+      page: new Set(groups.map((group) => group.label)),
+    };
+    for (const shown of Object.values(named)) expect(shown).toEqual(names);
+    // Text formats: the units the findings name are display names, never the folder of a named unit.
+    const folders = result.assessment.unitNames.filter((unit) => unit.key !== unit.name).map((unit) => unit.key);
+    const subjects = (report: string) => [...report.matchAll(/^\s*(?:\[[^\]]+\]|- \*\*[^*]+\*\*:) `?([^`:\n]+)/gm)].map((match) => match[1].trim());
+    for (const format of ["text", "markdown"]) {
+      const report = await run(["--dry-run"], runtime, format, offline);
+      const shown = subjects(report);
+      expect(shown.some((subject) => names.has(subject))).toBe(true);
+      expect(shown.filter((subject) => folders.includes(subject))).toEqual([]);
+    }
+    for (const format of ["json", "toon"]) {
+      const output = await run(["--dry-run"], runtime, format, offline);
+      for (const name of names) expect(output).toContain(name);
+    }
   });
 
   it("outlines one block per unit cycle, in its kind, in units.svg and matrix.svg", () => {

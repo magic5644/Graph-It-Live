@@ -96,14 +96,22 @@ const CUT_EDGES_LIST = " (graph-it architecture --level units --from <unit> --to
 const pageShows = (page: string | undefined) =>
   ` (${page === undefined ? "the index.html of graph-it init --output" : path.posix.basename(page)} shows them all)`;
 
-function deadFileItem(group: DeadFileGroup, page: string | undefined): ReportItem {
+/** A unit as the report names it (unitDisplayName, #774); `next:` commands keep the key. */
+type UnitName = (key: string) => string;
+
+function unitNamer(assessment: Pick<ArchitectureAssessment, "unitNames">): UnitName {
+  const names = new Map(assessment.unitNames.map((unit) => [unit.key, unit.name]));
+  return (key) => names.get(key) ?? key;
+}
+
+function deadFileItem(group: DeadFileGroup, page: string | undefined, name: UnitName): ReportItem {
   const files = group.files.slice(0, ITEM_LIMIT).map((file) =>
     `${file.relativePath}: ${file.lines === undefined ? "lines unknown" : plural(file.lines, "line")}, ${plural(file.exports, "export")}, ${file.confidence} ${file.reasons.join(", ")}` +
     (file.via ? ` via ${file.via.join(", ")}` : "") +
     (file.tests ? `; delete with ${file.tests.map((test) => test.relativePath).join(", ")}` : ""));
   return {
     label: `${plural(group.files.length, "file")}, ${plural(group.lines, "line")}`,
-    subject: group.unit,
+    subject: name(group.unit),
     details: [...files, ...moreLine(ITEM_LIMIT, group.files.length, page === undefined ? NEXT_LISTS : pageShows(page))],
     next: `graph-it check${group.unit === ROOT_UNIT ? "" : " " + JSON.stringify(group.unit)} --unreferencedFiles`,
     units: [group.unit],
@@ -131,11 +139,11 @@ function quickWinItem(win: QuickWin): ReportItem {
 /** Labels of the grouped cycle items: listed after the runtime cycles, never the top action. */
 const GROUPED = { "type-only": "whose every import is type-only: design coupling", lazy: "that close through lazy import(s): loaded on demand" };
 
-function groupedItem(label: keyof typeof GROUPED, cycles: GroupedCycles, page: string | undefined): ReportItem[] {
+function groupedItem(label: keyof typeof GROUPED, cycles: GroupedCycles, page: string | undefined, name: UnitName): ReportItem[] {
   if (cycles.unitCycles + cycles.mutualImports === 0) return [];
   return [{
     label,
-    subject: [...cycles.units.slice(0, ITEM_LIMIT), ...moreLine(ITEM_LIMIT, cycles.units.length, "")].join(", "),
+    subject: [...cycles.units.slice(0, ITEM_LIMIT).map(name), ...moreLine(ITEM_LIMIT, cycles.units.length, "")].join(", "),
     note: `${plural(cycles.unitCycles, "unit cycle")} and ${plural(cycles.mutualImports, "mutual file import")} ${GROUPED[label]}, no init-order risk.`,
     details: [...cycles.evidence, ...moreLine(cycles.evidence.length, cycles.totalEvidence, pageShows(page))],
     units: cycles.units,
@@ -143,19 +151,19 @@ function groupedItem(label: keyof typeof GROUPED, cycles: GroupedCycles, page: s
   }];
 }
 
-function findingItem(finding: MatrixFinding): ReportItem {
-  return { label: finding.kind, subject: finding.rows.join(", "), note: finding.action, details: finding.evidence, next: finding.next, units: finding.rows, fallback: "matrix" };
+function findingItem(finding: MatrixFinding, name: UnitName): ReportItem {
+  return { label: finding.kind, subject: finding.rows.map(name).join(", "), note: finding.action, details: finding.evidence, next: finding.next, units: finding.rows, fallback: "matrix" };
 }
 
 /** Every entry row in one item: on a serverless or multi-app workspace they are expected and many. */
-function entryItem(entries: readonly MatrixFinding[], deadFiles: readonly DeadFileGroup[]): ReportItem[] {
+function entryItem(entries: readonly MatrixFinding[], deadFiles: readonly DeadFileGroup[], name: UnitName): ReportItem[] {
   if (entries.length === 0) return [];
   const rows = entries.flatMap((finding) => finding.rows);
   const withDead = new Set(deadFiles.map((group) => group.unit));
   const dead = rows.filter((row) => withDead.has(row)).length;
   return [{
     label: "entry-row",
-    subject: [...rows.slice(0, ITEM_LIMIT), ...moreLine(ITEM_LIMIT, rows.length, "")].join(", "),
+    subject: [...rows.slice(0, ITEM_LIMIT).map(name), ...moreLine(ITEM_LIMIT, rows.length, "")].join(", "),
     note: `${plural(rows.length, "unit")} no other unit imports, ${dead} of them with dead files. ${matrixAction("entry-row")}`,
     details: [],
     next: entries.length === 1 ? entries[0].next : "graph-it check --unreferencedFiles",
@@ -168,24 +176,25 @@ function sections(assessment: ArchitectureAssessment, page?: string): ReportSect
   const { deadFiles, quickWins, matrixFindings, typeOnlyCycles, lazyCycles } = assessment;
   const wins = (...kinds: QuickWin["kind"][]) => quickWins.filter((win) => kinds.includes(win.kind)).map(quickWinItem);
   const findings = (...kinds: MatrixFinding["kind"][]) => matrixFindings.filter((finding) => kinds.includes(finding.kind));
+  const name = unitNamer(assessment);
   return [
     {
       title: "Dead files",
       count: `${plural(deadFiles.reduce((total, group) => total + group.files.length, 0), "file")} in ${plural(deadFiles.length, "unit")}`,
       noun: "unit",
       intro: "Files no production file imports, by unit, most lines first: the cheapest deletions. An entry point by convention (script, handler) is listed too: check before deleting.",
-      items: deadFiles.map((group) => deadFileItem(group, page)),
+      items: deadFiles.map((group) => deadFileItem(group, page, name)),
     },
     {
       title: "Cycles to cut",
       intro: "Runtime cycles ranked by gain / effort, then the type-only and the lazy ones, one item each (see Glossary).",
-      items: [...wins("cycle-break", "mutual-import"), ...groupedItem("type-only", typeOnlyCycles, page), ...groupedItem("lazy", lazyCycles, page)],
+      items: [...wins("cycle-break", "mutual-import"), ...groupedItem("type-only", typeOnlyCycles, page, name), ...groupedItem("lazy", lazyCycles, page, name)],
     },
-    { title: "Hubs", items: findings("hub-at-risk", "wide-row").map(findingItem) },
+    { title: "Hubs", items: findings("hub-at-risk", "wide-row").map((finding) => findingItem(finding, name)) },
     {
       title: "Other leads",
       intro: "Each lead is for the architect, never a verdict.",
-      items: [...wins("weak-dependency", "dead-code"), ...findings("cohesion").map(findingItem), ...entryItem(findings("entry-row"), deadFiles)],
+      items: [...wins("weak-dependency", "dead-code"), ...findings("cohesion").map((finding) => findingItem(finding, name)), ...entryItem(findings("entry-row"), deadFiles, name)],
     },
   ];
 }
@@ -362,7 +371,7 @@ export function renderInitMarkdown(result: InitResult, base?: string): string {
     ...(matrixDiagram === undefined ? [] : ["", `The matrix:${link(matrixDiagram, base)}; on the page, the Dependency matrix panel lists the file pairs of a clicked cell.`]),
     "", "## Glossary", "", ...Object.entries(result.assessment.glossary).map(([term, meaning]) => `- **${term}**: ${meaning}`));
   if (result.diagrams.length > 0) {
-    lines.push("", "## Diagrams", "", ...result.diagrams.map((diagram) => `- ${diagram.view}${diagram.unit === undefined ? "" : " " + code(diagram.unit)}${link(diagram, base)}`));
+    lines.push("", "## Diagrams", "", ...result.diagrams.map((diagram) => `- ${diagram.view}${diagram.unit === undefined ? "" : " " + code(unitNamer(result.assessment)(diagram.unit))}${link(diagram, base)}`));
   }
   if (result.changes.length > 0) {
     // Longer than any backtick run of the config text (rule reasons), so it cannot close early.

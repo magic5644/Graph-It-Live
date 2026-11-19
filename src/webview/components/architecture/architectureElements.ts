@@ -6,6 +6,7 @@ import type {
   ArchitectureSummaryMessage,
   ArchitectureUnitLevel,
 } from "../../../shared/architecture-types";
+import { unitDisplayName } from "../../../shared/unitDisplayName";
 import { normalizePath } from "../../utils/path";
 import { blend, contrastRatio, parseColor, type Rgba, unitHue } from "./unitColors";
 
@@ -557,7 +558,7 @@ export const hiddenUnitEdgeCount = (level: ArchitectureUnitLevel, minImports: nu
 export const maxEdgeImports = (summary: ArchitectureSummaryMessage) =>
   Math.max(1, ...summary.groupEdges.map((edge) => edge.fileEdgeCount));
 
-const unitName = (level: ArchitectureUnitLevel, key: string) => level.units.find((unit) => unit.key === key)?.name ?? key;
+const unitName = (level: ArchitectureUnitLevel, key: string) => { const unit = level.units.find((entry) => entry.key === key); return unit === undefined ? key : unitDisplayName(unit); };
 
 /**
  * What one level draws, shaped as a summary: the units (path mode, no unit entered, group id
@@ -572,7 +573,7 @@ export function levelSummary(summary: ArchitectureSummaryMessage, unit: string |
     return {
       ...summary,
       groups: level.units.map((entry, index) =>
-        ({ id: index + 1, key: entry.key, label: entry.name, fileCount: entry.fileCount, internalEdgeCount: entry.internalEdgeCount })),
+        ({ id: index + 1, key: entry.key, label: unitDisplayName(entry), fileCount: entry.fileCount, internalEdgeCount: entry.internalEdgeCount })),
       groupEdges: level.unitEdges.map((edge) => ({
         from: idOf.get(edge.from)!, to: idOf.get(edge.to)!, fileEdgeCount: edge.fileEdgeCount,
         fromLabel: unitName(level, edge.from), toLabel: unitName(level, edge.to),
@@ -632,7 +633,7 @@ export const roleBadge = (unit: Pick<ArchitectureUnit, "role" | "confidence">) =
 
 /** The badge on top of the unit's label, and its role with every piece of evidence in the tooltip. */
 function roleData(data: ArchitectureElement["data"], unit: ArchitectureUnit): ArchitectureElement["data"] {
-  const lines = [roleBadge(unit), unit.name, plural(unit.fileCount, "file")];
+  const lines = [roleBadge(unit), unitDisplayName(unit), plural(unit.fileCount, "file")];
   const evidence = unit.evidence.map((entry) => `\n- ${entry.role === unit.role ? "" : entry.role + ": "}${entry.detail}`).join("");
   return {
     role: unit.role,

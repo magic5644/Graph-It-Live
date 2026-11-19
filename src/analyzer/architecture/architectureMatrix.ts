@@ -15,6 +15,7 @@ import {
   type MatrixNode,
   type MatrixRow,
 } from "../../shared/architecture-model";
+import { unitDisplayName } from "../../shared/unitDisplayName";
 import { byCodeUnit } from "./architectureUnits";
 import { layerGraph } from "./stronglyConnectedComponents";
 
@@ -125,7 +126,7 @@ export function groupMatrix(aggregation: CommunityGroupAggregation, include: (id
 /** The matrix of the units: rows are unit keys, labels their names. */
 export function unitMatrix(units: Pick<ArchitectureUnits, "units" | "unitEdges">): ArchitectureMatrix<string> {
   return buildMatrix(
-    units.units.map((unit) => ({ id: unit.key, key: unit.key, label: unit.name, internalEdgeCount: unit.internalEdgeCount })),
+    units.units.map((unit) => ({ id: unit.key, key: unit.key, label: unitDisplayName(unit), internalEdgeCount: unit.internalEdgeCount })),
     units.unitEdges,
   );
 }

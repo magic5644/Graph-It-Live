@@ -21,6 +21,8 @@ vi.mock('node:fs', () => ({
 
 import {
   htmlEscape,
+  inkFor,
+  MAX_DRAWN_GROUPS,
   hubScoreColor,
   hubScoreBorderWidth,
   nodeColor,
@@ -393,11 +395,13 @@ describe('renderHtmlPage: the export page', () => {
       };
       return node;
     };
+    const documentListeners: Record<string, (event: unknown) => void> = {};
     const document = {
       getElementById: (id: string) => elements.get(id) ?? elements.set(id, element()).get(id),
       createElement: element,
+      addEventListener: (event: string, listener: (event: unknown) => void) => { documentListeners[event] = listener; },
     };
-    const run = new Function('vis', 'document', `${script}; return { nodes, edges, expanded, render, applyFilter, setAllExpanded,
+    const run = new Function('vis', 'document', `${script}; return { nodes, edges, expanded, drawnGroups, render, applyFilter, setAllExpanded,
       revealFocus: typeof revealFocus === 'function' ? revealFocus : undefined };`);
     const page = run({ DataSet, Network }, document);
     const text = (node: Record<string, unknown>): string =>
@@ -405,7 +409,7 @@ describe('renderHtmlPage: the export page', () => {
     const stabilized = () => pending.splice(0).forEach(callback => callback());
     const findings = () => (document.getElementById('findings-list')!.children as Record<string, unknown>[]);
     const matrixListeners = () => (document.getElementById('matrix-view')!.listeners as Record<string, (event: unknown) => void>);
-    return { ...page, handlers, calls, stabilized, findings, text, matrixListeners, panelText: () => text(document.getElementById('panel')!) };
+    return { ...page, handlers, calls, stabilized, findings, text, matrixListeners, documentListeners, panelText: () => text(document.getElementById('panel')!) };
   }
 
   it('inlines vis-network and produces the page structure', () => {
@@ -583,6 +587,101 @@ describe('renderHtmlPage: the export page', () => {
     for (let i = 0; i < 201; i++) graphData.nodes.push(`/ws/a/f${i}.ts`);
     const page = runPage(render({ ...baseConfig, graphData }));
     expect(page.nodes.get().map((n: { id: string }) => n.id)).toEqual(['group:0']);
+  });
+
+  describe('a page of 96 units (#774)', () => {
+    // 96 units of 3 files, each importing the next one; named by package, keyed by folder.
+    const UNITS = 96;
+    const unitKey = (index: number) => `packages/lib-${index}`;
+    const unitName = (index: number) => `@scope/a-rather-long-library-name-${index}`;
+    function bigGraph(): GraphData {
+      const graph: GraphData = { nodes: [], edges: [], nodeMetadata: {} };
+      for (let unit = 1; unit <= UNITS; unit++) {
+        for (let file = 0; file < 1 + (unit % 3); file++) {
+          const id = `/ws/${unitKey(unit)}/src/f${file}.ts`;
+          graph.nodes.push(id);
+          graph.nodeMetadata![id] = { hubScore: 0, communityId: unit, communityKey: unitKey(unit) };
+        }
+        graph.edges.push({ source: `/ws/${unitKey(unit)}/src/f0.ts`, target: `/ws/${unitKey((unit % UNITS) + 1)}/src/f0.ts` });
+      }
+      return graph;
+    }
+    const groupNames = Object.fromEntries(Array.from({ length: UNITS }, (_, index) => [unitKey(index + 1), unitName(index + 1)]));
+    const config = (): HtmlPageConfig => ({ ...baseConfig, graphData: bigGraph(), groupNames });
+    type GroupNode = { id: string; label: string; title: string; font: { color: string } };
+    const groupNodes = (page: ReturnType<typeof runPage>) => (page.nodes.get() as GroupNode[]).filter((node) => node.id.startsWith('group:'));
+
+    it('labels every group node with its display name, cut to fit, whole in the tooltip with its folder', () => {
+      const page = runPage(render(config()));
+      const drawn = groupNodes(page);
+      expect(drawn.length).toBeGreaterThan(0);
+      for (const node of drawn) {
+        const unit = Number(node.id.slice(6));
+        const [name] = node.label.split('\n');
+        expect(name).toMatch(/\S/);
+        expect(name.length).toBeLessThanOrEqual(24);
+        expect(unitName(unit).startsWith(name.replace(/…$/, ''))).toBe(true);
+        expect(node.title).toContain(`${unitName(unit)} (${unitKey(unit)})`);
+      }
+    });
+
+    it('draws the largest groups only past the cap, lists every group in the legend, and draws one on click or filter', () => {
+      const html = render(config());
+      const page = runPage(html);
+      expect(groupNodes(page)).toHaveLength(MAX_DRAWN_GROUPS);
+      expect(page.expanded.size).toBe(0);
+      // The 32 units with 3 files (unit % 3 === 2) are the largest: all drawn.
+      const drawnIds = new Set(groupNodes(page).map((node) => node.id));
+      for (let unit = 2; unit <= UNITS; unit += 3) expect(drawnIds.has(`group:${unit}`)).toBe(true);
+      expect(html).toContain(`${UNITS} groups: the ${MAX_DRAWN_GROUPS} largest are drawn.`);
+      for (let unit = 1; unit <= UNITS; unit++) {
+        expect(html).toContain(`data-group="${unit}"`);
+        expect(html).toContain(`${unitName(unit)} <span class="secondary">${unitKey(unit)}</span>`);
+      }
+      // A legend click on an undrawn unit draws it, then selects and centres it.
+      const item = { dataset: { group: '1' } };
+      page.documentListeners.click({ target: { closest: () => item } });
+      expect(groupNodes(page).map((node) => node.id)).toContain('group:1');
+      page.stabilized();
+      expect(page.calls.selected.at(-1)).toEqual(['group:1']);
+      // Enter on a focused item does the same; another key does nothing.
+      const prevented = vi.fn();
+      page.documentListeners.keydown({ key: 'Tab', preventDefault: prevented, target: { closest: () => ({ dataset: { group: '4' } }) } });
+      expect(prevented).not.toHaveBeenCalled();
+      page.documentListeners.keydown({ key: 'Enter', preventDefault: prevented, target: { closest: () => ({ dataset: { group: '4' } }) } });
+      expect(prevented).toHaveBeenCalled();
+      expect(groupNodes(page).map((node) => node.id)).toContain('group:4');
+      // A click elsewhere draws nothing more.
+      const count = groupNodes(page).length;
+      page.documentListeners.click({ target: { closest: () => null } });
+      expect(groupNodes(page)).toHaveLength(count);
+      // The filter reaches every group, drawn or not.
+      page.applyFilter('lib-7');
+      expect(groupNodes(page).map((node) => node.id).sort((a, b) => a.localeCompare(b))).toEqual(['group:7', 'group:70', 'group:71', 'group:72', 'group:73', 'group:74', 'group:75', 'group:76', 'group:77', 'group:78', 'group:79']);
+    });
+
+    it('lays the graph out right of the legend and the findings, never under them', () => {
+      const html = render(config());
+      expect(html).toContain('#graph { margin-left: 400px; width: calc(100vw - 400px); }');
+      expect(render({ ...baseConfig, graphData: { nodes: [], edges: [] } })).not.toContain('margin-left: 400px');
+    });
+
+    it('writes each group label in a colour readable on its swatch', () => {
+      expect(inkFor('#EDC948')).toBe('#1e1e1e');
+      expect(inkFor('#1a3a5c')).toBe('#ffffff');
+      const luminance = (hex: string) => {
+        const [r, g, b] = [1, 3, 5].map((start) => Number.parseInt(hex.slice(start, start + 2), 16) / 255)
+          .map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      };
+      for (const background of [...COMMUNITY_PALETTE, '#2d2d2d']) {
+        const [light, dark] = [luminance(background), luminance(inkFor(background))].sort((a, b) => b - a);
+        // WCAG AA for large bold text (the group labels are 16px bold): 3:1.
+        expect((light + 0.05) / (dark + 0.05)).toBeGreaterThanOrEqual(3);
+      }
+      const page = runPage(render(config()));
+      for (const node of groupNodes(page)) expect(['#1e1e1e', '#ffffff']).toContain(node.font.color);
+    });
   });
 
   describe('init page overlay (#718)', () => {

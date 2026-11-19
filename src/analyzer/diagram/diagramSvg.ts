@@ -6,7 +6,7 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { drawnKinds, edgeLegendKind, legendLayout, legendNotes, sanitizeText, type DiagramLayout, type LegendOptions, type PlacedEdge } from "./architectureDiagram";
+import { drawnKinds, edgeLegendKind, legendLayout, legendNotes, nodeTitle, sanitizeText, type DiagramLayout, type LegendOptions, type PlacedEdge } from "./architectureDiagram";
 import type { MatrixLayout } from "./diagramMatrix";
 import { edgeStyle, FONT_MONO, LEGEND, LEGEND_KINDS, legendDash, PALETTES, SIZES, type DiagramTheme, type LegendKind, type Palette } from "./diagramStyle";
 
@@ -51,12 +51,13 @@ const markers = LEGEND_KINDS.map((kind) =>
 const text = (x: number, y: number, className: string, content: string) =>
   `<text class="${className}" x="${x}" y="${y}">${escapeXml(content)}</text>`;
 
-function edgeMarkup(edge: PlacedEdge): string {
+/** `name`: the label of a node key, as the nodes show it. */
+function edgeMarkup(edge: PlacedEdge, name: (key: string) => string): string {
   const kind = edgeLegendKind(edge);
   const path = edge.points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x} ${point.y}`).join("");
   const rules = edge.rules.length > 0 ? `, breaks ${edge.rules.join(", ")}` : "";
   const typeOnly = edge.typeOnlyEdgeCount ? `, ${edge.typeOnlyEdgeCount} type-only` : "";
-  const title = `${edge.from} → ${edge.to}: ${edge.fileEdgeCount} file pairs (${edge.kind === "cycle" ? LEGEND[edgeStyle("cycle", edge.cycleKind)].text : edge.kind}${typeOnly}${rules})`;
+  const title = `${name(edge.from)} → ${name(edge.to)}: ${edge.fileEdgeCount} file pairs (${edge.kind === "cycle" ? LEGEND[edgeStyle("cycle", edge.cycleKind)].text : edge.kind}${typeOnly}${rules})`;
   return `<path class="edge ${styleClass(kind)}" d="${path}" stroke-width="${edge.stroke}" marker-end="url(#arrow-${kind})"><title>${escapeXml(title)}</title></path>`;
 }
 
@@ -82,11 +83,13 @@ function graphMarkup(layout: DiagramLayout): string[] {
     return `<rect class="cycle ${styleClass(kind)}" x="${cycle.x}" y="${cycle.y}" width="${cycle.width}" height="${cycle.height}" rx="${SIZES.radius}"/>` +
       text(cycle.x + pad, cycle.y + 18, "cycle-title", `${LEGEND[kind].text} · ${cycle.size}`);
   });
+  const labels = new Map(layout.nodes.map((node) => [node.key, node.label]));
+  const name = (key: string) => labels.get(key) ?? key;
   const nodes = layout.nodes.map((node) =>
-    `<g><title>${escapeXml(node.key + ": " + node.meta)}</title>` +
+    `<g><title>${escapeXml(nodeTitle(node) + ": " + node.meta)}</title>` +
     `<rect class="node" x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${SIZES.radius}"/>` +
     `${text(node.x + pad, node.y + 18, "label", node.text)}${text(node.x + pad, node.y + 34, "meta", node.meta)}</g>`);
-  return [...cycles, ...layout.edges.map(edgeMarkup), ...nodes, legendMarkup(layout, { kinds: drawnKinds(layout.edges, layout.cycles) })];
+  return [...cycles, ...layout.edges.map((edge) => edgeMarkup(edge, name)), ...nodes, legendMarkup(layout, { kinds: drawnKinds(layout.edges, layout.cycles) })];
 }
 
 /** The matrix: column numbers, numbered row labels, the frame, the cells, cycle outlines on top. */
@@ -95,7 +98,7 @@ function matrixMarkup(layout: MatrixLayout): string[] {
   const cellSize = layout.grid.height / Math.max(1, layout.rows.length);
   return [
     ...layout.columns.map((column) => text(column.x + 4, column.y + 14, "meta", column.text)),
-    ...layout.rows.map((row) => text(row.x, middle({ y: row.y, height: cellSize }), "label", row.text)),
+    ...layout.rows.map((row) => `<g><title>${escapeXml(row.title)}</title>${text(row.x, middle({ y: row.y, height: cellSize }), "label", row.text)}</g>`),
     `<rect class="frame" x="${layout.grid.x}" y="${layout.grid.y}" width="${layout.grid.width}" height="${layout.grid.height}"/>`,
     ...layout.cells.map((cell) =>
       `<g class="matrix-cell" data-from="${escapeXml(cell.from)}" data-to="${escapeXml(cell.to)}"><title>${escapeXml(cell.title)}</title>` +

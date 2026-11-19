@@ -71,11 +71,17 @@ export interface HtmlPageConfig {
   context: HtmlExportContext;
   workspaceName: string;
   workspaceRoot?: string;
+  /** The name each group key is shown by (a unit's unitDisplayName, #774); a group without one shows its key. */
+  groupNames?: Record<string, string>;
   overlay?: HtmlOverlay;
 }
 
 /** Above this many files the page opens with every group collapsed. */
 const EXPANDED_FILE_LIMIT = 200;
+/** Group nodes drawn at most, the largest first (#774): past it labels get too small to read, the legend lists every group and draws one on click. */
+export const MAX_DRAWN_GROUPS = 40;
+/** Width of the left strip the findings and the legend take: the graph is laid out right of it, never under them. */
+const SIDE_WIDTH = 400;
 
 export function htmlEscape(s: string): string {
   return s.replaceAll('&', '&amp;')
@@ -119,10 +125,21 @@ export function hubScoreBorderWidth(score: number | undefined): number {
 
 interface HtmlGroup {
   id: number;
+  /** The community key: what findings, matrix cells and `--focus` name a group by. */
+  key: string;
   label: string;
   fileCount: number;
   internalEdgeCount: number;
   color: string;
+  /** The label colour on `color`: dark on a light swatch, white on a dark one. */
+  ink: string;
+}
+
+/** Dark text on a light `#rrggbb` background, white on a dark one (WCAG relative luminance, contrast ≥ 4.5 either way on the palette). */
+export function inkFor(background: string): string {
+  const [r, g, b] = [1, 3, 5].map((start) => Number.parseInt(background.slice(start, start + 2), 16) / 255)
+    .map((channel) => (channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4));
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 ? '#1e1e1e' : '#ffffff';
 }
 
 /**
@@ -130,13 +147,16 @@ interface HtmlGroup {
  * aggregateCommunityGroups on the whole exported graph; the page re-aggregates the same
  * pairs per visible node, so a group edge count always equals its listed evidence.
  */
-export function buildHtmlGraphModel(graphData: GraphData, workspaceRoot?: string) {
+export function buildHtmlGraphModel(graphData: GraphData, workspaceRoot?: string, groupNames: Record<string, string> = {}) {
   const aggregation = aggregateCommunityGroups(graphData);
-  const groups: HtmlGroup[] = aggregation.groups.map(({ id, label, fileCount, internalEdgeCount }) => ({
-    id, label: label || `group ${id}`, fileCount, internalEdgeCount, color: nodeColor(id).background,
-  }));
+  const group = (id: number, key: string, label: string, counts: { fileCount: number; internalEdgeCount: number }): HtmlGroup => {
+    const color = nodeColor(id).background;
+    return { id, key, label, ...counts, color, ink: inkFor(color) };
+  };
+  const groups: HtmlGroup[] = aggregation.groups.map(({ id, key, label, fileCount, internalEdgeCount }) =>
+    group(id, key, (Object.hasOwn(groupNames, key) ? groupNames[key] : label) || `group ${id}`, { fileCount, internalEdgeCount }));
   if (aggregation.unassigned.fileCount > 0) {
-    groups.push({ id: 0, label: 'unassigned', ...aggregation.unassigned, color: nodeColor(0).background });
+    groups.push(group(0, '', 'unassigned', aggregation.unassigned));
   }
 
   const root = workspaceRoot ? normalizePath(workspaceRoot) : undefined;
@@ -231,13 +251,18 @@ function overlayLegend(overlay: HtmlOverlay): string {
 function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: ReadonlySet<Framework>, overlay?: HtmlOverlay): string {
   if (groups.length === 0) return '';
   const items = groups.toSorted((a, b) => b.fileCount - a.fileCount || a.id - b.id).map(group =>
-    `<div class="legend-item"><span class="swatch" style="background:${group.color};"></span>` +
-    `<span>${htmlEscape(group.label)} — ${group.fileCount} file(s), ${group.internalEdgeCount} internal edge(s)</span></div>`,
+    `<div class="legend-item group-item" role="button" tabindex="0" data-group="${group.id}" title="Draw and centre this group">` +
+    `<span class="swatch" style="background:${group.color};"></span>` +
+    `<span>${htmlEscape(group.label)}${group.key && group.key !== group.label ? ` <span class="secondary">${htmlEscape(group.key)}</span>` : ''}` +
+    ` — ${group.fileCount} file(s), ${group.internalEdgeCount} internal edge(s)</span></div>`,
   ).join('\n');
+  const capped = groups.length > MAX_DRAWN_GROUPS
+    ? `<div class="legend-hint">${groups.length} groups: the ${MAX_DRAWN_GROUPS} largest are drawn. Click a group here, or filter, to draw another.</div>\n`
+    : '';
   const framework = (Object.keys(FRAMEWORK_IDENTITIES) as Framework[]).filter(name => frameworks.has(name)).map(name =>
     `<div class="legend-item"><img alt="" width="20" height="20" src="${frameworkImage(name)}"><span>${FRAMEWORK_IDENTITIES[name].label} component files</span></div>`,
   ).join('\n');
-  return `<div id="legend"><div class="legend-title">Groups (${htmlEscape(communityMode)})</div>\n${items}\n${framework}${overlay ? '\n' + overlayLegend(overlay) : ''}` +
+  return `<div id="legend"><div class="legend-title">Groups (${htmlEscape(communityMode)})</div>\n${capped}${items}\n${framework}${overlay ? '\n' + overlayLegend(overlay) : ''}` +
     '<div class="legend-hint">Ellipse = group, box = file. Double-click a group to expand it, a file to collapse its group. ' +
     'Click an edge to list the file pairs behind its count.</div></div>';
 }
@@ -254,7 +279,7 @@ const OVERLAY_CSS = `
     .finding ul { margin: 2px 0 0; padding-left: 18px; font-family: monospace; color: #aaa; }
     .finding code { color: #e6edf3; }
     #matrix-view summary { cursor: pointer; color: #ddd; margin: 6px 0; }
-    #matrix-view[open] .matrix-body { position: fixed; top: 44px; left: 384px; right: 8px; max-height: calc(100vh - 60px); overflow: auto; background: #252526; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; z-index: 999; }
+    #matrix-view[open] .matrix-body { position: fixed; top: 44px; left: ${SIDE_WIDTH}px; right: 8px; max-height: calc(100vh - 60px); overflow: auto; background: #252526; border: 1px solid #444; border-radius: 6px; padding: 8px 12px; z-index: 999; }
     #matrix-view .matrix-cell { cursor: pointer; }
     #matrix-view li { margin-bottom: 4px; color: #bbb; }`;
 
@@ -272,7 +297,8 @@ function overlayHead(overlay: HtmlOverlay, model: HtmlGraphModel): string {
     const pairKind = new Map(overlay.edgeKinds.map(([from, to, kind]) => [filesData[from].id + '\0' + filesData[to].id, kind]));
     const deadFiles = new Set(overlay.deadFiles);
     const focusFiles = new Set(overlay.focus ? overlay.focus.files.filter(id => fileById.has(id)) : []);
-    const groupByLabel = new Map(groupsData.map(g => [g.label, g.id]));
+    const groupByKey = new Map(groupsData.map(g => [g.key, g.id]));
+    const groupName = key => groupByKey.has(key) ? groupById.get(groupByKey.get(key)).label : key;
     if (focusFiles.size > 0) {
       expanded.clear();
       focusFiles.forEach(id => expanded.add(fileById.get(id).group));
@@ -311,7 +337,8 @@ const OVERLAY_TAIL = String.raw`
       const ids = files.filter(id => fileById.has(id));
       ids.forEach(id => expanded.add(fileById.get(id).group));
       // A unit already expanded has no group node: its files stand for it.
-      const groups = units.map(unit => groupByLabel.get(unit)).filter(g => g !== undefined);
+      const groups = units.map(unit => groupByKey.get(unit)).filter(g => g !== undefined);
+      groups.forEach(g => drawnGroups.add(g));
       const groupIds = ids.length > 0 ? groups.filter(g => !expanded.has(g)).map(groupNodeId)
         : groups.flatMap(g => expanded.has(g) ? filesData.filter(f => f.group === g).map(f => f.id) : [groupNodeId(g)]);
       render();
@@ -368,7 +395,7 @@ const OVERLAY_TAIL = String.raw`
         next.append(el('code', item.next));
         entry.append(next);
       }
-      if (item.files.some(id => fileById.has(id)) || item.units.some(unit => groupByLabel.has(unit))) {
+      if (item.files.some(id => fileById.has(id)) || item.units.some(unit => groupByKey.has(unit))) {
         entry.tabIndex = 0;
         entry.setAttribute('role', 'button');
         entry.title = 'Expand its unit and centre the files it names';
@@ -383,7 +410,7 @@ const OVERLAY_TAIL = String.raw`
       return entry;
     }
     // A matrix cell: the file pairs from its row's unit to its column's, with their kind; their files centred.
-    const unitOfFile = id => fileById.has(id) ? groupById.get(fileById.get(id).group).label : undefined;
+    const unitOfFile = id => fileById.has(id) ? groupById.get(fileById.get(id).group).key : undefined;
     function showCell(from, to) {
       const pairs = edgesData.filter(([source, target]) => unitOfFile(source) === from && unitOfFile(target) === to);
       const describe = ([source, target]) => {
@@ -391,7 +418,7 @@ const OVERLAY_TAIL = String.raw`
         return source + ' → ' + target + (kind ? ' (' + STYLES[kind].text + ')' : '');
       };
       reveal([from, to], pairs.flat(), () => showPanel([
-        el('h3', (from === to ? from + ', inside' : from + ' → ' + to) + ': ' + pairs.length + ' file pair(s)'),
+        el('h3', (from === to ? groupName(from) + ', inside' : groupName(from) + ' → ' + groupName(to)) + ': ' + pairs.length + ' file pair(s)'),
         list(pairs.map(describe)),
       ]));
     }
@@ -440,7 +467,7 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
   const visSource = fs.readFileSync(visPath, 'utf-8');
   const safeVisSource = visSource.replaceAll('</script>', String.raw`<\/script>`);
 
-  const model = buildHtmlGraphModel(config.graphData, config.workspaceRoot);
+  const model = buildHtmlGraphModel(config.graphData, config.workspaceRoot, config.groupNames);
   const data = compactGraphModel(model);
   const header = buildHeader(config.workspaceName, config.context, model);
   const frameworkFiles = model.files.flatMap(file => file.framework ? [{ label: file.label, framework: file.framework }] : []);
@@ -460,7 +487,7 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
   <style>
     body { margin: 0; background: #1e1e1e; color: #ccc; font-family: sans-serif; overflow: hidden; }
     #titlebar { padding: 8px 16px; margin: 0; font-size: 13px; background: #252526; border-bottom: 1px solid #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    #graph { width: 100vw; height: calc(100vh - 36px); }
+    #graph { width: 100vw; height: calc(100vh - 36px); }${legend || overlay ? `\n    #graph { margin-left: ${SIDE_WIDTH}px; width: calc(100vw - ${SIDE_WIDTH}px); }` : ''}
     #toolbar { position: fixed; top: 44px; right: 8px; z-index: 200; display: flex; gap: 4px; }
     #toolbar button, #toolbar input, #panel button { background: #3c3c3c; color: #ccc; border: 1px solid #555; border-radius: 3px; padding: 3px 8px; font-size: 12px; }
     #toolbar button, #panel button { cursor: pointer; }
@@ -470,7 +497,10 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
     #legend { position: fixed; bottom: 16px; left: 16px; background: #252526; border: 1px solid #444; border-radius: 6px; padding: 10px 14px; z-index: 1000; max-width: 320px; max-height: 40vh; overflow: auto; font-size: 11px; }
     .legend-title { font-weight: 600; margin-bottom: 8px; color: #aaa; text-transform: uppercase; letter-spacing: .05em; }
     .legend-item { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; }
-    .legend-hint { margin-top: 8px; color: #888; }
+    .legend-hint { margin-top: 8px; color: #999; }
+    .group-item { cursor: pointer; border-radius: 3px; }
+    .group-item:hover, .group-item:focus-visible { background: #37373d; outline: none; }
+    .secondary { color: #999; }
     .swatch { display: inline-block; width: 12px; height: 12px; border-radius: 2px; flex-shrink: 0; }
     .sample { flex-shrink: 0; }
     #panel { position: fixed; top: 80px; right: 8px; width: 380px; max-height: calc(100vh - 100px); overflow: auto; background: #252526; border: 1px solid #444; border-radius: 6px; padding: 10px 14px; z-index: 1000; font-size: 12px; display: none; }
@@ -511,7 +541,9 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
     const PAGE_SIZE = 50;
     const groupById = new Map(groupsData.map(g => [g.id, g]));
     const fileById = new Map(filesData.map(f => [f.id, f]));
-    const expanded = new Set(${model.files.length <= EXPANDED_FILE_LIMIT} ? groupsData.map(g => g.id) : []);${overlay ? overlayHead(overlay, model) : ''}
+    const expanded = new Set(${model.files.length <= EXPANDED_FILE_LIMIT && model.groups.length <= MAX_DRAWN_GROUPS} ? groupsData.map(g => g.id) : []);
+    // The largest groups are drawn; the legend (a list of every group) and the filter draw the others.
+    const drawnGroups = new Set(groupsData.slice().sort((a, b) => b.fileCount - a.fileCount || a.id - b.id).slice(0, ${MAX_DRAWN_GROUPS}).map(g => g.id));${overlay ? overlayHead(overlay, model) : ''}
     let filterText = '';
 
     const nodes = new vis.DataSet([]);
@@ -557,13 +589,15 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
     function fileMatches(f) { return !filterText || matches(f.label) || matches(groupById.get(f.group).label); }
     function groupMatches(g) { return !filterText || matches(g.label) || filesData.some(f => f.group === g.id && matches(f.label)); }
 
+    // Every group node carries its name, cut to fit; the tooltip has it whole, with its key when it differs.
+    const shortName = name => name.length > 24 ? name.slice(0, 23) + '…' : name;
     function groupNode(g, position) {
       return {
         id: groupNodeId(g.id), shape: 'ellipse', ...position,
-        label: g.label + '\n' + g.fileCount + ' file(s)',
-        title: g.label + ': ' + g.fileCount + ' file(s), ' + g.internalEdgeCount + ' internal edge(s). Double-click to expand.',
+        label: shortName(g.label) + '\n' + g.fileCount + ' file(s)',
+        title: g.label + (g.key && g.key !== g.label ? ' (' + g.key + ')' : '') + ': ' + g.fileCount + ' file(s), ' + g.internalEdgeCount + ' internal edge(s). Double-click to expand.',
         color: { background: g.color, border: '#ddd' }, borderWidth: 2,
-        font: { color: '#fff', size: 13, bold: true },
+        font: { color: g.ink, size: 16, bold: true },
       };
     }
     function fileNode(f, position) {
@@ -582,7 +616,7 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
       const positions = network.getPositions();
       const shown = [];
       for (const g of groupsData) {
-        if (!expanded.has(g.id) && groupMatches(g)) shown.push(groupNode(g, positions[groupNodeId(g.id)]));
+        if (!expanded.has(g.id) && groupMatches(g) && (filterText || drawnGroups.has(g.id))) shown.push(groupNode(g, positions[groupNodeId(g.id)]));
       }
       for (const f of filesData) {
         if (expanded.has(f.group) && fileMatches(f)) shown.push(fileNode(f, positions[f.id] ?? positions[groupNodeId(f.group)]));
@@ -710,6 +744,29 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
       } else {
         hidePanel();
       }
+    });
+
+    // A legend group: drawn (past the cap), then selected and centred.
+    function showGroup(id) {
+      drawnGroups.add(id);
+      render();
+      network.once('stabilizationIterationsDone', () => {
+        const ids = (expanded.has(id) ? filesData.filter(f => f.group === id).map(f => f.id) : [groupNodeId(id)]).filter(n => nodes.get(n));
+        if (ids.length === 0) return;
+        network.selectNodes(ids);
+        network.fit({ nodes: ids, animation: true });
+      });
+    }
+    const groupItem = event => event.target.closest && event.target.closest('[data-group]');
+    document.addEventListener('click', event => {
+      const item = groupItem(event);
+      if (item) showGroup(Number(item.dataset.group));
+    });
+    document.addEventListener('keydown', event => {
+      const item = groupItem(event);
+      if (!item || (event.key !== 'Enter' && event.key !== ' ')) return;
+      event.preventDefault();
+      showGroup(Number(item.dataset.group));
     });
 
     network.on('doubleClick', params => {
