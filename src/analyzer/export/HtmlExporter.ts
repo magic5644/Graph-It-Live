@@ -688,43 +688,100 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
       });
     }
 
+    // Two boxes overlapping by less across than down move apart sideways, else up and down, each by half.
+    function pushApart(a, b, gap) {
+      const across = (a.w + b.w) / 2 + gap - Math.abs(a.x - b.x);
+      const down = (a.h + b.h) / 2 + gap - Math.abs(a.y - b.y);
+      if (across <= 0 || down <= 0) return false;
+      const axis = across < down ? 'x' : 'y';
+      const shift = Math.min(across, down) / 2;
+      const sign = a[axis] < b[axis] || (a[axis] === b[axis] && a.id < b.id) ? -1 : 1;
+      a[axis] += sign * shift;
+      b[axis] -= sign * shift;
+      return true;
+    }
+    // Physics leaves wide group boxes on top of each other: they are pushed apart until none hides another's label.
+    function separateGroups() {
+      const boxes = boxesOf(nodes.getIds().filter(isGroupNode));
+      for (let sweep = 0; sweep < 200; sweep++) {
+        let moved = false;
+        for (let i = 0; i < boxes.length; i++) {
+          for (let j = i + 1; j < boxes.length; j++) moved = pushApart(boxes[i], boxes[j], 8) || moved;
+        }
+        if (!moved) break;
+      }
+      boxes.forEach(b => network.moveNode(b.id, b.x, b.y));
+    }
+
     // Nodes with no drawn edge go in rows under the others: physics alone flings them to the edges, and the fit shrinks every label.
+    // Node boxes centred on their current positions: vis-network's own boxes only follow a move at the next draw.
+    function boxesOf(ids) {
+      const at = network.getPositions(ids);
+      return ids.map(id => {
+        const b = network.getBoundingBox(id);
+        return { id, x: at[id].x, y: at[id].y, w: b.right - b.left, h: b.bottom - b.top };
+      });
+    }
+    function rangeOf(boxes) {
+      return {
+        left: Math.min(...boxes.map(b => b.x - b.w / 2)), right: Math.max(...boxes.map(b => b.x + b.w / 2)),
+        top: Math.min(...boxes.map(b => b.y - b.h / 2)), bottom: Math.max(...boxes.map(b => b.y + b.h / 2)),
+      };
+    }
     function packLoose() {
       const linked = new Set(edges.get().flatMap(e => [e.from, e.to]));
       const ids = nodes.getIds();
-      const loose = ids.filter(id => !linked.has(id));
-      const boxes = ids.filter(id => linked.has(id)).map(id => network.getBoundingBox(id));
+      const loose = boxesOf(ids.filter(id => !linked.has(id)));
+      const boxes = boxesOf(ids.filter(id => linked.has(id)));
       if (loose.length === 0 || boxes.length === 0) return;
       const gap = 20;
-      const left = Math.min(...boxes.map(b => b.left));
-      const right = Math.max(...boxes.map(b => b.right));
+      const { left, right, bottom } = rangeOf(boxes);
       let x = left;
-      let y = Math.max(...boxes.map(b => b.bottom)) + gap;
+      let y = bottom + gap;
       let rowHeight = 0;
-      for (const id of loose) {
-        const box = network.getBoundingBox(id);
-        const [width, height] = [box.right - box.left, box.bottom - box.top];
-        if (x > left && x + width > right) {
+      for (const box of loose) {
+        if (x > left && x + box.w > right) {
           x = left;
           y += rowHeight + gap;
           rowHeight = 0;
         }
-        network.moveNode(id, x + width / 2, y + height / 2);
-        x += width + gap;
-        rowHeight = Math.max(rowHeight, height);
+        network.moveNode(box.id, x + box.w / 2, y + box.h / 2);
+        x += box.w + gap;
+        rowHeight = Math.max(rowHeight, box.h);
       }
+    }
+    // network.fit() on the boxes as they now stand, below the toolbar, with a 5 % margin.
+    function fitAll() {
+      const ids = nodes.getIds();
+      if (ids.length === 0) return;
+      const { left, right, top, bottom } = rangeOf(boxesOf(ids));
+      const toolbar = Math.max(0, document.getElementById('toolbar').getBoundingClientRect().bottom - container.getBoundingClientRect().top);
+      const scale = 0.95 * Math.min(container.clientWidth / (right - left), (container.clientHeight - toolbar) / (bottom - top));
+      network.moveTo({ position: { x: (left + right) / 2, y: (top + bottom) / 2 - toolbar / 2 / scale }, scale });
     }
     // Every node fitted to the free area with group labels of ${MIN_LABEL_PX}px at least: on the collapsed view, fewer of the
     // largest groups are drawn until they fit (the scale grows about as 1 / sqrt(groups)); else the view centres at that size.
     function fitView() {
+      // No simulation may move a node after the layout below; then size the boxes of nodes added since the last
+      // draw (stabilizing draws nothing): getBoundingBox reads them.
+      network.stopSimulation();
+      network.redraw();
+      layoutView();
+      // Paints the moves and the view now: a requested redraw may never come once physics is off.
+      network.redraw();
+    }
+    function layoutView() {
       packLoose();
-      network.fit();
+      separateGroups();
+      fitAll();
       const minScale = ${MIN_LABEL_PX / GROUP_FONT};
       const scale = network.getScale();
       const groups = nodes.getIds().filter(isGroupNode).length;
       if (groups === 0 || expanded.size > 0 || scale >= minScale) return;
       if (!filterText && drawLimit > ${MIN_DRAWN_GROUPS}) {
-        drawLimit = Math.max(${MIN_DRAWN_GROUPS}, Math.min(drawLimit - 1, Math.floor(groups * (scale / minScale) ** 2)));
+        // At most a quarter fewer per pass: a smaller set lays out tighter, the estimate alone overshoots.
+        const estimate = Math.max(Math.floor(groups * (scale / minScale) ** 2), Math.ceil(groups * 0.75));
+        drawLimit = Math.max(${MIN_DRAWN_GROUPS}, Math.min(drawLimit - 1, estimate));
         const count = document.getElementById('drawn-count');
         if (count) count.textContent = String(drawLimit);
         render();

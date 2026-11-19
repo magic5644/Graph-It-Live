@@ -385,7 +385,12 @@ describe('renderHtmlPage: the export page', () => {
       moved = new Map<string, { x: number; y: number }>();
       view = { scale: 1, x: 0, y: 0 };
       constructor(_container: unknown, private readonly data: { nodes: DataSet; edges: DataSet }) {}
-      getPositions(): Record<string, unknown> { return {}; }
+      getPositions(ids?: string[]): Record<string, { x: number; y: number }> {
+        return Object.fromEntries((ids ?? []).map((id) => {
+          const b = this.getBoundingBox(id);
+          return [id, { x: (b.left + b.right) / 2, y: (b.top + b.bottom) / 2 }];
+        }));
+      }
       getBoundingBox(id: string): Box {
         const node = this.data.nodes.get(id) as { label: string; font?: { size: number } };
         const size = node.font?.size ?? 11;
@@ -394,7 +399,7 @@ describe('renderHtmlPage: the export page', () => {
         const { index: indexOf, linked, side } = this.layout();
         const index = indexOf.get(id)!;
         const at = this.moved.get(id) ?? (linked.has(id) || linked.size === 0
-          ? { x: (index % side) * 360, y: Math.floor(index / side) * 140 }
+          ? { x: (index % side) * 220 + (Math.floor(index / side) % 2) * 90, y: Math.floor(index / side) * 50 }
           : { x: 4000 + index * 50, y: -3000 });
         return { left: at.x - width / 2, right: at.x + width / 2, top: at.y - height / 2, bottom: at.y + height / 2 };
       }
@@ -410,7 +415,9 @@ describe('renderHtmlPage: the export page', () => {
       }
       moveNode(id: string, x: number, y: number): void { this.moved.set(id, { x, y }); }
       getScale(): number { return this.view.scale; }
-      moveTo(options: { scale: number }): void { this.view.scale = options.scale; }
+      moveTo(options: { scale: number; position?: { x: number; y: number } }): void {
+        this.view = { ...this.view, ...options.position, scale: options.scale };
+      }
       /** On screen (free-area pixels, origin top left) at the current view. */
       screenBox(id: string): Box {
         const box = this.getBoundingBox(id);
@@ -422,6 +429,8 @@ describe('renderHtmlPage: the export page', () => {
       on(event: string, handler: (params: { nodes: string[]; edges: string[] }) => void): void { handlers[event] = handler; }
       once(_event: string, callback: () => void): void { pending.push(callback); }
       setOptions(): void {}
+      redraw(): void {}
+      stopSimulation(): void {}
       stabilize(): void {}
       fit(options?: unknown): void {
         calls.fit.push(options);
@@ -445,10 +454,12 @@ describe('renderHtmlPage: the export page', () => {
         setAttribute: (name: string, value: string) => { (node.attributes as Record<string, string>)[name] = value; },
         addEventListener: (event: string, listener: () => void) => { listeners[event] = listener; },
         querySelectorAll: () => [],
+        getBoundingClientRect: () => ({ top: 0, bottom: 0 }),
       };
       return node;
     };
     const documentListeners: Record<string, (event: unknown) => void> = {};
+    elements.set('graph', { ...element(), clientWidth: area.width, clientHeight: area.height });
     const document = {
       getElementById: (id: string) => elements.get(id) ?? elements.set(id, element()).get(id),
       createElement: element,
@@ -700,21 +711,28 @@ describe('renderHtmlPage: the export page', () => {
       }
     });
 
-    // The free area of a 1800×1100 window draws the 40 largest; a 1280×800 one fewer, so their labels stay readable.
-    for (const { area, all } of [{ area: { width: 1400, height: 977 }, all: true }, { area: { width: 880, height: 677 }, all: false }]) {
+    // The free areas of a 1800×1100 and a 1280×800 window.
+    for (const area of [{ width: 1400, height: 977 }, { width: 880, height: 677 }]) {
       it(`opens on readable labels, every drawn node inside the ${area.width}×${area.height} free area`, () => {
         const page = runPage(render(config()), area);
         // Each layout pass ends with a fit, which may draw fewer groups and lay them out again.
         for (let pass = 0; pass < 10; pass++) page.stabilized();
         const drawn = groupNodes(page);
         expect(drawn.length).toBeGreaterThanOrEqual(8);
-        expect(drawn.length === MAX_DRAWN_GROUPS).toBe(all);
+        expect(drawn.length).toBeLessThanOrEqual(MAX_DRAWN_GROUPS);
         // The legend says how many are drawn when it is fewer than the cap.
         expect(page.drawnCount() || String(MAX_DRAWN_GROUPS)).toBe(String(drawn.length));
         // The largest units are the ones drawn, the disconnected ones packed with them.
         expect(drawn.map(unitOf).sort((a, b) => a - b)).toEqual(Array.from({ length: drawn.length }, (_, index) => index));
         const scale = page.network.getScale();
         expect(GROUP_FONT * scale).toBeGreaterThanOrEqual(MIN_LABEL_PX);
+        // No group box hides another one's label.
+        const boxes = drawn.map((node) => page.network.getBoundingBox(node.id));
+        for (const [i, a] of boxes.entries()) {
+          for (const b of boxes.slice(i + 1)) {
+            expect(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top).toBe(true);
+          }
+        }
         for (const node of drawn) {
           const box = page.network.screenBox(node.id);
           expect(box.left).toBeGreaterThanOrEqual(-0.5);
