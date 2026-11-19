@@ -7,7 +7,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
 import type { Dependency } from '../../src/analyzer/types';
 import type { McpWorkerResponse } from '../../src/mcp/types';
 import {
@@ -1527,7 +1527,11 @@ describe('validateFilePath — uncovered branches', () => {
 });
 
 describe('validated file paths resolve against the workspace, not the cwd (GHSA-2pv3-2vx4-vf28)', () => {
-  const rootDir = path.resolve('/workspace-root');
+  // A real folder: file parameters must name existing files (#769).
+  const rootDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-paths-')));
+  fs.mkdirSync(path.join(rootDir, 'src'));
+  for (const file of ['probe.ts', 'a.ts', 'b.ts', 'src/probe.ts']) fs.writeFileSync(path.join(rootDir, file), '');
+  afterAll(() => fs.rmSync(rootDir, { recursive: true, force: true }));
 
   it('returns the absolute path it validated', () => {
     expect(validateFilePath('src/probe.ts', rootDir)).toBe(path.join(rootDir, 'src/probe.ts'));
@@ -1571,6 +1575,21 @@ describe('validated file paths resolve against the workspace, not the cwd (GHSA-
     expect(resolveToolFilePaths('generate_wiki', wiki, rootDir)).toBe(wiki);
     expect(resolveToolFilePaths('get_index_status', {}, rootDir)).toEqual({});
     expect(resolveToolFilePaths('analyze_dependencies', null, rootDir)).toBeNull();
+  });
+
+  it('names the closest files when a file parameter does not exist (#769)', () => {
+    expect(() => resolveToolFilePaths('analyze_dependencies', { filePath: 'prob.ts' }, rootDir))
+      .toThrow('File not found: prob.ts. Did you mean: probe.ts?');
+    expect(() => resolveToolFilePaths('analyze_dependencies', { filePath: 'zzzzzzzz.ts' }, rootDir))
+      .toThrow(/^File not found: zzzzzzzz\.ts\.$/);
+    expect(() => resolveToolFilePaths('analyze_dependencies', { filePath: 'src' }, rootDir))
+      .toThrow('"filePath" must name a file: src is a folder.');
+  });
+
+  it('takes a relative scan_dead_code scopePath and requires a folder (#769)', () => {
+    expect(resolveToolFilePaths('scan_dead_code', { scopePath: 'src' }, rootDir)).toEqual({ scopePath: path.join(rootDir, 'src') });
+    expect(() => resolveToolFilePaths('scan_dead_code', { scopePath: 'srx' }, rootDir)).toThrow('Folder not found: srx. Did you mean: src?');
+    expect(() => resolveToolFilePaths('scan_dead_code', { scopePath: 'a.ts' }, rootDir)).toThrow('"scopePath" must name a folder: a.ts is a file.');
   });
 
   it('does not mutate the caller params', () => {

@@ -107,14 +107,13 @@ describe("exploreArchitecture", () => {
     expect(byKey.view === "group" && byKey.files).toEqual(["src/2/extra.ts"]);
   });
 
-  it("pages evidence: the last page has no nextOffset and an offset past the end is empty", () => {
+  it("pages evidence: the last page has no nextOffset and an offset past the end is an error (#769)", () => {
     const last = exploreArchitecture(graph, { from: "ui", to: "store", offset: 2, limit: 2 });
-    const past = exploreArchitecture(graph, { from: "ui", to: "store", offset: 10, limit: 2 });
 
     expect(last.view === "evidence" && last.pairs).toEqual([{ source: "src/ui/view.ts", target: "src/store/state.ts" }]);
     expect(last.page).toEqual({ total: 3, offset: 2, returned: 1, truncated: false, nextOffset: undefined });
-    expect(past.view === "evidence" && past.pairs).toEqual([]);
-    expect(past.page).toEqual({ total: 3, offset: 10, returned: 0, truncated: false, nextOffset: undefined });
+    expect(() => exploreArchitecture(graph, { from: "ui", to: "store", offset: 10, limit: 2 }))
+      .toThrow("offset 10 is past the end: 3 file pairs, last offset 2.");
   });
 
   it("resolves a numeric reference by id only, even when a folder key has the same text", () => {
@@ -152,15 +151,15 @@ describe("exploreArchitecture", () => {
       outgoing.push(...last.outgoing.map(edge => edge.toLabel));
       offset = last.page.nextOffset;
     }
-    const past = exploreArchitecture(hubGraph, { group: "hub", offset: SPOKES, limit: 250 });
+
 
     expect(new Set(incoming).size).toBe(SPOKES);
     expect(incoming).toHaveLength(SPOKES);
     expect(new Set(outgoing).size).toBe(SPOKES);
     expect(outgoing).toHaveLength(SPOKES);
     expect(last?.page).toMatchObject({ offset: 500, truncated: false, nextOffset: undefined });
-    expect(past.view === "group" && [past.files, past.incoming, past.outgoing]).toEqual([[], [], []]);
-    expect(past.page).toMatchObject({ totalFiles: 1, totalIncoming: SPOKES, totalOutgoing: SPOKES, truncated: false });
+    expect(() => exploreArchitecture(hubGraph, { group: "hub", offset: SPOKES, limit: 250 }))
+      .toThrow(`offset ${SPOKES} is past the end: ${SPOKES} files and group edges`);
   });
 });
 
@@ -223,7 +222,7 @@ describe("groupDetail", () => {
     expect(second.files.map(file => file.relativePath)).toEqual([BIG[200]]);
     expect(second.page).toMatchObject({ offset: 200, returned: 1, truncated: false, nextOffset: undefined });
     expect(second.internalPairs).toEqual([]);
-    expect(groupDetail(bigGraph, "big", { offset: 201 }).files).toEqual([]);
+    expect(() => groupDetail(bigGraph, "big", { offset: 201 })).toThrow("offset 201 is past the end: 201 files");
     expect(first.incoming).toHaveLength(200);
     expect(second.incoming).toEqual([]);
   });

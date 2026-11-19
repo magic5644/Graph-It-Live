@@ -48,7 +48,8 @@ describe.each(fixtures)("architecture golden output: %s", (fixture) => {
     const groupViews = await Promise.all(groups.map(group => executeExploreArchitecture({ communityMode, group })));
     const evidence = await Promise.all(summary.groupEdges.map(edge =>
       executeExploreArchitecture({ communityMode, from: edge.from, to: edge.to })));
-    const evidencePages = await Promise.all(summary.groupEdges.map(edge =>
+    // A second page exists only behind an edge of several file pairs (#769: past the end is an error).
+    const evidencePages = await Promise.all(summary.groupEdges.filter(edge => edge.fileEdgeCount > 1).map(edge =>
       executeExploreArchitecture({ communityMode, from: edge.from, to: edge.to, limit: 1, offset: 1 })));
 
     // Checked outside the snapshot so a CLI run in the wrong mode cannot be recorded as the reference.

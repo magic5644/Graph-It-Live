@@ -590,32 +590,32 @@ describe("MCP Worker Helpers", () => {
 
     it("should throw when scopePath contains null bytes", () => {
       expect(() => validateScopePath(`${root}/\0evil`, root)).toThrow(
-        "INVALID_SCOPE_PATH: Path contains null bytes",
+        "scopePath contains a null byte.",
       );
     });
 
     it("should throw when scopePath is not absolute", () => {
       expect(() => validateScopePath("relative/path", root)).toThrow(
-        "INVALID_SCOPE_PATH: Scope path must be absolute",
+        "scopePath must be resolved against the workspace first",
       );
     });
 
     it("should throw when scopePath is outside rootDir (traversal attempt)", () => {
       expect(() => validateScopePath("/workspace/other", root)).toThrow(
-        "INVALID_SCOPE_PATH: Scope path",
+        "scopePath must stay inside the workspace.",
       );
     });
 
     it("should throw for path traversal via .. segments", () => {
       expect(() => validateScopePath(`${root}/../outside`, root)).toThrow(
-        "INVALID_SCOPE_PATH:",
+        "scopePath must stay inside the workspace.",
       );
     });
 
     it("should reject paths that share a prefix but are not subdirectories", () => {
       // /workspace/project-evil should NOT be accepted as subdirectory of /workspace/project
       expect(() => validateScopePath(`${root}-evil`, root)).toThrow(
-        "INVALID_SCOPE_PATH:",
+        "scopePath must stay inside the workspace.",
       );
     });
   });

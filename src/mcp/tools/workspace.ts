@@ -1,4 +1,8 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { IndexCache } from "../../analyzer/cache/IndexCache";
+import { closestPathsHint } from "../../analyzer/utils/SymbolLookup";
+import { normalizePath } from "../../shared/path";
 import { reportOutOfRootImports } from "../../analyzer/utils/workspaceBoundary";
 import { workerState } from "../shared/state";
 import type {
@@ -69,12 +73,20 @@ export function executeInvalidateFiles(
   workerState.markCallGraphStale(filePaths);
 
   for (const filePath of filePaths) {
+    // A file on disk that was not cached yet is still re-read; only a path nothing knows is "not found".
     const wasInvalidated = spider.invalidateFile(filePath);
-    if (wasInvalidated) {
+    if (wasInvalidated || fs.existsSync(filePath)) {
       invalidatedFiles.push(filePath);
     } else {
       notFoundFiles.push(filePath);
     }
+  }
+  if (invalidatedFiles.length === 0 && notFoundFiles.length > 0) {
+    const rootDir = workerState.getConfig().rootDir;
+    const [first] = notFoundFiles;
+    const label = normalizePath(path.relative(rootDir, first));
+    const others = notFoundFiles.length > 1 ? ` (and ${notFoundFiles.length - 1} more)` : "";
+    throw new Error(`File not found: ${label}${others}: neither on disk nor in the index.${closestPathsHint(first, rootDir)}`);
   }
 
   return {

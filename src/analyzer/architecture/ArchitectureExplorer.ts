@@ -5,6 +5,7 @@
  */
 
 import { aggregateCommunityGroups } from "../community/groupAggregation";
+import { assertOffsetInRange } from "../../shared/paging";
 import type {
   ArchitectureGroupDetail,
   ArchitectureMatrix,
@@ -86,6 +87,7 @@ function pageGroup(
     .toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || left.from - right.from), offset, limit);
   const outgoing = page(groupEdges.filter(edge => edge.from === groupId)
     .toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || left.to - right.to), offset, limit);
+  assertOffsetInRange(offset, Math.max(filePage.total, incoming.total, outgoing.total), "files and group edges");
   const truncated = filePage.truncated || incoming.truncated || outgoing.truncated;
   return {
     files: filePage.items,
@@ -155,6 +157,7 @@ export function exploreArchitecture(
         && (targetFile === undefined || edge.targetRelative === targetFile))
       .map(edge => ({ source: edge.sourceRelative, target: edge.targetRelative }))
       .sort((left, right) => left.source.localeCompare(right.source) || left.target.localeCompare(right.target));
+    assertOffsetInRange(offset, pairs.length, "file pairs");
     const { items, ...pageInfo } = page(pairs, offset, limit);
     return { view: "evidence" as const, ...base, from, to, pairs: items, page: pageInfo, nextSteps: NEXT_STEPS };
   }
@@ -181,6 +184,7 @@ export function exploreArchitecture(
 
   const groups = page(aggregation.groups.toSorted(byFileCount), offset, limit);
   const groupEdges = page(aggregation.groupEdges.toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount), offset, limit);
+  assertOffsetInRange(offset, Math.max(groups.total, groupEdges.total), "groups and group edges");
   const truncated = groups.truncated || groupEdges.truncated;
   return {
     view: "summary" as const,
@@ -214,6 +218,7 @@ export function exploreUnits(units: ArchitectureUnits, options: Pick<Architectur
   const limit = options.limit ?? DEFAULT_EXPLORE_LIMIT;
   const unitPage = page(units.units, offset, limit);
   const edgePage = page(units.unitEdges, offset, limit);
+  assertOffsetInRange(offset, Math.max(unitPage.total, edgePage.total), "units and unit edges");
   const truncated = unitPage.truncated || edgePage.truncated;
   return {
     view: "units" as const,
@@ -278,6 +283,7 @@ export function exploreUnitEvidence(
     .filter(edge => unitOf.get(edge.sourceRelative) === from.key && unitOf.get(edge.targetRelative) === to.key)
     .map(edge => ({ source: edge.sourceRelative, target: edge.targetRelative }))
     .sort((left, right) => byCodeUnit(left.target, right.target) || byCodeUnit(left.source, right.source));
+  assertOffsetInRange(options.offset ?? 0, pairs.length, "file pairs");
   const { items, ...pageInfo } = page(pairs, options.offset ?? 0, options.limit ?? DEFAULT_EXPLORE_LIMIT);
   const kind = units.unitEdges.find(edge => edge.from === from.key && edge.to === to.key)?.kind;
   return {
@@ -303,6 +309,7 @@ export function exploreMatrix(
   options: Pick<ArchitectureExploreOptions, "offset" | "limit" | "revision"> & { units?: boolean } = {},
 ) {
   assertRevision(context.revision, options.revision);
+  assertOffsetInRange(options.offset ?? 0, matrix.cells.length, "matrix cells");
   const { items, ...pageInfo } = page(matrix.cells, options.offset ?? 0, options.limit ?? DEFAULT_EXPLORE_LIMIT);
   return {
     view: "matrix" as const,
@@ -349,6 +356,7 @@ export function groupDetail(
     .filter(node => node.communityId === group.id)
     .map(({ relativePath, dependencyCount, dependentCount }) => ({ relativePath, dependencyCount, dependentCount }))
     .sort((left, right) => right.dependentCount - left.dependentCount || left.relativePath.localeCompare(right.relativePath));
+  assertOffsetInRange(offset, files.length, "files");
   const { items, ...pageInfo } = page(files, offset, limit);
   const shown = new Set(items.map(file => file.relativePath));
 
@@ -434,6 +442,7 @@ export function exploreArchitectureCheck(
   const limit = options.limit ?? DEFAULT_EXPLORE_LIMIT;
   const { violations, unmatchedFiles, resolved, ...rest } = check;
   const shown = options.rule === undefined ? violations : violations.filter(violation => violation.rule === options.rule);
+  assertOffsetInRange(options.offset ?? 0, shown.length, "violations");
   const { items, ...pageInfo } = page(shown, options.offset ?? 0, limit);
   return { ...rest, violations: items, page: pageInfo, unmatchedFiles: unmatchedFiles.slice(0, limit), resolved: resolved.slice(0, limit) };
 }

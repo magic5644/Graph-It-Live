@@ -10,7 +10,7 @@ import { workerState } from '../../mcp/shared/state';
 import { CliError, ExitCode } from '../errors';
 import { readCommunityMode } from '../options';
 import type { CliRuntime } from '../runtime';
-import { closestPathsHint } from '../symbols';
+import { closestPathsHint } from '../../analyzer/utils/SymbolLookup';
 import { resolveInWorkspace, writeWorkspaceFile } from '../workspaceFiles';
 import type { GraphData } from '../../shared/graph-types';
 

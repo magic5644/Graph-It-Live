@@ -1,6 +1,7 @@
 import { mapWithConcurrency } from "../../shared/concurrency";
 import { getLogger } from "../../shared/logger";
-import { cycleKinds } from "../../shared/cycleUtils";
+import { cycleKinds as classifyCycles } from "../../shared/cycleUtils";
+import { assertOffsetInRange } from "../../shared/paging";
 import { normalizePath } from "../../shared/path";
 import { computeNodeMetadata } from "../../analyzer/NodeMetadataBuilder";
 import type { GraphData } from "../../shared/graph-types";
@@ -74,7 +75,7 @@ export async function executeCrawlDependencyGraph(
     // Build initial counts and detect cycles
     const { dependencyCount, dependentCount } = buildEdgeCounts(graph.edges);
     const circularDependencies = detectCircularDependencies(graph.edges);
-    const circularDependencyKinds = cycleKinds(circularDependencies, graph.edges);
+    const cycleKinds = classifyCycles(circularDependencies, graph.edges);
 
     // Compute hubScore + communityId — same logic as CLI and extension
     const parentCounts: Record<string, number> = {};
@@ -107,6 +108,7 @@ export async function executeCrawlDependencyGraph(
   // Nodes keep crawl order (nearest first). The page is [offset, offset+limit),
   // cut further by the tokenBudget; nextOffset resumes after the last node sent.
   const start = offset ?? 0;
+  assertOffsetInRange(start, nodes.length, "nodes");
   const pageSize = Math.max(0, Math.min(nodes.length, limit === undefined ? nodes.length : start + limit) - start);
   const owners = edgeOwners(nodes.map((node) => node.path), edges);
   const page = (count: number): CrawlDependencyGraphResult => {
@@ -119,7 +121,9 @@ export async function executeCrawlDependencyGraph(
       nodes: nodes.slice(start, end),
       edges: edges.filter((_, index) => owners[index] >= start && owners[index] < end),
       circularDependencies,
-      circularDependencyKinds,
+      cycleKinds,
+      // Partial whenever nodes remain after this page, cut by limit or by tokenBudget.
+      truncated: end < nodes.length,
       ...(end < nodes.length ? { nextOffset: end } : {}),
     };
   };
@@ -130,7 +134,6 @@ export async function executeCrawlDependencyGraph(
     const budgeted = page(count);
     return {
       ...budgeted,
-      truncated: count < pageSize,
       omitted: {
         nodes: pageSize - count,
         edges: fullPage.edges.length - budgeted.edges.length,

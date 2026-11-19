@@ -102,3 +102,9 @@ export function lookupCallGraphSymbol(
     candidates: sameName,
   };
 }
+
+/** Distinct names of the symbols indexed in a file, for "did you mean" candidates. */
+export function symbolNamesInFile(db: Database, filePath: string): string[] {
+  const rows = db.exec("SELECT DISTINCT name FROM nodes WHERE path = ? ORDER BY name", [normalizePath(filePath)]);
+  return (rows[0]?.values ?? []).map((row) => row[0] as string);
+}

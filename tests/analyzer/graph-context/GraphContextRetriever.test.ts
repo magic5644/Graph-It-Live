@@ -197,6 +197,18 @@ describe('GraphContextRetriever golden modes', () => {
     );
   });
 
+  it.each([
+    [{ mode: 'neighbors' as const, seeds: [{ filePath: 'src/auth/AuthService.ts', symbolName: 'authenticat' }] },
+      'Seed not found: src/auth/AuthService.ts#authenticat. Did you mean: authenticate?'],
+    [{ mode: 'impact' as const, seeds: [{ filePath: 'src/auth/AuthServce.ts' }] },
+      'Seed not found: src/auth/AuthServce.ts. Did you mean: src/auth/AuthService.ts?'],
+    [{ mode: 'path' as const, from: { filePath: 'src/api/AuthController.ts', symbolName: 'AuthController' }, to: { filePath: 'src/nope.ts', symbolName: 'Nope' } },
+      'to: Seed not found: src/nope.ts#Nope.'],
+    [{ question: 'authenticate', scope: 'nope/' }, 'Scope matches no indexed file: nope/.'],
+  ])('fails on a seed, endpoint or scope that matches nothing (#769): %j', async (request, message) => {
+    await expect(retriever.retrieve(request)).rejects.toThrow(message);
+  });
+
   it('ranks direct file impact ahead of transitive dependents', async () => {
     const response = await retriever.retrieve({
       question: 'What is the impact of changing AuthService.ts?',

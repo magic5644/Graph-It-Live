@@ -131,6 +131,13 @@ describe('formatToolResponse failures and metadata (#238)', () => {
     expect(result.structuredContent?.success).toBe(format === 'json' ? false : undefined);
   });
 
+  it('makes the workspace paths inside an error sentence relative (#769)', () => {
+    const response = createErrorResponse("Cannot read /workspace/src/a.ts from '/workspace'; /workspace-old/b.ts kept", 5, '/workspace');
+    const text = formatToolResponse(response, 'toon').content[0].text;
+
+    expect(text).toBe("errors(message)\n[Cannot read src/a.ts from '.'; /workspace-old/b.ts kept]");
+  });
+
   it('gives a failed TOON call an errors section instead of an empty data section', () => {
     const text = formatToolResponse(missing(), 'toon').content[0].text;
 

@@ -69,7 +69,7 @@ describe("graph tools", () => {
       expect(result.nodes).toHaveLength(2);
       expect(result.edges).toHaveLength(1);
       expect(result.circularDependencies).toEqual([]);
-      expect(result.circularDependencyKinds).toEqual([]);
+      expect(result.cycleKinds).toEqual([]);
     });
 
     it("tags each cycle runtime or type-only (#745)", async () => {
@@ -88,7 +88,7 @@ describe("graph tools", () => {
 
       const result = await executeCrawlDependencyGraph({ entryFile: a });
 
-      const kinds = Object.fromEntries(result.circularDependencies.map((cycle, index) => [cycle.map((file) => path.basename(file)).join(">"), result.circularDependencyKinds[index]]));
+      const kinds = Object.fromEntries(result.circularDependencies.map((cycle, index) => [cycle.map((file) => path.basename(file)).join(">"), result.cycleKinds[index]]));
       expect(kinds).toEqual({ "a.ts>b.ts>a.ts": "type-only", "b.ts>c.ts>b.ts": "runtime" });
     });
 
@@ -317,7 +317,7 @@ describe("graph tools", () => {
       expect(result.nodes).toHaveLength(301);
       expect(result.edges).toHaveLength(300);
       expect(result.nextOffset).toBeUndefined();
-      expect(result.truncated).toBeUndefined();
+      expect(result.truncated).toBe(false);
     });
 
     it("throws when the budget cannot hold a single node", async () => {
@@ -331,6 +331,19 @@ describe("graph tools", () => {
       });
 
       await expect(executeCrawlDependencyGraph({ entryFile, tokenBudget: 500 })).rejects.toThrow(RangeError);
+    });
+
+    it("marks a limited page truncated with its nextOffset, and refuses an offset past the end (#769)", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const deps = manyFiles().slice(0, 3);
+      setupWorkerState({
+        crawl: vi.fn(async () => ({ nodes: [entryFile, ...deps], edges: deps.map((dep) => ({ source: entryFile, target: dep })) })),
+      });
+
+      expect(await executeCrawlDependencyGraph({ entryFile, limit: 1 })).toMatchObject({ truncated: true, nextOffset: 1 });
+      expect(await executeCrawlDependencyGraph({ entryFile, offset: 3 })).toMatchObject({ truncated: false });
+      await expect(executeCrawlDependencyGraph({ entryFile, offset: 4 }))
+        .rejects.toThrow("offset 4 is past the end: 4 nodes, last offset 3.");
     });
 
     it("reports truncated=false when the crawl fits the budget", async () => {
@@ -356,7 +369,7 @@ describe("graph tools", () => {
       const result = await executeCrawlDependencyGraph({ entryFile });
 
       expect(result.nodes).toHaveLength(301);
-      expect(result.truncated).toBeUndefined();
+      expect(result.truncated).toBe(false);
       expect(result.omitted).toBeUndefined();
     });
   });

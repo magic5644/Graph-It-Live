@@ -11,7 +11,7 @@ import { jsonToToon, estimateTokenSavings } from '../shared/toon';
 import { collectScalarFields, collectToonSections, encodeToonSections } from '../shared/toonSections';
 import { sessionStats } from '../shared/sessionStats';
 import { getLogger } from '../shared/logger';
-import { normalizePath } from '../shared/path';
+import { normalizePath, relativizeWorkspacePaths } from '../shared/path';
 import path from 'node:path';
 import type { McpToolResponse, OutputFormat } from './types';
 import type { GraphContextResponse } from '../shared/graph-context-types';
@@ -287,7 +287,8 @@ function redactAbsolutePaths<T>(
         return normalizedValue.slice(normalizedRoot.length + 1);
       }
       if (path.isAbsolute(value)) return `[external:${path.basename(value)}]`;
-      return value;
+      // Sentences such as error messages carry paths inside them.
+      return relativizeWorkspacePaths(value, workspaceRoot);
     }
     if (Array.isArray(value)) return value.map(redact);
     if (typeof value !== 'object' || value === null) return value;

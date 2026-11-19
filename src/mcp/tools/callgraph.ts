@@ -20,13 +20,16 @@ import {
 } from "@/analyzer/callgraph/GraphExtractor";
 import {
   lookupCallGraphSymbol,
+  symbolNamesInFile,
   type CallGraphSymbol,
   type CallGraphSymbolMiss,
 } from "@/analyzer/callgraph/CallGraphSymbolLookup";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
+import { closestNames, symbolNotFoundMessage } from "@/analyzer/utils/SymbolLookup";
 import type { RelationType, SupportedLang } from "@/shared/callgraph-types";
 import { mapWithConcurrency } from "@/shared/concurrency";
 import { getLogger } from "@/shared/logger";
+import { assertOffsetInRange } from "@/shared/paging";
 import { normalizePath } from "@/shared/path";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -440,6 +443,12 @@ export async function executeQueryCallGraph(
     ...params,
     symbolId: toIndexedSymbolId(params.symbolId, params.filePath, workerState.config?.rootDir),
   });
+  if (lookup.symbol === null && lookup.reason === "not_found") {
+    // A missing symbol is an error with the closest names, like trace and impact.
+    const names = symbolNamesInFile(db, params.filePath);
+    const label = normalizePath(path.relative(workerState.config?.rootDir ?? "", params.filePath));
+    throw new Error(symbolNotFoundMessage(params.symbolName, label, closestNames(names, params.symbolName)));
+  }
   if (lookup.symbol === null) {
     return {
       symbol: null,
@@ -491,6 +500,7 @@ export async function executeQueryCallGraph(
     if (index < callees.length) sequence.push({ direction: "callees", relation: callees[index] });
   }
   const offset = params.offset ?? 0;
+  assertOffsetInRange(offset, sequence.length, "relations");
   const pageSize = Math.max(0, sequence.length - offset);
   const page = (count: number): QueryCallGraphResult => {
     const end = offset + count;

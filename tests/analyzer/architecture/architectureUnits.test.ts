@@ -292,14 +292,14 @@ describe("exploreUnitEvidence", () => {
     expect(explore({ from: "apps\\web", to: ROOT_UNIT }).pairs).toEqual([{ source: "apps/web/src/a.ts", target: "scripts/build.ts" }]);
   });
 
-  it("pages without duplicates, returns an empty page past the end, and rejects an unknown unit or revision", async () => {
+  it("pages without duplicates, refuses an offset past the end, and rejects an unknown unit or revision", async () => {
     const { units, explore } = await evidenceOf(files);
     const first = explore({ from: "apps/web", to: "packages/core", limit: 2 });
     expect(first.page).toMatchObject({ total: 3, returned: 2, truncated: true, nextOffset: 2 });
     const second = explore({ from: "apps/web", to: "packages/core", limit: 2, offset: 2, revision: units.context.revision });
     expect(second.page).toMatchObject({ returned: 1, truncated: false, nextOffset: undefined });
     expect(new Set([...first.pairs, ...second.pairs].map((pair) => `${pair.source}>${pair.target}`)).size).toBe(3);
-    expect(explore({ from: "apps/web", to: "packages/core", offset: 10 }).pairs).toEqual([]);
+    expect(() => explore({ from: "apps/web", to: "packages/core", offset: 10 })).toThrow("offset 10 is past the end");
     expect(explore({ from: "packages/core", to: "apps/web" }).page.total).toBe(0);
     expect(() => explore({ from: "nowhere", to: "apps/web" })).toThrow(/^Unknown unit "nowhere"\. The units level lists all \d+ units\.$/);
     expect(() => explore({ from: "apps/wbe", to: "packages/core" })).toThrow('Unknown unit "apps/wbe". Did you mean: apps/web?');

@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { closestPathsHint, parseSymbolRef, parseTargetRef } from "@/cli/symbols";
+import { closestPathsHint } from "@/analyzer/utils/SymbolLookup";
+import { parseSymbolRef, parseTargetRef } from "@/cli/symbols";
 import { CliError, ExitCode } from "@/cli/errors";
 
 // Use path.resolve so ROOT is a fully-qualified absolute path on all platforms

@@ -4,8 +4,10 @@
  * relative value that Node would read against the process cwd
  * (GHSA-2pv3-2vx4-vf28, CWE-22).
  */
+import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const executors = vi.hoisted(() => {
   const names = [
@@ -26,7 +28,11 @@ import { workerState } from "@/mcp/shared/state";
 import type { McpToolName, McpWorkerResponse } from "@/mcp/types";
 import { invokeTool } from "@/mcp/worker/invokeTool";
 
-const rootDir = path.resolve("/mcp-root");
+// A real folder: file parameters must name existing files (#769).
+const rootDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mcp-root-")));
+fs.mkdirSync(path.join(rootDir, "src"));
+for (const file of ["src/a.ts", "src/b.ts"]) fs.writeFileSync(path.join(rootDir, file), "");
+afterAll(() => fs.rmSync(rootDir, { recursive: true, force: true }));
 const inRoot = (relative: string) => path.join(rootDir, relative);
 
 async function call(tool: McpToolName, params: Record<string, unknown>): Promise<McpWorkerResponse> {

@@ -36,7 +36,7 @@ export async function run(
   });
 
   const confirmed = graph.circularDependencies.flatMap((cycle, index) =>
-    cycle.includes(targetFile) ? [{ cycle, kind: graph.circularDependencyKinds[index] }] : [],
+    cycle.includes(targetFile) ? [{ cycle, kind: graph.cycleKinds[index] }] : [],
   );
 
   const result = {

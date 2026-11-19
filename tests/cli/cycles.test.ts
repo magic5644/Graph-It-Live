@@ -38,7 +38,7 @@ describe('cycles command', () => {
         [target, fileB, target],
         [fileB, target],
       ],
-      circularDependencyKinds: ['runtime', 'type-only'],
+      cycleKinds: ['runtime', 'type-only'],
     });
 
     const runtime = {

@@ -119,16 +119,11 @@ describe("executeQueryCallGraph", () => {
   // Symbol lookup
   // -------------------------------------------------------------------------
 
-  it("returns null symbol when not found", async () => {
-    const result = await executeQueryCallGraph({
-      filePath: FILE_A,
-      symbolName: "nonExistent",
-    });
-
-    expect(result.symbol).toBeNull();
-    expect(result.callers).toHaveLength(0);
-    expect(result.callees).toHaveLength(0);
-    expect(result.indexedFiles).toBeGreaterThanOrEqual(0);
+  it("fails on a missing symbol, naming the closest ones (#769)", async () => {
+    await expect(executeQueryCallGraph({ filePath: FILE_A, symbolName: "nonExistent" }))
+      .rejects.toThrow("Symbol 'nonExistent' not found in");
+    await expect(executeQueryCallGraph({ filePath: FILE_A, symbolName: "mian" }))
+      .rejects.toThrow("Did you mean: main?");
   });
 
   it("finds a symbol by filePath + symbolName", async () => {
