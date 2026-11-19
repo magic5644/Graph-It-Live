@@ -20,13 +20,14 @@ import { SpiderReferenceLookup } from './spider/SpiderReferenceLookup';
 import { SpiderSymbolService } from './spider/SpiderSymbolService';
 import { SpiderWorkerManager } from './spider/SpiderWorkerManager';
 import { SymbolDependencyHelper } from './SymbolDependencyHelper';
-import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types';
+import type { Dependency, ILanguageAnalyzer, IndexingProgressCallback, SpiderConfig } from './types';
 import { RESOLVER_CONFIG_FILE_REGEX } from '@/shared/constants';
 import { normalizePath } from '@/shared/path';
 import type { GraphEdge } from '@/shared/graph-types';
 import { YIELD_INTERVAL_MS, yieldToEventLoop } from './utils/EventLoopYield';
 import { PathResolver } from './utils/PathResolver';
 import type { OutOfRootImports } from './utils/workspaceBoundary';
+import { ReportReads } from './utils/ReportReads';
 import { caseVariantOf, sameCaseFileOf, locateUnfollowedImports, projectFolders, type UnfollowedImport, type UnresolvedImport } from './utils/unresolvedImports';
 
 // Some file systems store mtimes in whole seconds: an edit during indexing may predate its start by that much.
@@ -647,25 +648,57 @@ export class Spider {
   async getUnresolvedImports(): Promise<UnresolvedImport[] | null> {
     const recorded = this.reverseIndexManager.getUnresolvedImports();
     if (!recorded) return null;
+    const unindexed = this.reverseIndexManager.getUnindexedTargets();
+    const indexedFiles = this.reverseIndexManager.getIndexedFiles();
+    // One report per index state: a CLI command asks for it more than once (init: unused exports, then dead files).
+    // shortcut: a non-source file created since (`settings.json`) changes no index entry, so the report keeps
+    // calling its import missing until the next index change; key on folder mtimes if that ever matters.
+    const key = JSON.stringify([recorded, unindexed, indexedFiles]);
+    if (this.unresolvedReport?.key !== key) {
+      const report = this.collectUnresolvedImports(recorded, unindexed, indexedFiles);
+      this.unresolvedReport = { key, report };
+      // A failed report is computed again on the next call, not served.
+      report.catch(() => {
+        if (this.unresolvedReport?.report === report) this.unresolvedReport = null;
+      });
+    }
+    return this.unresolvedReport.report;
+  }
+
+  /** The last unresolved-import report and the index state it was computed from. */
+  private unresolvedReport: { key: string; report: Promise<UnresolvedImport[]> } | null = null;
+
+  private async collectUnresolvedImports(
+    recorded: ReadonlyArray<{ sourcePath: string; specifier: string }>,
+    unindexed: ReadonlyArray<{ sourcePath: string; specifier: string; targetPath: string }>,
+    indexedFiles: readonly string[],
+  ): Promise<UnresolvedImport[]> {
+    const reads = new ReportReads();
+    // A file holds many imports: its analyzer is looked up once.
+    const analyzers = new Map<string, ILanguageAnalyzer>();
     const missing = await Promise.all(recorded.map(async ({ sourcePath, specifier }): Promise<UnfollowedImport[]> => {
-      const analyzer = this.languageService.getAnalyzer(sourcePath);
-      const target = await (analyzer.localTargetOf ? analyzer.localTargetOf(sourcePath, specifier) : this.resolver.localTargetOf(sourcePath, specifier));
+      let analyzer = analyzers.get(sourcePath);
+      if (!analyzer) {
+        analyzer = this.languageService.getAnalyzer(sourcePath);
+        analyzers.set(sourcePath, analyzer);
+      }
+      const target = await (analyzer.localTargetOf ? analyzer.localTargetOf(sourcePath, specifier, reads) : this.resolver.localTargetOf(sourcePath, specifier));
       if (!target) return [];
       // An import with no edge is always reported: by what exists under its name, the same on every OS.
-      const notAnalyzed = sameCaseFileOf(target);
-      const caseOf = notAnalyzed ? null : caseVariantOf(target);
+      const notAnalyzed = sameCaseFileOf(target, reads);
+      const caseOf = notAnalyzed ? null : caseVariantOf(target, reads);
       return [{ importer: sourcePath, specifier, target, ...(notAnalyzed ? { notAnalyzed } : {}), ...(caseOf ? { caseOf } : {}) }];
     }));
     const isExcluded = createExclusionMatcher(this.config.rootDir);
     // An edge to a file never indexed: an excluded file, or (macOS, Windows) one the import names in another case.
-    const excluded = this.reverseIndexManager.getUnindexedTargets().flatMap(({ sourcePath, specifier, targetPath }): UnfollowedImport[] => {
+    const excluded = unindexed.flatMap(({ sourcePath, specifier, targetPath }): UnfollowedImport[] => {
       if (isExcluded(targetPath)) return [{ importer: sourcePath, specifier, target: targetPath, excluded: true }];
-      const caseOf = caseVariantOf(targetPath);
+      const caseOf = caseVariantOf(targetPath, reads);
       return caseOf ? [{ importer: sourcePath, specifier, target: targetPath, caseOf }] : [];
     });
     const root = normalizePath(path.resolve(this.config.rootDir));
     const projectOf = projectFolders(root);
-    return locateUnfollowedImports([...missing.flat(), ...excluded], root, this.reverseIndexManager.getIndexedFiles(), projectOf);
+    return locateUnfollowedImports([...missing.flat(), ...excluded], root, indexedFiles, projectOf, reads);
   }
 
   /** Imports the workspace-root boundary dropped from the reverse index; null when it is off. */

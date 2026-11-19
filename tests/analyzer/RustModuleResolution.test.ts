@@ -4,6 +4,7 @@ import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { fromFileModule, isInsideDir, libraryName, moduleDir, RustParser } from '@/analyzer/languages/RustParser';
 import { normalizePath } from '@/analyzer/types';
+import { ReportReads } from '@/analyzer/utils/ReportReads';
 
 /** `crate::`, `self::`, `super::` and item-suffixed paths resolve the way rustc finds module files (#521). */
 describe('RustParser module resolution', () => {
@@ -192,3 +193,34 @@ describe('RustParser module resolution', () => {
     }
   });
 });
+
+/** Where an unresolved `mod x;` points (#774): read once per file for all its imports of one report. */
+describe('RustParser.localTargetOf', () => {
+  let root: string;
+  beforeAll(async () => {
+    root = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-rust-target-')));
+    await fs.mkdir(path.join(root, 'src'), { recursive: true });
+    await fs.writeFile(path.join(root, 'src/main.rs'), 'mod generated;\nuse serde_json::Value;\nfn main() {}\n');
+  });
+  afterAll(async () => {
+    await fs.rm(root, { recursive: true, force: true });
+  });
+
+  it('names the file of a declared mod, never a use path, and reads the file once per report', async () => {
+    const parser = new RustParser(root, process.cwd());
+    const main = path.join(root, 'src/main.rs');
+    const reads = new ReportReads();
+    expect(await parser.localTargetOf(main, 'generated', reads)).toBe(normalizePath(path.join(root, 'src/generated.rs')));
+    await fs.writeFile(main, 'fn main() {}\n');
+    // Same report: the text read first still answers. A new report reads the file again.
+    expect(await parser.localTargetOf(main, 'serde_json', reads)).toBeNull();
+    expect(await parser.localTargetOf(main, 'generated', reads)).toBe(normalizePath(path.join(root, 'src/generated.rs')));
+    expect(await parser.localTargetOf(main, 'generated')).toBeNull();
+  });
+
+  it('is null when the importing file cannot be read', async () => {
+    const parser = new RustParser(root, process.cwd());
+    expect(await parser.localTargetOf(path.join(root, 'src/gone.rs'), 'generated')).toBeNull();
+  });
+});
+

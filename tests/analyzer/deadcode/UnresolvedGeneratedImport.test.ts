@@ -1,9 +1,11 @@
 import * as fs from "node:fs";
 import { tmpdir } from "node:os";
 import * as path from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { scanDeadCode, scanUnreferencedFiles } from "@/analyzer/deadcode/DeadCodeScanner";
+import { Parser } from "@/analyzer/Parser";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
+import { PathResolver } from "@/analyzer/utils/PathResolver";
 import { EXCLUDED_IMPORTS_NEXT, UNRESOLVED_IMPORTS_NEXT } from "@/analyzer/utils/unresolvedImports";
 import { normalizePath } from "@/shared/path";
 
@@ -28,6 +30,7 @@ describe("unresolved import of a generated file (#774)", () => {
     fs.cpSync(FIXTURE, root, { recursive: true });
   });
   afterEach(async () => {
+    vi.restoreAllMocks();
     await Promise.all(spiders.splice(0).map((spider) => spider.dispose()));
     fs.rmSync(root, { recursive: true, force: true });
   });
@@ -136,6 +139,36 @@ describe("unresolved import of a generated file (#774)", () => {
       caseMismatchExamples: [{ file: "backend/src/extra.ts", specifier: "./resolvers/Users", existing: "backend/src/resolvers/users.ts" }],
     });
     expect(report && "next" in report ? report.next : "").toContain("letter case");
+  }, 60_000);
+
+  // Regression (#774 bench): init asks for the report twice (unused exports, then dead files); it was computed twice,
+  // with a resolution per import and file each time. One run per index state now, and no file is parsed again.
+  it("computes the report once per index state, without parsing a file again", async () => {
+    const spider = await indexed();
+    const resolve = vi.spyOn(PathResolver.prototype, "localTargetOf");
+    const parse = vi.spyOn(Parser.prototype, "parseImports");
+
+    await scanDeadCode(spider, root, {});
+    const once = resolve.mock.calls.length;
+    await scanUnreferencedFiles(spider, root, {});
+    expect(once).toBeGreaterThan(0);
+    expect(resolve).toHaveBeenCalledTimes(once);
+    expect(parse).not.toHaveBeenCalled();
+
+    // A new index state is a new report: the emitted file resolves the loader's import.
+    fs.writeFileSync(path.join(root, GENERATED), GENERATED_CONTENT);
+    const stale = await spider.validateReverseIndex(1, [path.join(root, GENERATED)]);
+    await spider.reindexStaleFiles(stale!.staleFiles);
+    expect((await spider.getUnresolvedImports())?.some(({ specifier }) => specifier === "./resolvers.generated")).toBe(false);
+    expect(resolve.mock.calls.length).toBeGreaterThan(once);
+  }, 60_000);
+
+  it("computes a failed report again on the next call", async () => {
+    const spider = await indexed();
+    vi.spyOn(PathResolver.prototype, "localTargetOf").mockRejectedValueOnce(new Error("disk gone"));
+
+    await expect(spider.getUnresolvedImports()).rejects.toThrow("disk gone");
+    expect((await spider.getUnresolvedImports())?.length).toBe(3);
   }, 60_000);
 
   it("is unknown (null) without a reverse index", async () => {

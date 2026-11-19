@@ -20,6 +20,7 @@ import {
   unresolvedImportsReaching,
   type UnresolvedImport,
 } from "@/analyzer/utils/unresolvedImports";
+import { ReportReads } from "@/analyzer/utils/ReportReads";
 import { normalizePath } from "@/shared/path";
 
 const ROOT = "/repo";
@@ -59,6 +60,27 @@ describe("unresolvedImports (#774)", () => {
       expect(caseVariantOf(path.join(root, "src/Util.ts"))).toBe(normalizePath(path.join(root, "src/util.ts")));
       expect(caseVariantOf(path.join(root, "src/util"))).toBeNull();
       expect(caseVariantOf(path.join(root, "src/other"))).toBeNull();
+    });
+
+    it("reads each folder and file once per report, and answers a fresh report from the disk", async () => {
+      const reads = new ReportReads();
+      const src = path.join(root, "src");
+      expect(reads.isDirectory(path.join(src, "gen"))).toBe(false);
+      expect(reads.fileNames(src)).toEqual([]);
+      expect(await reads.text(path.join(src, "a.ts"))).toBeNull();
+      fs.mkdirSync(path.join(src, "gen"));
+      fs.writeFileSync(path.join(src, "a.ts"), "x");
+
+      expect(reads.isDirectory(path.join(src, "gen"))).toBe(false);
+      expect(reads.fileNames(src)).toEqual([]);
+      expect(await reads.text(path.join(src, "a.ts"))).toBeNull();
+      const fresh = new ReportReads();
+      expect(fresh.isDirectory(path.join(src, "gen"))).toBe(true);
+      expect(fresh.isDirectory(path.join(src, "a.ts"))).toBe(false);
+      expect(fresh.isDirectory(path.join(src, "a.ts", "deeper"))).toBe(false);
+      expect(fresh.fileNames(src)).toEqual(["a.ts"]);
+      expect(fresh.fileNames(path.join(src, "a.ts"))).toEqual([]);
+      expect(await fresh.text(path.join(src, "a.ts"))).toBe("x");
     });
 
     it("climbs out of missing folders, never above the root", () => {

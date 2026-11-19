@@ -1,7 +1,6 @@
-import * as fs from "node:fs";
 import * as path from "node:path";
-import { getRelativePath } from "../../shared/path";
-import { normalizePath } from "../types";
+import { getRelativePath, normalizePath } from "../../shared/path";
+import { ReportReads } from "./ReportReads";
 import { findProjectRoot } from "./workspaceBoundary";
 
 /** How many unresolved imports a report names */
@@ -88,6 +87,7 @@ export function locateUnfollowedImports(
   rootDir: string,
   indexedFiles: readonly string[],
   projectOf: (dir: string) => string,
+  reads = new ReportReads(),
 ): UnresolvedImport[] {
   const below = new Map<string, number>();
   const filesBelow = (reach: string) => {
@@ -101,7 +101,7 @@ export function locateUnfollowedImports(
   return imports.map(({ importer, specifier, target, excluded, caseOf, notAnalyzed }) => {
     const base = { importer, specifier, ...(excluded ? { excluded } : {}), ...(caseOf ? { caseOf } : {}), ...(notAnalyzed ? { notAnalyzed } : {}) };
     if (notAnalyzed || NON_CODE_EXTENSIONS.has(path.extname(target).toLowerCase())) return base;
-    const reach = excluded ? normalizePath(path.dirname(target)) : nearestExistingDir(target, rootDir);
+    const reach = excluded ? normalizePath(path.dirname(target)) : nearestExistingDir(target, rootDir, reads);
     const project = normalizePath(projectOf(path.dirname(importer)));
     if (reach !== project && !reach.startsWith(`${project}/`)) return base;
     return { ...base, reach, reachFiles: filesBelow(reach) };
@@ -129,33 +129,19 @@ export interface UnresolvedImportsReport {
   next?: string;
 }
 
-/** Whether `dir` is a readable folder; any stat error (ENOENT, ENOTDIR, EACCES) means no. */
-function isDirectory(dir: string): boolean {
-  try {
-    return fs.statSync(dir).isDirectory();
-  } catch {
-    return false;
-  }
-}
-
 /** The files of `target`'s folder named `target` or `target` plus an extension, compared by `same`. */
-function filesNamed(target: string, same: (name: string, base: string) => boolean): string[] {
+function filesNamed(target: string, same: (name: string, base: string) => boolean, reads: ReportReads): string[] {
   const base = path.basename(target);
-  try {
-    return fs.readdirSync(path.dirname(target), { withFileTypes: true })
-      .filter((entry) => entry.isFile() && (same(entry.name, base) || same(entry.name.slice(0, base.length), base) && entry.name[base.length] === "."))
-      .map((entry) => entry.name);
-  } catch {
-    return [];
-  }
+  return reads.fileNames(path.dirname(target))
+    .filter((name) => same(name, base) || (same(name.slice(0, base.length), base) && name[base.length] === "."));
 }
 
 /**
  * The existing file an unresolved import names with the same letter case: `target` itself, or `target` plus an
  * extension the analysis does not read (`./settings` with only `settings.json`: no edge on any OS). Null when none.
  */
-export function sameCaseFileOf(target: string): string | null {
-  const [found] = filesNamed(target, (name, base) => name === base).sort((a, b) => a.localeCompare(b));
+export function sameCaseFileOf(target: string, reads = new ReportReads()): string | null {
+  const [found] = filesNamed(target, (name, base) => name === base, reads).sort((a, b) => a.localeCompare(b));
   return found === undefined ? null : normalizePath(path.join(path.dirname(target), found));
 }
 
@@ -164,9 +150,9 @@ export function sameCaseFileOf(target: string): string | null {
  * macOS and Windows resolve such an import to a path the index does not hold; Linux resolves nothing; at run time
  * it breaks on Linux. Reported the same on all three (#774).
  */
-export function caseVariantOf(target: string): string | null {
-  if (sameCaseFileOf(target)) return null;
-  const [found] = filesNamed(target, (name, base) => name.toLowerCase() === base.toLowerCase());
+export function caseVariantOf(target: string, reads = new ReportReads()): string | null {
+  if (sameCaseFileOf(target, reads)) return null;
+  const [found] = filesNamed(target, (name, base) => name.toLowerCase() === base.toLowerCase(), reads);
   return found === undefined ? null : normalizePath(path.join(path.dirname(target), found));
 }
 
@@ -187,10 +173,10 @@ export const UNTRACKED_IMPORTS: UntrackedImportsReport = {
 export type UnresolvedImportsField = UnresolvedImportsReport | UntrackedImportsReport;
 
 /** The nearest existing folder of `target`, never above `rootDir`. */
-export function nearestExistingDir(target: string, rootDir: string): string {
+export function nearestExistingDir(target: string, rootDir: string, reads = new ReportReads()): string {
   const root = path.resolve(rootDir);
   let dir = path.dirname(path.resolve(target));
-  while (dir.length > root.length && !isDirectory(dir)) {
+  while (dir.length > root.length && !reads.isDirectory(dir)) {
     dir = path.dirname(dir);
   }
   return normalizePath(dir.length > root.length ? dir : root);

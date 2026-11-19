@@ -1,4 +1,5 @@
 import type { Framework } from "../shared/graph-types";
+import type { ReportReads } from "./utils/ReportReads";
 
 export { normalizePath, normalizePathForComparison } from "../shared/path";
 
@@ -317,11 +318,12 @@ export interface ILanguageAnalyzer {
   /**
    * Where an import that resolved to nothing deterministically points in the workspace, whether it exists or not
    * (a generated file not built yet), or null when the specifier may name a library. Without it, the TS/JS path
-   * resolver decides (relative and alias specifiers) (#774).
+   * resolver decides (relative and alias specifiers) (#774). `reads` shares the file-system reads of one report.
    */
   localTargetOf?(
     fromFile: string,
     moduleSpecifier: string,
+    reads?: ReportReads,
   ): Promise<string | null>;
 }
 

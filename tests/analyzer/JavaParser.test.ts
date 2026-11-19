@@ -1,4 +1,6 @@
 import { JavaParser } from '@/analyzer/languages/JavaParser';
+import { ReportReads } from '@/analyzer/utils/ReportReads';
+import { normalizePath } from '@/shared/path';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -204,5 +206,47 @@ describe('JavaParser', () => {
             fs.rmSync(root, { recursive: true, force: true });
             fs.rmSync(outside, { recursive: true, force: true });
           });
+  });
+
+  describe('localTargetOf (#774)', () => {
+    let root: string;
+    const at = (file: string) => normalizePath(path.join(root, file));
+    const write = (file: string) => {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), 'class X {}\n');
+    };
+    beforeEach(() => {
+      root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-java-target-')));
+      write('mod/src/main/java/com/acme/app/App.java');
+      write('com/top/Root.java');
+    });
+
+    it('names the class file in the nearest folder holding the package, existing or not', async () => {
+      const scoped = new JavaParser(root, process.cwd());
+      const app = path.join(root, 'mod/src/main/java/com/acme/app/App.java');
+      expect(await scoped.localTargetOf(app, 'com.acme.app.Generated')).toBe(at('mod/src/main/java/com/acme/app/Generated.java'));
+      // The workspace root itself is a source root too.
+      expect(await scoped.localTargetOf(app, 'com.top.Missing')).toBe(at('com/top/Missing.java'));
+    });
+
+    it('is null for the JDK, wildcards, lower-case names, unsafe segments, missing packages and files outside the root', async () => {
+      const scoped = new JavaParser(root, process.cwd());
+      const app = path.join(root, 'mod/src/main/java/com/acme/app/App.java');
+      for (const specifier of ['java.util.List', 'com.acme.app.*', 'com.acme.app.util', 'com..app.X', 'Single', 'org.junit.Test']) {
+        expect(await scoped.localTargetOf(app, specifier)).toBeNull();
+      }
+      expect(await scoped.localTargetOf(path.join(os.tmpdir(), 'Elsewhere.java'), 'com.top.Missing')).toBeNull();
+    });
+
+    it('probes each package folder once across the imports of one report', async () => {
+      const scoped = new JavaParser(root, process.cwd());
+      const reads = new ReportReads();
+      const app = path.join(root, 'mod/src/main/java/com/acme/app/App.java');
+      expect(await scoped.localTargetOf(app, 'com.gen.First', reads)).toBeNull();
+      fs.mkdirSync(path.join(root, 'com/gen'), { recursive: true });
+      // Same report: the folder probes are not made again. A new report sees the folder.
+      expect(await scoped.localTargetOf(app, 'com.gen.Second', reads)).toBeNull();
+      expect(await scoped.localTargetOf(app, 'com.gen.Second')).toBe(at('com/gen/Second.java'));
+    });
   });
 });
