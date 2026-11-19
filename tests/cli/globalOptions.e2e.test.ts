@@ -296,7 +296,8 @@ describe.skipIf(!distExists)("CLI global options (E2E)", { timeout: SUBPROCESS_T
     const result = cli("tool", "generate_codemap", "-w", tmpDir, "--filePath", file, "--format", "json");
 
     expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout).filePath).toBe(file);
+    // JSON paths are workspace-relative, as on the MCP server (#769).
+    expect(JSON.parse(result.stdout).filePath).toBe("src/a.ts");
     expect(result.stderr).not.toContain("\r");
   });
 

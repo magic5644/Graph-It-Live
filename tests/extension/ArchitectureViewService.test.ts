@@ -1102,7 +1102,8 @@ describe("ArchitectureViewService", () => {
         page: { total: 1, offset: 0, returned: 1, truncated: false, nextOffset: undefined },
       });
       await service.handleWebviewMessage({ command: "architectureUnitEvidence", revision, from: "(root)", to: "src", offset: 1 });
-      expect(posted.at(-1)).toMatchObject({ pairs: [], page: { total: 1, offset: 1, returned: 0 } });
+      // Past the last page: a warning naming the count, never an empty page (#769).
+      expect(warnings.at(-1)).toContain("offset 1 is past the end: 1 file pairs");
       // A path coming back from the panel, in Windows form, opens the file of the units' graph.
       await service.handleWebviewMessage({ command: "architectureOpenFile", revision, relativePath: "src\\ui\\view.ts" });
       expect(opened).toEqual([path.join(root, "src/ui/view.ts")]);

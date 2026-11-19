@@ -8,7 +8,7 @@
  * between two processes, the thing the cache exists for.
  */
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -113,11 +113,13 @@ describe.skipIf(!distExists)("CLI index cache flags (E2E)", { timeout: SUBPROCES
 
   it("does not return symbols removed from a cached file", () => {
     const args = ["context", "--seeds", "src/f0.ts#f0", "--format", "json"];
-    cli(...args);
+    expect((JSON.parse(cli(...args)) as GraphContextResponse).seeds).toHaveLength(1);
     fs.writeFileSync(path.join(tmpDir, "src/f0.ts"), "// no symbols remain\n");
 
-    const result = JSON.parse(cli(...args)) as GraphContextResponse;
-    expect(result.nodes).toEqual([]);
+    // The removed symbol is a seed that resolves to nothing: an error, not a stale node (#769).
+    const result = spawnSync(process.execPath, [DIST_ENTRY, "-w", tmpDir, ...args], { encoding: "utf-8" });
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain("Seed not found: src/f0.ts#f0.");
   });
 
   it("re-resolves imports after an alias changes between processes", () => {
