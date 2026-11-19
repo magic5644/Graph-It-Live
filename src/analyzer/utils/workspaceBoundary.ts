@@ -8,7 +8,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Language } from "../LanguageService";
+import type { Language } from "../language";
 
 /** Imports that resolved to a file outside the workspace root and were skipped. */
 export interface OutOfRootImports {
