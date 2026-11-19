@@ -9,6 +9,7 @@
 
 import { aggregateCommunityGroups } from "../community/groupAggregation";
 import type { ArchitectureMatrix, ArchitectureOverview, ArchitectureUnits } from "../../shared/architecture-model";
+import { unitDisplayName } from "../../shared/unitDisplayName";
 import { overviewArchitecture } from "./ArchitectureExplorer";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { groupMatrix, unitMatrix } from "./architectureMatrix";
@@ -197,7 +198,8 @@ export function levelMatrix(graph: ArchitectureGraph, source: UnitSource | undef
   const matrix = groupMatrix(aggregation, inLevel);
   // Named as the graph names them, once ordered: the order stays the CLI's.
   const parent = folder ?? unit ?? "";
-  const parentName = folder === undefined ? source.units.units.find((entry) => entry.key === unit)?.name ?? parent : parent.slice(parent.lastIndexOf("/") + 1);
+  const unitEntry = source.units.units.find((entry) => entry.key === unit);
+  const parentName = folder === undefined ? (unitEntry === undefined ? parent : unitDisplayName(unitEntry)) : parent.slice(parent.lastIndexOf("/") + 1);
   const rows = matrix.rows.map((row) => ({ ...row, label: groupLabel(row, parent, parentName) }));
   return { matrix: { ...matrix, rows }, nestedGroups: nestedGroups.filter(inLevel), unitsLevel };
 }

@@ -50,7 +50,7 @@ const violation = (source: string, target: string) => ({ rule: "r", severity: "e
 function result(assessment: Partial<ArchitectureAssessment> = {}, focus?: string): InitResult {
   return {
     ...(focus === undefined ? {} : { focus }),
-    assessment: { deadFiles: [], quickWins: [], matrixFindings: [], typeOnlyCycles: { unitCycles: 0, mutualImports: 0, evidence: [], totalEvidence: 0, units: [] }, lazyCycles: { unitCycles: 0, mutualImports: 0, evidence: [], totalEvidence: 0, units: [] }, ...assessment },
+    assessment: { unitNames: [], deadFiles: [], quickWins: [], matrixFindings: [], typeOnlyCycles: { unitCycles: 0, mutualImports: 0, evidence: [], totalEvidence: 0, units: [] }, lazyCycles: { unitCycles: 0, mutualImports: 0, evidence: [], totalEvidence: 0, units: [] }, ...assessment },
   } as unknown as InitResult;
 }
 
