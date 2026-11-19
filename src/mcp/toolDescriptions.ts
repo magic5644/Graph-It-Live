@@ -85,7 +85,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
     lines: [
       "WHEN: project architecture, full dependency tree from an entry point, circular-import detection.",
       "WHY: crawls real import edges across the workspace rather than inferring structure from file names.",
-      "RETURNS: nodes (path, extension, dependency count, dependent count, circular flag, communityId/communityKey: by folder, or by import structure with communityMode 'louvain'), edges (import relations) and circularDependencies with cycleKinds in the same order (type-only when every import closing the cycle is type-only, else runtime); paginated via offset/limit.",
+      "RETURNS: nodes (path, extension, dependency count, dependent count, circular flag, communityId/communityKey: by folder, or by import structure with communityMode 'louvain'), edges (import relations), cycleCount, and circularDependencies with cycleKinds in the same order (type-only when every import closing the cycle is type-only, else runtime); paginated via offset/limit: each edge and cycle comes with the page of its last listed file.",
       `LIMITS: ${TOKEN_BUDGET_LIMIT}`,
       OPEN_ENDED_HINT,
     ],

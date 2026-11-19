@@ -139,22 +139,17 @@ export function updateNodeCounts(nodes: NodeInfo[], edges: EdgeInfo[]): void {
 }
 
 /**
- * Index of the node that owns each edge in a paged node list: the later of its
- * two listed ends, or its only listed end, or the first page. Every edge lands
- * on exactly one page, once both of its listed ends have been sent, so reading
- * every page returns every edge and a hub's edges spread over the pages of its
- * neighbours. Node paths are normalized but edge paths are raw (backslashes
- * and drive case on Windows), so both are compared normalized.
+ * Index of the node that owns each group of paths (an edge's two ends, a
+ * cycle's members) in a paged node list: the latest listed member, or the
+ * first page when none is listed. Every group lands on exactly one page, once
+ * all its listed members have been sent, so reading every page returns every
+ * edge and cycle, and a hub's edges spread over the pages of its neighbours.
+ * Node paths are normalized but edge and cycle paths are raw (backslashes and
+ * drive case on Windows), so both are compared normalized.
  */
-export function edgeOwners(
-  nodePaths: string[],
-  edges: { source: string; target: string }[],
-): number[] {
+export function pageOwners(nodePaths: string[], groups: string[][]): number[] {
   const indexByPath = new Map(nodePaths.map((nodePath, index) => [normalizePath(nodePath), index]));
-  return edges.map((edge) => Math.max(
-    indexByPath.get(normalizePath(edge.source)) ?? 0,
-    indexByPath.get(normalizePath(edge.target)) ?? 0,
-  ));
+  return groups.map((group) => Math.max(0, ...group.map((member) => indexByPath.get(normalizePath(member)) ?? 0)));
 }
 
 /**

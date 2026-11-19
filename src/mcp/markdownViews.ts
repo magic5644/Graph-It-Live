@@ -90,7 +90,7 @@ const VIEWS: Record<string, View> = {
   crawl_dependency_graph: (d) => [
     `# Dependency graph from ${code(d.entryFile)}`,
     "",
-    ...bullets([["Files", d.nodeCount], ["Imports", d.edgeCount], ["Max depth", d.maxDepth]]),
+    ...bullets([["Files", d.nodeCount], ["Imports", d.edgeCount], ["Cycles", d.cycleCount], ["Max depth", d.maxDepth]]),
     ...continuation(d),
     ...table("Files", d.nodes, ["path", "dependencyCount", "dependentCount", "hubScore", "communityKey"]),
     ...table("Imports", d.edges, ["source", "target"]),

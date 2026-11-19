@@ -247,6 +247,7 @@ describe("graph tools", () => {
       expect(result.omitted).toEqual({
         nodes: 301 - result.nodes.length,
         edges: 300 - result.edges.length,
+        cycles: 0,
       });
       const kept = new Set(result.nodes.map((node) => node.path));
       expect(result.edges.length).toBe(result.nodes.length - 1);
@@ -324,13 +325,39 @@ describe("graph tools", () => {
       const entryFile = await createTempFile(tempDir, "entry.ts", "");
       const cycle = Array.from({ length: 200 }, (_, i) => path.join(tempDir, `long-cycle-member-${i}.ts`));
       setupWorkerState({
+        // The cycle members are not crawl nodes, so the cycle stays on the first page.
         crawl: vi.fn(async () => ({
-          nodes: [entryFile, ...cycle],
+          nodes: [entryFile],
           edges: cycle.map((file, i) => ({ source: file, target: cycle[(i + 1) % cycle.length] })),
         })),
       });
 
       await expect(executeCrawlDependencyGraph({ entryFile, tokenBudget: 500 })).rejects.toThrow(RangeError);
+    });
+
+    it("pages cycles with their last listed file so a long cycle does not block the first page (#769)", async () => {
+      const entryFile = await createTempFile(tempDir, "entry.ts", "");
+      const cycle = Array.from({ length: 200 }, (_, i) => path.join(tempDir, `long-cycle-member-${i}.ts`));
+      setupWorkerState({
+        crawl: vi.fn(async () => ({
+          nodes: [entryFile, ...cycle],
+          edges: [
+            { source: entryFile, target: cycle[0] },
+            ...cycle.map((file, i) => ({ source: file, target: cycle[(i + 1) % cycle.length] })),
+          ],
+        })),
+      });
+
+      const first = await executeCrawlDependencyGraph({ entryFile, tokenBudget: 4000 });
+      expect(first).toMatchObject({ cycleCount: 1, circularDependencies: [], cycleKinds: [], truncated: true });
+      expect(first.omitted?.cycles).toBe(1);
+
+      const pages = [first];
+      while (pages.at(-1)!.nextOffset !== undefined) {
+        pages.push(await executeCrawlDependencyGraph({ entryFile, offset: pages.at(-1)!.nextOffset, limit: 300, tokenBudget: 0 }));
+      }
+      expect(pages.flatMap((page) => page.circularDependencies)).toHaveLength(1);
+      expect(pages.flatMap((page) => page.cycleKinds)).toEqual(["runtime"]);
     });
 
     it("marks a limited page truncated with its nextOffset, and refuses an offset past the end (#769)", async () => {
@@ -353,7 +380,7 @@ describe("graph tools", () => {
       const result = await executeCrawlDependencyGraph({ entryFile, tokenBudget: 4_000 });
 
       expect(result.truncated).toBe(false);
-      expect(result.omitted).toEqual({ nodes: 0, edges: 0 });
+      expect(result.omitted).toEqual({ nodes: 0, edges: 0, cycles: 0 });
     });
 
     it("returns the full crawl without budget metadata when no tokenBudget is given", async () => {
