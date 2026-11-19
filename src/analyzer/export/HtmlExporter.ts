@@ -4,6 +4,7 @@ import type { Framework, GraphData } from '../../shared/graph-types';
 import { getRelativePath, normalizePath } from '../../shared/path';
 import { COMMUNITY_PALETTE } from '../../shared/communityPalette';
 import { FRAMEWORK_IDENTITIES } from '../../shared/constants';
+import { byCodeUnit } from '../architecture/architectureUnits';
 import { aggregateCommunityGroups } from '../community/groupAggregation';
 import { LEGEND, legendDash, PALETTES, type LegendKind } from '../diagram/diagramStyle';
 
@@ -158,7 +159,8 @@ export function buildHtmlGraphModel(graphData: GraphData, workspaceRoot?: string
     const color = nodeColor(id).background;
     return { id, key, label, ...counts, color, ink: inkFor(color) };
   };
-  const groups: HtmlGroup[] = aggregation.groups.map(({ id, key, label, fileCount, internalEdgeCount }) =>
+  // Sorted by key, files and pairs by path: vis-network lays out a seeded page the same way only in the same node order.
+  const groups: HtmlGroup[] = aggregation.groups.toSorted((a, b) => byCodeUnit(a.key, b.key)).map(({ id, key, label, fileCount, internalEdgeCount }) =>
     group(id, key, (Object.hasOwn(groupNames, key) ? groupNames[key] : label) || `group ${id}`, { fileCount, internalEdgeCount }));
   if (aggregation.unassigned.fileCount > 0) {
     groups.push(group(0, '', 'unassigned', aggregation.unassigned));
@@ -169,8 +171,8 @@ export function buildHtmlGraphModel(graphData: GraphData, workspaceRoot?: string
     const pair = [normalizePath(edge.source), normalizePath(edge.target)] as const;
     return [`${pair[0]}\0${pair[1]}`, pair];
   }));
-  const filePaths = new Set([...graphData.nodes.map(normalizePath), ...[...pairs.values()].flat()]);
-  const files = [...filePaths].map(filePath => {
+  const filePaths = [...new Set([...graphData.nodes.map(normalizePath), ...[...pairs.values()].flat()])].sort(byCodeUnit);
+  const files = filePaths.map(filePath => {
     const metadata = graphData.nodeMetadata?.[filePath];
     return {
       id: filePath,
@@ -181,7 +183,8 @@ export function buildHtmlGraphModel(graphData: GraphData, workspaceRoot?: string
       borderWidth: hubScoreBorderWidth(metadata?.hubScore),
     };
   });
-  return { groups, files, edges: [...pairs.values()], totals: aggregation.totals };
+  const edges = [...pairs.values()].sort(([fromA, toA], [fromB, toB]) => byCodeUnit(fromA, fromB) || byCodeUnit(toA, toB));
+  return { groups, files, edges, totals: aggregation.totals };
 }
 
 type HtmlGraphModel = ReturnType<typeof buildHtmlGraphModel>;
@@ -263,9 +266,10 @@ function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: Rea
     `<span>${htmlEscape(group.label)}${secondary(group)}` +
     ` — ${group.fileCount} file(s), ${group.internalEdgeCount} internal edge(s)</span></div>`,
   ).join('\n');
-  const capped = groups.length > MAX_DRAWN_GROUPS
-    ? `<div class="legend-hint">${groups.length} groups: the <span id="drawn-count">${MAX_DRAWN_GROUPS}</span> largest are drawn. Click a group here, or filter, to draw another.</div>\n`
-    : '';
+  // Shown whenever fewer groups are drawn than exist (past the cap, or fewer for readable labels): render() keeps it live.
+  const drawn = Math.min(groups.length, MAX_DRAWN_GROUPS);
+  const capped = `<div class="legend-hint" id="drawn-hint"${drawn < groups.length ? '' : ' hidden'}><span id="drawn-count">${drawn}</span> of ${groups.length} groups drawn, the largest. ` +
+    'Click a group here, or filter, to draw another.</div>\n';
   const framework = (Object.keys(FRAMEWORK_IDENTITIES) as Framework[]).filter(name => frameworks.has(name)).map(name =>
     `<div class="legend-item"><img alt="" width="20" height="20" src="${frameworkImage(name)}"><span>${FRAMEWORK_IDENTITIES[name].label} component files</span></div>`,
   ).join('\n');
@@ -626,7 +630,16 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
     }
 
     // Rebuilds the visible nodes, then aggregates every file pair onto its visible ends.
+    // The legend says how many groups are drawn whenever some are not, whatever the reason.
+    function updateDrawnHint() {
+      const hint = document.getElementById('drawn-hint');
+      if (!hint) return;
+      const drawn = groupsData.filter(g => expanded.has(g.id) || isDrawn(g.id)).length;
+      hint.hidden = filterText !== '' || drawn === groupsData.length;
+      document.getElementById('drawn-count').textContent = String(drawn);
+    }
     function render() {
+      updateDrawnHint();
       const positions = network.getPositions();
       const shown = [];
       for (const g of groupsData) {
@@ -784,8 +797,6 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
         // At most a quarter fewer per pass: a smaller set lays out tighter, the estimate alone overshoots.
         const estimate = Math.max(Math.floor(groups * (scale / minScale) ** 2), Math.ceil(groups * 0.75));
         drawLimit = Math.max(${MIN_DRAWN_GROUPS}, Math.min(drawLimit - 1, estimate));
-        const count = document.getElementById('drawn-count');
-        if (count) count.textContent = String(drawLimit);
         render();
         return;
       }

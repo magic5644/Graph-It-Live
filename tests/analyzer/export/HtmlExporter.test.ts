@@ -211,7 +211,7 @@ describe('buildHtmlGraphModel', () => {
   it.each([undefined, 'react'] as const)('preserves risk/community styling with framework %s', (framework) => {
     const graph = sampleGraph();
     graph.nodeMetadata!['/ws/src/core/a.ts'] = { hubScore: 0.9, communityId: 1, framework };
-    const file = buildHtmlGraphModel(graph, '/ws').files[0];
+    const file = buildHtmlGraphModel(graph, '/ws').files.find((entry) => entry.label === 'src/core/a.ts')!;
     expect(file.framework).toBe(framework);
     expect(file.color).toEqual(nodeColor(1, 0.9));
     expect(file.borderWidth).toBe(4);
@@ -275,14 +275,15 @@ describe('compactGraphModel', () => {
     graph.nodeMetadata!['/ws/src/core/b.ts'].framework = 'react';
     const model = buildHtmlGraphModel(graph, '/ws');
     const data = compactGraphModel(model);
+    // Files sorted by path, pairs by importer then imported.
     expect(data.files).toEqual([
-      [0, 'src/core/a.ts', 1, 0],
-      [9, 'b.ts', 1, 1, 'react'],
-      [4, 'ui/c.ts', 2, 2],
-      [0, 'main.ts', 0, 3],
+      [0, 'main.ts', 0, 0],
+      [0, 'src/core/a.ts', 1, 1],
+      [9, 'b.ts', 1, 2, 'react'],
+      [4, 'ui/c.ts', 2, 3],
     ]);
-    expect(data.styles[0]).toEqual([COMMUNITY_PALETTE[0], '#333', 4]);
-    expect(data.edges).toEqual([0, 1, 2, 0, 2, 1, 1, 2, 3, 2]);
+    expect(data.styles[1]).toEqual([COMMUNITY_PALETTE[0], '#333', 4]);
+    expect(data.edges).toEqual([0, 3, 1, 2, 2, 3, 3, 1, 3, 2]);
     // Each index pair names the same files as the model's path pairs.
     const pairs = data.edges.flatMap((row, index) => (index % 2 === 0 ? [[model.files[row].id, model.files[data.edges[index + 1]].id]] : []));
     expect(pairs).toEqual(model.edges);
@@ -337,7 +338,7 @@ describe('renderHtmlPage: the export page', () => {
     expect(edgeRows.length).toBeLessThan(edges.length * 6);
     const view = runPage(html);
     view.setAllExpanded(true);
-    expect(view.nodes.get().map((node: { id: string }) => node.id)).toEqual(nodes.map((node) => node.slice(4)));
+    expect(view.nodes.get().map((node: { id: string }) => node.id)).toEqual(nodes.map((node) => node.slice(4)).toSorted((a, b) => (a < b ? -1 : Number(a > b))));
     expect(view.edges.get()).toHaveLength(edges.length);
   });
 
@@ -476,7 +477,7 @@ describe('renderHtmlPage: the export page', () => {
     const stabilized = () => pending.splice(0).forEach(callback => callback());
     const findings = () => (document.getElementById('findings-list')!.children as Record<string, unknown>[]);
     const matrixListeners = () => (document.getElementById('matrix-view')!.listeners as Record<string, (event: unknown) => void>);
-    return { ...page, network: network!, handlers, calls, stabilized, findings, text, matrixListeners, documentListeners, drawnCount: () => text(document.getElementById('drawn-count')!), panelText: () => text(document.getElementById('panel')!) };
+    return { ...page, network: network!, handlers, calls, stabilized, findings, text, matrixListeners, documentListeners, drawnCount: () => text(document.getElementById('drawn-count')!), element: (id: string) => document.getElementById(id)!, panelText: () => text(document.getElementById('panel')!) };
   }
 
   it('inlines vis-network and produces the page structure', () => {
@@ -619,7 +620,8 @@ describe('renderHtmlPage: the export page', () => {
     page.handlers.click({ nodes: [], edges: ['["group:1","group:2"]'] });
     expect(page.panelText()).toContain('page 1 / 2');
     expect(page.panelText()).toContain('a/f0.ts → b/t.ts');
-    expect(page.panelText()).not.toContain('a/f50.ts → b/t.ts');
+    // Pairs in path order: a/f9.ts is the last one.
+    expect(page.panelText()).not.toContain('a/f9.ts → b/t.ts');
   });
 
   it('expands a group on double-click, collapses it from a file, and lists incoming and outgoing', () => {
@@ -743,18 +745,21 @@ describe('renderHtmlPage: the export page', () => {
       });
     }
 
-    it('packs the units with no drawn edge under the others instead of far away', () => {
+    it('packs the units with no drawn edge next to the others instead of far away', () => {
       const page = runPage(render(config()), { width: 1400, height: 977 });
       page.stabilized();
       const loose = groupNodes(page).filter((node) => ISOLATED.has(unitOf(node)));
       expect(loose.length).toBeGreaterThan(0);
       const linked = groupNodes(page).filter((node) => !ISOLATED.has(unitOf(node))).map((node) => page.network.getBoundingBox(node.id));
-      const [left, right, bottom] = [Math.min(...linked.map((b) => b.left)), Math.max(...linked.map((b) => b.right)), Math.max(...linked.map((b) => b.bottom))];
+      const [left, right, top, bottom] = [Math.min(...linked.map((b) => b.left)), Math.max(...linked.map((b) => b.right)),
+        Math.min(...linked.map((b) => b.top)), Math.max(...linked.map((b) => b.bottom))];
+      // Within the others' extent, one row below it at most (they start 3 000 units away).
       for (const node of loose) {
         const box = page.network.getBoundingBox(node.id);
-        expect(box.top).toBeGreaterThan(bottom);
         expect(box.left).toBeGreaterThanOrEqual(left);
         expect(box.right).toBeLessThanOrEqual(right);
+        expect(box.top).toBeGreaterThanOrEqual(top);
+        expect(box.bottom).toBeLessThanOrEqual(bottom + 2 * (box.bottom - box.top) + 40);
       }
     });
 
@@ -782,7 +787,7 @@ describe('renderHtmlPage: the export page', () => {
       page.stabilized();
       expect(groupNodes(page)).toHaveLength(MAX_DRAWN_GROUPS);
       expect(page.expanded.size).toBe(0);
-      expect(html).toContain(`${UNITS} groups: the <span id="drawn-count">${MAX_DRAWN_GROUPS}</span> largest are drawn.`);
+      expect(html).toContain(`<div class="legend-hint" id="drawn-hint"><span id="drawn-count">${MAX_DRAWN_GROUPS}</span> of ${UNITS} groups drawn, the largest.`);
       for (let unit = 0; unit < UNITS; unit++) {
         expect(html).toContain(`data-group="${unit + 1}"`);
         expect(html).toContain(unitName(unit) === unitKey(unit) ? `${unitKey(unit)} — ` : `${unitName(unit)} <span class="secondary">${unitKey(unit)}</span>`);
@@ -808,6 +813,52 @@ describe('renderHtmlPage: the export page', () => {
       const matching = Array.from({ length: UNITS }, (_, unit) => unit).filter((unit) => unitName(unit).includes('-access-rights-'));
       expect(matching.length).toBeGreaterThan(MAX_DRAWN_GROUPS / 10);
       expect(groupNodes(page).map(unitOf).sort((a, b) => a - b)).toEqual(matching);
+    });
+
+    it('says how many groups are drawn when fewer than the cap must go for readable labels', () => {
+      // 30 groups of 10 files: under the cap, over the 200 files that open every group collapsed.
+      const graph: GraphData = { nodes: [], edges: [], nodeMetadata: {} };
+      for (let unit = 0; unit < 30; unit++) {
+        for (let index = 0; index < 10; index++) {
+          const id = `/ws/u${unit}/f${index}.ts`;
+          graph.nodes.push(id);
+          graph.nodeMetadata![id] = { hubScore: 0, communityId: unit + 1, communityKey: `u${unit}` };
+        }
+      }
+      const html = render({ ...baseConfig, graphData: graph });
+      // Every group drawn at first: the count is in the page, hidden.
+      expect(html).toContain('<div class="legend-hint" id="drawn-hint" hidden><span id="drawn-count">30</span> of 30 groups drawn');
+      const page = runPage(html, { width: 60, height: 40 });
+      for (let pass = 0; pass < 10; pass++) page.stabilized();
+      expect(groupNodes(page)).toHaveLength(8);
+      expect(page.element('drawn-hint').hidden).toBe(false);
+      expect(page.drawnCount()).toBe('8');
+      // A filter draws every match: the count is hidden while it applies.
+      page.applyFilter('u1');
+      expect(page.element('drawn-hint').hidden).toBe(true);
+    });
+
+    it('lays a model out the same whatever the order the scan listed it in', () => {
+      const shuffled: GraphData = {
+        nodes: graphData.nodes.toReversed(),
+        edges: graphData.edges.toReversed(),
+        nodeMetadata: Object.fromEntries(Object.entries(graphData.nodeMetadata!).toReversed()),
+      };
+      const [html, reversed] = [render(config()), render({ ...config(), graphData: shuffled })];
+      expect(reversed).toBe(html);
+      const ids = (page: ReturnType<typeof runPage>) => (page.nodes.get() as { id: string }[]).map((node) => node.id);
+      expect(ids(runPage(reversed))).toEqual(ids(runPage(html)));
+    });
+
+    it('shows a unit name holding HTML as text only, in the legend and the tooltips', () => {
+      const evil = '<img src=x onerror=alert(1)>';
+      const html = render({ ...config(), groupNames: { ...groupNames, [unitKey(0)]: evil } });
+      expect(html).not.toContain(evil);
+      expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+      // vis-network shows a string title with innerText, never as HTML.
+      const node = (runPage(html).nodes.get() as GroupNode[]).find((entry) => entry.id === 'group:1')!;
+      expect(typeof node.title).toBe('string');
+      expect(node.title).toContain(evil);
     });
 
     it('lays the graph out right of the legend and the findings, never under them', () => {
@@ -974,7 +1025,7 @@ describe('renderHtmlPage: the export page', () => {
 
     it('keeps the kinds of drawn file pairs only, as file row indexes (#758)', () => {
       const html = renderHtmlPage({ ...initConfig, overlay: overlay({ edgeKinds: [[C, A, 'error'], ['/ws/gone.ts', A, 'cycle']] }) });
-      expect(JSON.parse(html.split('const overlay = ')[1].split(';\n')[0]).edgeKinds).toEqual([[2, 0, 'error']]);
+      expect(JSON.parse(html.split('const overlay = ')[1].split(';\n')[0]).edgeKinds).toEqual([[3, 1, 'error']]);
       expect(runPage(html).edges.get(JSON.stringify([C, A]))).toMatchObject({ base: '#ff7b72' });
     });
 

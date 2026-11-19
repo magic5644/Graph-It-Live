@@ -59,7 +59,7 @@ describe("initPage", () => {
     const page = initPage(source(), ROOT, [], result());
     const model = buildHtmlGraphModel(page.graphData);
     expect(model.groups.map(({ id, label, fileCount }) => [id, label, fileCount])).toEqual([
-      [1, "app", 2], [2, "billing", 1], [3, "orders", 1], [4, "lib", 1],
+      [1, "app", 2], [2, "billing", 1], [4, "lib", 1], [3, "orders", 1],
     ]);
     expect(page.graphData.nodeMetadata?.["app/view.ts"]).toEqual({ hubScore: 0.8, framework: "react", communityId: 1, communityKey: "app" });
     expect(page.graphData.nodeMetadata?.["lib/util.ts"]).toEqual({ hubScore: 0, communityId: 4, communityKey: "lib" });
