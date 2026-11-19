@@ -9,7 +9,9 @@ import {
   nearestExistingDir,
   reportUnresolvedImports,
   EXCLUDED_IMPORTS_NEXT,
-  existsWithAnyExtension,
+  caseVariantOf,
+  CASE_MISMATCH_NEXT,
+  sameCaseFileOf,
   projectFolders,
   UNTRACKED_IMPORTS,
   locateUnfollowedImports,
@@ -42,19 +44,21 @@ describe("unresolvedImports (#774)", () => {
     });
 
     // Same answer on every file system: macOS and Windows resolve `./Config` to config.ts, Linux does not.
-    it("finds a file by base name with any extension, ignoring case", () => {
+    it("finds a file by base name with any extension, and a letter-case variant apart", () => {
       fs.writeFileSync(path.join(root, "src", "config.json"), "{}");
       fs.writeFileSync(path.join(root, "src", "theme.css"), "");
       fs.writeFileSync(path.join(root, "src", "util.ts"), "");
       fs.mkdirSync(path.join(root, "src", "gen"));
 
-      expect(existsWithAnyExtension(path.join(root, "src/config"))).toBe(true);
-      expect(existsWithAnyExtension(path.join(root, "src/theme"))).toBe(true);
-      expect(existsWithAnyExtension(path.join(root, "src/Util"))).toBe(true);
-      expect(existsWithAnyExtension(path.join(root, "src/util.ts"))).toBe(true);
-      expect(existsWithAnyExtension(path.join(root, "src/gen"))).toBe(false);
-      expect(existsWithAnyExtension(path.join(root, "src/missing"))).toBe(false);
-      expect(existsWithAnyExtension(path.join(root, "nope/x"))).toBe(false);
+      expect(sameCaseFileOf(path.join(root, "src/config"))).toBe(normalizePath(path.join(root, "src/config.json")));
+      expect(sameCaseFileOf(path.join(root, "src/theme"))).toBe(normalizePath(path.join(root, "src/theme.css")));
+      expect(sameCaseFileOf(path.join(root, "src/util.ts"))).toBe(normalizePath(path.join(root, "src/util.ts")));
+      expect(sameCaseFileOf(path.join(root, "src/Util"))).toBeNull();
+      expect(sameCaseFileOf(path.join(root, "src/utility"))).toBeNull();
+      expect(caseVariantOf(path.join(root, "src/Util"))).toBe(normalizePath(path.join(root, "src/util.ts")));
+      expect(caseVariantOf(path.join(root, "src/Util.ts"))).toBe(normalizePath(path.join(root, "src/util.ts")));
+      expect(caseVariantOf(path.join(root, "src/util"))).toBeNull();
+      expect(caseVariantOf(path.join(root, "src/other"))).toBeNull();
     });
 
     it("climbs out of missing folders, never above the root", () => {
@@ -85,7 +89,7 @@ describe("unresolvedImports (#774)", () => {
   });
 
   it("reports 0 with no examples and no next when everything resolves", () => {
-    const empty = { count: 0, examples: [], excludedCount: 0, excludedExamples: [] };
+    const empty = { count: 0, examples: [], excludedCount: 0, excludedExamples: [], caseMismatchCount: 0, caseMismatchExamples: [], notAnalyzedCount: 0, notAnalyzedExamples: [] };
     expect(reportUnresolvedImports([], ROOT)).toEqual(empty);
     expect(describeUnresolvedImports(empty)).toBeNull();
   });
@@ -107,6 +111,10 @@ describe("unresolvedImports (#774)", () => {
       examples: [{ file: "src/loader.ts", specifier: "./gen" }],
       excludedCount: 1,
       excludedExamples: [{ file: "src/loader.ts", specifier: "./ignored" }],
+      caseMismatchCount: 0,
+      caseMismatchExamples: [],
+      notAnalyzedCount: 0,
+      notAnalyzedExamples: [],
       next: `${UNRESOLVED_IMPORTS_NEXT} ${EXCLUDED_IMPORTS_NEXT}`,
     });
     expect(describeUnresolvedImports(report)).toContain(
@@ -125,6 +133,21 @@ describe("unresolvedImports (#774)", () => {
     expect(projectOf("c:/repo/app/src")).toBe("c:/repo/app");
     expect(find).toHaveBeenCalledOnce();
     expect(projectOf(String.raw`C:\repo\lib`)).toBe("c:/repo");
+  });
+
+  it("counts and describes imports differing only in letter case apart, naming the existing file", () => {
+    const report = reportUnresolvedImports([{ ...loader, specifier: "./Users", caseOf: "/repo/src/users.ts" }], ROOT);
+
+    expect(report).toMatchObject({ count: 0, caseMismatchCount: 1, caseMismatchExamples: [{ file: "src/loader.ts", specifier: "./Users", existing: "src/users.ts" }], next: CASE_MISMATCH_NEXT });
+    expect(describeUnresolvedImports(report)).toContain("1 import differs only in letter case from an existing file (e.g. src/loader.ts imports ./Users, which differs only in letter case from src/users.ts).");
+  });
+
+  it("counts and describes imports matching only a file not analyzed apart, never reaching dead files", () => {
+    const report = reportUnresolvedImports([{ ...loader, specifier: "./settings", notAnalyzed: "/repo/src/settings.json" }], ROOT);
+
+    expect(report).toMatchObject({ count: 0, notAnalyzedCount: 1, notAnalyzedExamples: [{ file: "src/loader.ts", specifier: "./settings", existing: "src/settings.json" }] });
+    expect(describeUnresolvedImports(report)).toContain("1 import matches only a file the analysis does not read (e.g. src/loader.ts imports ./settings, which matches src/settings.json, which is not analyzed).");
+    expect(locateUnfollowedImports([{ importer: "/repo/src/a.ts", specifier: "./settings", target: "/repo/src/settings", notAnalyzed: "/repo/src/settings.json" }], ROOT, [], () => ROOT)[0].reach).toBeUndefined();
   });
 
   describe("locateUnfollowedImports", () => {

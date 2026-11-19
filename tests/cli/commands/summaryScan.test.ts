@@ -48,7 +48,7 @@ describe("summary (#767)", () => {
       files: 4,
       failedFiles: 0,
       importEdges: 4,
-      unresolvedImports: { count: 1, examples: [{ file: "src/a.ts", specifier: "./gen" }], excludedCount: 0, excludedExamples: [], next: expect.stringContaining(".graphitignore") },
+      unresolvedImports: { count: 1, examples: [{ file: "src/a.ts", specifier: "./gen" }], excludedCount: 0, excludedExamples: [], caseMismatchCount: 0, caseMismatchExamples: [], notAnalyzedCount: 0, notAnalyzedExamples: [], next: expect.stringContaining(".graphitignore") },
       extensions: { ts: 3, py: 1 },
       mostImported: [{ file: "src/b.ts", importedBy: 3, imports: 1 }, { file: "lib/c.py", importedBy: 1, imports: 1 }],
       largestFolders: [{ folder: "src", files: 2 }, { folder: "lib", files: 1 }],

@@ -78,13 +78,17 @@ function unresolvedImports(value: unknown): string[] {
   if (report.tracked === false) return [`_${text(report.warning)}_`, ""];
   const count = typeof report.count === "number" ? report.count : 0;
   const excluded = typeof report.excludedCount === "number" ? report.excludedCount : 0;
-  if (count + excluded === 0) return [];
+  const cases = typeof report.caseMismatchCount === "number" ? report.caseMismatchCount : 0;
+  const notAnalyzed = typeof report.notAnalyzedCount === "number" ? report.notAnalyzedCount : 0;
+  if (count + excluded + cases + notAnalyzed === 0) return [];
   return [
-    `**Unresolved imports: ${count} resolving to no file, ${excluded} to a file excluded from the analysis.** ` +
+    `**Unresolved imports: ${count} resolving to no file, ${excluded} to a file excluded from the analysis, ${cases} differing only in letter case from a file, ${notAnalyzed} matching a file not analyzed.** ` +
       `Files they would import may be listed as unused. ${text(report.next)}`,
     "",
     ...table("Unresolved import examples", report.examples, ["file", "specifier"]),
     ...table("Excluded import examples", report.excludedExamples, ["file", "specifier"]),
+    ...table("Letter-case mismatch examples", report.caseMismatchExamples, ["file", "specifier", "existing"]),
+    ...table("Not analyzed examples", report.notAnalyzedExamples, ["file", "specifier", "existing"]),
   ];
 }
 

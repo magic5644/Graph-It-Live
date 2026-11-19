@@ -41,13 +41,16 @@ describe("markdown views (#769)", () => {
       examples: [{ file: "src/loader.ts", specifier: "./gen" }],
       excludedCount: 1,
       excludedExamples: [{ file: "src/b.ts", specifier: "./ignored" }],
+      caseMismatchCount: 1,
+      caseMismatchExamples: [{ file: "src/c.ts", specifier: "./Users", existing: "src/users.ts" }],
       next: "Run the codegen.",
     };
     for (const tool of ["graphitlive_get_index_status", "graphitlive_scan_dead_code"]) {
       const text = renderToolMarkdown(tool, { scopePath: ".", unresolvedImports });
-      expect(text).toContain("**Unresolved imports: 3 resolving to no file, 1 to a file excluded from the analysis.** Files they would import may be listed as unused. Run the codegen.");
+      expect(text).toContain("**Unresolved imports: 3 resolving to no file, 1 to a file excluded from the analysis, 1 differing only in letter case from a file, 0 matching a file not analyzed.** Files they would import may be listed as unused. Run the codegen.");
       expect(text).toContain("| src/loader.ts | ./gen |");
       expect(text).toContain("## Excluded import examples (1)");
+      expect(text).toContain("| src/c.ts | ./Users | src/users.ts |");
       expect(renderToolMarkdown(tool, { scopePath: ".", unresolvedImports: { count: 0, examples: [], excludedCount: 0, excludedExamples: [] } })).not.toContain("Unresolved");
     }
   });
