@@ -34,6 +34,13 @@ Apply this file by explicit routing for AIDD orchestration tasks, even when no m
 - Compress large reports before handoff.
 - Generate workspace architecture snapshot once per feature, then reuse it.
 
+## Rounds and Token Budget
+
+- Each correction round goes to a fresh agent with a five-line handoff (item, owned files, criteria, test commands, branch state). Never resume a finished agent with a new round: it reloads its whole history, so every round costs more than the last.
+- Resume a running agent only for a short clarification.
+- Put every check the orchestrator will run afterwards in the first handoff: black-box runs and failure cases, A/B benchmark (`scripts/bench-e2e.mjs`) on every touched language corpus, visual outputs opened at ≥ 50 units, corrupt or truncated cache input, Sonar. The agent passes them before handing back.
+- The orchestrator makes one- or two-file fixes itself. Reviews and mechanical fixes use a smaller model.
+
 ## Devil Escalation
 
 - Devil verdict is explicit `PASS` or `BLOCK`, with evidence and required correction.
