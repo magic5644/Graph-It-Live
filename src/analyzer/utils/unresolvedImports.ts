@@ -241,35 +241,25 @@ export function unresolvedImportsField(imports: readonly UnresolvedImport[] | nu
 
 const listed = (examples: readonly Example[]) => examples.map(({ file, specifier }) => `${file} imports ${specifier}`).join(", ");
 
+/** "1 import resolves" / "2 imports resolve": the count with the singular or plural wording. */
+const counted = (count: number, one: string, many: string) => `${count} ${count === 1 ? one : many}`;
+
 /** One line for a terminal or a log, or null when every import is followed. */
 export function describeUnresolvedImports(field: UnresolvedImportsField): string | null {
   if ("tracked" in field) return field.warning;
   const report = field;
-  const parts: string[] = [];
-  if (report.count > 0) {
-    const plural = report.count !== 1;
-    parts.push(`${report.count} import${plural ? "s" : ""} of workspace files resolve${plural ? "" : "s"} to no file (e.g. ${listed(report.examples)}).`);
-  }
-  // `?? 0`: a report written before excluded files were counted.
-  const excluded = report.excludedCount ?? 0;
-  if (excluded > 0) {
-    const plural = excluded !== 1;
-    parts.push(`${excluded} import${plural ? "s" : ""} resolve${plural ? "" : "s"} to a file excluded from the analysis (.gitignore, .graphitignore or a default exclusion), whose own imports are not followed (e.g. ${listed(report.excludedExamples ?? [])}).`);
-  }
-  const cases = report.caseMismatchCount ?? 0;
-  if (cases > 0) {
-    const plural = cases !== 1;
-    const examples = (report.caseMismatchExamples ?? []).map(({ file, specifier, existing }) => `${file} imports ${specifier}, which differs only in letter case from ${existing}`).join("; ");
-    parts.push(`${cases} import${plural ? "s" : ""} differ${plural ? "" : "s"} only in letter case from an existing file (e.g. ${examples}).`);
-  }
-  const notAnalyzed = report.notAnalyzedCount ?? 0;
-  if (notAnalyzed > 0) {
-    const plural = notAnalyzed !== 1;
-    const examples = (report.notAnalyzedExamples ?? []).map(({ file, specifier, existing }) => `${file} imports ${specifier}, which matches ${existing}, which is not analyzed`).join("; ");
-    parts.push(`${notAnalyzed} import${plural ? "s" : ""} match${plural ? "" : "es"} only a file the analysis does not read (e.g. ${examples}).`);
-  }
-  if (parts.length === 0) return null;
-  return `${parts.join(" ")} Dead-file and unused-export results may list files they would import. ${report.next ?? ""}`.trimEnd();
+  // `?? 0` / `?? []`: a report written before excluded, case and not-analyzed files were counted.
+  const cases = (report.caseMismatchExamples ?? []).map(({ file, specifier, existing }) => `${file} imports ${specifier}, which differs only in letter case from ${existing}`).join("; ");
+  const notAnalyzed = (report.notAnalyzedExamples ?? []).map(({ file, specifier, existing }) => `${file} imports ${specifier}, which matches ${existing}, which is not analyzed`).join("; ");
+  const parts: [number, string][] = [
+    [report.count, `${counted(report.count, "import of workspace files resolves", "imports of workspace files resolve")} to no file (e.g. ${listed(report.examples)}).`],
+    [report.excludedCount ?? 0, `${counted(report.excludedCount ?? 0, "import resolves", "imports resolve")} to a file excluded from the analysis (.gitignore, .graphitignore or a default exclusion), whose own imports are not followed (e.g. ${listed(report.excludedExamples ?? [])}).`],
+    [report.caseMismatchCount ?? 0, `${counted(report.caseMismatchCount ?? 0, "import differs", "imports differ")} only in letter case from an existing file (e.g. ${cases}).`],
+    [report.notAnalyzedCount ?? 0, `${counted(report.notAnalyzedCount ?? 0, "import matches", "imports match")} only a file the analysis does not read (e.g. ${notAnalyzed}).`],
+  ];
+  const shown = parts.filter(([count]) => count > 0).map(([, text]) => text);
+  if (shown.length === 0) return null;
+  return `${shown.join(" ")} Dead-file and unused-export results may list files they would import. ${report.next ?? ""}`.trimEnd();
 }
 
 /** The unresolved imports that may import `filePath`: those whose missing target's folder holds it, the file's own aside. */
