@@ -490,7 +490,7 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool(TOOL, { folder: 'src', rules: true });
 
-      expect(exportArchitectureDiagram).toHaveBeenCalledWith('/workspace', expect.any(Function), { folder: 'src', rules: true, response_format: 'json' }, expect.any(AbortSignal));
+      expect(exportArchitectureDiagram).toHaveBeenCalledWith('/workspace', expect.any(Function), { folder: 'src', rules: true }, expect.any(AbortSignal));
       // The chat's cancellation aborts the analysis.
       const onCancel = vi.mocked(fakeToken.onCancellationRequested).mock.calls.at(-1)?.[0] as () => void;
       const signal = exportArchitectureDiagram.mock.calls[0][3] as AbortSignal;
@@ -540,6 +540,8 @@ describe('LmToolsService', () => {
         nodes: [{ id: 'n1', name: 'login', type: 'function', path: '/workspace/src/auth.ts' }],
         edges: [], meta: { truncated: false }, json: 'unused',
       });
+      // The fileFilter must match an indexed file (#769).
+      db.exec.mockReturnValueOnce([{ columns: ['path'], values: [['/workspace/src/auth.ts']] }]);
       new LmToolsService({ provider: createProvider({ callGraphService }), logger }).registerAll();
 
       const result = await invokeTool(TOOL, { question: 'where is auth?', fileFilter: 'src/**' });
@@ -1083,7 +1085,7 @@ describe('LmToolsService', () => {
       expect(result).toMatchObject({ error: expect.stringContaining('Call graph index not available') });
     });
 
-    it('returns empty result when symbol is not found in DB', async () => {
+    it('fails on a symbol missing from the DB, like the MCP tool (#769)', async () => {
       const mockDb = { exec: vi.fn().mockReturnValue([]) };
       const mockIndexer = { getDb: vi.fn().mockReturnValue(mockDb) };
       const mockCallGraphService = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue(mockIndexer) };
@@ -1094,13 +1096,9 @@ describe('LmToolsService', () => {
       const result = await invokeTool(TOOL, {
         filePath: '/workspace/src/a.ts',
         symbolName: 'unknownFn',
-      }) as Record<string, unknown>;
+      });
 
-      expect(result.symbol).toBeNull();
-      expect(result.callers).toEqual([]);
-      expect(result.callees).toEqual([]);
-      expect(result.totalCallers).toBe(0);
-      expect(result.totalCallees).toBe(0);
+      expect(result).toEqual({ error: "Symbol 'unknownFn' not found in src/a.ts. No symbol with a similar name is declared in this file." });
     });
 
     describe('exact selector', () => {
@@ -1141,12 +1139,12 @@ describe('LmToolsService', () => {
         expect(result.candidates).toHaveLength(2);
       });
 
-      it('reports not_found for a deleted symbol with a selector', async () => {
+      it('fails on a deleted symbol with a selector (#769)', async () => {
         setup(vi.fn().mockReturnValue([]));
         const result = await invokeTool(TOOL, {
           filePath: '/workspace/src/a.ts', symbolName: 'gone', symbolId: '/workspace/src/a.ts:gone:3',
-        }) as Record<string, unknown>;
-        expect(result).toMatchObject({ symbol: null, reason: 'not_found', candidates: [] });
+        });
+        expect(result).toEqual({ error: expect.stringContaining("Symbol 'gone' not found in src/a.ts.") });
       });
     });
 
@@ -1812,7 +1810,7 @@ describe('LmToolsService', () => {
     it('returns readable markdown on request', async () => {
       const text = await invokeText(TOOL, { targetPath: '/workspace/src/a.ts', response_format: 'markdown' }, referencingProvider(references));
 
-      expect(text).toContain('- **stale**: false');
+      expect(text).toMatch(/^# Files importing `src\/a.ts`/);
       expect(text).toContain('| src/b.ts |');
       expect(text).not.toContain('/workspace');
     });
@@ -1830,11 +1828,10 @@ describe('LmToolsService', () => {
       });
     });
 
-    it('falls back to TOON for an unknown format', async () => {
+    it('refuses an unknown format, naming the accepted ones (#769)', async () => {
       const text = await invokeText(TOOL, { targetPath: '/workspace/src/a.ts', response_format: 'yaml' }, referencingProvider(references));
 
-      expect(() => JSON.parse(text)).toThrow();
-      expect(text).toContain('src/b.ts');
+      expect(JSON.parse(text)).toEqual({ error: '"response_format" must be one of toon, json, markdown; got "yaml".' });
     });
 
     it('keeps an empty result readable in every format', async () => {
@@ -1844,7 +1841,7 @@ describe('LmToolsService', () => {
       const json = await invokeText(TOOL, { ...input, response_format: 'json' }, referencingProvider([]));
 
       expect(toon).toContain('data(targetPath,referencingFileCount,referencingFiles)\n[src/a.ts,0,]');
-      expect(markdown).toContain('- **referencingFileCount**: 0');
+      expect(markdown).toContain('- Importers: 0');
       expect(JSON.parse(json)).toEqual({ targetPath: 'src/a.ts', referencingFileCount: 0, referencingFiles: [] });
     });
 

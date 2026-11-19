@@ -32,10 +32,10 @@ import {
 import { formatToolResponse, type ResponseFormat } from '@/mcp/responseFormatter';
 import { LM_RESPONSE_FORMAT_PROPERTY } from '@/mcp/toolDescriptions';
 import type { Dependency, SymbolDependency } from '@/analyzer/types';
-import { checkSymbolInFile, symbolNotFoundMessage } from '@/analyzer/utils/SymbolLookup';
+import { checkSymbolInFile, closestNames, symbolNotFoundMessage } from '@/analyzer/utils/SymbolLookup';
 import { mapWithConcurrency } from '@/shared/concurrency';
 import { convertSpiderToLspFormat } from '@/shared/converters';
-import { lookupCallGraphSymbol } from '@/analyzer/callgraph/CallGraphSymbolLookup';
+import { lookupCallGraphSymbol, symbolNamesInFile } from '@/analyzer/callgraph/CallGraphSymbolLookup';
 import { normalizePath } from '@/shared/path';
 import {
   toWorkspaceRelativePath,
@@ -203,10 +203,24 @@ function dependentRelation(dep: { isTypeOnly?: boolean; relation?: 'REFERENCES' 
   return dep.relation ?? 'CALLS';
 }
 
-/** Every LM tool accepts `response_format`; anything else falls back to the TOON default. */
+/** Every LM tool accepts `response_format` (default TOON); any other value is refused by registerTool. */
 function readResponseFormat(input: unknown): ResponseFormat {
   const value = (input as { response_format?: unknown } | undefined)?.response_format;
   return LM_RESPONSE_FORMAT_PROPERTY.enum.find((format) => format === value) ?? 'toon';
+}
+
+/** The refusal of a `response_format` outside the enum, or undefined when it is absent or valid (#769). */
+function invalidResponseFormat(input: unknown): string | undefined {
+  const value = (input as { response_format?: unknown } | undefined)?.response_format;
+  if (value === undefined || LM_RESPONSE_FORMAT_PROPERTY.enum.some((format) => format === value)) return undefined;
+  return `"response_format" must be one of ${LM_RESPONSE_FORMAT_PROPERTY.enum.join(', ')}; got ${JSON.stringify(value)}.`;
+}
+
+/** The tool parameters without the output format, for the MCP schemas that refuse unknown keys. */
+function withoutResponseFormat(input: unknown): unknown {
+  if (typeof input !== 'object' || input === null) return input;
+  const { response_format: _format, ...params } = input as Record<string, unknown>;
+  return params;
 }
 
 const INDEX_PASS_STATES = new Set(['counting', 'indexing', 'validating']);
@@ -287,6 +301,8 @@ export class LmToolsService {
       ...tool,
       invoke: async (options, token) => {
         if (token.isCancellationRequested) throw new vscode.CancellationError();
+        const formatError = invalidResponseFormat(options.input);
+        if (formatError !== undefined) return this.errorResult(formatError);
         const startedAt = Date.now();
         const result = await tool.invoke(options, token);
         return result
@@ -1561,6 +1577,13 @@ export class LmToolsService {
           try {
             const db = indexer.getDb();
             const lookup = lookupCallGraphSymbol(db, { ...options.input, filePath });
+            if (lookup.symbol === null && lookup.reason === 'not_found') {
+              // A missing symbol is an error with the closest names, as on the MCP server (#769).
+              const rootDir = this.getWorkspaceRoot();
+              const label = rootDir ? toRelativePath(filePath, rootDir) : filePath;
+              const names = closestNames(symbolNamesInFile(db, filePath), options.input.symbolName);
+              return this.errorResult(symbolNotFoundMessage(options.input.symbolName, label, names));
+            }
             if (lookup.symbol === null) {
               return new vscode.LanguageModelToolResult([
                 new vscode.LanguageModelTextPart(
@@ -1713,7 +1736,7 @@ export class LmToolsService {
           const abort = new AbortController();
           const cancellation = token.onCancellationRequested(() => abort.abort());
           try {
-            const params = ExportArchitectureDiagramParamsSchema.parse(options.input);
+            const params = ExportArchitectureDiagramParamsSchema.parse(withoutResponseFormat(options.input));
             const { exportArchitectureDiagram } = await import('../../mcp/tools/architecture.js');
             const result = await exportArchitectureDiagram(rootDir, (filePath) => spider.analyze(filePath), params, abort.signal);
             return new vscode.LanguageModelToolResult([
@@ -1743,7 +1766,7 @@ export class LmToolsService {
             return this.errorResult('No workspace open or dependency index not initialized.');
           }
           try {
-            const params = ReviewPrParamsSchema.parse(options.input);
+            const params = ReviewPrParamsSchema.parse(withoutResponseFormat(options.input));
             const { createSpiderDependentsProvider } = await import('../../mcp/tools/impact.js');
             const result = await new ReviewGateAnalyzer(rootDir, createSpiderDependentsProvider(spider, rootDir, this.extensionPath)).analyze(params);
             return new vscode.LanguageModelToolResult([
@@ -1775,7 +1798,7 @@ export class LmToolsService {
             );
           }
           try {
-            const params = QueryNaturalLanguageParamsSchema.parse(options.input);
+            const params = QueryNaturalLanguageParamsSchema.parse(withoutResponseFormat(options.input));
             const { queryNaturalLanguageWithDb } = await import('../../mcp/tools/query.js');
             // No LLM client: the calling model writes the answer from the subgraph.
             // TOON output carries the subgraph pre-encoded; markdown and json need its nodes and edges.

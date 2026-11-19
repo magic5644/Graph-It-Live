@@ -40,7 +40,7 @@ import { indexWorkspace, REPO_ROOT, wasmBuilt } from "../mcp/tools/callGraphWork
 
 const DIST_ENTRY = path.join(REPO_ROOT, "dist/graph-it.js");
 const SOURCES = [...new Set(REACT_CORPUS_EDGES.map((edge) => edge.split(" ")[0]))];
-/** Every corpus symbol with an edge, plus a component no file declares under that name (not_found). */
+/** Every corpus symbol with an edge, plus a component no file declares under that name (an error on every surface). */
 const SYMBOLS = [...new Set(REACT_CORPUS_EDGES.flatMap((edge) => [edge.split(" ")[0], edge.split(" ").at(-1)!])), "src/Page.tsx#Missing"].sort();
 /** Every relation the call graph documents; the default filter of each surface is checked too. */
 const RELATIONS = ["CALLS", "REFERENCES", "USES"];
@@ -76,7 +76,12 @@ async function answers(surface: Surface, relationTypes?: string[]): Promise<stri
   const split = (key: string) => key.split("#") as [string, string];
   const graphs = await inSequence(SYMBOLS, async (key) => {
     const [file, symbolName] = split(key);
-    const graph = await surface.callGraph(path.join(surface.root, file), symbolName, relationTypes);
+    // A missing symbol is an error on every surface (#769): a thrown error, or the LM tool's { error } payload.
+    const answer: CallGraphAnswer | { error: string } = await Promise.resolve()
+      .then(() => surface.callGraph(path.join(surface.root, file), symbolName, relationTypes))
+      .catch((error: unknown) => ({ error: String(error) }));
+    if ("error" in answer) return [`${key} symbol: missing`];
+    const graph = answer;
     const { symbol } = graph;
     return [
       `${key} symbol: ${symbol ? `${rel(symbol.filePath)}#${symbol.name}@${symbol.startLine + 1}-${symbol.endLine + 1}` : graph.reason}`,
@@ -165,7 +170,7 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
       "src/ui/Button.jsx#Button callee: src/ui/Button.jsx#Button -USES@2-> src/ui/Button.jsx#Button",
       "src/ui/Button.jsx#Button caller: src/ui/Button.jsx#Button -USES@2-> src/ui/Button.jsx#Button",
     ]);
-    expect(lm).toContain("src/Page.tsx#Missing symbol: not_found");
+    expect(lm).toContain("src/Page.tsx#Missing symbol: missing");
     expect(await answers(mcpSurface(), RELATIONS)).toEqual(lm);
     // Documented defaults: the LM tool returns every relation, MCP and the CLI add USES only on request.
     expect(await answers(lmSurface())).toEqual(lm);

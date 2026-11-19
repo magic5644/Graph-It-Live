@@ -72,7 +72,8 @@ describe.skipIf(!distExists)("trace --format mermaid (E2E)", { timeout: 60_000 }
     const { callChain } = JSON.parse(json.stdout) as {
       callChain: Array<{ callerSymbolId: string; calledSymbolId: string }>;
     };
-    const tail = (id: string) => id.replaceAll("\\", "/").split("/src/").pop();
+    // Ids are workspace-relative in JSON (#769): drop the leading src/.
+    const tail = (id: string) => id.replaceAll("\\", "/").replace(/^(.*\/)?src\//, "");
     expect(callChain.map((c) => `${tail(c.callerSymbolId)} -> ${tail(c.calledSymbolId)}`)).toEqual([
       "e.ts:entry -> a.ts:helper",
       "a.ts:helper -> x.ts:x",
