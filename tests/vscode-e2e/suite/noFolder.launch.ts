@@ -1,15 +1,16 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { getContextKey, sleep, waitForGraphViewResolved } from './_helpers';
+import { getContextKey, waitForGraphViewResolved, waitUntil } from './_helpers';
 
 interface EmptyState { reason: string; message?: string }
 
-async function waitForEmptyState(reason: string, deadline = Date.now() + 15_000): Promise<EmptyState> {
-  const state = await getContextKey<EmptyState>('graph-it-live.emptyState');
-  if (state?.reason === reason) return state;
-  if (Date.now() >= deadline) assert.fail(`View empty state is ${JSON.stringify(state)}, expected reason "${reason}"`);
-  await sleep(200);
-  return waitForEmptyState(reason, deadline);
+async function waitForEmptyState(reason: string): Promise<EmptyState> {
+  let state: EmptyState | undefined;
+  await waitUntil(async () => {
+    state = await getContextKey<EmptyState>('graph-it-live.emptyState');
+    return state?.reason === reason;
+  }, `the view empty state "${reason}" (last: ${JSON.stringify(state)})`, 15_000);
+  return state as EmptyState;
 }
 
 /** #770: run in a window with no folder open (see runTests.ts). */
@@ -38,9 +39,11 @@ suite('Without a folder (#770)', function () {
     await waitForEmptyState('no-workspace');
   });
 
-  test('Set Workspace Folder and the index status answer without a folder', async () => {
+  // Their notifications are checked in unit tests and by hand: E2E cannot read notifications.
+  test('Set Workspace Folder and the index status run without a folder and leave the view alone', async () => {
     await vscode.commands.executeCommand('graph-it-live.setWorkspace');
     await vscode.commands.executeCommand('graph-it-live.showIndexStatus');
     assert.strictEqual(await getContextKey('graph-it-live.viewMode'), 'file');
+    assert.strictEqual((await getContextKey<EmptyState>('graph-it-live.emptyState'))?.reason, 'no-workspace');
   });
 });

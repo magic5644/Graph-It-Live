@@ -3,6 +3,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { branchWatchReact } from '../fixtures/branchWatch.fixture';
+import { waitUntil } from './_helpers';
 
 interface SnapshotItem {
   label: string | { label: string };
@@ -107,8 +108,10 @@ suite('Branch Watch review in a Git workspace (#546)', function () {
     const configuration = vscode.workspace.getConfiguration('graph-it-live', folder.uri);
     try {
       await configuration.update('branchWatch.maxFiles', 25, vscode.ConfigurationTarget.WorkspaceFolder);
-      await waitFor(async () => (await snapshotOf()).maxFiles === 25, 'maxFiles 25 applied');
+      await waitUntil(async () => (await snapshotOf()).maxFiles === 25, 'maxFiles 25 applied');
 
+      // No API reports an open quick pick: give it time to list the fixture's branches (never empty: main, feature).
+      // The chosen base is saved in the temporary repository, removed after this last suite test.
       const picking = vscode.commands.executeCommand('graph-it-live.branchWatch.selectBase');
       await new Promise(resolve => setTimeout(resolve, 1500));
       await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
@@ -123,10 +126,3 @@ suite('Branch Watch review in a Git workspace (#546)', function () {
     }
   });
 });
-
-async function waitFor(condition: () => Promise<boolean>, what: string, deadline = Date.now() + 30_000): Promise<void> {
-  if (await condition()) return;
-  if (Date.now() >= deadline) assert.fail(`Timed out waiting for ${what}`);
-  await new Promise(resolve => setTimeout(resolve, 200));
-  return waitFor(condition, what, deadline);
-}

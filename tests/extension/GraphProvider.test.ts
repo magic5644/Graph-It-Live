@@ -863,6 +863,60 @@ describe("GraphProvider", () => {
     expect(calls.find(([msg]: [any]) => msg.command === "updateGraph")![0]).toMatchObject({ hideTypeOnly: true });
   });
 
+  // #770: a failed analysis replaces the stale graph with an error state and one notification, with relative paths.
+  it("shows an analysis error in the view and in one notification", async () => {
+    const mainTsPath = path.join(testRootDir, "src", "main.ts");
+    (provider as any)._container.register(graphProviderServiceTokens.graphViewService, () => ({
+      buildGraphData: vi.fn().mockRejectedValue(new Error(`cannot parse ${mainTsPath}`)),
+    }));
+    const webview = { postMessage: vi.fn(), asWebviewUri: vi.fn(), options: {}, html: "", onDidReceiveMessage: vi.fn(), cspSource: "test-csp" };
+    provider.resolveWebviewView({ webview, onDidDispose: vi.fn() } as any, {} as any, {} as any);
+
+    await (provider as any)._sendGraphUpdate(mainTsPath, false, "unknown");
+
+    expect(webview.postMessage).toHaveBeenCalledWith({
+      command: "emptyState", reason: "analysis-error", message: "Could not analyze src/main.ts: cannot parse src/main.ts",
+    });
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledOnce();
+    expect(vscode.window.showErrorMessage).toHaveBeenCalledWith("Graph-It-Live: could not analyze src/main.ts: cannot parse src/main.ts");
+    expect(provider.getEmptyState()?.reason).toBe("analysis-error");
+  });
+
+  it.each([
+    [["/a.ts"], "Graph-It-Live: 1 file imports src/main.ts."],
+    [["/a.ts", "/b.ts"], "Graph-It-Live: 2 files import src/main.ts."],
+  ])("counts the files that import the active file (%j)", async (nodes, expected) => {
+    const webview = { postMessage: vi.fn(), asWebviewUri: vi.fn(), options: {}, html: "", onDidReceiveMessage: vi.fn(), cspSource: "test-csp" };
+    provider.resolveWebviewView({ webview, onDidDispose: vi.fn() } as any, {} as any, {} as any);
+    const mainTsPath = path.join(testRootDir, "src", "main.ts");
+    (vscode.window as any).activeTextEditor = { document: { uri: { scheme: "file" }, fileName: mainTsPath } };
+    getService<any>(graphProviderServiceTokens.nodeInteractionService).getReferencingFiles = vi.fn().mockResolvedValue({
+      command: "referencingFiles", nodeId: mainTsPath, data: { nodes, edges: [] },
+    });
+
+    await provider.showReverseDependencies();
+
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(expected);
+  });
+
+  it("refuses reverse dependencies for a non-source file", async () => {
+    const webview = { postMessage: vi.fn(), asWebviewUri: vi.fn(), options: {}, html: "", onDidReceiveMessage: vi.fn(), cspSource: "test-csp" };
+    provider.resolveWebviewView({ webview, onDidDispose: vi.fn() } as any, {} as any, {} as any);
+    const readme = path.join(testRootDir, "README.md");
+    (vscode.window as any).activeTextEditor = { document: { uri: { scheme: "file" }, fileName: readme } };
+    const service = getService<any>(graphProviderServiceTokens.nodeInteractionService);
+    service.getReferencingFiles = vi.fn();
+    webview.postMessage.mockClear();
+
+    await provider.showReverseDependencies();
+
+    expect(vi.mocked(vscode.window.showWarningMessage).mock.lastCall?.[0]).toMatch(
+      /^Graph-It-Live: README\.md is not a supported source file; reverse dependencies need one \(\.ts, \.tsx, /,
+    );
+    expect(service.getReferencingFiles).not.toHaveBeenCalled();
+    expect(webview.postMessage).not.toHaveBeenCalledWith(expect.objectContaining({ command: "referencingFiles" }));
+  });
+
   it("runs the architecture view mode through ArchitectureViewService", async () => {
     const webview = {
       postMessage: vi.fn(),

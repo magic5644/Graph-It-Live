@@ -284,8 +284,13 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     return this.trackOperation(this.showInternal());
   }
 
+  /** Whether Show Call Graph can render now; otherwise tells the user why, so the caller keeps the view mode (#770). */
+  canShow(): boolean {
+    return !this.disposed && !this.refuseWhileReindexing() && this.activeSourceEditor() !== undefined;
+  }
+
   /** The active editor when the call graph can render it; otherwise tells the user why (#770). */
-  activeSourceEditor(): { editor: vscode.TextEditor; lang: SupportedLang } | undefined {
+  private activeSourceEditor(): { editor: vscode.TextEditor; lang: SupportedLang } | undefined {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
       void vscode.window.showInformationMessage(
@@ -325,6 +330,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     this.postMessage({ type: "callGraphIndexing", status: "started", message: "Extracting current file…" });
 
     try {
+      // Without a folder, a loose file is drawn against its own directory: the call graph still works.
       const workspaceRoot = normalizePath(
         this.getWorkspaceRoot() ?? path.dirname(filePath),
       );

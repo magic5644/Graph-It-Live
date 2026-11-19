@@ -47,6 +47,7 @@ const ITEM_COMMANDS = [
 ];
 
 describe("package.json settings", () => {
+  // shortcut: a quoted name anywhere in src/extension counts as read; the typed-get test below is the strict check.
   it("declares only settings the extension reads", () => {
     const unread = Object.keys(settings).filter((key) => {
       const name = key.replace("graph-it-live.", "");
