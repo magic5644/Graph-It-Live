@@ -148,8 +148,19 @@ export class BackgroundIndexingManager {
     this.statusBarItem.hide();
   }
 
+  /** User-requested re-index: a notification shows it and its Cancel button stops the worker. */
   async forceReindex(): Promise<void> {
-    await this.startBackgroundIndexingWithProgress();
+    await vscode.window.withProgress(
+      { location: vscode.ProgressLocation.Notification, title: 'Graph-It-Live: Re-indexing the workspace', cancellable: true },
+      async (_progress, token) => {
+        const cancellation = token.onCancellationRequested(() => this.spider.cancelIndexing());
+        try {
+          await this.startBackgroundIndexingWithProgress();
+        } finally {
+          cancellation.dispose();
+        }
+      },
+    );
   }
 
   dispose(): Promise<void> {

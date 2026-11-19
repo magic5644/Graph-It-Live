@@ -326,12 +326,32 @@
         {
           "command": "graph-it-live.copyArchitectureDiagram",
           "when": "graph-it-live.viewMode == 'architecture'"
+        },
+        {
+          "command": "graph-it-live.reviewCallGraph",
+          "when": "false"
+        },
+        {
+          "command": "graph-it-live.branchWatch.openFile",
+          "when": "false"
+        },
+        {
+          "command": "graph-it-live.branchWatch.copyMessage",
+          "when": "false"
+        },
+        {
+          "command": "graph-it-live.branchWatch.openCallGraph",
+          "when": "false"
+        },
+        {
+          "command": "graph-it-live.branchWatch.openCycle",
+          "when": "false"
         }
       ],
       "editor/title": [
         {
           "command": "graph-it-live.showGraph",
-          "when": "resourceExtname =~ /\\.(ts|tsx|js|jsx|vue|svelte|mjs|cjs|gql|graphql)$/",
+          "when": "resourceExtname =~ /\\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|svelte|gql|graphql|py|pyi|rs|cs|csproj|go|java)$/",
           "group": "navigation"
         }
       ],
@@ -1890,7 +1910,7 @@
         "title": "Graph-It-Live",
         "properties": {
           "graph-it-live.maxDepth": {
-            "type": "number",
+            "type": "integer",
             "default": 50,
             "description": "Maximum dependency depth to analyze",
             "minimum": 1,
@@ -1926,12 +1946,12 @@
           "graph-it-live.preIndexCallGraph": {
             "type": "boolean",
             "default": true,
-            "description": "Pre-index the call graph database at startup alongside background indexing. When enabled, the first 'Show Call Graph' command is near-instant because the symbol-level index is already built."
+            "description": "Pre-index the call graph database at startup alongside background indexing. When enabled, the first 'Show Call Graph' command is near-instant because the symbol-level index is already built. Applies after a window reload."
           },
           "graph-it-live.indexingStartDelay": {
-            "type": "number",
+            "type": "integer",
             "default": 1000,
-            "description": "Delay in milliseconds before starting background indexing after extension activation. Allows VS Code to finish startup first.",
+            "description": "Delay in milliseconds before starting background indexing after extension activation. Allows VS Code to finish startup first. Applies after a window reload.",
             "minimum": 0,
             "maximum": 30000
           },
@@ -1986,19 +2006,8 @@
             ],
             "default": "default",
             "description": "Performance profile preset that sets cache sizes, concurrency, and unused-analysis limits.",
-            "markdownDescription": "Performance profile preset:\n\n- **default**: Balanced settings (4GB-8GB RAM)\n- **low-memory**: Optimized for machines with <4GB RAM\n- **high-performance**: Maximizes speed on powerful machines (16GB+ RAM)\n- **custom**: Use the values in the **Advanced: Performance overrides** section",
+            "markdownDescription": "Performance profile preset:\n\n- **default**: Balanced settings (4GB-8GB RAM)\n- **low-memory**: Optimized for machines with <4GB RAM\n- **high-performance**: Maximizes speed on powerful machines (16GB+ RAM)\n- **custom**: Use the values in the **Advanced: Performance overrides** section\n\nIndexing concurrency applies at once; cache sizes and unused-analysis values apply after a window reload.",
             "order": 0
-          },
-          "graph-it-live.symbolViewLayout": {
-            "type": "string",
-            "enum": [
-              "hierarchical",
-              "force-directed",
-              "radial"
-            ],
-            "default": "hierarchical",
-            "description": "Layout algorithm for symbol-level drill-down view.",
-            "markdownDescription": "Layout algorithm for symbol-level drill-down view:\n\n- **hierarchical**: Top-to-bottom layout (Sugiyama/Dagre). Best for call flows\n- **force-directed**: Interactive physics-based layout. Best for exploring relationships\n- **radial**: Concentric circles with the current file at center. Experimental"
           },
           "graph-it-live.branchWatch.enabled": {
             "type": "boolean",
@@ -2030,7 +2039,7 @@
             "type": "string",
             "default": "",
             "scope": "window",
-            "description": "Workspace folder analyzed by Graph-It-Live in a multi-root workspace. Empty uses the active editor folder, then the first folder."
+            "description": "Workspace folder analyzed by Graph-It-Live in a multi-root workspace. Empty uses the active editor folder, then the first folder. The MCP server switches at once, the graph view after a window reload; a value matching no open folder shows a warning."
           }
         }
       },
@@ -2039,7 +2048,7 @@
         "order": 100,
         "properties": {
           "graph-it-live.indexingConcurrency": {
-            "type": "number",
+            "type": "integer",
             "default": 4,
             "description": "Number of files to process in parallel during background indexing. Lower values reduce CPU usage but increase indexing time.",
             "markdownDescription": "Number of files to process in parallel during background indexing.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
@@ -2051,69 +2060,70 @@
             ]
           },
           "graph-it-live.unusedAnalysisConcurrency": {
-            "type": "number",
+            "type": "integer",
             "default": 4,
             "minimum": 1,
             "maximum": 16,
             "description": "Number of source files to analyze in parallel for unused dependency detection. Lower values use less memory but are slower. Adjust based on your machine's capabilities.",
-            "markdownDescription": "Number of source files to analyze in parallel for unused dependency detection.\n\n- **1-2**: Low-memory machines (<4GB RAM)\n- **4**: Default, balanced\n- **8-16**: High-performance machines (16GB+ RAM)\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "markdownDescription": "Number of source files to analyze in parallel for unused dependency detection.\n\n- **1-2**: Low-memory machines (<4GB RAM)\n- **4**: Default, balanced\n- **8-16**: High-performance machines (16GB+ RAM)\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.\n\nApplies after a window reload.",
             "order": 1,
             "tags": [
               "advanced"
             ]
           },
           "graph-it-live.unusedAnalysisMaxEdges": {
-            "type": "number",
+            "type": "integer",
             "default": 2000,
             "minimum": 0,
             "description": "Skip automatic unused dependency analysis if the graph has more edges than this threshold. Set to 0 to disable the limit. Manual analysis via toolbar button still works.",
-            "markdownDescription": "Skip automatic unused dependency analysis if the graph exceeds this edge count.\n\n- **0**: No limit (always analyze)\n- **1000-2000**: Recommended for low-memory machines\n- **5000+**: High-performance machines\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "markdownDescription": "Skip automatic unused dependency analysis if the graph exceeds this edge count.\n\n- **0**: No limit (always analyze)\n- **1000-2000**: Recommended for low-memory machines\n- **5000+**: High-performance machines\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.\n\nApplies after a window reload.",
             "order": 2,
             "tags": [
               "advanced"
-            ]
+            ],
+            "maximum": 100000
           },
           "graph-it-live.persistUnusedAnalysisCache": {
             "type": "boolean",
             "default": false,
             "description": "Cache unused dependency analysis results to disk for faster subsequent loads. Results are invalidated when files change.",
-            "markdownDescription": "Cache unused dependency analysis results to disk.\n\n⚠️ **Experimental**: Enable for large projects with stable dependencies. Disable if you experience stale results.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "markdownDescription": "Cache unused dependency analysis results to disk.\n\n⚠️ **Experimental**: Enable for large projects with stable dependencies. Disable if you experience stale results.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.\n\nApplies after a window reload.",
             "tags": [
               "advanced"
             ],
             "order": 3
           },
           "graph-it-live.maxUnusedAnalysisCacheSize": {
-            "type": "number",
+            "type": "integer",
             "default": 200,
             "minimum": 10,
             "maximum": 1000,
             "description": "Maximum number of source files to cache for unused dependency analysis. Uses LRU (Least Recently Used) eviction when limit is reached.",
-            "markdownDescription": "Maximum number of source files to cache for unused dependency analysis.\n\n- **Lower values** (50-100): Reduce memory usage on constrained systems\n- **Higher values** (500-1000): Better cache hit rate on large projects\n\nUses **LRU eviction** - least recently accessed entries are removed when limit is reached.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "markdownDescription": "Maximum number of source files to cache for unused dependency analysis.\n\n- **Lower values** (50-100): Reduce memory usage on constrained systems\n- **Higher values** (500-1000): Better cache hit rate on large projects\n\nUses **LRU eviction** - least recently accessed entries are removed when limit is reached.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.\n\nApplies after a window reload.",
             "tags": [
               "advanced"
             ],
             "order": 4
           },
           "graph-it-live.maxCacheSize": {
-            "type": "number",
+            "type": "integer",
             "default": 500,
             "minimum": 50,
             "maximum": 2000,
             "description": "Maximum number of file dependency analyses to keep in memory cache. Lower values reduce memory usage.",
-            "markdownDescription": "Maximum number of file dependency analyses to keep in memory cache.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "markdownDescription": "Maximum number of file dependency analyses to keep in memory cache.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.\n\nApplies after a window reload.",
             "order": 5,
             "tags": [
               "advanced"
             ]
           },
           "graph-it-live.maxSymbolCacheSize": {
-            "type": "number",
+            "type": "integer",
             "default": 200,
             "minimum": 50,
             "maximum": 1000,
             "description": "Maximum number of symbol analysis results to keep in memory cache. Lower values reduce memory usage.",
-            "markdownDescription": "Maximum number of symbol analysis results to keep in memory cache.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.",
+            "markdownDescription": "Maximum number of symbol analysis results to keep in memory cache.\n\nOverride used only when `#graph-it-live.performanceProfile#` is `custom`; other profiles set this value.\n\nApplies after a window reload.",
             "order": 6,
             "tags": [
               "advanced"

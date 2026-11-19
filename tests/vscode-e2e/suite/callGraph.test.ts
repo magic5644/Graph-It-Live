@@ -213,6 +213,30 @@ suite('Call Graph Test Suite', () => {
     );
   });
 
+  // #770: on an unsupported file, or with no editor, the toolbar switched to call-graph mode over the file graph.
+  test('Should keep the view mode when the call graph cannot render the editor', async function () {
+    this.timeout(60000);
+    await vscode.commands.executeCommand('graph-it-live.graphView.focus');
+    await vscode.commands.executeCommand('graph-it-live.setViewModeFile');
+    const renders = (await getContextKey<number>('graph-it-live.callGraphRenderCount')) ?? 0;
+    const editors = vscode.window.visibleTextEditors.map(editor => editor.document);
+    try {
+      // Empty, so the untitled editor is not dirty and closes without a save prompt.
+      const markdown = await vscode.workspace.openTextDocument({ language: 'markdown', content: '' });
+      await vscode.window.showTextDocument(markdown);
+      await vscode.commands.executeCommand('graph-it-live.showCallGraph');
+      assert.strictEqual(await getContextKey<string>('graph-it-live.viewMode'), 'file', 'Markdown switched to call-graph mode');
+
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      await vscode.commands.executeCommand('graph-it-live.showCallGraph');
+      assert.strictEqual(await getContextKey<string>('graph-it-live.viewMode'), 'file', 'No editor switched to call-graph mode');
+      assert.strictEqual((await getContextKey<number>('graph-it-live.callGraphRenderCount')) ?? 0, renders, 'Nothing must be rendered');
+    } finally {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      for (const document of editors) await vscode.window.showTextDocument(document, { preview: false });
+    }
+  });
+
   // ============================================================================
   // B8 — Live refresh: file save triggers re-render (debounce 500 ms)
   // ============================================================================

@@ -53,6 +53,7 @@ const {
 
 function createProviderMock(): GraphProvider {
   return {
+    getWorkspaceRoot: vi.fn().mockReturnValue('/workspace'),
     getViewMode: vi.fn().mockReturnValue('file'), // E2E test helper
     getReverseDependenciesVisible: vi.fn().mockReturnValue(false),
     isGraphViewResolved: vi.fn().mockReturnValue(true),
@@ -282,7 +283,7 @@ describe('CommandRegistrationService', () => {
   it('logs and shows errors when commands fail', async () => {
     const provider = createProviderMock();
     const commandCoordinator = createCommandCoordinatorMock();
-    (commandCoordinator.handleRefreshGraph as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('fail'));
+    (commandCoordinator.handleRefreshGraph as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('cannot read /workspace/src/a.ts'));
     const logger = createLoggerMock();
     const service = new CommandRegistrationService({ provider, commandCoordinator, logger });
 
@@ -295,7 +296,8 @@ describe('CommandRegistrationService', () => {
       'graph-it-live.refreshGraph failed:',
       expect.any(Error)
     );
-    expect(showErrorMessage).toHaveBeenCalledWith('Graph-It-Live: Refresh failed');
+    // The cause is kept and workspace-relative (#770).
+    expect(showErrorMessage).toHaveBeenCalledWith('Graph-It-Live: Refresh failed: cannot read src/a.ts');
   });
 
   it('shows indexer information when available', async () => {
@@ -325,7 +327,7 @@ describe('CommandRegistrationService', () => {
       await handler?.(target);
     }
     expect(showErrorMessage).toHaveBeenCalledTimes(9);
-    expect(showErrorMessage).toHaveBeenLastCalledWith('Graph-It-Live: Invalid review link');
+    expect(showErrorMessage).toHaveBeenLastCalledWith(expect.stringMatching(/^Graph-It-Live: Invalid review link: Review target depth/));
     expect(provider.showReviewCallGraph).toHaveBeenCalledTimes(1);
   });
 
@@ -338,6 +340,7 @@ describe('CommandRegistrationService', () => {
     await registeredHandlers.get('graph-it-live.reviewCallGraph')?.({ file: 'src/api.ts', depth: 1 });
 
     expect(logger.error).toHaveBeenCalledWith('graph-it-live.reviewCallGraph failed:', expect.any(Error));
-    expect(showErrorMessage).toHaveBeenCalledWith('Graph-It-Live: Invalid review link');
+    // A runtime failure is not reported as an invalid link (#770).
+    expect(showErrorMessage).toHaveBeenCalledWith('Graph-It-Live: Could not open the review call graph: graph unavailable');
   });
 });

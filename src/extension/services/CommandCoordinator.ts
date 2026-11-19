@@ -35,8 +35,8 @@ export class CommandCoordinator {
   }
 
   async handleForceReindex(): Promise<void> {
+    // The provider shows the progress notification, or says why it cannot re-index.
     await this.provider.forceReindex();
-    this.ui.showInformationMessage("Graph-It-Live: Re-index triggered");
   }
 
   async handleExpandAll(): Promise<void> {
@@ -93,7 +93,7 @@ export class CommandCoordinator {
       const message = `Indexer: ${status.state} ${status.processed}/${status.total} (${status.percentage}%)`;
       this.ui.showInformationMessage(message);
     } else {
-      this.ui.showInformationMessage("Graph-It-Live: No indexer available");
+      this.ui.showInformationMessage("Graph-It-Live: no index yet; open a folder to build one.");
     }
   }
 }

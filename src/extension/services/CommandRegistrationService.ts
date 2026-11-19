@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ArchitectureExportTarget } from '@/shared/architecture-types';
+import { relativizeWorkspacePaths } from '@/shared/path';
 import { validateReviewCallGraphTarget } from '@/shared/reviewTarget';
 import type { GraphProvider } from '../GraphProvider';
 import type { VsCodeLogger } from '../extensionLogger';
@@ -212,11 +213,17 @@ export class CommandRegistrationService {
 
   private registerReviewCallGraphCommand(): vscode.Disposable {
     return vscode.commands.registerCommand('graph-it-live.reviewCallGraph', async (target: unknown) => {
+      let value: ReturnType<typeof validateReviewCallGraphTarget>;
       try {
-        const value = validateReviewCallGraphTarget(target);
-        await this.provider.showReviewCallGraph(value.file, value.symbol, value.depth);
+        value = validateReviewCallGraphTarget(target);
       } catch (error) {
         this.handleCommandError('graph-it-live.reviewCallGraph', error, 'Graph-It-Live: Invalid review link');
+        return;
+      }
+      try {
+        await this.provider.showReviewCallGraph(value.file, value.symbol, value.depth);
+      } catch (error) {
+        this.handleCommandError('graph-it-live.reviewCallGraph', error, 'Graph-It-Live: Could not open the review call graph');
       }
     });
   }
@@ -239,6 +246,7 @@ export class CommandRegistrationService {
       ['graph-it-live.callGraph', () => this.provider.getCallGraphE2EGraph()],
       ['graph-it-live.fileGraphNodeMetadata', () => this.provider.getFileGraphNodeMetadata()],
       ['graph-it-live.fileGraphRoot', () => this.provider.getFileGraphRoot()],
+      ['graph-it-live.emptyState', () => this.provider.getEmptyState()],
       ['graph-it-live.fileGraphTypeOnly', () => this.provider.getFileGraphTypeOnly()],
       ['graph-it-live.architectureRenderCount', () => architecture()?.renderCount ?? 0],
       ['graph-it-live.architectureGroupCount', () => architecture()?.groupCount ?? 0],
@@ -308,8 +316,11 @@ export class CommandRegistrationService {
     });
   }
 
+  /** One notification naming what failed and why, with workspace-relative paths (#770). */
   private handleCommandError(commandId: string, error: unknown, userMessage: string): void {
     this.logger.error(`${commandId} failed:`, error);
-    vscode.window.showErrorMessage(userMessage);
+    const cause = error instanceof Error ? error.message : String(error);
+    const root = this.provider.getWorkspaceRoot();
+    vscode.window.showErrorMessage(`${userMessage}: ${root ? relativizeWorkspacePaths(cause, root) : cause}`);
   }
 }

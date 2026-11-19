@@ -17,32 +17,13 @@ import { LmToolsService } from './services/LmToolsService';
 import { registerBranchWatch } from './services/BranchWatchService';
 import { startPeriodicFlush, type PeriodicFlush } from '../analyzer/stats/statsPersistence';
 import { sessionStats } from '../shared/sessionStats';
+import { findConfiguredWorkspaceFolder, resolvePreferredWorkspaceFolder } from './workspaceFolder';
 
 // Keep track of MCP server provider for cleanup
 let mcpServerProvider: McpServerProvider | null = null;
 let graphProvider: GraphProvider | null = null;
 // Persists the language model tools' TOON stats under the 'vscode' source.
 let statsFlush: PeriodicFlush | null = null;
-
-function resolvePreferredWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
-    const configuredPath = vscode.workspace.getConfiguration('graph-it-live').get<string>('workspaceFolder', '');
-    const configuredFolder = vscode.workspace.workspaceFolders?.find(folder => folder.uri.fsPath === configuredPath);
-    if (configuredFolder) return configuredFolder;
-
-    const activeEditor = vscode.window.activeTextEditor;
-    const getWorkspaceFolder = (vscode.workspace as typeof vscode.workspace & {
-        getWorkspaceFolder?: (uri: vscode.Uri) => vscode.WorkspaceFolder | undefined;
-    }).getWorkspaceFolder;
-
-    if (activeEditor?.document.uri.scheme === 'file' && typeof getWorkspaceFolder === 'function') {
-        const editorFolder = getWorkspaceFolder(activeEditor.document.uri);
-        if (editorFolder) {
-            return editorFolder;
-        }
-    }
-
-    return vscode.workspace.workspaceFolders?.[0];
-}
 
 export function activate(context: vscode.ExtensionContext) {
     // Initialize logging system
@@ -96,7 +77,7 @@ export function activate(context: vscode.ExtensionContext) {
     const callGraphViewService = new CallGraphViewService(context, async (filePath) => {
         const spider = provider.getSpiderForLmTools();
         return spider ? (await spider.findReferencingFilesThroughBarrels(filePath)).map((ref) => ref.path) : [];
-    });
+    }, () => provider.getWorkspaceRoot());
     provider.setCallGraphViewService(callGraphViewService);
     const branchWatchRegistration = registerBranchWatch(context, provider);
     provider.setBranchWatchRegistration(branchWatchRegistration);
@@ -110,11 +91,11 @@ export function activate(context: vscode.ExtensionContext) {
         callGraphViewService,
 
         // showCallGraph command
-        vscode.commands.registerCommand('graph-it-live.showCallGraph', () => {
-            provider.setViewModeCallgraph();
-            callGraphViewService.show().catch((err: unknown) => {
-                log.error('graph-it-live.showCallGraph error:', err);
-            });
+        vscode.commands.registerCommand('graph-it-live.showCallGraph', async () => {
+            // Switch the toolbar to call-graph mode only for a file the call graph can render (#770).
+            if (!callGraphViewService.activeSourceEditor()) return;
+            await provider.setViewModeCallgraph();
+            await callGraphViewService.show();
         }),
 
         vscode.window.registerUriHandler({
@@ -162,8 +143,47 @@ export function activate(context: vscode.ExtensionContext) {
         log.info('No workspace folder open, MCP server not registered');
     }
 
+    const analyzedFolderName = (): string => {
+        const root = provider.getWorkspaceRoot();
+        return vscode.workspace.workspaceFolders?.find(f => f.uri.fsPath === root)?.name ?? 'none';
+    };
+    const warnUnmatchedWorkspaceFolder = (configured: string): void => {
+        const open = (vscode.workspace.workspaceFolders ?? []).map(f => `"${f.name}"`).join(', ') || 'none';
+        vscode.window.showWarningMessage(
+            `Graph-It-Live: setting workspaceFolder "${configured}" matches no open folder (open: ${open}); analyzing "${analyzedFolderName()}". Run "Graph-It-Live: Set Workspace Folder" to pick one.`
+        );
+    };
+    // The graph's Spider is built at startup: a new root reaches the MCP server at once, the graph after a reload.
+    const applyWorkspaceFolderSetting = (): void => {
+        const { configured, folder } = findConfiguredWorkspaceFolder();
+        if (configured && !folder) {
+            warnUnmatchedWorkspaceFolder(configured);
+            return;
+        }
+        const target = folder ?? resolvePreferredWorkspaceFolder();
+        if (!target) return;
+        mcpServerProvider?.updateWorkspaceFolder(target);
+        log.info('Workspace switched to:', target.uri.fsPath);
+        if (target.uri.fsPath === provider.getWorkspaceRoot()) return;
+        vscode.window.showInformationMessage(
+            `Graph-It-Live: now analyzing "${target.name}" in the MCP server. Reload the window to update the graph view.`,
+            'Reload Window'
+        ).then(action => {
+            if (action === 'Reload Window') {
+                vscode.commands.executeCommand('workbench.action.reloadWindow');
+            }
+        });
+    };
+    const startupSetting = findConfiguredWorkspaceFolder();
+    if (startupSetting.configured && !startupSetting.folder && vscode.workspace.workspaceFolders?.length) {
+        warnUnmatchedWorkspaceFolder(startupSetting.configured);
+    }
+
     // Command: switch the workspace root the graph and MCP server analyze
     disposables.push(
+        vscode.workspace.onDidChangeConfiguration((event) => {
+            if (event.affectsConfiguration('graph-it-live.workspaceFolder')) applyWorkspaceFolderSetting();
+        }),
         vscode.commands.registerCommand('graph-it-live.setWorkspace', async () => {
             const folders = vscode.workspace.workspaceFolders;
             if (!folders || folders.length === 0) {
@@ -189,31 +209,17 @@ export function activate(context: vscode.ExtensionContext) {
             if (!pick) {
                 return;
             }
-            if (mcpServerProvider) {
-                mcpServerProvider.updateWorkspaceFolder(pick.folder);
-            }
+            // The configuration listener below switches the MCP server and asks for the reload.
             await vscode.workspace.getConfiguration('graph-it-live').update(
                 'workspaceFolder', pick.folder.uri.fsPath, vscode.ConfigurationTarget.Workspace
             );
-            log.info('Workspace switched to:', pick.folder.uri.fsPath);
-            // MCP server restarts immediately with new workspace root.
-            // The graph view Spider is initialized at extension startup, so a
-            // window reload is required for it to analyze the new root.
-            vscode.window.showInformationMessage(
-                `Graph-It-Live: MCP server switched to "${pick.folder.name}". Reload the window to update the graph view.`,
-                'Reload Window'
-            ).then(action => {
-                if (action === 'Reload Window') {
-                    vscode.commands.executeCommand('workbench.action.reloadWindow');
-                }
-            });
         }),
 
     // Auto-update MCP server when workspace folders change (add/remove)
         vscode.workspace.onDidChangeWorkspaceFolders((e) => {
             if (!mcpServerProvider) {
                 // No MCP provider yet — try to create one if a folder was added
-                const first = vscode.workspace.workspaceFolders?.[0];
+                const first = resolvePreferredWorkspaceFolder();
                 if (first) {
                     mcpServerProvider = createMcpServerProvider(context.extensionUri, first);
                     mcpServerProvider.register(context);
@@ -228,7 +234,7 @@ export function activate(context: vscode.ExtensionContext) {
                 f => f.uri.fsPath === mcpServerProvider!.workspaceRoot
             );
             if (removed) {
-                const fallback = vscode.workspace.workspaceFolders?.[0];
+                const fallback = resolvePreferredWorkspaceFolder();
                 if (fallback) {
                     mcpServerProvider.updateWorkspaceFolder(fallback);
                     log.info('Workspace folder removed — MCP switched to:', fallback.uri.fsPath);

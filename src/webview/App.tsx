@@ -28,6 +28,7 @@ import { AtomicSymbolGraph } from "./components/AtomicSymbolGraph";
 import { ArchitectureGraph } from "./components/architecture/ArchitectureGraph";
 import { CytoscapeGraph } from "./components/cytoscape/CytoscapeGraph";
 import { LoadingState } from "./components/LoadingState";
+import { SUPPORTED_SOURCE_EXTENSIONS } from "../shared/constants";
 import ReactFlowGraph from "./components/ReactFlowGraph";
 import SymbolCardView from "./components/SymbolCardView";
 import { mergeGraphDataUnion } from "./utils/graphMerge";
@@ -210,6 +211,7 @@ const App: React.FC = () => {
   const [emptyStateMessage, setEmptyStateMessage] = React.useState<
     string | null
   >(null);
+  const [emptyStateReason, setEmptyStateReason] = React.useState<EmptyStateMessage["reason"] | null>(null);
   const [resetToken, setResetToken] = React.useState<number>(0);
   const [unusedDependencyMode, setUnusedDependencyMode] = React.useState<
     "none" | "hide" | "dim"
@@ -540,6 +542,7 @@ const App: React.FC = () => {
   // Handle empty state message
   const handleEmptyStateMessage = React.useCallback((message: EmptyStateMessage) => {
     setEmptyStateMessage(message.message || "No file is currently open");
+    setEmptyStateReason(message.reason);
     setGraphData((current) =>
       message.reason === "no-file-open" ? current : null,
     );
@@ -609,10 +612,6 @@ const App: React.FC = () => {
       const message = event.data as ExtensionToWebviewMessage;
 
       // Handle messages with 'type' property (legacy)
-      if ('type' in message && message.type === 'layoutChange') {
-        log.debug('Received layoutChange message (not implemented)');
-        return;
-      }
       if ('type' in message && message.type === 'showSymbolList') {
         log.debug('Received showSymbolList message (not implemented)');
         return;
@@ -843,9 +842,9 @@ const App: React.FC = () => {
     return (
       <div style={{ height: "100vh" }}>
         <LoadingState message={emptyStateMessage || "Waiting for graph data..."}>
-          {emptyStateMessage && (
+          {emptyStateMessage && emptyStateReason === "no-file-open" && (
             <div style={{ fontSize: "12px", marginTop: "8px", opacity: 0.8 }}>
-              💡 Tip: Open a TypeScript, JavaScript, Vue, or Svelte file to see
+              💡 Tip: open a {SUPPORTED_SOURCE_EXTENSIONS.map((ext) => `.${ext}`).join(", ")} file to see
               its dependency graph
             </div>
           )}

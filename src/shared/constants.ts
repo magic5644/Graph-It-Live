@@ -39,7 +39,12 @@ export const SUPPORTED_SYMBOL_ANALYSIS_EXTENSIONS = [
 ];
 
 // Unified regex for source files we analyze across extension/webview/mcp
-export const SUPPORTED_SOURCE_FILE_REGEX = /\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|svelte|gql|graphql|py|pyi|rs|cs|csproj|go|java)$/;
+// One list for the analyzer, the webview tip and package.json's editor-title menu (checked by a test).
+export const SUPPORTED_SOURCE_EXTENSIONS = [
+    'ts', 'tsx', 'mts', 'cts', 'js', 'jsx', 'mjs', 'cjs', 'vue', 'svelte', 'gql', 'graphql',
+    'py', 'pyi', 'rs', 'cs', 'csproj', 'go', 'java',
+] as const;
+export const SUPPORTED_SOURCE_FILE_REGEX = new RegExp(String.raw`\.(${SUPPORTED_SOURCE_EXTENSIONS.join('|')})$`);
 
 export const IGNORED_DIRECTORIES = [
     'node_modules',

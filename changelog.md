@@ -13,6 +13,9 @@
 - **CLI `--format json` paths are workspace-relative** (#769), like the MCP tools and `--format toon`.
 - **`export_architecture_diagram`** refuses an `output` whose extension does not match `diagramFormat`.
 - **VS Code language model tools take the MCP parameters of their MCP twin** (#769): `crawl_dependency_graph` gains `limit`, `offset`, `onlyUsed`, `communityMode` and `tokenBudget` and returns the MCP result; `query_call_graph` gains `includeTypeOnly`, `offset`, `tokenBudget`, and type-only `USES` edges come only on request, as on the MCP server and the CLI; `scan_dead_code` gains `verbose`. File paths may be workspace-relative.
+- **VS Code: the `graph-it-live.symbolViewLayout` setting is removed** (#770). The extension never read it; the symbol view keeps its hierarchical layout.
+- **VS Code: whole-number settings are typed `integer`** (#770): `maxDepth`, `indexingStartDelay`, `indexingConcurrency`, `unusedAnalysisConcurrency`, `unusedAnalysisMaxEdges` (now at most 100000), `maxUnusedAnalysisCacheSize`, `maxCacheSize` and `maxSymbolCacheSize` refuse `2.5` in the Settings editor.
+- **VS Code: item commands leave the Command Palette** (#770): **Open File**, **Copy Message**, **Open Call Graph** and **Open Cycle in Graph** of the Branch status view, and the review-link command, need the item they are run on.
 
 ### Changed
 
@@ -20,6 +23,19 @@
 - **Descriptions name every parameter** (#769): MCP and language model tool descriptions end with the parameters the tool takes; `npm run sync:tool-descriptions` generates the language model input schemas from the MCP Zod schemas.
 - **`crawl_dependency_graph` pages its cycles like its edges** (#769): each cycle comes with the page of its last listed file, and `cycleCount` gives the total. On a large repository the full cycle list no longer fills the default `tokenBudget`. Before, a default call could fail with `Token budget 4000 cannot contain a single item`. `omitted` gains `cycles`.
 - `scan_dead_code` `scopePath` accepts a workspace-relative folder. `get_session_stats` takes `response_format`.
+
+### Fixed
+
+- **VS Code without a folder** (#770): the Dependency Graph view says "Open a folder to see its dependency graph" instead of "Waiting for graph data...", and **Force re-index**, **Refresh**, the view-mode commands, **Expand All** and **Show/Hide Reverse Dependencies** say "Graph-It-Live: open a folder to …" instead of doing nothing or reporting success. "View not initialized" becomes a message naming the view to open.
+- **Force re-index** shows a progress notification with a Cancel button instead of the false "Re-index triggered".
+- **Show Call Graph** switches the toolbar to call-graph mode only for a file it can render; it says when the call graph is re-indexing, when the cursor is outside every symbol (and which symbol it shows), when a file has no symbol, and reports a build failure in one notification.
+- **Show Reverse Dependencies** says how many files import the file, or that none does, and refuses a non-source file.
+- **Error notifications keep their cause** (#770): "Refresh failed: <reason>" instead of a fixed "Refresh failed"; paths in messages are workspace-relative. A failed file analysis shows an error state in the view instead of the last graph. A review link that is valid but fails is no longer reported as "Invalid review link".
+- **Branch Watch** (#770): **Select Base Branch** and **Select Head Branch** keep `branchWatch.maxFiles` instead of resetting it to 200; a failed item action (a deleted file) no longer marks the whole Branch status view unavailable; the commands say why when Branch Watch is unavailable.
+- **Multi-root workspaces** (#770): the call graph, its pre-index and the language model tools analyze the folder the dependency graph and the MCP server use (`graph-it-live.workspaceFolder`, else the active editor's folder, else the first), instead of always the first folder.
+- **`graph-it-live.workspaceFolder`** (#770) matches a folder regardless of a trailing slash or separators; a value matching no open folder shows a warning naming the open folders; changing it in Settings switches the MCP server at once and offers a window reload for the graph view.
+- Settings applied only at startup say "Applies after a window reload" (cache sizes, unused-analysis tuning, `preIndexCallGraph`, `indexingStartDelay`). `unusedDependencyMode` falls back to its declared default `hide`.
+- **Show Dependency Graph** appears in the editor title for every supported file type (`.mts`, `.cts`, Python, Rust, C#, Go, Java added), and the view's tip lists them, from the same list as the analyzer.
 
 ## v1.25.4
 

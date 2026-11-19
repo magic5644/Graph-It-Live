@@ -10,6 +10,7 @@ vi.mock("vscode", () => ({
   Uri: { file: (p: string) => ({ fsPath: p }) },
   window: { createOutputChannel: () => ({ appendLine: vi.fn(), dispose: vi.fn() }) },
   workspace: {
+    getConfiguration: () => ({ get: (_key: string, fallback?: unknown) => fallback }),
     get workspaceFolders() { return mocks.workspaceFolders; },
     fs: { delete: mocks.deleteFile },
   },

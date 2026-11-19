@@ -26,12 +26,13 @@ import type {
   CallGraphWebviewCommand,
   SupportedLang,
 } from "@/shared/callgraph-types";
-import { normalizePath } from "@/shared/path";
+import { normalizePath, relativizeWorkspacePaths } from "@/shared/path";
 import { resolveReviewCallGraphPath, REVIEW_CALL_GRAPH_MAX_DEPTH, validateReviewCallGraphTarget } from "@/shared/reviewTarget";
 import crypto from "node:crypto";
 import * as fs from "node:fs";
 import path from "node:path";
 import * as vscode from "vscode";
+import { resolvePreferredWorkspaceFolder } from "../workspaceFolder";
 import type { EventType } from "./FileChangeScheduler";
 import type { ExternalCallerResult, ICallGraphQueryService } from "./ICallGraphQueryService";
 
@@ -147,6 +148,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly findImporters: (filePath: string) => Promise<string[]> = () => Promise.resolve([]),
+    /** Folder the dependency graph analyzes, so multi-root call graphs use the same index (#770). */
+    private readonly getWorkspaceRoot: () => string | undefined = () => resolvePreferredWorkspaceFolder()?.uri.fsPath,
   ) {
     this.outputChannel = vscode.window.createOutputChannel("Call Graph");
     context.subscriptions.push(this.outputChannel);
@@ -277,28 +280,44 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    * Resolve the symbol under the cursor and render its call-graph neighbourhood.
    */
   show(): Promise<void> {
-    if (this.disposed || this.reindexing) return Promise.resolve();
+    if (this.disposed || this.refuseWhileReindexing()) return Promise.resolve();
     return this.trackOperation(this.showInternal());
   }
 
-  private async showInternal(): Promise<void> {
-    if (this.disposed) return;
+  /** The active editor when the call graph can render it; otherwise tells the user why (#770). */
+  activeSourceEditor(): { editor: vscode.TextEditor; lang: SupportedLang } | undefined {
     const editor = vscode.window.activeTextEditor;
     if (!editor) {
-      await vscode.window.showInformationMessage(
+      void vscode.window.showInformationMessage(
         "Graph-It-Live: Open a source file and position the cursor on a symbol first.",
       );
-      return;
+      return undefined;
     }
 
     // GraphQL has no built-in VS Code language id: fall back to the file extension.
     const lang = toSupportedLang(editor.document.languageId) ?? langFromPath(editor.document.uri.fsPath);
     if (!lang) {
-      await vscode.window.showInformationMessage(
+      void vscode.window.showInformationMessage(
         `Graph-It-Live: Call Graph is not supported for "${editor.document.languageId}". Supported: TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, Java, GraphQL.`,
       );
-      return;
+      return undefined;
     }
+    return { editor, lang };
+  }
+
+  private refuseWhileReindexing(): boolean {
+    if (!this.reindexing) return false;
+    void vscode.window.showInformationMessage(
+      "Graph-It-Live: the call graph is re-indexing; run the command again when it finishes.",
+    );
+    return true;
+  }
+
+  private async showInternal(): Promise<void> {
+    if (this.disposed) return;
+    const target = this.activeSourceEditor();
+    if (!target) return;
+    const { editor, lang } = target;
 
     const filePath = normalizePath(editor.document.uri.fsPath);
     const cursorLine = editor.selection.active.line; // 0-based
@@ -307,7 +326,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
 
     try {
       const workspaceRoot = normalizePath(
-        vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? path.dirname(filePath),
+        this.getWorkspaceRoot() ?? path.dirname(filePath),
       );
       const indexer = await this.ensureIndexer();
       if (this.disposed) return;
@@ -323,6 +342,9 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       // Resolve root node from the just-extracted symbols (avoids DB round-trip).
       const rootNode = this.resolveRootNode(nodes, cursorLine);
       if (!rootNode) {
+        void vscode.window.showInformationMessage(
+          `Graph-It-Live: ${vscode.workspace.asRelativePath(filePath)} has no symbol to show in the call graph.`,
+        );
         this.postMessage({ type: "callGraphIndexing", status: "complete" });
         this.sendGraphToWebview(queryNeighbourhood(indexer.getDb(), "", DEFAULT_DEPTH));
         return;
@@ -380,20 +402,22 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       this.registerSaveListener(workspaceRoot);
     } catch (err: unknown) {
       if (this.disposed) return;
-      const message = errorMessage(err);
+      const root = this.getWorkspaceRoot();
+      const message = root ? relativizeWorkspacePaths(errorMessage(err), root) : errorMessage(err);
       this.log(`[CallGraph] Error: ${message}`);
       this.postMessage({ type: "callGraphIndexing", status: "error", message });
+      void vscode.window.showErrorMessage(`Graph-It-Live: could not build the call graph: ${message}`);
     }
   }
 
   /** Open a validated workspace-relative review target in the existing call graph. */
   showReviewTarget(relativePath: string, symbolName: string | undefined, depth: number): Promise<void> {
-    if (this.disposed || this.reindexing) return Promise.resolve();
+    if (this.disposed || this.refuseWhileReindexing()) return Promise.resolve();
     return this.trackOperation(this.doShowReviewTarget(relativePath, symbolName, depth));
   }
 
   private async doShowReviewTarget(relativePath: string, symbolName: string | undefined, depth: number): Promise<void> {
-    const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const workspaceRoot = this.getWorkspaceRoot();
     if (!workspaceRoot) throw new Error("Review target requires an open workspace");
     const target = validateReviewCallGraphTarget({ file: relativePath, symbol: symbolName, depth });
     const filePath = resolveReviewCallGraphPath(workspaceRoot, target.file);
@@ -563,7 +587,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    */
   private getCache(): Promise<IndexCache> | null {
     const workspaceRoot = this.workspaceIndexedRoot
-      ?? normalizePath(vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? "");
+      ?? normalizePath(this.getWorkspaceRoot() ?? "");
     if (!workspaceRoot) return null;
     if (this.cacheTask?.root !== workspaceRoot) {
       this.cacheTask = { root: workspaceRoot, cache: IndexCache.open(workspaceRoot) };
@@ -899,14 +923,14 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
    * Resolve the most specific symbol node that contains the cursor line.
    * If the cursor is outside all node ranges, returns the first node.
    */
-  private resolveRootNode(
-    nodes: Array<{ id: string; startLine: number; endLine: number }>,
+  private resolveRootNode<T extends { id: string; name: string; startLine: number; endLine: number }>(
+    nodes: T[],
     cursorLine: number,
-  ): { id: string } | null {
+  ): T | null {
     if (nodes.length === 0) { return null; }
 
     // Find nodes whose range contains the cursor, pick the most specific (latest start)
-    let best: { id: string; startLine: number } | null = null;
+    let best: T | null = null;
     for (const n of nodes) {
       if (n.startLine <= cursorLine && cursorLine <= n.endLine) {
         if (!best || n.startLine > best.startLine) {
@@ -914,7 +938,11 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
         }
       }
     }
-    return best ?? nodes[0];
+    if (best) return best;
+    void vscode.window.showInformationMessage(
+      `Graph-It-Live: the cursor is outside every symbol; showing "${nodes[0].name}", the first one in the file.`,
+    );
+    return nodes[0];
   }
 
   // ---------------------------------------------------------------------------

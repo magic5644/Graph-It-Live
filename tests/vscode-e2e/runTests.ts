@@ -40,10 +40,56 @@ function removeFixtureIndexCaches(): void {
 /** Suite run in a Git repository root, which tests/fixtures is not: Branch Watch needs one (#546). */
 const GIT_WORKSPACE_SUITE = 'suite/branchWatchReview.gitWorkspace.js';
 
+/** Suites run in a window without a folder, and in a two-folder workspace (#770). */
+const NO_FOLDER_SUITE = 'suite/noFolder.launch.js';
+const MULTI_ROOT_SUITE = 'suite/multiRoot.launch.js';
+
+/** A separate-launch pass runs with every suite, or when a scoped run names it. */
+function runsLaunchSuite(name: RegExp, env: NodeJS.ProcessEnv = process.env): boolean {
+  const selected = env.E2E_SUITE_GLOB?.trim();
+  return !selected || name.test(selected);
+}
+
+type LaunchOptions = { version: string; cachePath: string; extensionTestsPath: string; env: NodeJS.ProcessEnv };
+
+/** Runs one suite in its own window; `target` is a folder or `.code-workspace` file, or nothing for an empty window. */
+async function runSuiteInWindow(options: LaunchOptions, suite: string, target?: string): Promise<void> {
+  await runTests({
+    version: options.version,
+    cachePath: options.cachePath,
+    extensionDevelopmentPath,
+    extensionTestsPath: options.extensionTestsPath,
+    extensionTestsEnv: { ...options.env, E2E_SUITE_GLOB: suite },
+    launchArgs: [...(target ? [target] : []), '--disable-extensions', ...RENDERING_ARGS],
+  });
+}
+
+/** Two folders; the setting selects the second, whose `lib.ts` is called from its `caller.ts`. */
+async function runMultiRootSuite(options: LaunchOptions): Promise<void> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'g-multiroot-'));
+  try {
+    const first = path.join(root, 'first');
+    const second = path.join(root, 'second');
+    fs.mkdirSync(first);
+    fs.mkdirSync(second);
+    fs.writeFileSync(path.join(first, 'alpha.ts'), 'export function alpha(): number {\n  return 1;\n}\n');
+    fs.writeFileSync(path.join(second, 'lib.ts'), 'export function beta(): number {\n  return 2;\n}\n');
+    fs.writeFileSync(path.join(second, 'caller.ts'), "import { beta } from './lib';\n\nexport function run(): number {\n  return beta();\n}\n");
+    const workspaceFile = path.join(root, 'multi.code-workspace');
+    fs.writeFileSync(workspaceFile, JSON.stringify({
+      folders: [{ path: first }, { path: second }],
+      // No pre-index: Show Call Graph alone must index the selected folder.
+      settings: { 'graph-it-live.workspaceFolder': second, 'graph-it-live.preIndexCallGraph': false },
+    }));
+    await runSuiteInWindow(options, MULTI_ROOT_SUITE, workspaceFile);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 /** The Git-workspace pass runs with every suite, or when a scoped run selects Branch Watch. */
 function runsGitWorkspaceSuite(env: NodeJS.ProcessEnv = process.env): boolean {
-  const selected = env.E2E_SUITE_GLOB?.trim();
-  return !selected || /branchWatch/i.test(selected);
+  return runsLaunchSuite(/branchWatch/i, env);
 }
 
 /**
@@ -51,7 +97,7 @@ function runsGitWorkspaceSuite(env: NodeJS.ProcessEnv = process.env): boolean {
  * enabled against `main`. Built-in extensions stay enabled: Branch Watch reads the repository through
  * the built-in Git extension. Test-only commands are absent from the VSIX, so this runs from source only.
  */
-async function runGitWorkspaceSuite(options: { version: string; cachePath: string; extensionTestsPath: string; env: NodeJS.ProcessEnv }): Promise<void> {
+async function runGitWorkspaceSuite(options: LaunchOptions): Promise<void> {
   const workspace = await createBranchWatchFixture();
   try {
     fs.mkdirSync(path.join(workspace, '.vscode'), { recursive: true });
@@ -83,6 +129,24 @@ function debuggingArgs(port = process.env.E2E_CDP_PORT): string[] {
   if (!port) return [];
   if (!/^\d+$/.test(port)) throw new Error('E2E_CDP_PORT must be a port number');
   return [`--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'];
+}
+
+/** The fixtures window, then each separate-launch suite the run selects. */
+async function runFromSource(launch: LaunchOptions, launchArgs: string[]): Promise<void> {
+  // A glob naming only a separate-launch suite skips the fixtures window, where that suite cannot pass.
+  if (!launch.env.E2E_SUITE_GLOB?.trim().endsWith('.launch.js')) {
+    await runTests({
+      version: launch.version,
+      cachePath: launch.cachePath,
+      extensionDevelopmentPath,
+      extensionTestsPath: launch.extensionTestsPath,
+      extensionTestsEnv: launch.env,
+      launchArgs,
+    });
+  }
+  if (runsGitWorkspaceSuite()) await runGitWorkspaceSuite(launch);
+  if (runsLaunchSuite(/noFolder/i)) await runSuiteInWindow(launch, NO_FOLDER_SUITE);
+  if (runsLaunchSuite(/multiRoot/i)) await runMultiRootSuite(launch);
 }
 
 async function main() {
@@ -175,17 +239,7 @@ async function main() {
       // Test from source (development mode)
       console.log('🔧 Testing extension from source (development mode)');
       
-      await runTests({
-        version: vscodeVersion,
-        cachePath: vscodeCachePath,
-        extensionDevelopmentPath,
-        extensionTestsPath,
-        extensionTestsEnv,
-        launchArgs,
-      });
-      if (runsGitWorkspaceSuite()) {
-        await runGitWorkspaceSuite({ version: vscodeVersion, cachePath: vscodeCachePath, extensionTestsPath, env: extensionTestsEnv });
-      }
+      await runFromSource({ version: vscodeVersion, cachePath: vscodeCachePath, extensionTestsPath, env: extensionTestsEnv }, launchArgs);
     }
 
     console.log('✅ All tests passed!');

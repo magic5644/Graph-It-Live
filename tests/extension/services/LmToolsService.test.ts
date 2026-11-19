@@ -167,6 +167,7 @@ function createProvider(overrides: Partial<{
 
   return {
     getSpiderForLmTools: vi.fn().mockReturnValue(spider),
+    getWorkspaceRoot: vi.fn(() => vscode.workspace.workspaceFolders?.[0]?.uri.fsPath),
     getCallGraphViewServiceForLmTools: vi.fn().mockReturnValue(overrides.callGraphService ?? null),
   } as unknown as GraphProvider;
 }
