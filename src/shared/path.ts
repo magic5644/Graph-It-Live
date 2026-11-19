@@ -80,15 +80,16 @@ export function getRelativePath(absolutePath: string, workspaceRoot: string): st
  * roughly a quarter of the bytes of a TOON payload, all of it machine-specific
  * noise that an LLM cannot use.
  *
- * Applied to TOON only: `--format json` is a stable contract for scripts, which
- * may legitimately depend on `filePath` being absolute.
+ * Applied to every rendered output (CLI json and toon, MCP responses and
+ * messages): paths are workspace-relative on every surface (#769).
  */
 export function relativizeWorkspacePaths(output: string, workspaceRoot: string): string {
   // Every path in the index goes through normalizePath (forward slashes,
   // lowercased Windows drive letter), so matching that one canonical form is
   // enough — no separate native-separator handling is needed.
   const normalizedRoot = normalizePath(workspaceRoot);
-  if (normalizedRoot.length === 0) {
+  // A filesystem root ("/", "c:/") would turn every absolute path, or every "/", into noise.
+  if (/^(?:[a-z]:)?\/?$/i.test(normalizedRoot)) {
     return output;
   }
 

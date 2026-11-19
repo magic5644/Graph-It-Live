@@ -39,4 +39,11 @@ describe("markdown views (#769)", () => {
     const text = renderToolMarkdown("graphitlive_export_architecture_diagram", { format: "diagram-spec", markup: "```x```" });
     expect(text).toContain("````json\n```x```\n````");
   });
+
+  it("keeps a heading on one line and a diagram fence multi-line", () => {
+    const workspace = renderToolMarkdown("graphitlive_set_workspace", { workspaceName: "evil\n# Injected", message: "ok" });
+    expect(workspace).toContain("# Workspace evil # Injected");
+    const diagram = renderToolMarkdown("graphitlive_export_architecture_diagram", { format: "mermaid", markup: "flowchart LR\n  a --> b" });
+    expect(diagram).toContain("flowchart LR\n  a --> b");
+  });
 });

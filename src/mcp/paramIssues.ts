@@ -74,16 +74,18 @@ function expectation(issue: Issue): string | undefined {
   }
 }
 
+const MAX_UNKNOWN_KEYS = 5;
+
 function unknownKeysMessage(keys: readonly string[], path: readonly PropertyKey[], known: readonly string[]): string {
   const where = path.length > 0 ? ` in "${paramName(path)}"` : "";
-  return keys
-    .map((key) => {
-      const [closest] = path.length === 0 ? closestNames([...known], key, 1) : [];
-      const hint = closest ? ` Did you mean "${closest}"?` : "";
-      const list = path.length === 0 ? ` Parameters: ${known.join(", ")}.` : "";
-      return `Unknown parameter "${key}"${where}.${hint}${list}`;
-    })
-    .join(" ");
+  const named = keys.slice(0, MAX_UNKNOWN_KEYS).map((key) => {
+    const [closest] = path.length === 0 ? closestNames([...known], key, 1) : [];
+    const hint = closest ? ` Did you mean "${closest}"?` : "";
+    return `Unknown parameter "${key}"${where}.${hint}`;
+  });
+  const more = keys.length > MAX_UNKNOWN_KEYS ? [`And ${keys.length - MAX_UNKNOWN_KEYS} more unknown parameters.`] : [];
+  const list = path.length === 0 ? [`Parameters: ${known.join(", ")}.`] : [];
+  return [...named, ...more, ...list].join(" ");
 }
 
 function issueMessage(issue: Issue, known: readonly string[]): string {
