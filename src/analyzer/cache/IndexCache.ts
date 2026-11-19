@@ -13,10 +13,12 @@
  *   held waits, then restores what the holder wrote instead of indexing again.
  */
 
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { SourceFileCollector } from "../SourceFileCollector";
 import type { Spider } from "../Spider";
+import type { SymbolDependency, SymbolInfo } from "../types";
 import { getLogger } from "../../shared/logger";
 import { normalizePath } from "../../shared/path";
 import { configFingerprint } from "./configFingerprint";
@@ -43,6 +45,10 @@ const META_FILE = "meta.json";
 const REVERSE_INDEX_FILE = "reverse-index.json";
 const CALLGRAPH_FILE = "callgraph.db";
 const LOCK_FILE = "index.lock";
+const SYMBOLS_FILE = "symbols.json";
+
+/** Format of symbols.json. Bump when an AST analyzer's output changes shape or meaning. */
+export const SYMBOL_CACHE_SCHEMA = 1;
 
 /** Spider options that change the reverse index content. The call graph ignores them. */
 export interface ReverseIndexOptions {
@@ -81,6 +87,15 @@ function writeFileAtomic(filePath: string, data: string | Uint8Array): void {
   const tmpPath = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${process.pid}.tmp`);
   fs.writeFileSync(tmpPath, data);
   fs.renameSync(tmpPath, filePath);
+}
+
+/** `.graph-it/` holds only generated state, so it ignores itself in git. */
+function ensureGitignore(cacheDir: string): void {
+  try {
+    fs.writeFileSync(path.join(path.dirname(cacheDir), ".gitignore"), "*\n", { flag: "wx" });
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+  }
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -176,7 +191,7 @@ export class IndexCache {
     if (!fingerprint) return false;
     try {
       fs.mkdirSync(this.dir, { recursive: true });
-      this.ensureGitignore();
+      ensureGitignore(this.dir);
       const previous = this.readMeta();
       const keepOthers = this.matches(previous, fingerprint);
 
@@ -219,7 +234,7 @@ export class IndexCache {
 
   /** Delete the cached payloads and guard. Leaves another process's lock in place. */
   clear(): void {
-    for (const file of [META_FILE, REVERSE_INDEX_FILE, CALLGRAPH_FILE]) {
+    for (const file of [META_FILE, REVERSE_INDEX_FILE, CALLGRAPH_FILE, SYMBOLS_FILE]) {
       fs.rmSync(path.join(this.dir, file), { force: true });
     }
     try {
@@ -332,15 +347,6 @@ export class IndexCache {
     return Date.now() - holder.acquiredAt > LOCK_STALE_MS || !isProcessAlive(holder.pid);
   }
 
-  /** `.graph-it/` holds only generated state, so it ignores itself in git. */
-  private ensureGitignore(): void {
-    try {
-      fs.writeFileSync(path.join(path.dirname(this.dir), ".gitignore"), "*\n", { flag: "wx" });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-    }
-  }
-
   private readMeta(): IndexCacheMeta | undefined {
     try {
       return JSON.parse(fs.readFileSync(path.join(this.dir, META_FILE), "utf-8")) as IndexCacheMeta;
@@ -367,6 +373,104 @@ export class IndexCache {
       typeof meta.workspaceRoot === "string" &&
       normalizePath(meta.workspaceRoot) === normalizePath(this.workspaceRoot)
     );
+  }
+}
+
+type SymbolGraph = { symbols: SymbolInfo[]; dependencies: SymbolDependency[] };
+
+/** One file's AST analyses, valid while its content hashes to `hash`. Paths are unresolved: no config is read. */
+interface SymbolCacheEntry {
+  hash: string;
+  graph?: SymbolGraph;
+  /** Internal export dependency graph: callees per export. */
+  internal?: Record<string, string[]>;
+}
+
+interface SymbolCacheFile {
+  schema: number;
+  version: string;
+  entries: Record<string, SymbolCacheEntry>;
+}
+
+// A Vue template read from another file (`<template src>`) changes the analysis, not the file's content.
+const EXTERNAL_VUE_TEMPLATE = /<template\b[^>]*\ssrc\s*=/i;
+
+const hashOf = (content: string): string => createHash("sha256").update(content).digest("hex");
+
+/**
+ * The AST worker's analyses (symbols and dependencies, internal export graph) of each file, keyed by
+ * content hash in `.graph-it/cache/symbols.json`, so a warm run analyzes only the files that changed (#774).
+ * Values are cloned in and out: callers may mutate what they get, never what is saved.
+ */
+export class SymbolAnalysisCache {
+  private entries: Map<string, SymbolCacheEntry> | undefined;
+  private dirty = false;
+
+  constructor(private readonly dir: string) {}
+
+  getGraph(filePath: string, content: string): SymbolGraph | undefined {
+    const graph = this.entry(filePath, content)?.graph;
+    return graph && structuredClone(graph);
+  }
+
+  setGraph(filePath: string, content: string, graph: SymbolGraph): void {
+    this.update(filePath, content, { graph: structuredClone(graph) });
+  }
+
+  getInternalGraph(filePath: string, content: string): Map<string, Set<string>> | undefined {
+    const internal = this.entry(filePath, content)?.internal;
+    return internal && new Map(Object.entries(internal).map(([name, callees]) => [name, new Set(callees)]));
+  }
+
+  setInternalGraph(filePath: string, content: string, graph: Map<string, Set<string>>): void {
+    this.update(filePath, content, { internal: Object.fromEntries([...graph].map(([name, callees]) => [name, [...callees]])) });
+  }
+
+  /** Write what changed since the last save, dropping deleted files. Best-effort, like IndexCache.save(). */
+  save(): void {
+    if (!this.dirty || !this.entries) return;
+    try {
+      for (const filePath of this.entries.keys()) {
+        if (!fs.existsSync(filePath)) this.entries.delete(filePath);
+      }
+      fs.mkdirSync(this.dir, { recursive: true });
+      ensureGitignore(this.dir);
+      const data: SymbolCacheFile = { schema: SYMBOL_CACHE_SCHEMA, version: ANALYZER_VERSION, entries: Object.fromEntries(this.entries) };
+      writeFileAtomic(path.join(this.dir, SYMBOLS_FILE), JSON.stringify(data));
+      this.dirty = false;
+    } catch (error) {
+      log.warn("Could not save symbol cache:", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private entry(filePath: string, content: string): SymbolCacheEntry | undefined {
+    const entry = this.load().get(normalizePath(filePath));
+    return entry?.hash === hashOf(content) ? entry : undefined;
+  }
+
+  private update(filePath: string, content: string, payload: Omit<SymbolCacheEntry, "hash">): void {
+    if (filePath.toLowerCase().endsWith(".vue") && EXTERNAL_VUE_TEMPLATE.test(content)) return;
+    const key = normalizePath(filePath);
+    const hash = hashOf(content);
+    const previous = this.load().get(key);
+    this.load().set(key, { ...(previous?.hash === hash ? previous : {}), ...payload, hash });
+    this.dirty = true;
+  }
+
+  /** Read once; a missing, corrupt, other-format or other-version file starts empty. */
+  private load(): Map<string, SymbolCacheEntry> {
+    if (!this.entries) {
+      this.entries = new Map();
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(this.dir, SYMBOLS_FILE), "utf-8")) as Partial<SymbolCacheFile>;
+        if (data.schema === SYMBOL_CACHE_SCHEMA && data.version === ANALYZER_VERSION && data.entries) {
+          this.entries = new Map(Object.entries(data.entries));
+        }
+      } catch {
+        // Nothing usable cached: every file is analyzed once, then saved.
+      }
+    }
+    return this.entries;
   }
 }
 
@@ -407,6 +511,7 @@ export async function restoreOrBuildIndex(
 ): Promise<CachedIndexOutcome> {
   const { cache } = options;
   const release = cache ? await cache.lock(options.onWait) : NO_LOCK;
+  spider.useSymbolAnalysisCache(cache?.enabled ? new SymbolAnalysisCache(cache.dir) : null);
   try {
     const cached = cache?.readReverseIndex(options.reverseIndexOptions);
     // enableReverseIndex() re-checks the index version and rootDir on its own.
