@@ -289,7 +289,8 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
 
   await runtime.ensureIndexed();
   const graph = await runtime.progress.phase("Analyzing architecture", (onProgress) =>
-    buildArchitectureGraph(workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
+    // An unchanged file's imports come from the index just restored or built: a warm run parses nothing (#774).
+    buildArchitectureGraph(workspaceRoot, (filePath) => workerState.getSpider().analyzeFromIndex(filePath), {
       communityMode: "path",
       indexedAt: runtime.loadState()?.lastScanTimestamp,
       onProgress,
