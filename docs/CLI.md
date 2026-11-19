@@ -1044,7 +1044,7 @@ Every current violation goes to `graphit.architecture.baseline.json`; the file i
 
 - in a terminal, `init` prints the changes (`+` added, `~` changed, `-` removed, accepted violations included) and asks before overwriting (default: no); after a yes, the previous files are kept as `*.bak` (`*.bak.2`, `*.bak.3`... when a copy already exists, so an earlier one is never replaced);
 - outside a terminal (CI, agent, pipe) or after a no, it writes nothing to these files and still prints the changes and the report;
-- `--yes` is the only non-interactive way to confirm. `--dry-run` writes neither the rules files, the diagrams nor the report; the index cache under `.graph-it/` is refreshed as by every command.
+- `--yes` is the only non-interactive way to confirm. `--dry-run` writes neither the rules files, the diagrams nor the report; the index cache under `.graph-it/` is refreshed as by every command. `--output` is checked before any work, with or without `--dry-run`: a directory outside the workspace exits 5; with `--dry-run` the report says `Report: not written (dry run): <dir>` (json and toon: `reportNotWritten`).
 
 An invalid config is reported, never replaced.
 
@@ -1267,6 +1267,11 @@ Left out, and listed as `excluded` with `--verbose`:
 | `convention:type-declaration` | `.d.ts`, `.d.mts` and `.d.cts` files: the compiler loads them, no import does |
 | `convention:config-file` | `*.config.{js,ts,mjs,cjs,mts,cts}`, `.<tool>rc.{js,ts,...}`, `vercel.ts`, `codegen.ts` and `serverless.ts`: the tool (Vite, Vitest, ESLint, Vercel, graphql-codegen, Serverless, ...) loads them by name |
 | `convention:migration` | Files of a migrations folder (`migrations/`, `data-migrations/`, `*_migrations/`, `alembic/versions/`): the migration tool runs them by folder. Their exports are left out of the export scan too |
+| `unresolved-import-in-workspace` | A workspace import resolves to no file (a generated file not built yet), and this file lies in the folder that import would load: one confidence level lower |
+| `excluded-importer-in-workspace` | A workspace import resolves to a file the analysis leaves out (.gitignore, .graphitignore, default exclusion), whose own imports are not followed, and this file lies in its folder: one confidence level lower |
+
+**Unresolved imports.** `check --unreferencedFiles`, `summary`, `init` (and the `scan_dead_code` / `get_index_status` MCP tools and the VS Code indexing status) report, in one `unresolvedImports` block, the imports that follow no file: `count` (resolve to no file: TS/JS relative and alias paths, Python relative imports and workspace submodules, Go imports under the `go.mod` module, Rust `mod` declarations, Java classes of a workspace package), `excludedCount` (resolve to an excluded file), `caseMismatchCount` (differ only in letter case from an existing file: broken on Linux, the same report on every OS) and `notAnalyzedCount` (match only a file the analysis does not read, such as `./settings` with `settings.json`), each with examples naming the importing file, and what to do. Packages, C# namespaces and Rust `use` paths are not counted. Without a reverse index the block is `{ tracked: false, warning }`, never absent.
+
 | `gitignored` | Files the `.gitignore` of a folder below the root ignores: a package's build output or generated code. They stay indexed, so a git-ignored generated file that imports source files still counts as their importer |
 | `convention:package-init` | A Python `__init__.py` next to other modules: Python runs it whenever one of them is imported |
 
