@@ -4,7 +4,7 @@ import { normalizePath } from '@/shared/path';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mock WasmParserFactory to avoid WASM initialization in unit tests
 vi.mock('@/analyzer/languages/WasmParserFactory', () => {
@@ -206,6 +206,95 @@ describe('JavaParser', () => {
             fs.rmSync(root, { recursive: true, force: true });
             fs.rmSync(outside, { recursive: true, force: true });
           });
+  });
+
+  describe('resolvePath across source roots and modules (#774)', () => {
+    let root: string;
+    const at = (file: string) => normalizePath(path.join(root, file));
+    const write = (file: string) => {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), 'class X {}\n');
+    };
+    const mainApp = 'core/src/main/java/com/acme/app/App.java';
+    const testFile = () => path.join(root, 'core/src/test/java/com/acme/app/AppTest.java');
+    const otherModule = () => path.join(root, 'web/src/main/java/com/acme/web/Page.java');
+    beforeEach(() => {
+      root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-java-modules-')));
+      write(mainApp);
+      write('core/src/main/java/com/acme/util/Strings.java');
+      write('core/src/test/java/com/acme/app/AppTest.java');
+      write('core/src/test/java/com/acme/app/Fixtures.java');
+      write('web/src/main/java/com/acme/web/Page.java');
+    });
+    afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+    it('resolves a test to its module main classes, a main class to another package, and a test to its own test classes', async () => {
+      const scoped = new JavaParser(root, process.cwd());
+      expect(await scoped.resolvePath(testFile(), 'com.acme.app.App')).toBe(at(mainApp));
+      expect(await scoped.resolvePath(path.join(root, mainApp), 'com.acme.util.Strings')).toBe(at('core/src/main/java/com/acme/util/Strings.java'));
+      expect(await scoped.resolvePath(testFile(), 'com.acme.app.Fixtures')).toBe(at('core/src/test/java/com/acme/app/Fixtures.java'));
+    });
+
+    it('resolves a class of a sibling module', async () => {
+      const scoped = new JavaParser(root, process.cwd());
+      expect(await scoped.resolvePath(otherModule(), 'com.acme.app.App')).toBe(at(mainApp));
+      expect(await scoped.resolvePath(otherModule(), 'com.acme.util.Strings')).toBe(at('core/src/main/java/com/acme/util/Strings.java'));
+    });
+
+    it('resolves static imports, static wildcards and nested classes to the top-level class file', async () => {
+      const scoped = new JavaParser(root, process.cwd());
+      for (const specifier of ['com.acme.app.App.helper', 'com.acme.app.App.*', 'com.acme.app.App.Inner', 'com.acme.app.App.Inner.Deeper']) {
+        expect(await scoped.resolvePath(otherModule(), specifier)).toBe(at(mainApp));
+      }
+    });
+
+    it('is null for the JDK, package wildcards, missing classes and unsafe segments', async () => {
+      const scoped = new JavaParser(root, process.cwd());
+      for (const specifier of ['java.util.List', 'com.acme.app.*', 'com.acme.app.Missing', 'org.junit.Test', 'com.acme..App', 'com.acme.../App', 'com.a/b.App', 'com.a\\b.App']) {
+        expect(await scoped.resolvePath(testFile(), specifier)).toBeNull();
+      }
+    });
+
+    it('lists the workspace once, and again for a miss once the list is stale', async () => {
+      const scoped = new JavaParser(root, process.cwd());
+      const now = vi.spyOn(Date, 'now').mockReturnValue(1_000_000);
+      try {
+        expect(await scoped.resolvePath(testFile(), 'com.acme.web.Later')).toBeNull();
+        write('web/src/main/java/com/acme/web/Later.java');
+        // Same list within its lifetime: the new file of another module is not seen yet.
+        expect(await scoped.resolvePath(testFile(), 'com.acme.web.Later')).toBeNull();
+        now.mockReturnValue(1_000_000 + 60_000);
+        expect(await scoped.resolvePath(testFile(), 'com.acme.web.Later')).toBe(at('web/src/main/java/com/acme/web/Later.java'));
+      } finally {
+        now.mockRestore();
+      }
+    });
+
+    it('finds a class created after the listing in the importing module at once', async () => {
+      const scoped = new JavaParser(root, process.cwd());
+      expect(await scoped.resolvePath(testFile(), 'com.acme.app.Fresh')).toBeNull();
+      write('core/src/main/java/com/acme/app/Fresh.java');
+      expect(await scoped.resolvePath(testFile(), 'com.acme.app.Fresh')).toBe(at('core/src/main/java/com/acme/app/Fresh.java'));
+    });
+
+    it('never resolves through a symbolic link leaving the root', async () => {
+      const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'graph-it-java-outside-')));
+      try {
+        fs.mkdirSync(path.join(outside, 'leak'), { recursive: true });
+        fs.writeFileSync(path.join(outside, 'leak', 'Secret.java'), 'class Secret {}\n');
+        fs.symlinkSync(outside, path.join(root, 'core/src/main/java/com/acme/linked'));
+        const scoped = new JavaParser(root, process.cwd());
+        expect(await scoped.resolvePath(testFile(), 'com.acme.linked.leak.Secret')).toBeNull();
+      } finally {
+        fs.rmSync(outside, { recursive: true, force: true });
+      }
+    });
+
+    it('reports a missing class of a static import where its package lives', async () => {
+      const scoped = new JavaParser(root, process.cwd());
+      expect(await scoped.localTargetOf(testFile(), 'com.acme.app.Missing.method')).toBe(at('core/src/test/java/com/acme/app/Missing.java'));
+      expect(await scoped.localTargetOf(otherModule(), 'com.acme.web.Gone.*')).toBe(at('web/src/main/java/com/acme/web/Gone.java'));
+    });
   });
 
   describe('localTargetOf (#774)', () => {

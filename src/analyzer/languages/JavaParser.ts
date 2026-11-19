@@ -1,3 +1,4 @@
+import { type Dirent, statSync } from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { Node, Parser } from "web-tree-sitter";
@@ -8,6 +9,18 @@ import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
 import { extractFilePath } from "../utils/PathExtractor";
 import { ReportReads } from "../utils/ReportReads";
 import { WasmParserFactory } from "./WasmParserFactory";
+
+/** A listed .java file: normalized path, and its depth below the workspace root (1 = in the root). */
+interface JavaFile {
+  file: string;
+  depth: number;
+}
+
+/** How old the .java file list may be when an import is found nowhere: a file created since may be the one (#774). */
+const LISTING_TTL_MS = 5000;
+
+/** The depth searched for a class file by name alone, whatever its folder (a layout not matching packages). */
+const MAX_LAYOUT_DEPTH = 4;
 
 /**
  * Java import parser backed by tree-sitter WASM.
@@ -126,25 +139,18 @@ export class JavaParser implements ILanguageAnalyzer {
     /**
      * The class file an import names when its package is a folder of a source root above the importing file
      * (`src/main/java/com/acme/app` for `com.acme.app.Missing`), existing or not (#774). Null for the standard library,
-     * wildcards, static imports and nested classes (their prefix is no folder), and packages the workspace lacks.
+     * package wildcards, lower-case class names, and packages the workspace lacks. A static import or a nested class
+     * names its top-level class file.
      */
     async localTargetOf(fromFile: string, moduleSpecifier: string, reads = new ReportReads()): Promise<string | null> {
-        const segments = moduleSpecifier.split('.');
-        // A class name starts upper case; a lower-case last segment is the package of a wildcard import (`a.b.*`).
-        if (this.isJavaStdlibImport(moduleSpecifier) || moduleSpecifier.endsWith('.*') || segments.length < 2
-            || !/^[A-Z]/.test(segments.at(-1) ?? '') || segments.some(s => s === '' || s === '..' || s.includes('/'))) {
+        const segments = this.classSegments(moduleSpecifier);
+        // A class name starts upper case; a lower-case last segment is a package (`a.b.util`).
+        if (!segments || segments.length < 2 || !/^[A-Z]/.test(segments.at(-1) ?? '')) {
             return null;
         }
-        // Normalized string comparison: the importing file is indexed, so in the workspace; no realpath, and no path
-        // resolution per folder, for each of thousands of imports (#774).
-        this.normalizedRoot ??= normalizePath(path.resolve(this.rootDir));
-        const root = this.normalizedRoot;
-        const rootPrefix = root.endsWith('/') ? root : `${root}/`;
         const packagePath = segments.slice(0, -1).join('/');
-        const file = extractFilePath(fromFile);
-        // Indexed paths are absolute already: path.resolve() per import is the costliest step otherwise.
-        const fromDir = normalizePath(path.dirname(path.isAbsolute(file) ? file : path.resolve(file)));
-        if (fromDir !== root && !fromDir.startsWith(rootPrefix)) return null;
+        const fromDir = this.folderInRoot(fromFile);
+        if (fromDir === null) return null;
         // The files of a folder import the same packages: each folder climbs once per package and report.
         let packageDirs = this.packageDirs.get(reads);
         if (!packageDirs) {
@@ -154,7 +160,7 @@ export class JavaParser implements ILanguageAnalyzer {
         const key = `${fromDir}\0${packagePath}`;
         let packageDir = packageDirs.get(key);
         if (packageDir === undefined) {
-            packageDir = this.nearestPackageDir(fromDir, packagePath, root, rootPrefix, reads);
+            packageDir = this.foldersUpToRoot(fromDir).map((dir) => this.under(dir, packagePath)).find((dir) => reads.isDirectory(dir)) ?? null;
             packageDirs.set(key, packageDir);
         }
         return packageDir === null ? null : `${packageDir}/${segments.at(-1)}.java`;
@@ -166,49 +172,134 @@ export class JavaParser implements ILanguageAnalyzer {
     /** Per report, the nearest package folder found from a folder (`<folder>\0<package path>`). */
     private readonly packageDirs = new WeakMap<ReportReads, Map<string, string | null>>();
 
-    /** The nearest existing `<folder>/<packagePath>` from `dir` up to the workspace root, else null. */
-    private nearestPackageDir(dir: string, packagePath: string, root: string, rootPrefix: string, reads: ReportReads): string | null {
-        for (;;) {
-            const packageDir = dir.endsWith('/') ? dir + packagePath : `${dir}/${packagePath}`;
-            if (reads.isDirectory(packageDir)) return packageDir;
-            if (dir === root) return null;
+    private root(): string {
+        this.normalizedRoot ??= normalizePath(path.resolve(this.rootDir));
+        return this.normalizedRoot;
+    }
+
+    /** `relative` below `dir`, by string: no path resolution per import. */
+    private under(dir: string, relative: string): string {
+        return dir.endsWith('/') ? dir + relative : `${dir}/${relative}`;
+    }
+
+    /**
+     * The normalized folder of `fromFile` when it lies in the workspace root, else null. String comparison: the
+     * importing file is indexed, so no realpath, and no path resolution, for each of thousands of imports (#774).
+     */
+    private folderInRoot(fromFile: string): string | null {
+        const root = this.root();
+        const file = extractFilePath(fromFile);
+        const fromDir = normalizePath(path.dirname(path.isAbsolute(file) ? file : path.resolve(file)));
+        return fromDir === root || fromDir.startsWith(this.under(root, '')) ? fromDir : null;
+    }
+
+    /** `dir` and its parent folders up to the workspace root, nearest first; `dir` is in the root. */
+    private foldersUpToRoot(dir: string): string[] {
+        const root = this.root();
+        const rootPrefix = this.under(root, '');
+        const dirs = [dir];
+        while (dir !== root) {
             const parent = dir.slice(0, dir.lastIndexOf('/'));
             dir = parent.startsWith(rootPrefix) ? parent : root;
+            dirs.push(dir);
+        }
+        return dirs;
+    }
+
+    /**
+     * The path segments of the class file an import names: up to its first upper-case segment, so a static import
+     * (`a.b.Util.method`, `a.b.Util.*`) and a nested class (`a.b.Outer.Inner`) name their top-level class. Null for the
+     * standard library, a package wildcard (`a.b.*`) and unsafe segments (path traversal).
+     */
+    private classSegments(moduleSpecifier: string): string[] | null {
+        if (this.isJavaStdlibImport(moduleSpecifier)) return null;
+        const wildcard = moduleSpecifier.endsWith('.*');
+        const segments = (wildcard ? moduleSpecifier.slice(0, -2) : moduleSpecifier).split('.');
+        if (segments.some(s => s === '' || s === '..' || s.includes('/') || s.includes('\\'))) return null;
+        const classIndex = segments.findIndex((s) => /^[A-Z]/.test(s));
+        if (classIndex < 0) return wildcard ? null : segments;
+        return segments.slice(0, classIndex + 1);
+    }
+
+    async resolvePath(fromFile: string, moduleSpecifier: string): Promise<string | null> {
+        try {
+            const segments = this.classSegments(moduleSpecifier);
+            if (!segments) return null;
+            const relative = `${segments.join('/')}.java`;
+
+            // Try 1: the package path from the importing file's folders up to the workspace root, and from their
+            // Maven/Gradle main source root: a class of the same source root, or a test importing its module's
+            // src/main/java (#774). Checked on disk, so a class created a moment ago is found.
+            const fromDir = this.folderInRoot(fromFile);
+            const folders = fromDir === null ? [this.root()] : this.foldersUpToRoot(fromDir);
+            const nearest = folders
+                .flatMap((dir) => [this.under(dir, relative), this.under(dir, `src/main/java/${relative}`)])
+                .find((candidate) => this.isFile(candidate));
+            if (nearest) return this.isWithinRoot(nearest) ? nearest : null;
+
+            // Try 2: the workspace's .java files, listed once: a class of another module, or any layout (#774)
+            return this.listed(await this.javaFiles(false), relative) ?? this.listed(await this.javaFiles(true), relative);
+        } catch {
+            return null;
         }
     }
 
-    async resolvePath(_fromFile: string, moduleSpecifier: string): Promise<string | null> {
+    /** The .java files of the workspace by file name, with when they were listed. */
+    private javaFileList?: { listedAt: number; byName: Promise<Map<string, JavaFile[]>> };
+
+    /**
+     * The workspace's .java files by name, listed once and shared by all imports. `refresh` lists them again when the
+     * list is older than LISTING_TTL_MS: an import found nowhere may name a file created since.
+     */
+    private javaFiles(refresh: boolean): Promise<Map<string, JavaFile[]>> {
+        if (!this.javaFileList || (refresh && Date.now() - this.javaFileList.listedAt > LISTING_TTL_MS)) {
+            this.javaFileList = { listedAt: Date.now(), byName: this.listJavaFiles() };
+        }
+        return this.javaFileList.byName;
+    }
+
+    /**
+     * The listed file of `relative` (`com/acme/App.java`): one whose path ends with it (another module's source
+     * root), else one named like it at most four folders deep, whatever its folder (a layout not matching packages).
+     */
+    private listed(byName: Map<string, JavaFile[]>, relative: string): string | null {
+        const files = byName.get(path.posix.basename(relative)) ?? [];
+        const match = files.find(({ file }) => file.endsWith(`/${relative}`)) ?? files.find(({ depth }) => depth <= MAX_LAYOUT_DEPTH);
+        return match?.file ?? null;
+    }
+
+    /** Every .java file below the root (no symbolic link followed, so all inside it), shallowest first. */
+    private async listJavaFiles(): Promise<Map<string, JavaFile[]>> {
+        const byName = new Map<string, JavaFile[]>();
+        const walk = async (dir: string, depth: number): Promise<void> => {
+            let entries: Dirent[];
+            try {
+                entries = await fs.readdir(dir, { withFileTypes: true });
+            } catch {
+                return; // Directory not accessible
+            }
+            await Promise.all(entries.map(async (entry) => {
+                const file = this.under(dir, entry.name);
+                if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+                    await walk(file, depth + 1);
+                } else if (entry.isFile() && entry.name.endsWith('.java')) {
+                    const files = byName.get(entry.name) ?? [];
+                    files.push({ file, depth });
+                    byName.set(entry.name, files);
+                }
+            }));
+        };
+        await walk(this.root(), 1);
+        for (const files of byName.values()) files.sort((a, b) => a.depth - b.depth || a.file.localeCompare(b.file));
+        return byName;
+    }
+
+    private isFile(file: string): boolean {
         try {
-            // Skip Java standard library and well-known javax/sun packages
-            if (this.isJavaStdlibImport(moduleSpecifier)) {
-                return null;
-            }
-            // Skip wildcard imports — cannot resolve to a single file
-            if (moduleSpecifier.endsWith('.*')) {
-                return null;
-            }
-
-            const segments = moduleSpecifier.split('.');
-            // Guard against path traversal: reject empty, dot-only, or slash-containing segments
-            if (segments.some(s => s === '' || s === '..' || s.includes('/'))) {
-                return null;
-            }
-
-            const className = segments.at(-1) ?? '';
-
-            // Try 1: Standard Maven layout — full package path from rootDir
-            // e.g., com.example.myapp.UserService → rootDir/com/example/myapp/UserService.java
-            const packagePath = segments.join(path.sep) + '.java';
-            const directPath = path.resolve(this.rootDir, packagePath);
-            if (this.isWithinRoot(directPath) && await this.fileExists(directPath)) {
-                return normalizePath(directPath);
-            }
-
-            // Try 2: Search for ClassName.java anywhere within rootDir (handles non-standard layouts)
-            const found = await this.findFile(this.rootDir, className + '.java', 4);
-            return found ? normalizePath(found) : null;
+            // No exception for the common miss: most probed paths do not exist.
+            return statSync(file, { throwIfNoEntry: false })?.isFile() ?? false;
         } catch {
-            return null;
+            return false;
         }
     }
 
@@ -224,37 +315,5 @@ export class JavaParser implements ILanguageAnalyzer {
             'org.omg.', 'jdk.', 'javafx.',
         ];
         return stdPrefixes.some(prefix => moduleSpecifier.startsWith(prefix));
-    }
-
-    /** Recursively search for a file by exact name within a directory tree (depth-limited). */
-    private async findFile(dir: string, fileName: string, maxDepth: number): Promise<string | null> {
-        if (maxDepth <= 0) return null;
-        try {
-            const entries = await fs.readdir(dir, { withFileTypes: true });
-            for (const entry of entries) {
-                if (entry.isFile() && entry.name === fileName) {
-                    return path.join(dir, entry.name);
-                }
-            }
-            for (const entry of entries) {
-                if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
-                    // eslint-disable-next-line no-await-in-loop -- depth-first search stops at the first match; going concurrent would read the whole tree to maxDepth
-                    const found = await this.findFile(path.join(dir, entry.name), fileName, maxDepth - 1);
-                    if (found) return found;
-                }
-            }
-        } catch {
-            // Directory not accessible
-        }
-    return null;
-  }
-
-    private async fileExists(filePath: string): Promise<boolean> {
-        try {
-            await fs.access(filePath);
-            return true;
-        } catch {
-            return false;
-        }
     }
 }
