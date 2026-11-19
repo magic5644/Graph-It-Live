@@ -251,9 +251,9 @@ All analysis commands support multiple output formats via `--format`:
 | `markdown` | Data wrapped in a Markdown code block | Reports, documentation |
 | `mermaid` | Mermaid flowchart diagram syntax | Architecture docs, README, Notion |
 
-`toon` output is compacted: paths are workspace-relative, and keys that repeat a sibling are dropped (`relativePath` and `id` when equal to `path`, `sourceRelative`/`targetRelative`, and `sourceFile`/`targetFile` already carried by `sourceId`/`targetId`). MCP responses apply the same rule in every format. CLI `json` keeps the full, uncompacted fields listed below.
+`toon` output is compacted: paths are workspace-relative, and keys that repeat a sibling are dropped (`relativePath` and `id` when equal to `path`, `sourceRelative`/`targetRelative`, and `sourceFile`/`targetFile` already carried by `sourceId`/`targetId`). MCP responses apply the same rule in every format. CLI `json` keeps the full, uncompacted fields listed below, with workspace-relative paths like the MCP tools.
 
-MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is readable Markdown with the same content as `toon`: the error of a failed call, freshness and pagination, scalar fields as a list, then one table per array. `structuredContent` is sent only for `json`, and no tool declares an `outputSchema`: clients such as Claude Code show `structuredContent` instead of the text, so `toon` and `markdown` return text only. A failed call sets `isError: true` in every format.
+MCP tools take `response_format` (`toon` by default, `json`, `markdown`), their only format parameter. MCP `markdown` is one report per tool: a title naming the request, its counts, the tables a reader needs, a partial-result note with the offset to pass next, an inline diagram in a fence of its language, and the index freshness. Tool schemas are strict: an unknown parameter, an invalid value or a missing required one fails before any work with one readable line (`Unknown parameter "filepath". Did you mean "filePath"? Parameters: …`, `"direction" must be one of callers, callees, both; got "up".`), prefixed by the MCP SDK's `Input validation error: Invalid arguments for tool <name>:`. A missing file, symbol, folder, seed, unit or Git ref is an error naming the closest candidates, never an empty success; an offset past the last item is an error naming the count. Messages carry workspace-relative paths. File parameters take workspace-relative or absolute paths. `structuredContent` is sent only for `json`, and no tool declares an `outputSchema`: clients such as Claude Code show `structuredContent` instead of the text, so `toon` and `markdown` return text only. A failed call sets `isError: true` in every format.
 
 **Format availability per command:** each command writes the formats below and nothing else. Any other `--format` exits with code `4` and names the supported ones, for example `Error: graph-it summary does not write --format mermaid: use text, json, toon, markdown.`
 
@@ -2376,7 +2376,7 @@ and `nextOffset` gives the next page: pass it as `--offset` until it is absent.
 graph-it tool scan_dead_code
 
 # Scoped to a directory
-graph-it tool scan_dead_code --scopePath=/abs/path/to/src/utils/
+graph-it tool scan_dead_code --scopePath=src/utils/
 
 # Whole files no production file imports
 graph-it tool scan_dead_code --unreferencedFiles=true --verbose=true
@@ -2444,8 +2444,7 @@ graph-it tool check_architecture --config=config/architecture.json --baseline=co
 | `question` | string | — | Natural language question (max 1024 characters) |
 | `depth` | number | `2` | BFS depth for call graph traversal (1–5) |
 | `tokenBudget` | number | `4000` | Max tokens for subgraph context (500–16000) |
-| `fileFilter` | string | — | Glob pattern to restrict which files are included |
-| `outputFormat` | string | `toon` | Subgraph format passed to the LLM: `toon` or `json` |
+| `fileFilter` | string | — | Workspace-relative glob restricting which files are included; a glob matching no indexed file is an error |
 
 ```bash
 graph-it query "how does Spider crawl files"
@@ -2473,7 +2472,7 @@ Generate a navigable markdown wiki from the call graph. One article per source f
 | `topHubsLimit` | number | `10` | Number of top hub files to list (1–50) |
 | `scope` | string | whole workspace | Relative path to restrict the generated wiki |
 | `exclude` | string[] | default exclusions | Relative glob patterns to exclude |
-| `response_format` | string | `json` | MCP output format: `json`, `markdown`, or `toon` |
+| `response_format` | string | `toon` | MCP output format: `toon`, `json`, or `markdown` |
 
 ```bash
 graph-it wiki

@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased (1.25.5)
+
+### Breaking / Behavior changes
+
+- **MCP and language model tools refuse unknown parameters** (#769). Every tool schema is strict: a misspelt or extra key fails with `Unknown parameter "x". Did you mean "y"? Parameters: …` instead of being ignored. An invalid `response_format` on a VS Code language model tool is refused instead of falling back to TOON.
+- **Missing targets are errors** (#769): a file, symbol, folder, `graph_context` seed or scope, `query_natural_language` `fileFilter`, or `invalidate_files` paths that match nothing fail with the closest candidates. `query_call_graph` no longer answers `reason: "not_found"` as a success; `ambiguous` and `stale_selector` are unchanged.
+- **Offsets past the end are errors** (#769) on `crawl_dependency_graph`, `query_call_graph`, `explore_architecture` and `check_architecture`, naming the item count. `crawl_dependency_graph` sets `truncated: true` whenever `nextOffset` is set.
+- **Renamed field**: `circularDependencyKinds` is `cycleKinds` in `crawl_dependency_graph` and `graph-it path --format json`, as in `graph-it cycles`.
+- **Removed parameter**: `query_natural_language` `outputFormat`; `response_format` is the only format parameter (`toon` gives the compact subgraph, `json` and `markdown` the full one).
+- **`response_format: "markdown"`** renders one report per tool (title, counts, tables) instead of a generic list of keys and tables.
+- **CLI `--format json` paths are workspace-relative** (#769), like the MCP tools and `--format toon`.
+- **`export_architecture_diagram`** refuses an `output` whose extension does not match `diagramFormat`.
+- **VS Code language model tools take the MCP parameters of their MCP twin** (#769): `crawl_dependency_graph` gains `limit`, `offset`, `onlyUsed`, `communityMode` and `tokenBudget` and returns the MCP result; `query_call_graph` gains `includeTypeOnly`, `offset`, `tokenBudget`, and type-only `USES` edges come only on request, as on the MCP server and the CLI; `scan_dead_code` gains `verbose`. File paths may be workspace-relative.
+
+### Changed
+
+- **Readable parameter errors** (#769): one line naming the parameter, what it accepts and what was received, shared by the MCP server, its worker, `graph-it tool` and the language model tools. No raw Zod issue list, internal code (`FILE_NOT_FOUND:`, `INVALID_SCOPE_PATH:`) or CLI flag name in MCP messages; paths in messages are workspace-relative.
+- **Descriptions name every parameter** (#769): MCP and language model tool descriptions end with the parameters the tool takes; `npm run sync:tool-descriptions` generates the language model input schemas from the MCP Zod schemas.
+- `scan_dead_code` `scopePath` accepts a workspace-relative folder. `get_session_stats` takes `response_format`.
+
 ## v1.25.4
 
 Patch release on the honesty of the `graph-it init` report and the precision of the dead-code scan: headings say what they count, reports list every item, a dead file is no longer reported twice, units come from every project manifest, and four false dead-code results are gone.
