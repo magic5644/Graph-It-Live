@@ -84,3 +84,21 @@ export function createNestedGitignoreMatcher(rootDir: string): IgnoreMatcher {
     return false;
   };
 }
+
+/**
+ * Whether the source collector leaves out an existing source file of `rootDir` (#774): a root ignore rule, a default
+ * exclusion or a skipped folder (dot or build folder) on its path. A node_modules path is a package: never.
+ */
+export function createExclusionMatcher(rootDir: string): (filePath: string) => boolean {
+  const ignored = createIgnoreMatcher(rootDir);
+  return (filePath) => {
+    const relativePath = path.relative(rootDir, filePath);
+    if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath) || !isSupportedSourceFile(filePath)) return false;
+    const parts = relativePath.split(path.sep);
+    if (parts.includes('node_modules')) return false;
+    for (let end = 1; end < parts.length; end++) {
+      if (shouldSkipDirectory(parts[end - 1], false) || ignored(parts.slice(0, end).join(path.sep), true)) return true;
+    }
+    return ignored(relativePath, false);
+  };
+}

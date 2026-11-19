@@ -36,12 +36,19 @@ describe("markdown views (#769)", () => {
   });
 
   it("says when imports resolve to no file, with examples, in the index status and the dead-code scan (#774)", () => {
-    const unresolvedImports = { count: 3, examples: [{ file: "src/loader.ts", specifier: "./gen" }], next: "Run the codegen." };
+    const unresolvedImports = {
+      count: 3,
+      examples: [{ file: "src/loader.ts", specifier: "./gen" }],
+      excludedCount: 1,
+      excludedExamples: [{ file: "src/b.ts", specifier: "./ignored" }],
+      next: "Run the codegen.",
+    };
     for (const tool of ["graphitlive_get_index_status", "graphitlive_scan_dead_code"]) {
       const text = renderToolMarkdown(tool, { scopePath: ".", unresolvedImports });
-      expect(text).toContain("**Unresolved imports: 3.** Files they would import may be listed as unused. Run the codegen.");
+      expect(text).toContain("**Unresolved imports: 3 resolving to no file, 1 to a file excluded from the analysis.** Files they would import may be listed as unused. Run the codegen.");
       expect(text).toContain("| src/loader.ts | ./gen |");
-      expect(renderToolMarkdown(tool, { scopePath: ".", unresolvedImports: { count: 0, examples: [] } })).not.toContain("Unresolved");
+      expect(text).toContain("## Excluded import examples (1)");
+      expect(renderToolMarkdown(tool, { scopePath: ".", unresolvedImports: { count: 0, examples: [], excludedCount: 0, excludedExamples: [] } })).not.toContain("Unresolved");
     }
   });
 

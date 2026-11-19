@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { tmpdir } from 'node:os';
-import { createIgnoreMatcher, createNestedGitignoreMatcher, isSupportedSourceFile, shouldSkipDirectory } from '../../src/analyzer/SourceFileFilters';
+import { createExclusionMatcher, createIgnoreMatcher, createNestedGitignoreMatcher, isSupportedSourceFile, shouldSkipDirectory } from '../../src/analyzer/SourceFileFilters';
 
 describe('SourceFileFilters', () => {
   it('detects supported file extensions', () => {
@@ -84,5 +84,30 @@ describe('SourceFileFilters', () => {
         expect(isIgnored('..hidden.ts', false)).toBe(true);
       });
     });
+  });
+
+  // #774: an import resolving to an existing file the collector leaves out is reported, not followed silently.
+  it('tells which existing source files the collector excludes', async () => {
+    const root = await fs.mkdtemp(path.join(tmpdir(), 'graph-it-exclusion-'));
+    try {
+      await fs.writeFile(path.join(root, '.gitignore'), '*.generated.ts\nbuild-out/\n');
+      await fs.writeFile(path.join(root, '.graphitignore'), 'vendor/\n');
+      const excluded = createExclusionMatcher(root);
+      const at = (relative: string) => path.join(root, relative);
+
+      expect(excluded(at('src/a.generated.ts'))).toBe(true);
+      expect(excluded(at('build-out/x.ts'))).toBe(true);
+      expect(excluded(at('vendor/lib.ts'))).toBe(true);
+      expect(excluded(at('dist/out.js'))).toBe(true);
+      expect(excluded(at('.cache/x.ts'))).toBe(true);
+      expect(excluded(at('tests/fixtures/x.ts'))).toBe(true);
+      expect(excluded(at('src/a.ts'))).toBe(false);
+      expect(excluded(at('src/data.json'))).toBe(false);
+      expect(excluded(at('node_modules/pkg/index.js'))).toBe(false);
+      expect(excluded(path.join(path.dirname(root), 'other.ts'))).toBe(false);
+      expect(excluded(root)).toBe(false);
+    } finally {
+      await fs.rm(root, { recursive: true, force: true });
+    }
   });
 });

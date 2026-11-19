@@ -124,6 +124,14 @@ export class CSharpParser implements ILanguageAnalyzer {
     }
   }
 
+    /**
+     * Never reported as resolving to no file (#774): a `using` names a namespace, which no file path follows and
+     * which a referenced assembly or NuGet package provides as often as the workspace.
+     */
+    async localTargetOf(): Promise<string | null> {
+        return null;
+    }
+
     async resolvePath(_fromFile: string, moduleSpecifier: string): Promise<string | null> {
         if (this.isFrameworkNamespace(moduleSpecifier)) return null;
         const segments = moduleSpecifier.split('.');

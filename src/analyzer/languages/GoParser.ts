@@ -129,6 +129,18 @@ export class GoParser implements ILanguageAnalyzer {
         return this.resolveGoImport(extractFilePath(fromFile), moduleSpecifier, specParts);
     }
 
+    /**
+     * The package directory an import under the nearest go.mod module path names, existing or not (#774): such an
+     * import is in the workspace by definition. Null for the standard library and other modules.
+     */
+    async localTargetOf(fromFile: string, moduleSpecifier: string): Promise<string | null> {
+        if (this.isGoStdlibImport(moduleSpecifier) || moduleSpecifier.split('/').some(GoParser.isUnsafePart)) return null;
+        const moduleInfo = await this.findGoModuleInfo(path.dirname(extractFilePath(fromFile)));
+        if (!moduleInfo || !moduleSpecifier.startsWith(moduleInfo.moduleName + '/')) return null;
+        const pkgDir = path.resolve(moduleInfo.moduleDir, ...moduleSpecifier.slice(moduleInfo.moduleName.length + 1).split('/'));
+        return this.isWithinRoot(pkgDir) ? normalizePath(pkgDir) : null;
+    }
+
     /** Wraps resolution in try/catch so no errors propagate from the async helpers. */
     private async resolveGoImport(
         fromFile: string,
