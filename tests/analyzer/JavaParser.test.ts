@@ -241,6 +241,16 @@ describe('JavaParser', () => {
       expect(await scoped.resolvePath(otherModule(), 'com.acme.util.Strings')).toBe(at('core/src/main/java/com/acme/util/Strings.java'));
     });
 
+    it('never resolves a sibling module class to a copy in an ignored or build folder', async () => {
+      fs.writeFileSync(path.join(root, '.gitignore'), 'generated/\n');
+      write('generated/src/main/java/com/acme/gen/Model.java');
+      write('core/target/classes/com/acme/gen/Model.java');
+      const scoped = new JavaParser(root, process.cwd());
+      expect(await scoped.resolvePath(otherModule(), 'com.acme.gen.Model')).toBeNull();
+      write('api/src/main/java/com/acme/gen/Model.java');
+      expect(await new JavaParser(root, process.cwd()).resolvePath(otherModule(), 'com.acme.gen.Model')).toBe(at('api/src/main/java/com/acme/gen/Model.java'));
+    });
+
     it('resolves static imports, static wildcards and nested classes to the top-level class file', async () => {
       const scoped = new JavaParser(root, process.cwd());
       for (const specifier of ['com.acme.app.App.helper', 'com.acme.app.App.*', 'com.acme.app.App.Inner', 'com.acme.app.App.Inner.Deeper']) {
