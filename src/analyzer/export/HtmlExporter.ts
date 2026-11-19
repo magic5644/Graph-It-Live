@@ -255,10 +255,12 @@ function overlayLegend(overlay: HtmlOverlay): string {
 
 function buildLegend(groups: HtmlGroup[], communityMode: string, frameworks: ReadonlySet<Framework>, overlay?: HtmlOverlay): string {
   if (groups.length === 0) return '';
+  const secondary = (group: HtmlGroup) =>
+    group.key && group.key !== group.label ? ` <span class="secondary">${htmlEscape(group.key)}</span>` : '';
   const items = groups.toSorted((a, b) => b.fileCount - a.fileCount || a.id - b.id).map(group =>
     `<div class="legend-item group-item" role="button" tabindex="0" data-group="${group.id}" title="Draw and centre this group">` +
     `<span class="swatch" style="background:${group.color};"></span>` +
-    `<span>${htmlEscape(group.label)}${group.key && group.key !== group.label ? ` <span class="secondary">${htmlEscape(group.key)}</span>` : ''}` +
+    `<span>${htmlEscape(group.label)}${secondary(group)}` +
     ` — ${group.fileCount} file(s), ${group.internalEdgeCount} internal edge(s)</span></div>`,
   ).join('\n');
   const capped = groups.length > MAX_DRAWN_GROUPS
