@@ -49,7 +49,7 @@ export function renderArchitectureView(view: ArchitectureView, format: "text" | 
 }
 
 interface UnitsLike {
-  units: Array<{ key: string; layer: number; role: string; fileCount: number }>;
+  units: Array<{ key: string; name?: string; layer: number; role: string; fileCount: number }>;
   unitEdges: Array<{ from: string; to: string; fileEdgeCount: number; kind: string }>;
   layerCount: number;
   cycles: number;
@@ -57,6 +57,10 @@ interface UnitsLike {
 }
 
 export function unitsView(units: UnitsLike): ArchitectureView {
+  // The key is what --from/--to/--focus take; the Name column (package, artifact or module name) shows only when one differs (#774).
+  const named = units.units.some((unit) => unit.name !== undefined && unit.name !== unit.key);
+  const unitRow = (unit: UnitsLike["units"][number]): Cell[] =>
+    named ? [unit.key, unit.name ?? unit.key, unit.layer, unit.role, unit.fileCount] : [unit.key, unit.layer, unit.role, unit.fileCount];
   return {
     title: "Units",
     notes: [
@@ -64,7 +68,7 @@ export function unitsView(units: UnitsLike): ArchitectureView {
       "Next: graph-it architecture --level units --from <unit> --to <unit> lists the file pairs of an edge; add --matrix for the matrix.",
     ],
     tables: [
-      { title: "Units", headers: ["Unit", "Layer", "Role", "Files"], rows: units.units.map((unit) => [unit.key, unit.layer, unit.role, unit.fileCount]) },
+      { title: "Units", headers: named ? ["Unit", "Name", "Layer", "Role", "Files"] : ["Unit", "Layer", "Role", "Files"], rows: units.units.map(unitRow) },
       {
         title: "Unit edges",
         headers: ["From", "To", "File pairs", "Kind"],
