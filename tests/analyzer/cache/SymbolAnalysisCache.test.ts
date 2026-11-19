@@ -3,7 +3,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AstWorkerHost } from "@/analyzer/ast/AstWorkerHost";
-import { IndexCache, restoreOrBuildIndex, SymbolAnalysisCache, SYMBOL_CACHE_SCHEMA } from "@/analyzer/cache/IndexCache";
+import { IndexCache, restoreOrBuildIndex } from "@/analyzer/cache/IndexCache";
+import { ANALYZER_VERSION, SymbolAnalysisCache, SYMBOL_CACHE_SCHEMA } from "@/analyzer/cache/SymbolAnalysisCache";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
 import { PathResolver } from "@/analyzer/utils/PathResolver";
 import { normalizePath } from "@/analyzer/types";
@@ -18,7 +19,7 @@ describe("SymbolAnalysisCache", () => {
   let cacheDir: string;
   let file: string;
   const symbolsFile = () => path.join(cacheDir, "symbols.cache");
-  const open = () => new SymbolAnalysisCache(cacheDir);
+  const open = (build = "build-1") => new SymbolAnalysisCache(cacheDir, build);
 
   beforeEach(() => {
     tmpDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-symbol-cache-")));
@@ -75,6 +76,7 @@ describe("SymbolAnalysisCache", () => {
   it.each([
     ["another format", (lines: string[]) => [JSON.stringify({ ...JSON.parse(lines[0]), schema: SYMBOL_CACHE_SCHEMA + 1 }), ...lines.slice(1)]],
     ["another analyzer version", (lines: string[]) => [JSON.stringify({ ...JSON.parse(lines[0]), version: "not-this-version" }), ...lines.slice(1)]],
+    ["another analyzer build", (lines: string[]) => [JSON.stringify({ ...JSON.parse(lines[0]), build: "build-2" }), ...lines.slice(1)]],
     ["a corrupt header", (lines: string[]) => ["{ truncated", ...lines.slice(1)]],
   ])("starts empty on a file of %s", (_label, edit) => {
     const cache = open();
@@ -99,6 +101,102 @@ describe("SymbolAnalysisCache", () => {
     const restored = open();
     expect(restored.getGraph(file, "v1")).toEqual(GRAPH);
     expect(restored.getGraph(other, "v1")).toBeUndefined();
+  });
+
+  it("starts empty when another analyzer build wrote the file", () => {
+    const cache = open("build-1");
+    cache.setGraph(file, "v1", GRAPH);
+    cache.save();
+
+    expect(open("build-2").getGraph(file, "v1")).toBeUndefined();
+    expect(open("build-1").getGraph(file, "v1")).toEqual(GRAPH);
+  });
+
+  /** Saves one file's two analyses, applies `damage` to its line's fields, and reopens. */
+  const damaged = (damage: (fields: string[]) => string[]) => {
+    const cache = open();
+    cache.setGraph(file, "v1", GRAPH);
+    cache.setInternalGraph(file, "v1", new Map([["a", new Set(["b", "c"])]]));
+    cache.save();
+    const [header, line] = fs.readFileSync(symbolsFile(), "utf-8").split("\n");
+    fs.writeFileSync(symbolsFile(), `${header}\n${damage(line.split("\t")).join("\t")}`);
+    return open();
+  };
+
+  // Review #774: a damaged field threw later, and the unused-export check returned [] for the file.
+  it.each([
+    ["cut inside the internal graph", (f: string[]) => [f[0], f[1], f[2], f[3].slice(0, 7)], { graph: true, internal: false }],
+    ["cut inside the symbol graph", (f: string[]) => [f[0], f[1], f[2].slice(0, 20), f[3]], { graph: false, internal: true }],
+    ["payloads of the wrong shape", (f: string[]) => [f[0], f[1], '{"symbols":1}', '[["a",[2]]]'], { graph: false, internal: false }],
+    ["unparsable payloads", (f: string[]) => [f[0], f[1], "not json", "{"], { graph: false, internal: false }],
+  ])("treats an entry with %s as a miss for that analysis only, then saves it again", (_label, damage, intact) => {
+    const cache = damaged(damage);
+    const internal = new Map([["a", new Set(["b", "c"])]]);
+
+    expect(cache.getGraph(file, "v1")).toEqual(intact.graph ? GRAPH : undefined);
+    expect(cache.getInternalGraph(file, "v1")).toEqual(intact.internal ? internal : undefined);
+    if (!intact.graph) cache.setGraph(file, "v1", GRAPH);
+    cache.save();
+    const restored = open();
+    expect(restored.getGraph(file, "v1")).toEqual(GRAPH);
+    expect(restored.getInternalGraph(file, "v1")).toEqual(intact.internal ? internal : undefined);
+  });
+
+  it("skips a line whose key is damaged, keeping the others", () => {
+    const cache = damaged((f) => ['"/no-end', ...f.slice(1)]);
+
+    expect(cache.getGraph(file, "v1")).toBeUndefined();
+  });
+
+  it("reads a file rewritten with CRLF line ends", () => {
+    const other = path.join(tmpDir, "b.ts");
+    fs.writeFileSync(other, "");
+    const cache = open();
+    cache.setGraph(file, "v1", GRAPH);
+    cache.setInternalGraph(file, "v1", new Map([["a", new Set(["b"])]]));
+    cache.setGraph(other, "v1", GRAPH);
+    cache.save();
+    fs.writeFileSync(symbolsFile(), fs.readFileSync(symbolsFile(), "utf-8").replaceAll("\n", "\r\n"));
+
+    const restored = open();
+    expect(restored.getInternalGraph(file, "v1")).toEqual(new Map([["a", new Set(["b"])]]));
+    expect(restored.getGraph(other, "v1")).toEqual(GRAPH);
+  });
+
+  // Golden: a change of this layout must bump SYMBOL_CACHE_SCHEMA (and update this test).
+  it("writes the format of SYMBOL_CACHE_SCHEMA 2", () => {
+    expect(SYMBOL_CACHE_SCHEMA).toBe(2);
+    const key = normalizePath(file);
+    const cache = open();
+    cache.setGraph(file, "export const a = 1;\n", {
+      symbols: [{ name: "a", kind: "VariableDeclaration", line: 1, isExported: true, id: `${key}:a` }],
+      dependencies: [],
+    });
+    cache.setInternalGraph(file, "export const a = 1;\n", new Map([[`${key}:a`, new Set<string>()]]));
+    cache.save();
+
+    expect(fs.readFileSync(symbolsFile(), "utf-8")).toBe(
+      `{"schema":2,"version":${JSON.stringify(ANALYZER_VERSION)},"build":"build-1"}\n` +
+        `${JSON.stringify(key)}\t037ecd1db38c230c248787e60fd7bfc0cb0101b187b59535b6e7483be762d350\t` +
+        '{"symbols":[{"name":"a","kind":"VariableDeclaration","line":1,"isExported":true,"id":"\u0001:a"}],"dependencies":[]}\t' +
+        '[["\u0001:a",[]]]',
+    );
+  });
+
+  it("leaves a whole file when two processes save in turn: the last writer wins", () => {
+    const other = path.join(tmpDir, "b.ts");
+    fs.writeFileSync(other, "");
+    const first = open();
+    const second = open();
+    first.setGraph(file, "v1", GRAPH);
+    second.setGraph(other, "v1", GRAPH);
+    first.save();
+    second.save();
+
+    const restored = open();
+    expect(restored.getGraph(other, "v1")).toEqual(GRAPH);
+    expect(restored.getGraph(file, "v1")).toBeUndefined();
+    expect(fs.readdirSync(cacheDir).filter((name) => name.endsWith(".tmp"))).toEqual([]);
   });
 
   // Quotes and tabs need JSON escaping; Windows forbids both in file names.
@@ -227,6 +325,21 @@ describe("SymbolAnalysisCache", () => {
       expect(new Set(changed.analyzed)).toEqual(new Set(["src/a.ts"]));
       expect(changed.internal).toEqual(["src/a.ts"]);
       expect(changed.entries.find((e) => normalizePath(e.filePath).endsWith("/src/a.ts"))?.unusedSymbols.map((s) => s.name)).toContain("added");
+    }, 120_000);
+
+    it("analyzes a file again when its cached entry is damaged, never reporting it empty", async () => {
+      const cold = await run();
+      const lines = fs.readFileSync(symbolsFile(), "utf-8").split("\n");
+      const index = lines.findIndex((line) => line.startsWith(JSON.stringify(normalizePath(path.join(tmpDir, "src/a.ts")))));
+      const fields = lines[index].split("\t");
+      lines[index] = [fields[0], fields[1], fields[2].slice(0, 30), fields[3].slice(0, 5)].join("\t");
+      fs.writeFileSync(symbolsFile(), lines.join("\n"));
+
+      const repaired = await run();
+
+      expect(repaired.entries).toEqual(cold.entries);
+      expect([repaired.analyzed, repaired.internal]).toEqual([["src/a.ts"], ["src/a.ts"]]);
+      expect((await run()).analyzed).toEqual([]);
     }, 120_000);
 
     it("analyzes everything again and writes nothing without a cache (--no-cache)", async () => {

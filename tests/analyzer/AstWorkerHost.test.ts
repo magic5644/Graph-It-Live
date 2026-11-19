@@ -148,4 +148,19 @@ export function mainFunction() {
     expect(again).toEqual(first);
     expect(ySymbols.symbols.map((s) => s.id)).toEqual(['/cyc541/y.ts:yFn']);
   });
+
+  it('round-trips interface members, type aliases and signature comparisons through the worker', async () => {
+    const source = 'export interface Box { size: number; label?: string }\nexport type Id = string | number;\nexport function f(a: number): void {}\n';
+
+    const members = await workerHost.extractInterfaceMembers('/types.ts', source);
+    expect([...members.keys()]).toEqual(['Box']);
+    expect(members.get('Box')?.map((m) => m.name)).toEqual(['size', 'label']);
+
+    const aliases = await workerHost.extractTypeAliases('/types.ts', source);
+    expect(aliases.map((a) => a.name)).toEqual(['Id']);
+
+    const [signature] = await workerHost.extractSignatures('/types.ts', source);
+    const comparison = await workerHost.compareSignatures(signature, { ...signature, parameters: [] });
+    expect(comparison.hasBreakingChanges).toBe(true);
+  });
 });

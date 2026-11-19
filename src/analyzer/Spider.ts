@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import { AstWorkerHost } from './ast/AstWorkerHost';
-import type { SymbolAnalysisCache } from './cache/IndexCache';
+import { SymbolAnalysisCache } from './cache/SymbolAnalysisCache';
 import { Cache } from './Cache';
 import { FileReader } from './FileReader';
 import { IndexerStatus, type IndexerStatusSnapshot } from './IndexerStatus';
@@ -869,9 +869,9 @@ export class Spider {
     return this.symbolService.getSymbolGraph(filePath);
   }
 
-  /** Reuse the AST analyses of unchanged files across runs; null analyzes every file again. */
-  useSymbolAnalysisCache(cache: SymbolAnalysisCache | null): void {
-    this.symbolService.useAnalysisCache(cache);
+  /** Reuse the AST analyses of unchanged files across runs, kept in `cacheDir`; null analyzes every file again. */
+  useSymbolAnalysisCache(cacheDir: string | null): void {
+    this.symbolService.useAnalysisCache(cacheDir === null ? null : new SymbolAnalysisCache(cacheDir, this.astWorkerHost.buildId()));
   }
 
   async resolveModuleSpecifier(fromFilePath: string, moduleSpecifier: string): Promise<string | null> {
