@@ -35,6 +35,16 @@ describe("logic tools", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
+  it.each([
+    [new Error("ENOENT: no such file"), "File not found: "],
+    [new Error("parse exploded"), "Cannot analyze the logic of "],
+  ])("states a symbol analysis failure without an internal code (#769): %s", async (failure, message) => {
+    const filePath = await createTempFile(tempDir, "broken.ts", "export const x = 1;");
+    setupWorkerState({ getSymbolGraph: vi.fn(async () => { throw failure; }) });
+
+    await expect(executeAnalyzeFileLogic({ filePath, includeExternal: false })).rejects.toThrow(message);
+  });
+
   it("should analyze file logic and return an intra-file graph", async () => {
     const filePath = await createTempFile(
       tempDir,
