@@ -264,6 +264,27 @@ export function fitLabel(label: string, max: number = SIZES.maxLabelChars): stri
   return `${text}…`;
 }
 
+/**
+ * A name safe to draw, cut in the middle to `max` cells: a third kept from the start, the rest from the end, so
+ * names sharing a long prefix (a package scope, a folder) stay apart by their distinct end (#774).
+ */
+export function fitName(label: string, max: number = SIZES.maxLabelChars): string {
+  const clean = sanitizeText(label);
+  if (cells(clean) <= max) return clean;
+  const chars = [...clean];
+  let head = "";
+  for (const char of chars) {
+    if (cells(head + char) > Math.floor((max - 1) / 3)) break;
+    head += char;
+  }
+  let tail = "";
+  for (const char of chars.toReversed()) {
+    if (cells(head + char + tail) > max - 1) break;
+    tail = char + tail;
+  }
+  return `${head}…${tail}`;
+}
+
 /** 1 px for one file pair, half a pixel more each time the count doubles, at most SIZES.maxStroke. */
 export const strokeWidth = (fileEdgeCount: number) =>
   Math.min(SIZES.maxStroke, SIZES.hairline + Math.floor(Math.log2(Math.max(1, fileEdgeCount))) / 2);
@@ -309,7 +330,7 @@ function diagramCommand(input: DiagramInput, extra: string): string {
 function cutList(input: DiagramInput, cuts: readonly DiagramEdge[], inCycle: number, cycles: number, pairs: number): string[] {
   const heaviest = cuts.toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || byCodeUnit(left.from, right.from) || byCodeUnit(left.to, right.to));
   const labels = new Map(input.nodes.map((node) => [node.key, node.label]));
-  const name = (key: string) => fitLabel(labels.get(key) ?? key, 40);
+  const name = (key: string) => fitName(labels.get(key) ?? key, 40);
   const next = (edge: DiagramEdge) => (input.scope === "units" ? ` · next: graph-it architecture --level units --from ${edge.from} --to ${edge.to}` : "");
   return [
     `${plural(inCycle, input.noun)} form ${plural(cycles, "cycles")}, too large to draw: breaking ${cycles === 1 ? "it" : "them"} takes ${plural(cuts.length, "cuts")} (${plural(pairs, "file pairs")}).`,
@@ -509,7 +530,7 @@ export async function layoutDiagram(input: DiagramInput, options: DrawOptions = 
   // One shared layer (a single cycle) says nothing on each box.
   const oneLayer = new Set(nodes.map((node) => node.layer)).size === 1;
   const sized = nodes.map((node) => {
-    const text = fitLabel(node.label);
+    const text = fitName(node.label);
     const layer = oneLayer ? "" : " · layer " + node.layer;
     const meta = `${node.fileCount} ${node.fileCount === 1 ? "file" : "files"}${layer}`;
     const width = snap(Math.max(SIZES.minNodeWidth, textWidth(text, SIZES.label) + 2 * SIZES.nodePaddingX, textWidth(meta, SIZES.meta) + 2 * SIZES.nodePaddingX));

@@ -6,6 +6,7 @@ import { COMMUNITY_PALETTE } from '../../shared/communityPalette';
 import { FRAMEWORK_IDENTITIES } from '../../shared/constants';
 import { byCodeUnit } from '../architecture/architectureUnits';
 import { aggregateCommunityGroups } from '../community/groupAggregation';
+import { fitName } from '../diagram/architectureDiagram';
 import { LEGEND, legendDash, PALETTES, type LegendKind } from '../diagram/diagramStyle';
 
 /** What was analysed and how it was grouped, stated in the page header. */
@@ -134,6 +135,8 @@ interface HtmlGroup {
   /** The community key: what findings, matrix cells and `--focus` name a group by. */
   key: string;
   label: string;
+  /** The label as a group node shows it: cut in the middle as the SVG diagrams cut names (fitName). */
+  short: string;
   fileCount: number;
   internalEdgeCount: number;
   color: string;
@@ -157,7 +160,7 @@ export function buildHtmlGraphModel(graphData: GraphData, workspaceRoot?: string
   const aggregation = aggregateCommunityGroups(graphData);
   const group = (id: number, key: string, label: string, counts: { fileCount: number; internalEdgeCount: number }): HtmlGroup => {
     const color = nodeColor(id).background;
-    return { id, key, label, ...counts, color, ink: inkFor(color) };
+    return { id, key, label, short: fitName(label, 20), ...counts, color, ink: inkFor(color) };
   };
   // Sorted by key, files and pairs by path: vis-network lays out a seeded page the same way only in the same node order.
   const groups: HtmlGroup[] = aggregation.groups.toSorted((a, b) => byCodeUnit(a.key, b.key)).map(({ id, key, label, fileCount, internalEdgeCount }) =>
@@ -607,12 +610,10 @@ export function renderHtmlPage(config: HtmlPageConfig): string {
     function groupMatches(g) { return !filterText || matches(g.label) || filesData.some(f => f.group === g.id && matches(f.label)); }
 
     // Every group node carries its name, cut to fit; the tooltip has it whole, with its key when it differs.
-    // The middle goes: a scope is shared by many units, the end tells them apart.
-    const shortName = name => name.length > 20 ? name.slice(0, 6) + '…' + name.slice(-13) : name;
     function groupNode(g, position) {
       return {
         id: groupNodeId(g.id), shape: 'box', ...position,
-        label: shortName(g.label) + '\n' + g.fileCount + ' file(s)',
+        label: g.short + '\n' + g.fileCount + ' file(s)',
         title: g.label + (g.key && g.key !== g.label ? ' (' + g.key + ')' : '') + ': ' + g.fileCount + ' file(s), ' + g.internalEdgeCount + ' internal edge(s). Double-click to expand.',
         color: { background: g.color, border: '#ddd' }, borderWidth: 2,
         font: { color: g.ink, size: ${GROUP_FONT}, bold: true },
