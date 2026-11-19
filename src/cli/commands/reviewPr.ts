@@ -17,7 +17,8 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   }
   const headRef = readOption(args, "head");
   const maxDepth = readIntegerOption(args, "--depth", { min: 1, max: 10 });
-  const maxFiles = readIntegerOption(args, "--max-files", { min: 1 });
+  // --max-files: the 1.25.4 spelling, still passed by the review gate action.
+  const maxFiles = readIntegerOption(args, "--maxFiles", { min: 1 }) ?? readIntegerOption(args, "--max-files", { min: 1 });
   // Silent off the progress TTY: a CI gate log keeps only the review.
   await runtime.ensureIndexed({ silent: !runtime.progress.enabled });
   const analyzer = new ReviewGateAnalyzer(runtime.workspaceRoot, createSpiderDependentsProvider(workerState.getSpider(), runtime.workspaceRoot, workerState.getConfig().extensionPath));

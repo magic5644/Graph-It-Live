@@ -1,12 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 const mockExportHtml = vi.hoisted(() => vi.fn());
+const mockRenderHtmlPage = vi.hoisted(() => vi.fn(() => '<html></html>'));
 const mockArchitectureRun = vi.hoisted(() => vi.fn());
 const mockComputeNodeMetadata = vi.hoisted(() => vi.fn());
 
 vi.mock('../../../src/analyzer/export/HtmlExporter', () => ({
   exportHtml: mockExportHtml,
+  renderHtmlPage: mockRenderHtmlPage,
 }));
 
 vi.mock('../../../src/cli/commands/architecture.js', () => ({
@@ -38,35 +42,60 @@ const architectureJsonOutput = JSON.stringify({
   ],
 });
 
+/** A runtime on a real workspace with a src folder: scopes must exist. */
+function realRuntime(): CliRuntime {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'export-scope-'));
+  fs.mkdirSync(path.join(root, 'src'));
+  return { ...fakeRuntime, workspaceRoot: root } as unknown as CliRuntime;
+}
+
 describe('runExportHtml', () => {
   beforeEach(() => {
     mockExportHtml.mockReset();
+    mockRenderHtmlPage.mockClear();
     mockArchitectureRun.mockReset();
     mockComputeNodeMetadata.mockReset();
     mockArchitectureRun.mockResolvedValue(architectureJsonOutput);
     vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
   });
 
-  it('uses default outputPath (cwd/graph.html) when no --output provided', async () => {
+  it('writes graph.html at the workspace root when no --output is given', async () => {
     await runExportHtml(fakeRuntime, 'my-project', []);
 
     expect(mockExportHtml).toHaveBeenCalledOnce();
     const config = mockExportHtml.mock.calls[0][0];
-    expect(config.outputPath).toBe(normalizePath(path.join(process.cwd(), 'graph.html')));
+    expect(normalizePath(config.outputPath)).toBe(normalizePath(path.resolve('/workspace/my-project', 'graph.html')));
   });
 
-  it('uses --output absolute path when provided', async () => {
-    await runExportHtml(fakeRuntime, 'my-project', ['--output', '/custom/output.html']);
+  it('accepts an absolute --output inside the workspace, and -o', async () => {
+    await runExportHtml(fakeRuntime, 'my-project', ['--output', '/workspace/my-project/out/graph.html']);
+    await runExportHtml(fakeRuntime, 'my-project', ['-o', 'short.html']);
 
-    const config = mockExportHtml.mock.calls[0][0];
-    expect(config.outputPath).toBe(normalizePath(path.resolve('/custom/output.html')));
+    expect(normalizePath(mockExportHtml.mock.calls[0][0].outputPath)).toBe(normalizePath(path.resolve('/workspace/my-project/out/graph.html')));
+    expect(normalizePath(mockExportHtml.mock.calls[1][0].outputPath)).toBe(normalizePath(path.resolve('/workspace/my-project', 'short.html')));
   });
 
-  it('uses -o short flag for output path', async () => {
-    await runExportHtml(fakeRuntime, 'my-project', ['-o', '/short/flag.html']);
+  it.each([['../g.html'], ['/custom/output.html']])('refuses --output %s outside the workspace (exit 5), before any work', async (output) => {
+    await expect(runExportHtml(fakeRuntime, 'my-project', ['--output', output])).rejects.toMatchObject({
+      exitCode: 5,
+      message: `Refusing to write ${output}: it is outside the workspace, or behind a link that leaves it.`,
+    });
+    expect(mockArchitectureRun).not.toHaveBeenCalled();
+  });
 
-    const config = mockExportHtml.mock.calls[0][0];
-    expect(config.outputPath).toBe(normalizePath(path.resolve('/short/flag.html')));
+  it('refuses an --output whose extension is not .html (exit 1)', async () => {
+    await expect(runExportHtml(fakeRuntime, 'my-project', ['--output', 'graph.svg'])).rejects.toMatchObject({
+      exitCode: 1,
+      message: '--output graph.svg does not match --format html: name it *.html.',
+    });
+  });
+
+  it('writes the page to stdout with --output -, and no file', async () => {
+    await runExportHtml(fakeRuntime, 'my-project', ['--output', '-']);
+
+    expect(mockExportHtml).not.toHaveBeenCalled();
+    expect(mockRenderHtmlPage).toHaveBeenCalledOnce();
+    expect(process.stdout.write).toHaveBeenCalledWith('<html></html>');
   });
 
   it('resolves relative output path to absolute', async () => {
@@ -107,16 +136,29 @@ describe('runExportHtml', () => {
       failedFiles: [{ filePath: '/workspace/my-project/src/x.ts' }],
     }));
 
-    await runExportHtml(fakeRuntime, 'my-project', ['src', '--communities', 'louvain']);
+    await runExportHtml(realRuntime(), 'my-project', ['src', '--communities', 'louvain']);
 
     expect(mockExportHtml.mock.calls[0][0].context).toMatchObject({ scope: 'src', communityMode: 'louvain', failedFiles: 1 });
   });
 
   it('names a scope equal to the workspace root "." and tolerates a missing state', async () => {
-    const runtime = { ...fakeRuntime, loadState: () => null } as unknown as CliRuntime;
+    const runtime = { ...realRuntime(), loadState: () => null } as unknown as CliRuntime;
     await runExportHtml(runtime, 'my-project', ['.']);
 
     expect(mockExportHtml.mock.calls[0][0].context).toMatchObject({ scope: '.', revision: undefined });
+  });
+
+  it('refuses a missing scope with the closest names (exit 1), never an empty graph', async () => {
+    await expect(runExportHtml(realRuntime(), 'my-project', ['sr'])).rejects.toMatchObject({
+      exitCode: 1,
+      message: 'Scope not found: sr. Did you mean: src? Pass a file or folder of the workspace.',
+    });
+    await expect(runExportHtml(realRuntime(), 'my-project', ['nope'])).rejects.toThrow('Scope not found: nope. Pass a file or folder of the workspace.');
+    expect(mockExportHtml).not.toHaveBeenCalled();
+  });
+
+  it('refuses a scope outside the workspace (exit 5)', async () => {
+    await expect(runExportHtml(realRuntime(), 'my-project', ['..'])).rejects.toMatchObject({ exitCode: 5, message: 'Scope outside the workspace: ..' });
   });
 
   it('calls architecture run with json format', async () => {

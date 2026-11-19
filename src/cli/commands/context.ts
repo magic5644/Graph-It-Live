@@ -73,13 +73,20 @@ function parse(args: string[]): GraphContextParams {
     detail: value(args, '--detail') as GraphContextParams['detail'],
   };
   const result = GraphContextParamsSchema.safeParse(params);
-  if (!result.success) throw new CliError(result.error.message, ExitCode.GENERAL_ERROR);
-  return result.data;
+  if (result.success) return result.data;
+  // One line per issue, named as the user typed it (maxNodes → --max-nodes), not Zod's JSON issue list.
+  const issues = result.error.issues.map((issue) => {
+    const [key] = issue.path;
+    if (typeof key !== 'string') return issue.message;
+    const name = key === 'question' ? key : '--' + key.replaceAll(/[A-Z]/g, (letter) => '-' + letter.toLowerCase());
+    return `${name}: ${issue.message}`;
+  });
+  throw new CliError(`${issues.join('; ')}. Run graph-it context --help for the options.`, ExitCode.GENERAL_ERROR);
 }
 
 export async function run(args: string[], runtime: CliRuntime, format: CliOutputFormat): Promise<string> {
   const params = parse(args);
   await runtime.ensureIndexed();
   const response = await executeGraphContext(params);
-  return formatOutput(projectGraphContextOutput(response, params.detail), format === 'markdown' || format === 'mermaid' ? 'json' : format, 'context');
+  return formatOutput(projectGraphContextOutput(response, params.detail), format, 'context');
 }

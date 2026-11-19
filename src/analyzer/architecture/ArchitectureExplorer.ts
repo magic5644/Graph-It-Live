@@ -18,6 +18,7 @@ import { normalizePath } from "../../shared/path";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import type { WorkspaceArchitectureCheck } from "./architectureRules";
 import { byCodeUnit } from "./architectureUnits";
+import { closestNames } from "../utils/SymbolLookup";
 
 const DEFAULT_EXPLORE_LIMIT = 50;
 
@@ -251,7 +252,11 @@ function resolveUnit(units: ArchitectureUnits, ref: string): ArchitectureUnit {
   // Keys use "/" on every OS: a Windows user may type packages\core.
   const key = ref.replaceAll("\\", "/");
   const unit = units.units.find(candidate => candidate.key === key) ?? units.units.find(candidate => candidate.name === ref);
-  if (!unit) throw new Error(`Unknown unit "${ref}". Call explore_architecture with level units to list the units.`);
+  if (!unit) {
+    const close = closestNames(units.units.map(candidate => candidate.key), key);
+    const hint = close.length > 0 ? ` Did you mean: ${close.join(", ")}?` : "";
+    throw new Error(`Unknown unit "${ref}".${hint} The units level lists all ${units.units.length} units.`);
+  }
   return unit;
 }
 

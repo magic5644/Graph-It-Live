@@ -19,8 +19,9 @@ import { getRelativePath, normalizePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
-import { readStringOption } from "../options";
+import { readChoiceOption, readStringOption } from "../options";
 import type { CliRuntime } from "../runtime";
+import { resolveInWorkspace, writeWorkspaceFile } from "../workspaceFiles";
 
 /** `<flag>` alone (true) or `<flag> <file>`, or undefined when the flag is absent. */
 function readOptionalFile(args: string[], flag: string): string | true | undefined {
@@ -30,13 +31,7 @@ function readOptionalFile(args: string[], flag: string): string | true | undefin
   return value === undefined || value.startsWith("--") || value.trim() === "" ? true : value;
 }
 
-function readChoice<T extends string>(args: string[], flag: string, choices: readonly T[]): T | undefined {
-  const value = readStringOption(args, flag, choices.join(" or "));
-  if (value === undefined) return undefined;
-  const choice = choices.find((candidate) => candidate === value);
-  if (!choice) throw new CliError(`${flag} must be ${choices.join(" or ")}`, ExitCode.GENERAL_ERROR);
-  return choice;
-}
+const OUTPUT_EXTENSIONS: Record<WorkspaceDiagramOptions["format"], string[]> = { svg: [".svg"], html: [".html", ".htm"], "diagram-spec": [".json"] };
 
 /** svg, html or diagram-spec, and the output file; without `--format`, an `--output` ending in .svg writes SVG. */
 function readOutput(args: string[], format: CliOutputFormat) {
@@ -47,6 +42,10 @@ function readOutput(args: string[], format: CliOutputFormat) {
   const svg = format === "svg" || (format === "text" && file?.toLowerCase().endsWith(".svg") === true);
   let output: WorkspaceDiagramOptions["format"] = svg ? "svg" : "html";
   if (format === "diagram-spec") output = format;
+  const extensions = OUTPUT_EXTENSIONS[output];
+  if (file !== undefined && file !== "-" && !extensions.some((extension) => file.toLowerCase().endsWith(extension))) {
+    throw new CliError(`--output ${file} does not match --format ${output}: name it *${extensions[0]}, or pass the format of that file.`, ExitCode.GENERAL_ERROR);
+  }
   return { format: output, file: file ?? defaultDiagramFile(output) };
 }
 
@@ -56,7 +55,7 @@ function readView(args: string[], directory: string | undefined) {
   if (key !== undefined && directory !== undefined) {
     throw new CliError("Pass a directory or --folder <key>, not both", ExitCode.GENERAL_ERROR);
   }
-  const { view, folder } = diagramLevel(readChoice(args, "--view", DIAGRAM_VIEWS), key ?? directory);
+  const { view, folder } = diagramLevel(readChoiceOption(args, "--view", DIAGRAM_VIEWS), key ?? directory);
   if (view === "folder" && folder === undefined) {
     throw new CliError("--view folder draws the groups of one unit or folder: pass a directory or --folder <key>", ExitCode.GENERAL_ERROR);
   }
@@ -103,18 +102,22 @@ function readRules(args: string[]) {
 /** The flags, rejecting the combinations that name no single diagram. */
 export function readDiagramOptions(args: string[], format: CliOutputFormat, directory?: string) {
   const output = readOutput(args, format);
-  const theme = readChoice(args, "--theme", DIAGRAM_THEMES);
+  const theme = readChoiceOption(args, "--theme", DIAGRAM_THEMES);
   if (theme !== undefined && output.format !== "svg") {
     throw new CliError("--theme sets the colours of --format svg; the HTML page follows the reader's light or dark scheme and a spec has none", ExitCode.GENERAL_ERROR);
   }
-  return { ...readView(args, directory), theme: theme ?? "light", ...output, rules: readRules(args) };
+  const view = readView(args, directory);
+  if (output.format === "diagram-spec" && view.view === "matrix") {
+    throw new CliError("--format diagram-spec describes --view units or folder; the matrix is written as svg or html.", ExitCode.UNSUPPORTED_FORMAT);
+  }
+  return { ...view, theme: theme ?? "light", ...output, rules: readRules(args) };
 }
 
 export async function run(args: string[], runtime: CliRuntime, format: CliOutputFormat): Promise<string> {
   const { workspaceRoot } = runtime;
   const options = readDiagramOptions(args, format, readDirectory(args, workspaceRoot));
   // Refused before any work: the output stays in the workspace, as --config does.
-  const target = options.file === "-" ? undefined : validateWorkspacePath(path.resolve(workspaceRoot, options.file), workspaceRoot);
+  const target = options.file === "-" ? undefined : resolveInWorkspace(workspaceRoot, options.file);
 
   await runtime.ensureIndexed();
   const { markup, counts } = await renderWorkspaceDiagram(workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
@@ -123,7 +126,6 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   });
 
   if (target === undefined) return markup;
-  await fs.promises.mkdir(path.dirname(target), { recursive: true });
-  await fs.promises.writeFile(target, markup);
+  await writeWorkspaceFile(workspaceRoot, options.file, markup);
   return `Diagram written to ${getRelativePath(target, workspaceRoot)}: ${counts}.`;
 }

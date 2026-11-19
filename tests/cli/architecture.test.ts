@@ -229,4 +229,41 @@ describe('architecture command', () => {
     expect(output).toContain('graph LR');
     expect(output).toContain('-->');
   });
+
+  describe('views as tables, and their formats (#767)', () => {
+    const workspaceRoot = '/workspace';
+    const app = path.resolve(workspaceRoot, 'app/main.ts');
+    const core = path.resolve(workspaceRoot, 'core/lib.ts');
+    const runtime = { workspaceRoot, progress: new CliProgress(false), ensureIndexed: vi.fn().mockResolvedValue(undefined), loadState: () => null };
+
+    beforeEach(() => {
+      mocks.collectAllSourceFiles.mockResolvedValue([app, core]);
+      mocks.executeAnalyzeDependencies.mockImplementation(async ({ filePath }: { filePath: string }) =>
+        ({ dependencies: filePath === app ? [{ path: core }] : [{ path: app }] }));
+    });
+
+    it('prints the matrix as text and markdown tables, not the summary', async () => {
+      const text = await run(['--matrix'], runtime as never, 'text');
+      expect(text).toContain('Dependency matrix (groups)');
+      expect(text).toContain('Cycle 1: core, unassigned.');
+      expect(text).not.toContain('Workspace Architecture');
+      expect(await run(['--level', 'units', '--matrix'], runtime as never, 'markdown')).toMatch(/^## Dependency matrix \(units\)/);
+    });
+
+    it('prints the units, a folder and a unit edge as tables', async () => {
+      expect(await run(['--level', 'units'], runtime as never, 'markdown')).toContain('| app | core | 1 | cycle |');
+      expect(await run(['--folder', 'app'], runtime as never, 'text')).toMatch(/^Folder app\n/);
+      expect(await run(['--level', 'units', '--from', 'app', '--to', 'core'], runtime as never, 'text')).toContain('app/main.ts  core/lib.ts');
+      expect(JSON.parse(await run(['--level', 'units'], runtime as never, 'json')).units).toHaveLength(2);
+    });
+
+    it('refuses mermaid for a table view (exit 4), --groups with --level units (exit 1), and names a wrong level', async () => {
+      const runtime = { workspaceRoot, progress: new CliProgress(false), ensureIndexed: vi.fn(), loadState: () => null };
+      await expect(run(['--level', 'units'], runtime as never, 'mermaid')).rejects.toMatchObject({ exitCode: 4 });
+      await expect(run(['--matrix'], runtime as never, 'mermaid')).rejects.toMatchObject({ exitCode: 4 });
+      await expect(run(['--groups', '--level', 'units'], runtime as never, 'text')).rejects.toMatchObject({ exitCode: 1, message: expect.stringContaining('--groups is the folder groups') });
+      await expect(run(['--level', 'foo'], runtime as never, 'text')).rejects.toThrow('--level must be groups or units, got "foo"');
+      expect(runtime.ensureIndexed).not.toHaveBeenCalled();
+    });
+  });
 });

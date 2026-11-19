@@ -1,3 +1,4 @@
+import { checkSymbolInFile, symbolNotFoundMessage } from "../../analyzer/utils/SymbolLookup";
 import { getRelativePath } from "../shared/helpers";
 import { validateFileExists } from "../../shared/pathSecurity";
 import { workerState } from "../shared/state";
@@ -17,6 +18,12 @@ export async function executeTraceFunctionExecution(
   const spider = workerState.getSpider();
   const config = workerState.getConfig();
   await validateFileExists(filePath);
+
+  // An unknown symbol traces to an empty chain: tell it apart from a function that calls nothing.
+  const symbolCheck = await checkSymbolInFile(spider, filePath, symbolName);
+  if (symbolCheck.status === "missing") {
+    throw new Error(symbolNotFoundMessage(symbolName, getRelativePath(filePath, config.rootDir), symbolCheck.suggestions));
+  }
 
   const result = await spider.traceFunctionExecution(
     filePath,

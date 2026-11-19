@@ -12,7 +12,7 @@ import { readCommunityMode, readIntegerOption } from "../options";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import type { CliRuntime } from "../runtime";
-import { parseSymbolRef } from "../symbols";
+import { parseTargetRef } from "../symbols";
 
 export async function run(
   args: string[],
@@ -26,7 +26,7 @@ export async function run(
     );
   }
 
-  const ref = parseSymbolRef(args[0], runtime.workspaceRoot);
+  const ref = parseTargetRef(args[0], runtime.workspaceRoot);
 
   const maxDepth = readIntegerOption(args, "--maxDepth", { min: 1, max: 100 });
   const communityMode = readCommunityMode(args);

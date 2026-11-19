@@ -142,7 +142,7 @@ describe.skipIf(!distExists)("MCP tools over graph-it serve (E2E)", { timeout: 1
         { cwd: tmpDir, encoding: "utf8", timeout: 30_000 });
       expect(JSON.parse(cli)).toMatchObject({ totalCallers: 2 });
 
-      const namespaceArgs = { filePath: path.join(tmpDir, "src/namespace.ts"), symbolName: "namespaceCall", direction: "callees", depth: 1, relations: ["CALLS"] };
+      const namespaceArgs = { filePath: path.join(tmpDir, "src/namespace.ts"), symbolName: "namespaceCall", direction: "callees", depth: 1, relationTypes: ["CALLS"] };
       const callees = await callTool("graphitlive_query_call_graph", { ...namespaceArgs, response_format: "json" });
       expect(JSON.parse(callees.content[0].text).data.callees.map((c: { targetName: string; targetPath?: string }) => c.targetName)).toEqual(["add"]);
       const addCallers = await callTool("graphitlive_query_call_graph", {

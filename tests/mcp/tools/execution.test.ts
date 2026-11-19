@@ -42,6 +42,19 @@ describe("execution tools", () => {
   });
 
   describe("executeTraceFunctionExecution", () => {
+    it("refuses a symbol the file does not declare, with the closest names, before tracing (#767)", async () => {
+      const filePath = await createTempFile(tempDir, "main.ts", "");
+      const spiderMock = {
+        getSymbolGraph: vi.fn(async () => ({ symbols: [{ name: "main" }, { name: "helper" }] })),
+        traceFunctionExecution: vi.fn(),
+      };
+      setupWorkerState(spiderMock);
+
+      await expect(executeTraceFunctionExecution({ filePath, symbolName: "mian" }))
+        .rejects.toThrow("Symbol 'mian' not found in main.ts. Did you mean: main?");
+      expect(spiderMock.traceFunctionExecution).not.toHaveBeenCalled();
+    });
+
     it("should enrich call chain with relative paths", async () => {
       const filePath = await createTempFile(tempDir, "main.ts", "");
       const resolvedFilePath = path.join(tempDir, "utils.ts");

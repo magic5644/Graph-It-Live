@@ -182,7 +182,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     // units.svg: every unit kept, the shared-ui / shared-utils cycle drawn by its cut only.
     const units = read(`${dir}/units.svg`);
     expect(units.match(/<rect class="node"/g)).toHaveLength(9);
-    expect(units).toContain("a cycle drawn by the edges that cut it only: 1 in the level (1 file pair); 1 other edge inside cycles not drawn");
+    expect(units).toContain("2 units form 1 cycle, drawn by the 1 edge that breaks it (1 file pair); 1 other edge inside them not drawn");
     const report = read(`${dir}/report.md`);
     expect(report).toContain("([diagram](units.svg))");
     expect(report).toContain("([diagram](folder-1-shared-ui.svg))");

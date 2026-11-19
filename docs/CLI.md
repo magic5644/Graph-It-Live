@@ -126,7 +126,7 @@ These options are available for every command:
 | Option | Shorthand | Default | Description |
 |--------|-----------|---------|-------------|
 | `--workspace <path>` | `-w` | auto-detected from `cwd` | Root directory of the project to analyze |
-| `--format <format>` | `-f` | `text` | Output format: `text`, `json`, `toon`, `markdown`, `mermaid`; `csv` only for `architecture --matrix`, `sarif` only for `check-architecture` and `review-pr`, `html` for `export` and `diagram`, `svg` and `diagram-spec` only for `diagram` |
+| `--format <format>` | `-f` | `text` (`markdown` for `wiki`, `html` for `diagram` and `export`) | Output format the command writes, listed per command in [Output Formats](#output-formats). Any other format exits with code `4` and names the supported ones |
 | `--help` | `-h` | — | Show help for the current command |
 | `--version` | `-v` | — | Print the installed version |
 | `--reindex` | — | — | Discard the cached index and rebuild it from scratch |
@@ -231,7 +231,11 @@ delete it at any time.
 
 > Global options can appear before or after the command name (`graph-it --reindex summary` and `graph-it summary --reindex` are equivalent). They are removed from the command's own arguments, so `--workspace <dir>` never becomes part of a `query` question.
 >
-> Numeric command options (`--maxDepth`, `--depth`, `--token-budget`, `--max-files`, `--maxFiles`, `--top`, ...) must be integers within the documented range. Any other value stops the command with an error and exit code 1.
+> Each command accepts only the options its help lists. An unknown option, an option without its value or an extra argument stops the command before any work, with exit code 1 and the closest option when one is close: `graph-it architecture --maxfiles 3` prints `Error: Unknown option --maxfiles for graph-it architecture. Did you mean --maxFiles? Run graph-it architecture --help for its options.` An unknown command does the same. Positionals are read wherever they sit among the options, and `--name=value` equals `--name value`. `graph-it tool <name>` checks the tool's parameters the same way.
+>
+> Numeric command options (`--maxDepth`, `--depth`, `--token-budget`, `--maxFiles`, `--top`, ...) must be integers within the documented range. Any other value stops the command with an error and exit code 1. `review-pr` takes `--maxFiles`, like `architecture`, and still accepts `--max-files`.
+>
+> A missing target is an error, never an empty result: a file, symbol, scope, unit or Git ref that does not exist exits with code 1 and the closest names (`File not found: src/servce.ts. Did you mean: src/service.ts?`).
 
 ---
 
@@ -251,20 +255,22 @@ All analysis commands support multiple output formats via `--format`:
 
 MCP tools take `response_format` (`json`, `markdown`, `toon`). MCP `markdown` is readable Markdown with the same content as `toon`: the error of a failed call, freshness and pagination, scalar fields as a list, then one table per array. `structuredContent` is sent only for `json`, and no tool declares an `outputSchema`: clients such as Claude Code show `structuredContent` instead of the text, so `toon` and `markdown` return text only. A failed call sets `isError: true` in every format.
 
-**Format availability per command:**
+**Format availability per command:** each command writes the formats below and nothing else. Any other `--format` exits with code `4` and names the supported ones, for example `Error: graph-it summary does not write --format mermaid: use text, json, toon, markdown.`
 
-`scan`, `summary`, `trace`, `explain`, `path`, `path-in`, `check-dependencies`, `cycles`, `architecture`, `check`, `review-pr` and `tool` accept all five formats; `architecture` also accepts `csv`, with `--matrix` only, and `review-pr` also accepts `sarif`. `mermaid` draws the nodes and edges when the result has them, and a generic diagram of the JSON fields otherwise. The other commands differ:
+| Command | Formats |
+|---------|---------|
+| `scan`, `summary`, `explain`, `cycles`, `check`, `init` | `text`, `json`, `toon`, `markdown` |
+| `trace`, `path`, `path-in`, `check-dependencies`, `tool` | `text`, `json`, `toon`, `markdown`, `mermaid` |
+| `architecture` | `text`, `json`, `toon`, `markdown`, `mermaid`, `csv` (with `--matrix`) |
+| `check-architecture`, `review-pr` | `text`, `json`, `toon`, `markdown`, `sarif` |
+| `query`, `context` | `text`, `json`, `toon` |
+| `wiki` | `markdown` *(default)*, `json`, `toon` |
+| `stats` | `text`, `json`, `markdown` (`text` prints the same markdown report) |
+| `diagram` | `html` *(default)*, `svg`, `diagram-spec` |
+| `export` | `html` *(default)* |
+| `serve`, `install`, `update` | `text` (no other `--format`) |
 
-| Command | Accepted formats | Other values |
-|---------|------------------|--------------|
-| `context` | `text`, `json`, `toon` | `markdown` and `mermaid` print `json` |
-| `query` | `text`, `json`, `toon` | print `text` |
-| `wiki` | `markdown` *(default)*, `json`, `toon` | print `markdown` |
-| `stats` | `text`, `json` | `markdown` and `toon` print the `text` report |
-| `check-architecture` | `text`, `json`, `toon`, `markdown`, `sarif` | `csv` is rejected (exit code 4) |
-| `diagram` | `html` *(default)*, `svg`, `diagram-spec` | rejected (exit code 4) |
-| `export` | `html` only | rejected |
-| `serve`, `install`, `update` | — | `--format` is ignored |
+`mermaid` draws the result's graph: the nodes and edges, the call chain of `trace` (the root alone when it calls nothing), the incoming and outgoing files of `check-dependencies` (the file alone when it has none). A `tool` result with no graph to draw exits with code `4`. `markdown` holds a `mermaid` diagram only when the result has a graph. `architecture --matrix`, `--level units`, `--folder` and `--from/--to` print tables in `text` and `markdown` (`mermaid` exits with code `4`: it draws the file graph or `--groups`).
 
 **Examples:**
 
@@ -416,7 +422,7 @@ graph-it scan [options]
 1. Walks the workspace and parses every source file
 2. Builds a dependency graph in memory (import/export edges)
 3. Constructs a reverse index for O(1) "who imports this?" lookups
-4. Prints the index status: state, reverse-index statistics, imports skipped outside the root, warm-up counts, and the on-disk size of the cache files
+4. Prints the index status: state, reverse-index statistics, imports skipped outside the root, warm-up counts, and the on-disk size of the cache files. `reverseIndexStats.indexedFiles` is the number of indexed files (the MCP `cacheSize` field, the in-memory analysis cache, reads 0 after a cache restore and is left out here)
 
 **Output (text):**
 
@@ -424,7 +430,6 @@ graph-it scan [options]
 state: complete
 isReady: true
 reverseIndexEnabled: true
-cacheSize: 0
 reverseIndexStats:
   indexedFiles: 542
   targetFiles: 222
@@ -452,7 +457,7 @@ graph-it scan --format json | jq '.reverseIndexStats.indexedFiles'
 
 ### summary
 
-Print a workspace overview: index statistics plus (optionally) a codemap for a specific file.
+Print a workspace overview, or the index status and codemap of one file.
 
 ```
 graph-it summary [file] [options]
@@ -473,11 +478,31 @@ graph-it summary [file] [options]
 
 **What it does (no file argument):**
 
-Prints overall statistics: files indexed, edges, cycles, index freshness.
+Prints what the workspace holds: files, files that failed to parse, import edges, file counts per extension, the 8 most imported files and the 8 largest folders, then the next commands.
+
+```
+files: 8
+failedFiles: 0
+importEdges: 9
+extensions:
+  ts: 8
+mostImported:
+  [0]:
+    file: domain/product.ts
+    importedBy: 3
+    imports: 1
+  ...
+largestFolders:
+  [0]:
+    folder: ui
+    files: 2
+  ...
+next: graph-it summary <file> shows one file's codemap; graph-it architecture --level units shows the units and their layers.
+```
 
 **What it does (with file argument):**
 
-Returns index statistics **plus** a structured codemap for the file:
+A file that does not exist exits with code 1 and the closest file names (`File not found: src/servce.ts. Did you mean: src/service.ts?`). Otherwise it returns the index status **plus** a structured codemap for the file:
 - Exported symbols
 - Internal symbols
 - Direct dependencies (files imported)
@@ -759,6 +784,8 @@ graph-it architecture [options]
 | `--matrix` | off | Dependency structure matrix of the level (groups, `--level units` or `--folder`) instead (see [Matrix output](#matrix-output)) |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams; `csv` with `--matrix` only) |
+
+`--groups` cannot be combined with `--level units` or `--folder` (exit code 1). `--matrix`, `--level units`, `--folder` and `--from/--to` print tables in `text` and `markdown`: the matrix lists its rows (Ce, Ca, I), its non-zero cells (the upward ones marked) and its cycles; the units list their layer, role and files, then the unit edges; a folder lists its groups and group edges; `--from/--to` lists the file pairs. `json` and `toon` carry the full data; `mermaid` exits with code 4 for these views.
 
 Each node carries `communityId` (`0` = no community) and `communityKey` (`""` = no community). The `text` format lists the 8 largest communities after the top files.
 
@@ -1052,7 +1079,7 @@ Each heading says what it counts and, in a terminal, how many it shows: `Dead fi
 
 Units changed in 1.25.4: every folder holding a project manifest of a supported language is a unit, not only a `package.json` folder. On a polyglot monorepo, a Python, Go, Java, C# or Rust project leaves `(root)`; files outside every project stay in `(root)`, so existing `graphit.architecture.json` elements keep matching. `init` lists the new units' elements under **Config changes**: confirm (or `--yes`) to add them.
 
-**Diagrams.** With `--output <dir>` (a workspace directory, created if needed), `init` also writes, through [`diagram`](#diagram), `units.svg` (current violations drawn as accepted), `matrix.svg` (with its legend and the cells to cut marked), one `folder-<n>-<unit>.svg` for each of the first 3 units of the unit cycles and hubs at risk, and `report.md`, whose findings link to their diagram. To stay readable on a large workspace, these diagrams draw less than `diagram` does, and a note under each counts what it leaves out (the header counts still cover the whole level): `units.svg` draws at most the 20 most coupled units (file pairs in and out), cycle members first, and inside a unit cycle only the edges that cut it; neither `units.svg` nor `matrix.svg` draws a unit with no edge to the others; a folder diagram of a level with a cycle draws only the edges that cut it (the cut of the `cycle-break` quick win) and their two ends, in the cycle's block, at most the 20 most coupled groups. `graph-it diagram` draws the full level. Writes stay in the workspace and never go through a symbolic link, a hard link or over a non-regular file.
+**Diagrams.** With `--output <dir>` (a workspace directory, created if needed), `init` also writes, through [`diagram`](#diagram), `units.svg` (current violations drawn as accepted), `matrix.svg` (with its legend and the cells to cut marked), one `folder-<n>-<unit>.svg` for each of the first 3 units of the unit cycles and hubs at risk, and `report.md`, whose findings link to their diagram. To stay readable on a large workspace, these diagrams draw less than `diagram` does, and a note under each counts what it leaves out (the header counts still cover the whole level): `units.svg` draws at most the 20 most coupled units (file pairs in and out), cycle members first, and inside a unit cycle only the edges that cut it; neither `units.svg` nor `matrix.svg` draws a unit with no edge to the others; a folder diagram of a level with a cycle draws only the edges that cut it (the cut of the `cycle-break` quick win) and their two ends, in the cycle's block, at most the 20 most coupled groups. When the cut takes more than 12 edges, or a cycle holds more units or groups than the 20 drawn, the diagram draws no box at all: it lists the 10 heaviest cuts (`from → to`, file pairs and, at the units level, the `graph-it architecture --level units --from … --to …` command that lists them) and points to the matrix, where every cut is marked (`40 units form 1 cycle, too large to draw: breaking it takes 24 cuts (31 file pairs).`). A box does not repeat its layer when every drawn box sits in the same one, as inside a single cycle. `graph-it diagram` draws the full level. Writes stay in the workspace and never go through a symbolic link, a hard link or over a non-regular file.
 
 **Explorable page.** With `--output`, `init` also writes `index.html`, linked from `report.md` (`Explore:`): one self-contained page, `vis-network` inlined, readable offline, with workspace-relative paths only (the same page as [`export --format html`](#export), grouped differently). Its groups are the units of the report, one per unit (key as label, its file count), collapsed above 200 files: double-click a unit to see its files. Edges are drawn in the styles of the SVG diagrams, from one shared legend: upward, runtime cycle, type-only cycle (dotted) and lazy cycle (dashed) by how their unit cycle runs, a rule broken (accepted in the proposed baseline: dashed); a broken rule outranks the cycle style. The legend lists the styles the page uses; hovering an edge counts its file pairs by style. The **Dependency matrix** panel shows `matrix.svg` itself with the reading guide; clicking a cell (or Enter) lists its file pairs and centres on them. Dead files have a dashed border and a `· dead` label. The **Findings** panel lists the sections and items of `report.md`, in the same order and words, every item; clicking one (or Enter) expands the units of the files it names and centres on those files, or centres on its units when it names no file. With `--focus`, the page holds the units of the focus and their direct neighbours, opens with the focus files expanded (the other files of their units dimmed) and a panel stating its boundary: the units it depends on (orange edges) and the units using it (blue), each with its file pairs counted by style; **◎ Focus** comes back to it. Each path is written once: a file row holds what its path does not share with the previous one, and edges are pairs of file row indexes, colours and labels being rebuilt by the page (1.25.4). On a 12,420-file monorepo the page weighs 2.0 MB, against 8.4 MB in 1.25.3; `vis-network` alone is 0.65 MB.
 
@@ -1085,9 +1112,9 @@ graph-it diagram [<dir>] [--view units|folder|matrix] [--folder <key>] [--format
 | `<dir>` | — | Workspace directory, relative to its root (`\` is read as `/`), drawn as `--folder` draws its key: a unit root draws the unit's groups, a folder its own (`src/cli` in the root unit is `(root)/cli`; an umbrella folder such as `src` is its unit). `.` draws the units. Comes first; not with `--folder` |
 | `--view` | `units` (`folder` with `--folder` or `<dir>`) | `units`: the units in layers (layer 0 at the bottom), cycles outlined, stroke width = file pairs. `folder`: the groups below one unit or folder. `matrix`: the dependency structure matrix of the units, or with `--folder` of that folder's groups, in the [`architecture --matrix`](#architecture) order |
 | `--folder <key>` | — | Unit or folder key, as [`architecture --folder`](#architecture) takes it; `\` is read as `/` |
-| `--format` | `html` (`svg` when `--output` ends with `.svg`) | `html`: one page that follows the reader's light or dark scheme. `svg`: a bare SVG in one theme. `diagram-spec`: the level's data as JSON (the view does not change it) |
+| `--format` | `html` (`svg` when `--output` ends with `.svg`) | `html`: one page that follows the reader's light or dark scheme. `svg`: a bare SVG in one theme. `diagram-spec`: the data of `--view units` or `folder` as JSON (`--view matrix` with it exits 4) |
 | `--theme` | `light` | `light` or `dark` colours, `--format svg` only |
-| `--output <file>` | `architecture.html` / `architecture.svg` / `architecture.diagram-spec.json` | File in the workspace, relative to its root; missing folders are created. `-` writes to stdout |
+| `--output <file>` | `architecture.html` / `architecture.svg` / `architecture.diagram-spec.json` | File in the workspace, relative to its root; missing folders are created. Its extension matches the format (`.html` or `.htm`, `.svg`, `.json`). `-` writes to stdout |
 | `--rules` | off | Draws the violations of `graphit.architecture.json` in the error colour; the legend names the broken rules |
 | `--config <file>` | `graphit.architecture.json` | Rules file, with `--rules` |
 | `--baseline [<file>]` | off | With `--rules`: draws the violations the baseline accepts as dashed lines, counted apart (`3 violations (2 accepted)`). Without a file it reads `graphit.architecture.baseline.json`, which must then exist |
@@ -1100,7 +1127,7 @@ At most 60 units or groups are drawn, the largest ones; a note counts the others
 
 **Output**: one line, for example `Diagram written to architecture.html: 7 units · 3 layers · 1 cycle · 0 violations.` With `--output -`, the SVG or HTML goes to stdout instead.
 
-**Exit code**: 0 when the file is written. An invalid `--view` or `--theme`, a `--folder` without files, a `<dir>` that is missing, holds no indexed file or spans several units, `--view folder` without `--folder` or `<dir>`, `--view units` with `--folder` or `<dir>`, `<dir>` with `--folder`, `--theme` with `--format html` or `diagram-spec`, `--config` or `--baseline` without `--rules`, a missing rules file or a missing named baseline exit 1. A `<dir>`, `--output`, `--config` or `--baseline` outside the workspace exits 5, and any other `--format` exits 4.
+**Exit code**: 0 when the file is written. An invalid `--view` or `--theme`, a `--folder` without files, a `<dir>` that is missing, holds no indexed file or spans several units, `--view folder` without `--folder` or `<dir>`, `--view units` with `--folder` or `<dir>`, `<dir>` with `--folder`, `--theme` with `--format html` or `diagram-spec`, `--config` or `--baseline` without `--rules`, a missing rules file, a missing named baseline or an `--output` whose extension does not match the format (`--format svg --output a.html`) exit 1. A `<dir>`, `--output`, `--config` or `--baseline` outside the workspace exits 5, and any other `--format`, or `diagram-spec` with `--view matrix`, exits 4.
 
 **MCP and VS Code**: the `graphitlive_export_architecture_diagram` MCP tool and the `graph-it-live_export_architecture_diagram` Language Model tool (`#graphArchitectureDiagram`) draw the same diagram from `view`, `folder`, `diagramFormat` (default `svg`), `theme`, `rules`, `config` and `baseline`. They return the markup inline up to 60,000 characters; with `output`, or for a larger diagram, they write it to that workspace file (default `architecture.<diagramFormat>`) and return its workspace-relative path. With `rules` and no `baseline`, they read `graphit.architecture.baseline.json` when it exists, as `check_architecture` does. An `output` outside the workspace is refused before any work. `diagramFormat: "diagram-spec"` returns the spec below as `markup` (default file `architecture.diagram-spec.json`).
 
@@ -1334,11 +1361,11 @@ graph-it trace <file>#<Symbol> [options]
 |--------|---------|-------------|
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`mermaid` generates a call flowchart) |
-| `--maxDepth <N>` | `10` | Maximum recursion depth |
+| `--maxDepth <N>` | `10` | Maximum recursion depth, 1-100 |
 
 **What it does:**
 
-Starting from the specified symbol, follows every outgoing call edge recursively (DFS) and returns a tree showing the complete execution flow:
+A symbol the file does not declare exits with code 1 and the closest names (`Symbol 'rnu' not found in src/a.ts. Did you mean: run?`), as the MCP tool `trace_function_execution` does; a missing file exits with code 1 too. Starting from the specified symbol, follows every outgoing call edge recursively (DFS) and returns a tree showing the complete execution flow:
 - Each function call with its file location
 - Call ordering (numbered edges)
 - Recursive calls / cycles detected and labelled
@@ -1535,7 +1562,7 @@ and a limitation say so, and the review is partial. Branch Watch reports the sam
 Run a deterministic local review of a Git diff:
 
 ```bash
-graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--max-files 200] --format text|json|toon|markdown|mermaid|sarif
+graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--maxFiles 200] --format text|json|toon|markdown|sarif
 ```
 
 The command first ensures that the workspace index is available. It then lists changed files with `git diff` and compares exported TypeScript, JavaScript and Vue signatures, and the top-level functions, classes and variables of Python modules, between the base and head. For Python, adding or dropping a type annotation is not breaking, and switching between `def` and `async def` is; methods and definitions nested in `if`/`try` blocks are not compared. Without `--head`, the head is the current working tree (`HEAD` plus staged and unstaged file contents). With `--head <ref>`, both sides come from Git refs and the changed-file list uses the three-dot comparison.
@@ -1556,7 +1583,7 @@ A compatible change (an optional parameter or member added, a union or enum that
 
 A changed file that cannot be read safely at the base or the head (a symbolic link, a path resolving outside the workspace, a binary file, more than 2 MiB) is skipped with the limitation `Could not compare <file>; <reason>` and the result is partial; the other files are still reviewed. A file replaced by a symbolic link (a Git type change) is listed the same way. Missing optional evidence, unsupported file types, and file limits are reported as limitations rather than invented findings. The command does not fail solely because the risk is high; use the Action's `fail-on-risk` input to gate CI.
 
-`--max-files` defaults to `200` and accepts any integer of at least `1` (no upper bound). Time and memory grow with it: the base and head text of every analysed file stays in memory during the review. Through MCP, `review_pr` and `scan_dead_code` stop after 10 minutes (other tools after 1 minute), and other tool calls wait until they end. Branch Watch keeps its own `graph-it-live.branchWatch.maxFiles` setting at most `2000`, because it reruns by itself after edits. The default output is text. Markdown output includes a consumer table, a list of consumers to check and the moved symbols; JSON and TOON expose the complete structured result. Invalid refs and invalid limits exit non-zero.
+`--maxFiles` (also spelled `--max-files`, the spelling of 1.25.4 and earlier) defaults to `200` and accepts any integer of at least `1` (no upper bound). Time and memory grow with it: the base and head text of every analysed file stays in memory during the review. Through MCP, `review_pr` and `scan_dead_code` stop after 10 minutes (other tools after 1 minute), and other tool calls wait until they end. Branch Watch keeps its own `graph-it-live.branchWatch.maxFiles` setting at most `2000`, because it reruns by itself after edits. The default output is text. Markdown output includes a consumer table, a list of consumers to check and the moved symbols; JSON and TOON expose the complete structured result. Invalid limits exit with code 1. A ref Git cannot resolve exits with code 1 and names it (`Unknown Git ref "nope": pass a branch, tag or commit of this repository.`); a workspace outside a Git repository says so, never with git's raw output.
 
 `cycles` lists the import cycles the diff creates (`introduced`) or enlarges (`aggravated`), with every file in the cycle; a cycle that already existed and that the diff leaves intact is not listed, and a cycle the diff removes is not reported. Type-only and dynamic `import()` edges count like any import, since the dependency graph records them. A file in such a cycle gives its changed symbols a `cycles` score factor; a cycle alone, with no changed signature, is reported without raising the risk. Cycles are read from the whole import graphs of both sides, with no file budget: the head graph from the warmed index of the checked-out tree (or from the Git objects of `--head` when it names another ref), the base graph from the Git objects of `--base` (or of its merge base with `--head`, as the changed-file list). With `graphit.architecture.json`, the architecture rules check the same two graphs, so each side is parsed once. `limitations` says when files of either graph could not be analyzed, and when the cycle data cannot be read at all. A Rust `mod x;` declaration never closes a cycle. Side-effect-only imports (`import "./x"`) are recorded as edges of type `side-effect`, so they can close a cycle; `import "./x.css"` is an edge only when the file resolves.
 
@@ -1808,30 +1835,30 @@ The page groups files by community (same groups and counts as `architecture --gr
 - Layout is force-directed only: a layered layout would imply false layering on cyclic groups.
 
 ```
-graph-it export [scope] --format html [options]
+graph-it export [scope] [options]
 ```
 
 **Arguments:**
 
 | Argument | Description |
 |----------|-------------|
-| `[scope]` | Optional relative path to scope the exported graph to |
+| `[scope]` | Optional relative path to scope the exported graph to. A scope that does not exist exits with code 1 and the closest names (`Scope not found: srcc. Did you mean: src?`), one outside the workspace with code 5 |
 
 **Options:**
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `--output, -o <file>` | `graph.html` | Output HTML file path |
+| `--output, -o <file>` | `graph.html` | `.html` file in the workspace, relative to its root, as `diagram --output` takes it. Outside the workspace: exit code 5; another extension: exit code 1; `-` writes the page to stdout |
 | `--communities <mode>` | `path` | Group files by folder domain (`path`) or by import structure (`louvain`) |
-| `--format, -f` | — | Must be `html` — this is the only supported format for `export` |
+| `--format, -f` | `html` | `html`, the only format; any other exits with code 4 |
 | `--workspace, -w` | auto-detected | Project root |
 
 **Examples:**
 
 ```bash
-graph-it export --format html
-graph-it export src/analyzer --format html --output analyzer.html
-graph-it export --format html --communities louvain
+graph-it export
+graph-it export src/analyzer --output analyzer.html
+graph-it export --communities louvain --output - > graph.html
 ```
 
 ---

@@ -289,8 +289,35 @@ export interface DrawOptions {
   cuts?: "cycles" | "only";
 }
 
-/** The edges drawn once the level's cycles are reduced to their cuts, and the notes counting the rest; undefined without a cycle. */
-function cutView(input: DiagramInput, mode: "cycles" | "only") {
+/** More cuts than this, or a cycle larger than the nodes drawn, and the cut view lists the heaviest cuts instead of drawing. */
+export const MAX_DRAWN_CUTS = 12;
+/** Cuts listed when the cut view does not draw. */
+const LISTED_CUTS = 10;
+
+/** `graph-it diagram` for the level, with `extra` options. */
+function diagramCommand(input: DiagramInput, extra: string): string {
+  const folder = input.scope === "units" ? "" : " --folder " + JSON.stringify(fitLabel(input.scope, 64));
+  return `graph-it diagram${folder}${extra}`;
+}
+
+/** The heaviest cuts as note lines (from → to, file pairs, the command that lists them), and where to see all of them. */
+function cutList(input: DiagramInput, cuts: readonly DiagramEdge[], inCycle: number, cycles: number, pairs: number): string[] {
+  const heaviest = cuts.toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || byCodeUnit(left.from, right.from) || byCodeUnit(left.to, right.to));
+  const next = (edge: DiagramEdge) => (input.scope === "units" ? ` · next: graph-it architecture --level units --from ${fitLabel(edge.from, 40)} --to ${fitLabel(edge.to, 40)}` : "");
+  return [
+    `${plural(inCycle, input.noun)} form ${plural(cycles, "cycles")}, too large to draw: breaking ${cycles === 1 ? "it" : "them"} takes ${plural(cuts.length, "cuts")} (${plural(pairs, "file pairs")}).`,
+    cuts.length > LISTED_CUTS ? `The ${LISTED_CUTS} heaviest cuts:` : "The cuts, heaviest first:",
+    ...heaviest.slice(0, LISTED_CUTS).map((edge) => `${fitLabel(edge.from, 40)} → ${fitLabel(edge.to, 40)} · ${plural(edge.fileEdgeCount, "file pairs")}${next(edge)}`),
+    `All ${plural(cuts.length, "cuts")}, marked in the matrix: ${diagramCommand(input, " --view matrix")}`,
+  ];
+}
+
+/**
+ * The edges drawn once the level's cycles are reduced to their cuts, and the notes counting the rest; undefined
+ * without a cycle. `list`: past MAX_DRAWN_CUTS cuts, or a cycle larger than `maxNodes`, nothing is drawn and the
+ * notes list the heaviest cuts.
+ */
+function cutView(input: DiagramInput, mode: "cycles" | "only", maxNodes: number) {
   const matrix = buildMatrix(
     input.nodes.map(({ key, label, internalEdgeCount }) => ({ id: key, key, label, internalEdgeCount: internalEdgeCount ?? 0 })),
     input.edges,
@@ -299,17 +326,19 @@ function cutView(input: DiagramInput, mode: "cycles" | "only") {
   if (cut.size === 0) return undefined;
   const cuts = input.edges.filter((edge) => cut.has(`${edge.from}>${edge.to}`));
   const pairs = cuts.reduce((total, edge) => total + edge.fileEdgeCount, 0);
-  const cutNote = `a cycle drawn by the edges that cut it only: ${cuts.length} in the level (${plural(pairs, "file pairs")})`;
+  const inCycle = matrix.cycles.flatMap((cycle) => cycle.members);
+  if (cuts.length > MAX_DRAWN_CUTS || matrix.cycles.some((cycle) => cycle.members.length > maxNodes)) {
+    return { edges: [], ends: new Set<string>(), list: true, notes: cutList(input, cuts, inCycle.length, matrix.cycles.length, pairs) };
+  }
+  const cutNote = `${plural(inCycle.length, input.noun)} form ${plural(matrix.cycles.length, "cycles")}, drawn by the ${plural(cuts.length, "edges")} that ${cuts.length === 1 ? "breaks" : "break"} ${matrix.cycles.length === 1 ? "it" : "them"} (${plural(pairs, "file pairs")})`;
   if (mode === "cycles") {
     const cycleOf = new Map(matrix.cycles.flatMap((cycle, index) => cycle.members.map((key) => [key, index])));
     const inside = (edge: DiagramEdge) => cycleOf.get(edge.from) !== undefined && cycleOf.get(edge.from) === cycleOf.get(edge.to);
     const edges = input.edges.filter((edge) => !inside(edge) || cut.has(`${edge.from}>${edge.to}`));
-    return { edges, ends: undefined, notes: [`${cutNote}; ${plural(input.edges.length - edges.length, "other edges")} inside cycles not drawn`] };
+    return { edges, ends: undefined, list: false, notes: [`${cutNote}; ${plural(input.edges.length - edges.length, "other edges")} inside them not drawn`] };
   }
   const edges = cuts;
   const ends = new Set(edges.flatMap((edge) => [edge.from, edge.to]));
-  const inCycle = matrix.cycles.flatMap((cycle) => cycle.members);
-  const full = input.scope === "units" ? "graph-it diagram" : `graph-it diagram --folder ${JSON.stringify(fitLabel(input.scope, 64))}`;
   const left = [
     [inCycle.filter((key) => !ends.has(key)).length, input.noun, " of a cycle"],
     [input.nodes.length - inCycle.length, input.noun, " outside cycles"],
@@ -318,16 +347,18 @@ function cutView(input: DiagramInput, mode: "cycles" | "only") {
   const notDrawn = left.filter(([count]) => count > 0).map(([count, noun, where]) => plural(count, noun) + where);
   const notes = [
     cutNote,
-    ...(notDrawn.length > 0 ? [`${notDrawn.join(", ")} not drawn; all of them: ${full}`] : []),
+    ...(notDrawn.length > 0 ? [`not drawn: ${notDrawn.join(", ")}; all of them: ${diagramCommand(input, "")}`] : []),
   ];
-  return { edges, ends, notes };
+  return { edges, ends, list: false, notes };
 }
 
-/** Which nodes the cap drew, and how many of those it left out sit in a cycle. */
-function drawnNote(coupled: { inCycle: ReadonlySet<string> } | undefined, left: readonly DiagramNode[]) {
-  if (coupled === undefined) return "largest are drawn";
+/** Which nodes the cap drew, then how many it left out and, by coupling, how many of those sit in a cycle. */
+function drawnNote(coupled: { inCycle: ReadonlySet<string> } | undefined, drawn: number, left: readonly DiagramNode[], noun: string) {
+  const notDrawn = `${plural(left.length, "more " + noun)} not drawn`;
+  if (coupled === undefined) return `drawn: the ${plural(drawn, "largest " + noun)}; ${notDrawn}`;
   const count = left.filter((node) => coupled.inCycle.has(node.key)).length;
-  return "most coupled are drawn, cycle members first" + (count > 0 ? ` (${count} of them in a cycle)` : "");
+  const inCycle = count > 0 ? `, ${count} of them in a cycle` : "";
+  return `drawn: the ${plural(drawn, "most coupled " + noun)}, cycle members first; ${notDrawn}${inCycle}`;
 }
 
 /** The coupled order: cycle members first, then by file pairs in and out, then by key. */
@@ -349,7 +380,8 @@ function byCoupling(nodes: readonly DiagramNode[], input: DiagramInput) {
  */
 export function capNodes(input: DiagramInput, options: DrawOptions = {}) {
   const maxNodes = Math.max(1, options.maxNodes ?? MAX_DIAGRAM_NODES);
-  const cut = options.cuts === undefined ? undefined : cutView(input, options.cuts);
+  const cut = options.cuts === undefined ? undefined : cutView(input, options.cuts, maxNodes);
+  if (cut?.list) return { nodes: [], edges: [], hidden: input.nodes.length, notes: cut.notes };
   const drawable = cut?.edges ?? input.edges;
   const linked = cut?.ends ?? new Set(input.edges.flatMap((edge) => [edge.from, edge.to]));
   const filtered = cut?.ends !== undefined || options.connectedOnly;
@@ -367,7 +399,7 @@ export function capNodes(input: DiagramInput, options: DrawOptions = {}) {
   const notes = [
     ...(cut?.notes ?? []),
     isolated > 0 ? `${plural(isolated, input.noun)} with no edge to the others not drawn` : undefined,
-    capped > 0 ? `${plural(capped, "more " + input.noun)} not drawn: the ${nodes.length} ${drawnNote(coupled, ranked.slice(maxNodes))}` : undefined,
+    capped > 0 ? drawnNote(coupled, nodes.length, ranked.slice(maxNodes), input.noun) : undefined,
   ].filter((note) => note !== undefined);
   return { nodes, edges, hidden: input.nodes.length - nodes.length, notes };
 }
@@ -467,9 +499,12 @@ export async function layoutDiagram(input: DiagramInput, options: DrawOptions = 
   const id = new Map(nodes.map((node, index) => [node.key, `n${index}`]));
   const top = Math.max(0, ...nodes.map((node) => node.layer));
   const partition = (layer: number) => layerPartition(top, layer);
+  // One shared layer (a single cycle) says nothing on each box.
+  const oneLayer = new Set(nodes.map((node) => node.layer)).size === 1;
   const sized = nodes.map((node) => {
     const text = fitLabel(node.label);
-    const meta = `${node.fileCount} ${node.fileCount === 1 ? "file" : "files"} · layer ${node.layer}`;
+    const layer = oneLayer ? "" : " · layer " + node.layer;
+    const meta = `${node.fileCount} ${node.fileCount === 1 ? "file" : "files"}${layer}`;
     const width = snap(Math.max(SIZES.minNodeWidth, textWidth(text, SIZES.label) + 2 * SIZES.nodePaddingX, textWidth(meta, SIZES.meta) + 2 * SIZES.nodePaddingX));
     return { ...node, text, meta, width, height: SIZES.nodeHeight };
   });

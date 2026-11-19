@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, it, expect } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { parseSymbolRef } from "@/cli/symbols";
+import { closestPathsHint, parseSymbolRef, parseTargetRef } from "@/cli/symbols";
 import { CliError, ExitCode } from "@/cli/errors";
 
 // Use path.resolve so ROOT is a fully-qualified absolute path on all platforms
@@ -109,5 +109,45 @@ describe("parseSymbolRef", () => {
     const result = parseSymbolRef(String.raw`${lowerDrive}\src\a.ts#main`, upperDrive);
     expect(result.symbolName).toBe("main");
     expect(result.filePath.toLowerCase()).toBe(path.join(ROOT, "src", "a.ts").toLowerCase());
+  });
+});
+
+describe("parseTargetRef (#767)", () => {
+  let root: string;
+
+  beforeEach(() => {
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "target-ref-")));
+    fs.mkdirSync(path.join(root, "src"));
+    fs.writeFileSync(path.join(root, "src", "service.ts"), "");
+    fs.writeFileSync(path.join(root, "src", "server.ts"), "");
+  });
+
+  afterEach(() => {
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("returns an existing file with its symbol, backslashes included", () => {
+    expect(parseTargetRef("src/service.ts#run", root)).toEqual({ filePath: path.join(root, "src", "service.ts"), symbolName: "run" });
+    if (path.sep === "\\") expect(parseTargetRef(String.raw`src\service.ts`, root).filePath).toBe(path.join(root, "src", "service.ts"));
+  });
+
+  it("refuses a missing file with the closest workspace-relative names (exit 1)", () => {
+    expect(() => parseTargetRef("src/servce.ts#run", root)).toThrow(expect.objectContaining({
+      exitCode: ExitCode.GENERAL_ERROR,
+      message: "File not found: src/servce.ts. Did you mean: src/service.ts, src/server.ts?",
+    }));
+    expect(() => parseTargetRef("src/zzzzzzzz.ts", root)).toThrow(/^File not found: src\/zzzzzzzz\.ts\.$/);
+    expect(() => parseTargetRef("nope/a.ts", root)).toThrow(/^File not found: nope\/a\.ts\.$/);
+  });
+
+  it("refuses a folder, and a path outside the workspace (exit 5)", () => {
+    expect(() => parseTargetRef("src", root)).toThrow("src is a folder: pass a file.");
+    expect(() => parseTargetRef("../x.ts", root)).toThrow(expect.objectContaining({ exitCode: ExitCode.SECURITY_VIOLATION }));
+  });
+
+  it("names nothing when no sibling is close, or the folder is missing", () => {
+    expect(closestPathsHint(path.join(root, "src", "qqqqqqqqq.ts"), root)).toBe("");
+    expect(closestPathsHint(path.join(root, "missing", "a.ts"), root)).toBe("");
+    expect(closestPathsHint(path.join(root, "src", "servic.ts"), root)).toMatch(/^ Did you mean: src\/service\.ts, /);
   });
 });

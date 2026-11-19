@@ -1,12 +1,17 @@
 import { parseArgs } from 'node:util';
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getRelativePath, normalizePath } from '../../shared/path';
-import { exportHtml } from '../../analyzer/export/HtmlExporter';
+import { exportHtml, renderHtmlPage } from '../../analyzer/export/HtmlExporter';
+import { validateWorkspacePath } from '../../shared/pathSecurity';
 import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
 import { collectReactReferencingPaths, enrichReactFramework } from '../../analyzer/ReactIdentity';
 import { workerState } from '../../mcp/shared/state';
+import { CliError, ExitCode } from '../errors';
 import { readCommunityMode } from '../options';
 import type { CliRuntime } from '../runtime';
+import { closestPathsHint } from '../symbols';
+import { resolveInWorkspace } from '../workspaceFiles';
 import type { GraphData } from '../../shared/graph-types';
 
 type RawRecord = Record<string, unknown>;
@@ -98,6 +103,17 @@ function filterGraphByScope(graphData: GraphData, resolvedScope?: string): void 
   }
 }
 
+/** A scope outside the workspace exits 5; a missing one exits 1 with the closest names of its folder, never an empty graph. */
+function assertScopeExists(rawScope: string, resolvedScope: string, workspaceRoot: string): void {
+  try {
+    validateWorkspacePath(resolvedScope, workspaceRoot);
+  } catch {
+    throw new CliError(`Scope outside the workspace: ${rawScope}`, ExitCode.SECURITY_VIOLATION);
+  }
+  if (fs.existsSync(resolvedScope)) return;
+  throw new CliError(`Scope not found: ${rawScope}.${closestPathsHint(resolvedScope, workspaceRoot)} Pass a file or folder of the workspace.`, ExitCode.GENERAL_ERROR);
+}
+
 export async function runExportHtml(
   runtime: CliRuntime,
   workspaceName: string,
@@ -112,13 +128,17 @@ export async function runExportHtml(
     strict: false,
     allowPositionals: true,
   });
-  const outputPath = normalizePath(typeof cmdValues.output === 'string'
-    ? path.resolve(cmdValues.output)
-    : path.join(process.cwd(), 'graph.html'));
+  // Refused before any work, as diagram --output is: the file stays in the workspace; - writes to stdout.
+  const output = typeof cmdValues.output === 'string' ? cmdValues.output : 'graph.html';
+  if (output !== '-' && !/\.html?$/i.test(output)) {
+    throw new CliError(`--output ${output} does not match --format html: name it *.html.`, ExitCode.GENERAL_ERROR);
+  }
+  const outputPath = output === '-' ? undefined : resolveInWorkspace(runtime.workspaceRoot, output);
 
   // Resolve scope: positional arg > scopePath from session state
   const rawScope = positionals[0] ?? scopePath;
   const resolvedScope = rawScope ? normalizePath(path.resolve(runtime.workspaceRoot, rawScope)) : undefined;
+  if (rawScope && resolvedScope) assertScopeExists(rawScope, resolvedScope, runtime.workspaceRoot);
 
   // Build graph data by delegating to the architecture command (json format)
   const { run: architectureRun } = await import('./architecture.js');
@@ -135,7 +155,7 @@ export async function runExportHtml(
   const frameworkSources = collectReactReferencingPaths(graphData.nodes, file => workerState.spider?.getIndexedReferencingFiles(file) ?? []);
   await runtime.progress.phase("Detecting React components", () => enrichReactFramework(graphData, runtime.workspaceRoot, frameworkSources));
 
-  exportHtml({
+  const page = {
     graphData,
     context: {
       scope: resolvedScope ? getRelativePath(resolvedScope, normalizePath(runtime.workspaceRoot)) || '.' : 'workspace',
@@ -144,9 +164,12 @@ export async function runExportHtml(
       failedFiles: Array.isArray(raw['failedFiles']) ? raw['failedFiles'].length : 0,
     },
     workspaceName,
-    outputPath,
     workspaceRoot: runtime.workspaceRoot,
-  });
-
-  process.stdout.write(`Graph exported to ${outputPath}\n`);
+  };
+  if (outputPath === undefined) {
+    process.stdout.write(renderHtmlPage(page));
+    return;
+  }
+  exportHtml({ ...page, outputPath });
+  process.stdout.write(`Graph exported to ${getRelativePath(normalizePath(outputPath), normalizePath(runtime.workspaceRoot))}\n`);
 }

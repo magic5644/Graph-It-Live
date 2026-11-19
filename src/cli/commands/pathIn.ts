@@ -12,7 +12,7 @@ import { CliError, ExitCode } from '../errors';
 import type { CliOutputFormat } from '../formatter';
 import { formatOutput } from '../formatter';
 import type { CliRuntime } from '../runtime';
-import { parseSymbolRef } from '../symbols';
+import { parseTargetRef } from '../symbols';
 
 interface PathInGraphNode {
   id: string;
@@ -39,7 +39,7 @@ export async function run(
 
   await runtime.ensureIndexed();
 
-  const ref = parseSymbolRef(args[0], runtime.workspaceRoot);
+  const ref = parseTargetRef(args[0], runtime.workspaceRoot);
   const result = await executeFindReferencingFiles({
     targetPath: ref.filePath,
   });
@@ -80,6 +80,6 @@ export async function run(
       edges,
     },
     format,
-    'path',
+    'path-in',
   );
 }

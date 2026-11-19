@@ -2413,10 +2413,12 @@ describe("ReviewGateAnalyzer - unreadable changed files (#546)", { timeout: GIT_
       });
       const analyzer = new ReviewGateAnalyzer(os.tmpdir());
       const reads = analyzer as unknown as {
+        assertCommit: () => Promise<void>;
         getChangedFiles: () => Promise<string[]>;
         gitShow: () => Promise<string | null>;
         readHeadContent: () => Promise<string | null>;
       };
+      vi.spyOn(reads, "assertCommit").mockResolvedValue();
       vi.spyOn(reads, "getChangedFiles").mockResolvedValue(["odd.ts"]);
       vi.spyOn(reads, "gitShow").mockImplementation(() => failedRef === "base" ? Promise.reject(new Error("File is binary.")) : pending);
       vi.spyOn(reads, "readHeadContent").mockImplementation(() => failedRef === "head" ? Promise.reject(new Error("File is binary.")) : pending);
@@ -2433,6 +2435,17 @@ describe("ReviewGateAnalyzer - unreadable changed files (#546)", { timeout: GIT_
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("names an unknown ref, and a workspace that is not a Git repository, instead of git's raw output", async () => {
+    const workspace = await workspaceWith({ "src/api.ts": "export const a = 1;\n" }, { "src/api.ts": "export const a = 2;\n" });
+    await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "nope" }))
+      .rejects.toThrow('Unknown Git ref "nope": pass a branch, tag or commit of this repository.');
+    await expect(new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main", headRef: "missing-head" }))
+      .rejects.toThrow('Unknown Git ref "missing-head"');
+    const notARepo = await fs.mkdtemp(path.join(os.tmpdir(), "review-no-git-"));
+    await expect(new ReviewGateAnalyzer(notARepo).analyze({ baseRef: "main" }))
+      .rejects.toThrow("The workspace is not a Git repository: the review compares two Git refs.");
   });
 
   it.each([

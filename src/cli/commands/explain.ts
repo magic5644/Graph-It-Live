@@ -11,7 +11,7 @@ import { CliError, ExitCode } from "../errors";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import type { CliRuntime } from "../runtime";
-import { parseSymbolRef } from "../symbols";
+import { parseTargetRef } from "../symbols";
 
 /** LSP SymbolKind names, indexed by kind number - 1 (the spec numbers them from 1). */
 const LSP_SYMBOL_KIND_NAMES = [
@@ -35,7 +35,7 @@ export async function run(
 
   await runtime.ensureIndexed();
 
-  const ref = parseSymbolRef(args[0], runtime.workspaceRoot);
+  const ref = parseTargetRef(args[0], runtime.workspaceRoot);
 
   const result = await executeAnalyzeFileLogic({
     filePath: ref.filePath,

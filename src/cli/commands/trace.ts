@@ -12,7 +12,7 @@ import { readIntegerOption } from "../options";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import type { CliRuntime } from "../runtime";
-import { parseSymbolRef } from "../symbols";
+import { parseTargetRef } from "../symbols";
 
 export async function run(
   args: string[],
@@ -26,7 +26,7 @@ export async function run(
     );
   }
 
-  const ref = parseSymbolRef(args[0], runtime.workspaceRoot);
+  const ref = parseTargetRef(args[0], runtime.workspaceRoot);
   if (!ref.symbolName) {
     throw new CliError(
       "trace requires a symbol name: file.ts#FunctionName",

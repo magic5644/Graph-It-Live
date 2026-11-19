@@ -18,7 +18,8 @@ import { CliError, ExitCode } from "../errors";
 import { workerState } from "../../mcp/shared/state";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
-import { readCommunityMode, readIntegerOption, readStringOption } from "../options";
+import { evidenceView, folderView, matrixView, renderArchitectureView, unitsView, type ArchitectureView } from "./architectureTables";
+import { readChoiceOption, readCommunityMode, readIntegerOption, readStringOption } from "../options";
 import type { CliRuntime } from "../runtime";
 
 function parseMaxFiles(args: string[]): number | undefined {
@@ -29,11 +30,7 @@ const LEVELS = ["groups", "units"] as const;
 
 /** `--level groups|units` (groups = `--groups`), or undefined when the flag is absent. */
 function readLevel(args: string[]): (typeof LEVELS)[number] | undefined {
-  const index = args.indexOf("--level");
-  if (index < 0) return undefined;
-  const level = LEVELS.find((candidate) => candidate === args[index + 1]);
-  if (!level) throw new CliError(`--level must be ${LEVELS.join(" or ")}`, ExitCode.GENERAL_ERROR);
-  return level;
+  return readChoiceOption(args, "--level", LEVELS);
 }
 
 /** `<flag> <unit or folder key>` (`--folder`, `--from`, `--to`), or undefined when the flag is absent. */
@@ -42,15 +39,21 @@ function readKey(args: string[], flag: string, what: string): string | undefined
   return readStringOption(args, flag, what)?.replaceAll("\\", "/");
 }
 
+/** A view's tables for text and markdown; json and toon carry `data`, the view's full result. */
+function formatView(view: () => ArchitectureView, data: object, format: CliOutputFormat): string {
+  return format === "text" || format === "markdown" ? renderArchitectureView(view(), format) : formatOutput(data, format, "architecture");
+}
+
 /** One level's matrix, every cell (the CLI does not page): csv for spreadsheets, else as explore_architecture view "matrix" reports it. */
 function formatMatrix(
   files: object,
   matrix: ArchitectureMatrix,
   context: Parameters<typeof exploreMatrix>[1],
   format: CliOutputFormat,
-  level: object,
+  level: { level?: string; folder?: string; nestedGroups?: number[] },
 ): string {
   if (format === "csv") return matrixToCsv(matrix);
+  if (format === "text" || format === "markdown") return renderArchitectureView(matrixView(level.folder ?? level.level ?? "groups", matrix), format);
   const { page: _page, nextSteps: _nextSteps, ...view } = exploreMatrix(matrix, context, { limit: Number.POSITIVE_INFINITY });
   return formatOutput({ ...files, ...level, ...view }, format, "architecture");
 }
@@ -72,8 +75,18 @@ function readFlags(args: string[], format: CliOutputFormat) {
   if (matrix && from !== undefined) {
     throw new CliError("--matrix lists every cell of the level: drop --from and --to", ExitCode.GENERAL_ERROR);
   }
+  if (args.includes("--groups") && (level === "units" || folder !== undefined)) {
+    throw new CliError("--groups is the folder groups of the workspace: drop it with --level units or --folder", ExitCode.GENERAL_ERROR);
+  }
   if (format === "csv" && !matrix) {
     throw new CliError('Format "csv" is only produced by graph-it architecture --matrix.', ExitCode.UNSUPPORTED_FORMAT);
+  }
+  const tableView = matrix || level === "units" || folder !== undefined;
+  if (format === "mermaid" && tableView) {
+    throw new CliError(
+      "--format mermaid draws the file graph or --groups; --matrix, --level units and --folder write text, markdown, json or toon (and csv with --matrix).",
+      ExitCode.UNSUPPORTED_FORMAT,
+    );
   }
   return { maxFiles: parseMaxFiles(args), communityMode, level, folder, from, to, matrix };
 }
@@ -117,9 +130,9 @@ export async function run(
     if (from !== undefined && to !== undefined) {
       // Every file pair of the unit edge: the CLI does not page.
       const evidence = exploreUnitEvidence(graph, units, assignment.unitOf, { from, to, limit: Number.POSITIVE_INFINITY });
-      return formatOutput({ ...files, ...evidence }, format, "architecture");
+      return formatView(() => evidenceView(evidence), { ...files, ...evidence }, format);
     }
-    return formatOutput({ ...files, ...units }, format, "architecture");
+    return formatView(() => unitsView(units), { ...files, ...units }, format);
   }
 
   if (folder !== undefined) {
@@ -129,11 +142,8 @@ export async function run(
     if (matrix) {
       return formatMatrix(files, groupMatrix(aggregateCommunityGroups(folderGraph.graphData)), folderGraph.context, format, { folder, nestedGroups });
     }
-    return formatOutput(
-      { ...files, context: folderGraph.context, folder, nestedGroups, ...aggregateCommunityGroups(folderGraph.graphData) },
-      format,
-      "architecture",
-    );
+    const groups = aggregateCommunityGroups(folderGraph.graphData);
+    return formatView(() => folderView(folder, nestedGroups, groups), { ...files, context: folderGraph.context, folder, nestedGroups, ...groups }, format);
   }
 
   if (matrix) {

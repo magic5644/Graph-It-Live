@@ -464,12 +464,21 @@ describe('REPL command chaining e2e', () => {
   it('uses the session format set with /format on the next command', async () => {
     mocks.summaryRun.mockResolvedValue('{"filesIndexed":2}');
 
+    const [, summary] = await typedSession(createRuntimeStub(), '/format json', '/summary');
+
+    expect(summary.output).toContain('"filesIndexed": 2');
+    expect(stdoutSpy).not.toHaveBeenCalledWith(
+      'Rendered in text (default json unsupported for this command).\n',
+    );
+  });
+
+  it('says when the session format has no view for a command, instead of drawing its keys', async () => {
+    mocks.summaryRun.mockResolvedValue('{"filesIndexed":2}');
+
     const [, summary] = await typedSession(createRuntimeStub(), '/format mermaid', '/summary');
 
-    expect(summary.output).toContain('graph TD');
-    expect(stdoutSpy).not.toHaveBeenCalledWith(
-      'Rendered in text (default mermaid unsupported for this command).\n',
-    );
+    expect(summary.output).not.toContain('graph TD');
+    expect(stdoutSpy).toHaveBeenCalledWith('Rendered in text (default mermaid unsupported for this command).\n');
   });
 
   it('renders a typed --format override and strips the graph-it prefix', async () => {
