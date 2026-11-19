@@ -10,6 +10,9 @@ import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
 import { RULES_CONFIG, startRulesWorker } from "../analyzer/architecture/rulesWorkspace";
 import { CliProgress } from "@/cli/progress";
+import { Parser } from "@/analyzer/Parser";
+import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
+import { normalizePath } from "@/shared/path";
 
 vi.mock("@/mcp/tools", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/mcp/tools")>()),
@@ -75,6 +78,32 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     expect(result.assessment.matrixFindings.map((finding) => finding.kind)).toEqual(expect.arrayContaining(["entry-row"]));
     // #774: the unreferenced-file scan's unresolved imports, reported once, next to the dead files.
     expect(result.unresolvedImports).toEqual({ count: 1, examples: [{ file: "backend/src/loader.ts", specifier: "./gen" }], next: "Run the codegen." });
+  });
+
+  // #774: a warm init re-parsed every file for the architecture graph; the index already holds its imports.
+  it("reads the imports of unchanged files from the reverse index, and parses only a changed one", async () => {
+    const newSpider = () => new SpiderBuilder().withRootDir(root).withExcludeNodeModules(true).withReverseIndex(true).build();
+    const cold = newSpider();
+    await cold.buildFullIndex();
+    const index = cold.getSerializedReverseIndex() ?? "";
+    await cold.dispose();
+    /** A new process restoring the saved index, as a warm CLI run does. */
+    const warmInit = async () => {
+      const spider = newSpider();
+      expect(spider.enableReverseIndex(index)).toBe(true);
+      workerState.spider = spider;
+      return init(["--dry-run"]);
+    };
+    const parsed = vi.spyOn(Parser.prototype, "parseImports");
+
+    const warm = await warmInit();
+    expect(parsed).not.toHaveBeenCalled();
+
+    const changed = file("shared/ui/src/index.ts");
+    fs.appendFileSync(changed, "\n// edited\n");
+    const edited = await warmInit();
+    expect(parsed.mock.calls.map(([filePath]) => normalizePath(filePath))).toEqual([normalizePath(changed)]);
+    expect(edited.changes).toEqual(warm.changes);
   });
 
   it("changes nothing on a second run", async () => {
