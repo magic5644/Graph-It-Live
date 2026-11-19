@@ -97,10 +97,25 @@ describe("App — waiting screen", () => {
     render(React.createElement(App));
 
     act(() => {
-      window.dispatchEvent(new MessageEvent("message", { data: { command: "emptyState", message: "No file open" } }));
+      window.dispatchEvent(new MessageEvent("message", { data: { command: "emptyState", reason: "no-file-open", message: "No file open" } }));
     });
 
     expect(screen.getByText("No file open")).toBeTruthy();
-    expect(screen.getByText(/Tip: Open a TypeScript/)).toBeTruthy();
+    // The tip lists the extensions from SUPPORTED_SOURCE_EXTENSIONS (#770).
+    const tip = screen.getByText(/Tip: open a \.ts, \.tsx, /).textContent ?? "";
+    expect(tip).toContain(".py, .pyi, .rs, .cs, .csproj, .go, .java file");
+  });
+
+  it("shows no file-type tip when no folder is open (#770)", () => {
+    render(React.createElement(App));
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { command: "emptyState", reason: "no-workspace", message: "Open a folder to see its dependency graph" },
+      }));
+    });
+
+    expect(screen.getByText("Open a folder to see its dependency graph")).toBeTruthy();
+    expect(screen.queryByText(/Tip:/)).toBeNull();
   });
 });

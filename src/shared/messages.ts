@@ -167,7 +167,7 @@ export interface WebviewLogMessage {
 
 export interface EmptyStateMessage {
   command: "emptyState";
-  reason: "no-file-open" | "no-workspace";
+  reason: "no-file-open" | "no-workspace" | "analysis-error";
   message?: string;
 }
 
@@ -207,11 +207,6 @@ export interface NavigateToSymbolMessage {
   symbolId?: string;
 }
 
-export interface LayoutChangeMessage {
-  type: "layoutChange";
-  layout: "hierarchical" | "force" | "radial";
-}
-
 export interface ShowSymbolListMessage {
   type: "showSymbolList";
 }
@@ -229,7 +224,6 @@ export type ExtensionToWebviewMessage =
   | ExpansionProgressMessage
   | UpdateFilterMessage
   | RefreshingMessage
-  | LayoutChangeMessage
   | ShowSymbolListMessage
   | SwitchViewModeMessage
   | ShowCallGraphMessage

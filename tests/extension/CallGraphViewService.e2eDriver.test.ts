@@ -10,7 +10,8 @@ vi.mock("vscode", () => ({
   Position: class { constructor(public readonly line: number, public readonly character: number) {} },
   Range: class { constructor(public readonly start: unknown, public readonly end: unknown) {} },
   window: { createOutputChannel: () => ({ appendLine: vi.fn(), dispose: vi.fn() }), showTextDocument: vscodeMock.showTextDocument },
-  workspace: { workspaceFolders: undefined, openTextDocument: vscodeMock.openTextDocument },
+  workspace: {
+    getConfiguration: () => ({ get: (_key: string, fallback?: unknown) => fallback }), workspaceFolders: undefined, openTextDocument: vscodeMock.openTextDocument },
   commands: { executeCommand: vi.fn() },
 }));
 

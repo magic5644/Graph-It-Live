@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
+const { cancellationToken } = vi.hoisted(() => ({
+    cancellationToken: { onCancellationRequested: vi.fn((_listener: () => void) => ({ dispose: vi.fn() })) },
+}));
+
 vi.mock('vscode', () => {
     const statusBarItem = {
         name: '',
@@ -14,12 +18,12 @@ vi.mock('vscode', () => {
         window: {
             createStatusBarItem: vi.fn(() => statusBarItem),
             showErrorMessage: vi.fn(),
-            withProgress: vi.fn((_options, task) => task({ report: vi.fn() })),
+            withProgress: vi.fn((_options, task) => task({ report: vi.fn() }, cancellationToken)),
         },
         workspace: {
             workspaceFolders: [],
         },
-        ProgressLocation: { Window: 1 },
+        ProgressLocation: { Window: 1, Notification: 15 },
         StatusBarAlignment: { Left: 1, Right: 2 },
         Uri: {
             file: (fsPath: string) => ({ fsPath }),
@@ -351,6 +355,28 @@ describe('BackgroundIndexingManager', () => {
 
         expect(onIndexingComplete).not.toHaveBeenCalled();
         expect(fs.existsSync(path.join(cacheDir(), 'reverse-index.json'))).toBe(false);
+    });
+
+    // #770: the user-requested re-index shows a notification whose Cancel button stops the worker.
+    it('cancels a forced re-index from its progress notification', async () => {
+        const { manager, spider } = createManager();
+        let cancel: () => void = () => {};
+        const subscription = { dispose: vi.fn() };
+        cancellationToken.onCancellationRequested.mockImplementationOnce((listener: () => void) => {
+            cancel = listener;
+            return subscription;
+        });
+        let finishBuild: (result: { indexedFiles: number; duration: number; cancelled: boolean }) => void = () => {};
+        spider.buildFullIndexInWorker.mockReturnValue(new Promise((resolve) => { finishBuild = resolve; }));
+        spider.cancelIndexing.mockImplementation(() => finishBuild({ indexedFiles: 1, duration: 0, cancelled: true }));
+
+        const reindexing = manager.forceReindex();
+        await vi.waitFor(() => expect(spider.buildFullIndexInWorker).toHaveBeenCalledOnce());
+        cancel();
+        await reindexing;
+
+        expect(spider.cancelIndexing).toHaveBeenCalledOnce();
+        expect(subscription.dispose).toHaveBeenCalledOnce();
     });
 
     // Regression: dispose() cancelled the build, then persisted the partial index it left.

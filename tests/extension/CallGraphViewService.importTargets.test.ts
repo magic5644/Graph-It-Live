@@ -12,6 +12,7 @@ vi.mock("vscode", () => ({
     showInformationMessage: vi.fn(),
   },
   workspace: {
+    getConfiguration: () => ({ get: (_key: string, fallback?: unknown) => fallback }),
     get workspaceFolders() { return [{ uri: { fsPath: editor.root } }]; },
     onDidSaveTextDocument: () => ({ dispose: vi.fn() }),
   },

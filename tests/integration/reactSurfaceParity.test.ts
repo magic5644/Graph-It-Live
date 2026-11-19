@@ -145,6 +145,7 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
     await spider.buildFullIndex();
     const provider = {
       getSpiderForLmTools: () => spider,
+      getWorkspaceRoot: () => harness.root,
       getCallGraphViewServiceForLmTools: () => ({ getCallGraphIndexerForLmTools: () => indexer }),
     } as unknown as GraphProvider;
     new LmToolsService({ provider, logger: { info() {}, warn() {}, error() {}, debug() {} } as never }).registerAll();

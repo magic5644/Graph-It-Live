@@ -387,7 +387,7 @@ export class LmToolsService {
   }
 
   private getWorkspaceRoot(): string | undefined {
-    return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return this.provider.getWorkspaceRoot();
   }
 
   private resolveWorkspacePath(inputPath: string): string {
@@ -395,7 +395,7 @@ export class LmToolsService {
       throw new Error('File path must be at most 1024 characters, without null bytes.');
     }
 
-    // Workspace-relative paths resolve against the first folder, like the MCP tools (#769).
+    // Workspace-relative paths resolve against the analyzed folder, like the MCP tools (#769).
     const root = this.getWorkspaceRoot();
     const resolvedPath = nodePath.isAbsolute(inputPath) || root === undefined
       ? nodePath.resolve(inputPath)

@@ -509,11 +509,10 @@ Set these options in VS Code settings:
 | `graph-it-live.unusedDependencyMode` | `hide` | Hide or dim unused dependencies |
 | `graph-it-live.communityMode` | `path` | Group graph communities by folder (`path`) or by import structure (`louvain`); same as CLI `--communities` |
 | `graph-it-live.preIndexCallGraph` | `true` | Pre-index the Live Call Graph |
-| `graph-it-live.symbolViewLayout` | `hierarchical` | Select `hierarchical`, `force-directed`, or `radial` |
 
 Workspace indexing (extension, CLI, and MCP) skips paths listed in the root `.gitignore`, plus `tests/fixtures/` and `out-*/` by default. Add a root `.graphitignore` with gitignore syntax to exclude more paths, or negate a rule to include it again, for example `!tests/fixtures/`.
 
-`performanceProfile` sets indexing concurrency, cache sizes, and unused-analysis limits. To tune them by hand, select `custom` and edit the **Advanced: Performance overrides** section (search `@tag:advanced graph-it-live` in the Settings editor). The other profiles ignore these overrides.
+`performanceProfile` sets indexing concurrency, cache sizes, and unused-analysis limits. To tune them by hand, select `custom` and edit the **Advanced: Performance overrides** section (search `@tag:advanced graph-it-live` in the Settings editor). The other profiles ignore these overrides. Cache sizes, unused-analysis values, `preIndexCallGraph` and `indexingStartDelay` apply after a window reload; `workspaceFolder` moves the MCP server at once and the graph view after a reload.
 
 ## CI review gate
 

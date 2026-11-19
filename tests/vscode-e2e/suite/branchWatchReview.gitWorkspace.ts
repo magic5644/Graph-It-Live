@@ -13,6 +13,7 @@ interface SnapshotItem {
 interface BranchWatchSnapshot {
   state: { phase: string; reason?: string; result?: { review: { symbols: Array<{ name: string; unusedExportEvidence: boolean }> } } };
   items: SnapshotItem[];
+  maxFiles: number;
 }
 
 const labelOf = (item: SnapshotItem): string => typeof item.label === 'string' ? item.label : item.label.label;
@@ -98,4 +99,34 @@ suite('Branch Watch review in a Git workspace (#546)', function () {
       await fs.writeFile(source, branchWatchReact.content);
     }
   });
+
+  // #770: picking a branch reset the file limit to 200; an item command without its item flipped the view to unavailable.
+  test('keeps the file limit after Select Base Branch, and reports an item command run without its item', async () => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    assert.ok(folder);
+    const configuration = vscode.workspace.getConfiguration('graph-it-live', folder.uri);
+    try {
+      await configuration.update('branchWatch.maxFiles', 25, vscode.ConfigurationTarget.WorkspaceFolder);
+      await waitFor(async () => (await snapshotOf()).maxFiles === 25, 'maxFiles 25 applied');
+
+      const picking = vscode.commands.executeCommand('graph-it-live.branchWatch.selectBase');
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      await vscode.commands.executeCommand('workbench.action.acceptSelectedQuickOpenItem');
+      await picking;
+      assert.strictEqual((await snapshotOf()).maxFiles, 25, 'Select Base Branch must keep branchWatch.maxFiles');
+
+      await vscode.commands.executeCommand('graph-it-live.branchWatch.openFile');
+      assert.notStrictEqual((await snapshotOf()).state.phase, 'unavailable', 'A missing item must not mark Branch Watch unavailable');
+    } finally {
+      await configuration.update('branchWatch.maxFiles', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
+      await vscode.commands.executeCommand('workbench.action.closeQuickOpen');
+    }
+  });
 });
+
+async function waitFor(condition: () => Promise<boolean>, what: string, deadline = Date.now() + 30_000): Promise<void> {
+  if (await condition()) return;
+  if (Date.now() >= deadline) assert.fail(`Timed out waiting for ${what}`);
+  await new Promise(resolve => setTimeout(resolve, 200));
+  return waitFor(condition, what, deadline);
+}

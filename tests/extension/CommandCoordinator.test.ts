@@ -36,7 +36,8 @@ describe("CommandCoordinator", () => {
     await coordinator.handleForceReindex();
 
     expect(provider.forceReindex).toHaveBeenCalled();
-    expect(ui.showInformationMessage).toHaveBeenCalledWith("Graph-It-Live: Re-index triggered");
+    // The progress notification replaces the old "Re-index triggered" toast (#770).
+    expect(ui.showInformationMessage).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -68,7 +69,7 @@ describe("CommandCoordinator", () => {
   it("says when no indexer is available", async () => {
     const ui = createUiMock();
     await new CommandCoordinator({ provider: createProviderMock(), ui }).handleShowIndexStatus();
-    expect(ui.showInformationMessage).toHaveBeenCalledWith("Graph-It-Live: No indexer available");
+    expect(ui.showInformationMessage).toHaveBeenCalledWith("Graph-It-Live: no index yet; open a folder to build one.");
   });
 
   it("enables unused filter only when inactive", async () => {

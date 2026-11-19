@@ -7,7 +7,8 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("vscode", () => ({
   Uri: { file: (p: string) => ({ fsPath: p }) },
   window: { createOutputChannel: () => ({ appendLine: vi.fn(), dispose: vi.fn() }) },
-  workspace: { workspaceFolders: undefined },
+  workspace: {
+    getConfiguration: () => ({ get: (_key: string, fallback?: unknown) => fallback }), workspaceFolders: undefined },
   commands: { executeCommand: vi.fn() },
 }));
 

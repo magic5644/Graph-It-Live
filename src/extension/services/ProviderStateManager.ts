@@ -104,7 +104,7 @@ export class ProviderStateManager {
       enableBackgroundIndexing: config.get<boolean>('enableBackgroundIndexing', true),
       indexingStartDelay: config.get<number>('indexingStartDelay', this.defaultIndexingDelay),
       ignoreTypeImports: config.get<boolean>('ignoreTypeImports', false),
-      unusedDependencyMode: config.get<'none' | 'hide' | 'dim'>('unusedDependencyMode', 'none'),
+      unusedDependencyMode: config.get<'none' | 'hide' | 'dim'>('unusedDependencyMode', 'hide'),
       ...tuning,
       performanceProfile: profile,
       showCommunities: config.get<boolean>('showCommunities', true),

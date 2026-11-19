@@ -3,11 +3,13 @@ import * as path from "node:path";
 import type { BranchWatchSnapshot } from "../analyzer/BranchWatchAnalyzer";
 import type { BranchWatchRegistration } from "./services/BranchWatchTypes";
 import { LanguageService } from "../analyzer/LanguageService";
+import { relativizeWorkspacePaths } from "../shared/path";
 import { resolveReviewCallGraphPath } from "../shared/reviewTarget";
 import type { IndexerStatusSnapshot } from "../analyzer/IndexerStatus";
 import { Spider } from "../analyzer/Spider";
-import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
+import { SUPPORTED_SOURCE_EXTENSIONS, SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import type {
+  EmptyStateMessage,
   ExtensionToWebviewMessage,
   GraphData,
   WebviewToExtensionMessage,
@@ -57,6 +59,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private readonly _container: ServiceContainer;
   private _configSnapshot: ProviderConfigSnapshot;
+  private readonly _workspaceRoot: string | undefined;
   private readonly _fileChangeScheduler?: FileChangeScheduler;
   private readonly _messageDispatcher: MessageDispatcher;
   private readonly _stateManager: ProviderStateManager;
@@ -65,6 +68,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   private _lastFileGraphMetadata: GraphData["nodeMetadata"];
   /** File the last file graph was rooted on (E2E observability). */
   private _lastFileGraphRoot: string | undefined;
+  /** Empty state the view shows, cleared by the next file graph; read by E2E through getContext (#770). */
+  private _lastEmptyState: EmptyStateMessage | undefined;
   /** `source->target` of the type-only edges of the last file graph sent (E2E observability, #745). */
   private _lastFileGraphTypeOnlyEdges: string[] = [];
   /**
@@ -139,6 +144,46 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    */
   public getSpiderForLmTools(): Spider | undefined {
     return this.spider;
+  }
+
+  /** Folder the dependency graph analyzes; the call graph and LM tools use the same one (multi-root). */
+  public getWorkspaceRoot(): string | undefined {
+    return this._workspaceRoot;
+  }
+
+  /** Workspace-relative text for user messages: no absolute path leaves the extension (#770). */
+  private relativize(text: string): string {
+    return this._workspaceRoot ? relativizeWorkspacePaths(text, this._workspaceRoot) : text;
+  }
+
+  /**
+   * A command needs an analyzed folder: without one, say so once and show the
+   * view's empty state instead of spinning on "Waiting for graph data..." (#770).
+   */
+  private requireWorkspace(action: string): boolean {
+    if (this.spider) return true;
+    void this.postNoWorkspaceState();
+    void vscode.window.showWarningMessage(`Graph-It-Live: open a folder to ${action}.`);
+    return false;
+  }
+
+  private async postNoWorkspaceState(): Promise<void> {
+    await this.postEmptyState({
+      command: "emptyState",
+      reason: "no-workspace",
+      message: "Open a folder to see its dependency graph",
+    });
+  }
+
+  /** The view-backed commands also need the Dependency Graph view to have been opened once. */
+  private requireView(action: string): vscode.WebviewView | undefined {
+    if (!this.requireWorkspace(action)) return undefined;
+    if (!this._view) {
+      void vscode.window.showWarningMessage(
+        `Graph-It-Live: open the Dependency Graph view to ${action} (run "Graph-It-Live: Show Dependency Graph").`,
+      );
+    }
+    return this._view;
   }
 
   /** Barrier for the native branch view; never opens a webview or duplicates completed file updates. */
@@ -331,7 +376,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
   }
 
   constructor(private readonly extensionUri: vscode.Uri, context: vscode.ExtensionContext) {
-    const { container, configSnapshot } = createGraphProviderServiceContainer({
+    const { container, configSnapshot, workspaceRoot } = createGraphProviderServiceContainer({
       extensionUri,
       context,
       defaultIndexingStartDelay: DEFAULT_INDEXING_START_DELAY,
@@ -381,6 +426,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     this._stateManager = container.get(graphProviderServiceTokens.stateManager);
     this._graphState = container.get(graphProviderServiceTokens.graphState);
     this._configSnapshot = configSnapshot;
+    this._workspaceRoot = workspaceRoot;
     this._fileChangeScheduler = container.has(
       graphProviderServiceTokens.fileChangeScheduler,
     )
@@ -500,7 +546,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       await this.navigationService.openFile(filePath, line);
     } catch (e) {
       log.error("Error opening file:", e);
-      vscode.window.showErrorMessage(`Could not open file: ${filePath}`);
+      vscode.window.showErrorMessage(
+        `Graph-It-Live: could not open ${vscode.workspace.asRelativePath(filePath)}: ${this.relativize(e instanceof Error ? e.message : String(e))}`,
+      );
     }
   }
 
@@ -731,7 +779,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       if (this._isDisposing) return;
       log.error("Error drilling down into symbols:", error);
       vscode.window.showErrorMessage(
-        `Failed to analyze symbols: ${error instanceof Error ? error.message : "Unknown error"}`,
+        `Graph-It-Live: could not analyze the symbols of ${vscode.workspace.asRelativePath(filePath)}: ${this.relativize(error instanceof Error ? error.message : String(error))}`,
       );
     } finally {
       // Mark as complete so cursor-triggered refreshes can resume.
@@ -969,7 +1017,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     // Both indexers are independent (different parsers, no shared resources).
     const config = vscode.workspace.getConfiguration("graph-it-live");
     if (config.get<boolean>("preIndexCallGraph", true)) {
-      const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+      const workspaceRoot = this._workspaceRoot;
       if (workspaceRoot && this._callGraphViewService) {
         this._callGraphViewService
           .indexWorkspaceIfNeeded(workspaceRoot)
@@ -987,6 +1035,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Public wrapper so other components (or commands) can trigger indexing.
    */
   public async forceReindex(): Promise<void> {
+    if (!this.requireWorkspace("re-index")) return;
     await this.indexingManager?.forceReindex();
   }
 
@@ -994,10 +1043,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Refresh the current graph view (preserves view mode)
    */
   public async refreshGraph(): Promise<void> {
-    if (!this._view) {
-      log.warn("Cannot refresh: view not initialized");
-      return;
-    }
+    if (!this.requireView("refresh the graph")) return;
 
     try {
       const currentMode = this._stateManager.viewMode;
@@ -1021,7 +1067,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
           await this.handleDrillDown(currentFilePath, true, currentMode);
           log.info("handleDrillDown completed successfully");
         } else {
-          log.warn("Cannot refresh symbol view: no current file path");
+          void vscode.window.showInformationMessage(
+            `Graph-It-Live: open a source file to refresh the ${currentMode} view.`,
+          );
         }
       } else {
       // In file view - behave like "re-open current file":
@@ -1069,10 +1117,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Switch directly to file view mode
    */
   public async setViewModeFile(): Promise<void> {
-    if (!this._view) {
-      vscode.window.showWarningMessage("View not initialized");
-      return;
-    }
+    const view = this.requireView("show the file view");
+    if (!view) return;
 
     log.info("Switching to file view mode");
     await this._stateManager.setViewMode("file");
@@ -1081,7 +1127,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     // Explicitly tell the webview to switch view mode. This is required when
     // transitioning from callgraph mode, because _sendGraphUpdate's updateGraph
     // message deliberately does NOT override viewMode when it is "callgraph".
-    await this._view.webview.postMessage({ command: "switchViewMode", mode: "file" });
+    await view.webview.postMessage({ command: "switchViewMode", mode: "file" });
 
     // Switch to current file in file mode
     const editor = vscode.window.activeTextEditor;
@@ -1101,10 +1147,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Switch directly to list view mode
    */
   public async setViewModeList(): Promise<void> {
-    if (!this._view) {
-      vscode.window.showWarningMessage("View not initialized");
-      return;
-    }
+    const view = this.requireView("show the list view");
+    if (!view) return;
 
     log.info("Switching to list view mode");
     await this._stateManager.setViewMode("list");
@@ -1120,7 +1164,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     if (filePath) {
       await this.handleDrillDown(filePath, false, "list");
     } else {
-      vscode.window.showWarningMessage("No active file for list view");
+      vscode.window.showWarningMessage("Graph-It-Live: open a source file to show its list view.");
     }
   }
 
@@ -1128,10 +1172,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Switch directly to symbol view mode
    */
   public async setViewModeSymbol(): Promise<void> {
-    if (!this._view) {
-      vscode.window.showWarningMessage("View not initialized");
-      return;
-    }
+    const view = this.requireView("show the symbol view");
+    if (!view) return;
 
     log.info("Switching to symbol view mode");
     await this._stateManager.setViewMode("symbol");
@@ -1147,7 +1189,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     if (filePath) {
       await this.handleDrillDown(filePath, false, "symbol");
     } else {
-      vscode.window.showWarningMessage("No active file for symbol view");
+      vscode.window.showWarningMessage("Graph-It-Live: open a source file to show its symbol view.");
     }
   }
 
@@ -1165,15 +1207,13 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * for the cached summary or a build.
    */
   public async setViewModeArchitecture(): Promise<void> {
-    if (!this._view) {
-      vscode.window.showWarningMessage("View not initialized");
-      return;
-    }
+    const view = this.requireView("show the architecture view");
+    if (!view) return;
 
     log.info("Switching to architecture view mode");
     await this._stateManager.setViewMode("architecture");
     await this._updateViewModeContext();
-    await this._view.webview.postMessage({ command: "switchViewMode", mode: "architecture" });
+    await view.webview.postMessage({ command: "switchViewMode", mode: "architecture" });
   }
 
   public async showReviewCallGraph(relativePath: string, symbolName: string | undefined, depth: number): Promise<void> {
@@ -1186,10 +1226,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Show reverse dependencies (which files import/reference the current file)
    */
   public async showReverseDependencies(): Promise<void> {
-    if (!this._view) {
-      vscode.window.showWarningMessage("View not initialized");
-      return;
-    }
+    const view = this.requireView("show reverse dependencies");
+    if (!view || !this.nodeInteractionService) return;
 
     const editor = vscode.window.activeTextEditor;
     const filePath =
@@ -1199,19 +1237,22 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     if (!filePath) {
       vscode.window.showWarningMessage(
-        "No active file to show reverse dependencies",
+        "Graph-It-Live: open a source file to show the files that import it.",
+      );
+      return;
+    }
+    const label = vscode.workspace.asRelativePath(filePath);
+    if (!SUPPORTED_SOURCE_FILE_REGEX.test(filePath)) {
+      const supported = SUPPORTED_SOURCE_EXTENSIONS.map((ext) => "." + ext).join(", ");
+      vscode.window.showWarningMessage(
+        `Graph-It-Live: ${label} is not a supported source file; reverse dependencies need one (${supported}).`,
       );
       return;
     }
 
     log.info(`Showing reverse dependencies for: ${filePath}`);
-
-    // Use the existing getReferencingFiles functionality
-    const result = await this.nodeInteractionService?.getReferencingFiles(filePath);
-
-    if (result && this._view) {
-      await this._view.webview.postMessage(result);
-    }
+    const result = await this.nodeInteractionService.getReferencingFiles(filePath);
+    await view.webview.postMessage(result);
 
     // Set context to indicate reverse dependencies are visible
     this._graphState.setReverseDependenciesVisible(true);
@@ -1221,24 +1262,22 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       true,
     );
 
-    vscode.window.showInformationMessage(
-      "Showing files that import this file",
-    );
+    const count = result.data.nodes.length;
+    const importers = count === 1 ? "1 file imports" : `${count} files import`;
+    vscode.window.showInformationMessage(`Graph-It-Live: ${count === 0 ? "no file imports" : importers} ${label}.`);
   }
 
   /**
    * Hide reverse dependencies overlay
    */
   public async hideReverseDependencies(): Promise<void> {
-    if (!this._view) {
-      vscode.window.showWarningMessage("View not initialized");
-      return;
-    }
+    const view = this.requireView("hide reverse dependencies");
+    if (!view) return;
 
     log.info("Hiding reverse dependencies");
 
     // Post message to webview to clear reverse dependencies
-    await this._view.webview.postMessage({
+    await view.webview.postMessage({
       command: "clearReverseDependencies",
     });
 
@@ -1259,8 +1298,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     expanded: boolean;
     message: string;
   }> {
-    if (!this._view) {
-      return { expanded: false, message: "View not initialized" };
+    const view = this.requireView("expand the graph");
+    if (!view) {
+      return { expanded: false, message: "Dependency Graph view unavailable" };
     }
 
     // Get current state and toggle it
@@ -1277,11 +1317,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     };
 
     log.info("Sending setExpandAll message to webview:", newExpandAll);
-    this._view.webview.postMessage(message);
+    view.webview.postMessage(message);
     log.debug("Toggled expandAll from", currentExpandAll, "to", newExpandAll);
     // Notify webview to show progress overlay when expanding a large graph
     if (newExpandAll) {
-      this._view.webview.postMessage({
+      view.webview.postMessage({
         command: "expansionProgress",
         nodeId: "expandAll",
         status: "started",
@@ -1328,6 +1368,15 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
   public getFileGraphRoot(): string | undefined {
     return this._lastFileGraphRoot;
+  }
+
+  public getEmptyState(): EmptyStateMessage | undefined {
+    return this._lastEmptyState;
+  }
+
+  private async postEmptyState(message: EmptyStateMessage): Promise<void> {
+    this._lastEmptyState = message;
+    await this._view?.webview.postMessage(message);
   }
 
   /** The type-only edges of the last file graph, and whether the webview is told to hide them (#745). */
@@ -1435,8 +1484,9 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     isRefresh: boolean,
     refreshReason: GraphRefreshReason,
   ): Promise<void> {
-    if (!this._view || !this.spider || !this.graphViewService) {
-      log.debug("View or Spider not initialized");
+    if (!this._view) return;
+    if (!this.spider || !this.graphViewService) {
+      await this.postNoWorkspaceState();
       return;
     }
 
@@ -1464,12 +1514,11 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       }
       log.debug("No active file editor");
       // Send empty state message to webview
-      const message: ExtensionToWebviewMessage = {
+      await this.postEmptyState({
         command: "emptyState",
         reason: "no-file-open",
         message: "Open a source file to visualize its dependencies",
-      };
-      this._view.webview.postMessage(message);
+      });
       return;
     }
 
@@ -1478,7 +1527,12 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
     // Only analyze supported files
     if (!SUPPORTED_SOURCE_FILE_REGEX.test(filePath)) {
-      log.debug("Unsupported file type");
+      // Banner only: the last graph stays visible while a non-source file is active.
+      await this.postEmptyState({
+        command: "emptyState",
+        reason: "no-file-open",
+        message: `${path.basename(filePath)} is not a supported source file`,
+      });
       return;
     }
 
@@ -1549,6 +1603,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       this._view.webview.postMessage(initialMessage);
       this._lastFileGraphMetadata = initialGraphData.nodeMetadata;
     this._lastFileGraphRoot = filePath;
+    this._lastEmptyState = undefined;
     this._lastFileGraphTypeOnlyEdges = initialGraphData.edges.filter((edge) => edge.typeOnly).map((edge) => `${edge.source}->${edge.target}`);
 
       // Step 2: If usage check is required, perform it and send update
@@ -1589,6 +1644,14 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       }
     } catch (error) {
       log.error("Failed to analyze file:", error);
+      const reason = this.relativize(error instanceof Error ? error.message : String(error));
+      const label = vscode.workspace.asRelativePath(filePath);
+      await this.postEmptyState({
+        command: "emptyState",
+        reason: "analysis-error",
+        message: `Could not analyze ${label}: ${reason}`,
+      });
+      void vscode.window.showErrorMessage(`Graph-It-Live: could not analyze ${label}: ${reason}`);
     }
   }
 }

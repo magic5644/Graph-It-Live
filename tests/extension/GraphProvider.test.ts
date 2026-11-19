@@ -47,6 +47,7 @@ vi.mock("vscode", () => {
         get: () => true,
       }),
       openTextDocument: vi.fn(),
+      asRelativePath: (p: string) => p.replace(`${mockRootDir}/`, ""),
       createFileSystemWatcher: vi.fn().mockReturnValue(mockFileSystemWatcher),
       onDidSaveTextDocument: vi.fn().mockReturnValue({ dispose: vi.fn() }),
     },
@@ -54,6 +55,7 @@ vi.mock("vscode", () => {
       showTextDocument: vi.fn(),
       showErrorMessage: vi.fn(),
       showInformationMessage: vi.fn(),
+      showWarningMessage: vi.fn(),
       showSaveDialog: vi.fn(),
       activeColorTheme: { kind: 2 },
       createStatusBarItem: vi.fn().mockReturnValue(mockStatusBarItem),
@@ -65,7 +67,7 @@ vi.mock("vscode", () => {
           const mockProgress = { report: vi.fn() };
           const mockToken = {
             isCancellationRequested: false,
-            onCancellationRequested: vi.fn(),
+            onCancellationRequested: vi.fn(() => ({ dispose: vi.fn() })),
           };
           return task(mockProgress, mockToken);
         }),
@@ -256,6 +258,47 @@ describe("GraphProvider", () => {
     expect(provider.getCallGraphE2EGraph()).toBe(graph);
     expect(await provider.clickCallGraphNode("/w/a.tsx:A:0")).toBe(true);
     expect(service.clickCallGraphNodeForE2E).toHaveBeenCalledWith("/w/a.tsx:A:0");
+  });
+
+  // #770: without a folder, commands say why and the view leaves "Waiting for graph data...".
+  it("tells the user to open a folder instead of spinning or claiming success", async () => {
+    const folders = vscode.workspace.workspaceFolders;
+    (vscode.workspace as any).workspaceFolders = [];
+    try {
+      const empty = new GraphProvider(extensionUri, mockContext);
+      const webview = {
+        postMessage: vi.fn(), asWebviewUri: vi.fn(), options: {}, html: "", cspSource: "test-csp",
+        onDidReceiveMessage: vi.fn(() => ({ dispose: vi.fn() })),
+      };
+      empty.resolveWebviewView({ webview, onDidDispose: vi.fn() } as any, {} as any, {} as any);
+      await vi.waitFor(() => expect(webview.postMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ command: "emptyState", reason: "no-workspace" }),
+      ));
+      expect(empty.getWorkspaceRoot()).toBeUndefined();
+
+      const commands = [
+        () => empty.forceReindex(), () => empty.refreshGraph(), () => empty.setViewModeFile(),
+        () => empty.setViewModeList(), () => empty.setViewModeSymbol(), () => empty.setViewModeArchitecture(),
+        () => empty.showReverseDependencies(), () => empty.hideReverseDependencies(), () => empty.expandAllNodes(),
+      ];
+      for (const run of commands) {
+        vi.mocked(vscode.window.showWarningMessage).mockClear();
+        await run();
+        expect(vscode.window.showWarningMessage).toHaveBeenCalledOnce();
+        expect(vi.mocked(vscode.window.showWarningMessage).mock.calls[0][0]).toMatch(/^Graph-It-Live: open a folder to /);
+      }
+      expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
+      expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith("setContext", "graph-it-live.viewMode", "list");
+    } finally {
+      (vscode.workspace as any).workspaceFolders = folders;
+    }
+  });
+
+  it("asks to open the Dependency Graph view when a view command runs before it", async () => {
+    await provider.setViewModeList();
+    expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+      'Graph-It-Live: open the Dependency Graph view to show the list view (run "Graph-It-Live: Show Dependency Graph").',
+    );
   });
 
   it("reports the sidebar view resolved only between resolveWebviewView and its disposal", () => {
@@ -573,10 +616,14 @@ describe("GraphProvider", () => {
     );
     mockService.getReferencingFiles = vi.fn().mockResolvedValue({
       command: "referencingFiles",
-      files: [],
+      nodeId: mainTsPath,
+      data: { nodes: [], edges: [] },
     });
 
     await provider.showReverseDependencies();
+
+    // Zero importers is said, not shown as success (#770).
+    expect(vscode.window.showInformationMessage).toHaveBeenCalledWith("Graph-It-Live: no file imports src/main.ts.");
 
     // Verify service was called
     expect(mockService.getReferencingFiles).toHaveBeenCalledWith(mainTsPath);

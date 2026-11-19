@@ -7,6 +7,7 @@ import type { CallGraphWebviewCommand } from "../../shared/callgraph-types";
 import type { CommunityMode } from "../../shared/graph-types";
 import type { VsCodeLogger } from "../extensionLogger";
 import { WebviewManager } from "../WebviewManager";
+import { resolvePreferredWorkspaceFolder } from "../workspaceFolder";
 import { ArchitectureViewService } from "./ArchitectureViewService";
 import { BackgroundIndexingManager } from "./BackgroundIndexingManager";
 import { EditorNavigationService } from "./EditorNavigationService";
@@ -102,26 +103,8 @@ export interface GraphProviderServiceContainerOptions {
 export interface GraphProviderServiceContainerResult {
   container: ServiceContainer;
   configSnapshot: ProviderConfigSnapshot;
-}
-
-function resolvePreferredWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
-  const configuredPath = vscode.workspace.getConfiguration("graph-it-live").get<string>("workspaceFolder", "");
-  const configuredFolder = vscode.workspace.workspaceFolders?.find(folder => folder.uri.fsPath === configuredPath);
-  if (configuredFolder) return configuredFolder;
-
-  const activeEditor = vscode.window.activeTextEditor;
-  const getWorkspaceFolder = (vscode.workspace as typeof vscode.workspace & {
-    getWorkspaceFolder?: (uri: vscode.Uri) => vscode.WorkspaceFolder | undefined;
-  }).getWorkspaceFolder;
-
-  if (activeEditor?.document.uri.scheme === "file" && typeof getWorkspaceFolder === "function") {
-    const editorFolder = getWorkspaceFolder(activeEditor.document.uri);
-    if (editorFolder) {
-      return editorFolder;
-    }
-  }
-
-  return vscode.workspace.workspaceFolders?.[0];
+  /** Root every analysis service shares; undefined when no folder is open. */
+  workspaceRoot: string | undefined;
 }
 
 export function createGraphProviderServiceContainer(
@@ -327,5 +310,5 @@ export function createGraphProviderServiceContainer(
       }),
   );
 
-  return { container, configSnapshot };
+  return { container, configSnapshot, workspaceRoot };
 }
