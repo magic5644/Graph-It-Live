@@ -18,6 +18,7 @@
 
 - **Readable parameter errors** (#769): one line naming the parameter, what it accepts and what was received, shared by the MCP server, its worker, `graph-it tool` and the language model tools. No raw Zod issue list, internal code (`FILE_NOT_FOUND:`, `INVALID_SCOPE_PATH:`) or CLI flag name in MCP messages; paths in messages are workspace-relative.
 - **Descriptions name every parameter** (#769): MCP and language model tool descriptions end with the parameters the tool takes; `npm run sync:tool-descriptions` generates the language model input schemas from the MCP Zod schemas.
+- **`crawl_dependency_graph` pages its cycles like its edges** (#769): each cycle comes with the page of its last listed file, and `cycleCount` gives the total. On a large repository the full cycle list no longer fills the default `tokenBudget`. Before, a default call could fail with `Token budget 4000 cannot contain a single item`. `omitted` gains `cycles`.
 - `scan_dead_code` `scopePath` accepts a workspace-relative folder. `get_session_stats` takes `response_format`.
 
 ## v1.25.4
