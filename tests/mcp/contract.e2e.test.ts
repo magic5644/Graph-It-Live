@@ -232,7 +232,7 @@ describe.skipIf(!distExists)("MCP user contract (E2E)", { timeout: TIMEOUT_MS },
       expect(files.unresolvedImports).toEqual(expected);
       expect(files.unreferencedFiles.filter((file: { reasons: string[] }) => file.reasons.includes("unresolved-import-in-workspace"))).toHaveLength(2);
       expect((await data("get_index_status", {})).unresolvedImports).toEqual(expected);
-      expect((await call("scan_dead_code", { unreferencedFiles: true, response_format: "markdown" })).content[0].text).toContain("**Unresolved imports: 3 resolving to no file, 0 to a file excluded from the analysis.**");
+      expect((await call("scan_dead_code", { unreferencedFiles: true, response_format: "markdown" })).content[0].text).toContain("**Unresolved imports: 3 resolving to no file, 0 to a file excluded from the analysis, 0 differing only in letter case from a file, 0 matching a file not analyzed.**");
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }

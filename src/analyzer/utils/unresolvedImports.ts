@@ -11,6 +11,9 @@ const EXAMPLES = 5;
 export const UNRESOLVED_IMPORTS_NEXT =
   "Run the build or codegen that emits the missing files, or add the importing files to .graphitignore.";
 
+/** What to do about imports whose letter case differs from the file's. */
+export const CASE_MISMATCH_NEXT = "Write each import with the file's letter case: it breaks on case-sensitive file systems (Linux).";
+
 /** What to do about imports of files the analysis leaves out. */
 export const EXCLUDED_IMPORTS_NEXT =
   "Re-include an excluded file with a !<path> line in .graphitignore, or exclude its importers too.";
@@ -33,6 +36,10 @@ export interface UnresolvedImport {
   /** Indexed files below `reach`: what the import may hide, the order of the report's examples */
   reachFiles?: number;
   excluded?: boolean;
+  /** The existing file whose name differs from the import's only in letter case, normalized */
+  caseOf?: string;
+  /** The existing file the import names, which the analysis does not read (`settings.json`), normalized */
+  notAnalyzed?: string;
 }
 
 /** An import the analysis cannot follow, before locate: its target, absolute (missing, or `excluded`). */
@@ -41,6 +48,8 @@ export interface UnfollowedImport {
   specifier: string;
   target: string;
   excluded?: boolean;
+  caseOf?: string;
+  notAnalyzed?: string;
 }
 
 /** Data and asset files: a missing one holds no import, so it never makes a dead-file verdict doubtful. */
@@ -89,9 +98,9 @@ export function locateUnfollowedImports(
     }
     return count;
   };
-  return imports.map(({ importer, specifier, target, excluded }) => {
-    const base = { importer, specifier, ...(excluded ? { excluded } : {}) };
-    if (NON_CODE_EXTENSIONS.has(path.extname(target).toLowerCase())) return base;
+  return imports.map(({ importer, specifier, target, excluded, caseOf, notAnalyzed }) => {
+    const base = { importer, specifier, ...(excluded ? { excluded } : {}), ...(caseOf ? { caseOf } : {}), ...(notAnalyzed ? { notAnalyzed } : {}) };
+    if (notAnalyzed || NON_CODE_EXTENSIONS.has(path.extname(target).toLowerCase())) return base;
     const reach = excluded ? normalizePath(path.dirname(target)) : nearestExistingDir(target, rootDir);
     const project = normalizePath(projectOf(path.dirname(importer)));
     if (reach !== project && !reach.startsWith(`${project}/`)) return base;
@@ -100,7 +109,7 @@ export function locateUnfollowedImports(
 }
 
 
-type Example = { file: string; specifier: string };
+type Example = { file: string; specifier: string; existing?: string };
 
 /**
  * The imports resolving to no file (`count`) and those resolving to an excluded file (`excludedCount`), a few
@@ -111,6 +120,12 @@ export interface UnresolvedImportsReport {
   examples: Example[];
   excludedCount: number;
   excludedExamples: Example[];
+  /** Imports of an existing file written with another letter case: `existing` names the file */
+  caseMismatchCount: number;
+  caseMismatchExamples: Example[];
+  /** Imports of an existing file the analysis does not read (`./settings` with settings.json): `existing` names it */
+  notAnalyzedCount: number;
+  notAnalyzedExamples: Example[];
   next?: string;
 }
 
@@ -123,19 +138,36 @@ function isDirectory(dir: string): boolean {
   }
 }
 
-/**
- * Whether a file named `target`, or `target` plus any extension (`./config` with `config.json` or `config.css`),
- * exists, comparing names without case: such an import is not reported as resolving to no file, on any file system
- * (macOS and Windows resolve `./Config` to `config.ts`, Linux does not; the report is the same on all three).
- */
-export function existsWithAnyExtension(target: string): boolean {
-  const base = path.basename(target).toLowerCase();
+/** The files of `target`'s folder named `target` or `target` plus an extension, compared by `same`. */
+function filesNamed(target: string, same: (name: string, base: string) => boolean): string[] {
+  const base = path.basename(target);
   try {
     return fs.readdirSync(path.dirname(target), { withFileTypes: true })
-      .some((entry) => entry.isFile() && (entry.name.toLowerCase() === base || entry.name.toLowerCase().startsWith(`${base}.`)));
+      .filter((entry) => entry.isFile() && (same(entry.name, base) || same(entry.name.slice(0, base.length), base) && entry.name[base.length] === "."))
+      .map((entry) => entry.name);
   } catch {
-    return false;
+    return [];
   }
+}
+
+/**
+ * The existing file an unresolved import names with the same letter case: `target` itself, or `target` plus an
+ * extension the analysis does not read (`./settings` with only `settings.json`: no edge on any OS). Null when none.
+ */
+export function sameCaseFileOf(target: string): string | null {
+  const [found] = filesNamed(target, (name, base) => name === base).sort((a, b) => a.localeCompare(b));
+  return found === undefined ? null : normalizePath(path.join(path.dirname(target), found));
+}
+
+/**
+ * The file `target` names when only its letter case differs (`./Users` or `Users.ts` with `users.ts`), else null.
+ * macOS and Windows resolve such an import to a path the index does not hold; Linux resolves nothing; at run time
+ * it breaks on Linux. Reported the same on all three (#774).
+ */
+export function caseVariantOf(target: string): string | null {
+  if (sameCaseFileOf(target)) return null;
+  const [found] = filesNamed(target, (name, base) => name.toLowerCase() === base.toLowerCase());
+  return found === undefined ? null : normalizePath(path.join(path.dirname(target), found));
 }
 
 /** What a result says when the reverse index is off: unresolved imports are recorded only while it is built. */
@@ -167,22 +199,37 @@ export function nearestExistingDir(target: string, rootDir: string): string {
 /** Up to EXAMPLES workspace-relative examples: those that may hide the most files first, then by file and specifier. */
 function examplesOf(imports: readonly UnresolvedImport[], rootDir: string): Example[] {
   return imports
-    .map(({ importer, specifier, reachFiles }) => ({ file: getRelativePath(importer, rootDir), specifier, weight: reachFiles ?? 0 }))
+    .map(({ importer, specifier, reachFiles, caseOf, notAnalyzed }) => ({
+      file: getRelativePath(importer, rootDir),
+      specifier,
+      ...(caseOf ?? notAnalyzed ? { existing: getRelativePath((caseOf ?? notAnalyzed)!, rootDir) } : {}),
+      weight: reachFiles ?? 0,
+    }))
     .sort((a, b) => b.weight - a.weight || a.file.localeCompare(b.file) || a.specifier.localeCompare(b.specifier))
     .slice(0, EXAMPLES)
-    .map(({ file, specifier }) => ({ file, specifier }));
+    .map(({ weight: _weight, ...example }) => example);
 }
 
 /** Workspace-relative report of the imports the analysis cannot follow. */
 export function reportUnresolvedImports(imports: readonly UnresolvedImport[], rootDir: string): UnresolvedImportsReport {
-  const missing = imports.filter((item) => !item.excluded);
+  const missing = imports.filter((item) => !item.excluded && !item.caseOf && !item.notAnalyzed);
+  const notAnalyzed = imports.filter((item) => item.notAnalyzed);
   const excluded = imports.filter((item) => item.excluded);
-  const next = [missing.length > 0 ? UNRESOLVED_IMPORTS_NEXT : "", excluded.length > 0 ? EXCLUDED_IMPORTS_NEXT : ""].filter(Boolean).join(" ");
+  const cases = imports.filter((item) => item.caseOf);
+  const next = [
+    missing.length > 0 ? UNRESOLVED_IMPORTS_NEXT : "",
+    excluded.length > 0 ? EXCLUDED_IMPORTS_NEXT : "",
+    cases.length > 0 ? CASE_MISMATCH_NEXT : "",
+  ].filter(Boolean).join(" ");
   return {
     count: missing.length,
     examples: examplesOf(missing, rootDir),
     excludedCount: excluded.length,
     excludedExamples: examplesOf(excluded, rootDir),
+    caseMismatchCount: cases.length,
+    caseMismatchExamples: examplesOf(cases, rootDir),
+    notAnalyzedCount: notAnalyzed.length,
+    notAnalyzedExamples: examplesOf(notAnalyzed, rootDir),
     ...(next ? { next } : {}),
   };
 }
@@ -208,6 +255,18 @@ export function describeUnresolvedImports(field: UnresolvedImportsField): string
   if (excluded > 0) {
     const plural = excluded !== 1;
     parts.push(`${excluded} import${plural ? "s" : ""} resolve${plural ? "" : "s"} to a file excluded from the analysis (.gitignore, .graphitignore or a default exclusion), whose own imports are not followed (e.g. ${listed(report.excludedExamples ?? [])}).`);
+  }
+  const cases = report.caseMismatchCount ?? 0;
+  if (cases > 0) {
+    const plural = cases !== 1;
+    const examples = (report.caseMismatchExamples ?? []).map(({ file, specifier, existing }) => `${file} imports ${specifier}, which differs only in letter case from ${existing}`).join("; ");
+    parts.push(`${cases} import${plural ? "s" : ""} differ${plural ? "" : "s"} only in letter case from an existing file (e.g. ${examples}).`);
+  }
+  const notAnalyzed = report.notAnalyzedCount ?? 0;
+  if (notAnalyzed > 0) {
+    const plural = notAnalyzed !== 1;
+    const examples = (report.notAnalyzedExamples ?? []).map(({ file, specifier, existing }) => `${file} imports ${specifier}, which matches ${existing}, which is not analyzed`).join("; ");
+    parts.push(`${notAnalyzed} import${plural ? "s" : ""} match${plural ? "" : "es"} only a file the analysis does not read (e.g. ${examples}).`);
   }
   if (parts.length === 0) return null;
   return `${parts.join(" ")} Dead-file and unused-export results may list files they would import. ${report.next ?? ""}`.trimEnd();
