@@ -2,7 +2,7 @@ import { parseArgs } from 'node:util';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { getRelativePath, normalizePath } from '../../shared/path';
-import { exportHtml, renderHtmlPage } from '../../analyzer/export/HtmlExporter';
+import { renderHtmlPage } from '../../analyzer/export/HtmlExporter';
 import { validateWorkspacePath } from '../../shared/pathSecurity';
 import { computeNodeMetadata } from '../../analyzer/NodeMetadataBuilder';
 import { collectReactReferencingPaths, enrichReactFramework } from '../../analyzer/ReactIdentity';
@@ -11,7 +11,7 @@ import { CliError, ExitCode } from '../errors';
 import { readCommunityMode } from '../options';
 import type { CliRuntime } from '../runtime';
 import { closestPathsHint } from '../symbols';
-import { resolveInWorkspace } from '../workspaceFiles';
+import { resolveInWorkspace, writeWorkspaceFile } from '../workspaceFiles';
 import type { GraphData } from '../../shared/graph-types';
 
 type RawRecord = Record<string, unknown>;
@@ -170,6 +170,7 @@ export async function runExportHtml(
     process.stdout.write(renderHtmlPage(page));
     return;
   }
-  exportHtml({ ...page, outputPath });
+  // Same guard as diagram --output: never through a symbolic or hard link, never over a non-regular file.
+  await writeWorkspaceFile(runtime.workspaceRoot, output, renderHtmlPage(page));
   process.stdout.write(`Graph exported to ${getRelativePath(normalizePath(outputPath), normalizePath(runtime.workspaceRoot))}\n`);
 }

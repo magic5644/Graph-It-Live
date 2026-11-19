@@ -33,6 +33,10 @@ export async function run(
     );
   }
 
+  // Without a terminal the prompt would read EOF and write a link to the default target unasked.
+  if (!process.stdin.isTTY) {
+    throw new CliError("graph-it install asks where to install the link: run it in a terminal.", ExitCode.GENERAL_ERROR);
+  }
   const platform = os.platform();
   const target = await promptInstallTarget(platform);
 

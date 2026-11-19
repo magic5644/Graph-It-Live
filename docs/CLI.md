@@ -2101,6 +2101,8 @@ Symlink the `graph-it` binary into your system `PATH` so it can be invoked from 
 graph-it install
 ```
 
+It asks where to put the link, so it runs only in a terminal: without one (a pipe, CI, an agent) it writes nothing and exits with code 1.
+
 > **Note:** This is a VS Code extension convenience command. When using the npm global install, `graph-it` is already on your PATH.
 
 ---
@@ -2113,7 +2115,7 @@ Check npm for a newer version of `@magic5644/graph-it-live` and install it if on
 graph-it update
 ```
 
-Requires an active internet connection and `npm` in `PATH`.
+Requires an active internet connection and `npm` in `PATH`. The versions and progress go to stderr, the result line to stdout. A failed install exits with code 1 and names the `npm install --global` command to rerun.
 
 ---
 

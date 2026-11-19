@@ -60,8 +60,8 @@ export async function run(
 
   if (args.length === 0) return formatOutput(await workspaceOverview(runtime), format, "summary");
 
-  const status = await executeGetIndexStatus();
   const ref = parseTargetRef(args[0], runtime.workspaceRoot);
+  const status = await executeGetIndexStatus();
   const codemap = await executeGenerateCodemap({ filePath: ref.filePath });
   return formatOutput({ indexStatus: status, codemap }, format, "summary");
 }

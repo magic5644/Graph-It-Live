@@ -92,6 +92,8 @@ describe("readCommandLine (#767)", () => {
   it("names a misspelt global option whose value parseArgs took for the command", () => {
     expect(() => assertGlobalOptions(["--worksapce", ".", "scan"], ".")).toThrow("Unknown option --worksapce. Did you mean --workspace?");
     expect(() => assertGlobalOptions(["-w", ".", "--reindex", "scan"], "scan")).not.toThrow();
+    expect(() => assertGlobalOptions(["--bogus"], "")).toThrow("Unknown option --bogus.");
+    expect(() => assertGlobalOptions(["-w", "."], "")).not.toThrow();
   });
 
   it("refuses --format without a value (exit 1) and an undeclared format (exit 4)", () => {

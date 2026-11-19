@@ -304,13 +304,15 @@ export function stripGlobalOptions(args: string[]): string[] {
  * `--worksapce . scan` would otherwise report "." as an unknown command.
  */
 export function assertGlobalOptions(argv: string[], command: string): void {
-  const start = findCommandStart(argv, command);
+  // No command (""): every token is a global option.
+  const start = command === "" ? argv.length : findCommandStart(argv, command);
   const [unknownGlobal] = start >= 0 ? stripGlobalOptions(argv.slice(0, start)) : [];
   if (unknownGlobal === undefined) return;
   const names = Object.keys(GLOBAL_OPTIONS).map((name) => `--${name}`);
   const [closest] = closestNames(names, unknownGlobal, 1);
+  const hint = closest ? ` Did you mean ${closest}?` : "";
   throw new CliError(
-    `Unknown option ${unknownGlobal}.${closest ? ` Did you mean ${closest}?` : ""} Global options: ${names.join(", ")}.`,
+    `Unknown option ${unknownGlobal}.${hint} Global options: ${names.join(", ")}.`,
     ExitCode.GENERAL_ERROR,
   );
 }
@@ -470,6 +472,11 @@ async function main(): Promise<void> {
   }
 
   if (!command) {
+    try {
+      assertGlobalOptions(process.argv.slice(2), "");
+    } catch (err) {
+      process.exit(reportError(err));
+    }
     await handleNoCommand(values);
     return;
   }

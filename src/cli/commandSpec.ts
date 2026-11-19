@@ -104,8 +104,8 @@ function suggestion(names: string[], wanted: string): string {
 
 /** The spec of `command`; an unknown command exits 1 with the closest one. */
 export function commandSpec(command: string): CommandSpec {
-  const spec = COMMAND_SPECS[command];
-  if (spec) return spec;
+  // Own keys only: `graph-it constructor` is not a command.
+  if (Object.hasOwn(COMMAND_SPECS, command)) return COMMAND_SPECS[command];
   throw new CliError(`Unknown command "${command}".${suggestion(COMMAND_NAMES, command)} Run graph-it --help for the commands.`, ExitCode.GENERAL_ERROR);
 }
 

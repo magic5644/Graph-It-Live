@@ -26,10 +26,9 @@ import {
   nodeColor,
   buildHtmlGraphModel,
   compactGraphModel,
-  exportHtml,
   jsonForScript,
   renderHtmlPage,
-  type HtmlExporterConfig,
+  type HtmlPageConfig,
   type HtmlOverlay,
 } from '../../../src/analyzer/export/HtmlExporter';
 import { aggregateCommunityGroups } from '../../../src/analyzer/community/groupAggregation';
@@ -293,7 +292,7 @@ describe('compactGraphModel', () => {
   });
 });
 
-describe('exportHtml', () => {
+describe('renderHtmlPage: the export page', () => {
   beforeEach(() => {
     mockReadFileSync.mockReset();
     mockWriteFileSync.mockReset();
@@ -311,17 +310,15 @@ describe('exportHtml', () => {
     vi.unstubAllGlobals();
   });
 
-  const baseConfig: HtmlExporterConfig = {
+  const baseConfig: HtmlPageConfig = {
     graphData: sampleGraph(),
     context: { scope: 'workspace', revision: '2026-10-15T09:10:38.000Z', communityMode: 'path' },
     workspaceName: 'my-project',
-    outputPath: '/output/graph.html',
     workspaceRoot: '/ws',
   };
 
-  function render(config: HtmlExporterConfig = baseConfig): string {
-    exportHtml(config);
-    return mockWriteFileSync.mock.calls[0][1] as string;
+  function render(config: HtmlPageConfig = baseConfig): string {
+    return renderHtmlPage(config);
   }
 
   it('writes no path twice, however many edges a file has, and rebuilds every file and pair in the page (#758)', () => {
@@ -410,12 +407,6 @@ describe('exportHtml', () => {
     const matrixListeners = () => (document.getElementById('matrix-view')!.listeners as Record<string, (event: unknown) => void>);
     return { ...page, handlers, calls, stabilized, findings, text, matrixListeners, panelText: () => text(document.getElementById('panel')!) };
   }
-
-  it('creates output directory and writes to outputPath', () => {
-    render();
-    expect(mockMkdirSync).toHaveBeenCalledWith('/output', { recursive: true });
-    expect(mockWriteFileSync).toHaveBeenCalledWith('/output/graph.html', expect.any(String), 'utf-8');
-  });
 
   it('inlines vis-network and produces the page structure', () => {
     const html = render();
@@ -612,9 +603,7 @@ describe('exportHtml', () => {
     const page = (fields: Partial<HtmlOverlay> = {}) => runPage(renderHtmlPage({ ...initConfig, overlay: overlay(fields) }));
 
     it('renders exactly the export page without an overlay', () => {
-      const { outputPath: _outputPath, ...config } = baseConfig;
-      const html = renderHtmlPage(config);
-      expect(html).toBe(render());
+      const html = renderHtmlPage(baseConfig);
       for (const part of ['findings', 'overlay', 'revealFocus', 'KIND_ORDER']) expect(html).not.toContain(part);
     });
 

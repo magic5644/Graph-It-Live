@@ -47,8 +47,8 @@ export async function run(
   _format: CliOutputFormat,
 ): Promise<string> {
   const currentVersion = process.env["CLI_VERSION"] ?? "0.0.0-dev";
-  process.stdout.write(`Current version : v${currentVersion}\n`);
-  process.stdout.write(`Checking npm registry for ${NPM_PACKAGE}…\n`);
+  process.stderr.write(`Current version : v${currentVersion}\n`);
+  process.stderr.write(`Checking npm registry for ${NPM_PACKAGE}…\n`);
 
   let latestVersion: string;
   try {
@@ -62,13 +62,15 @@ export async function run(
     return `✓ Already up to date (v${currentVersion})`;
   }
 
-  process.stdout.write(`Latest version  : v${latestVersion}\nInstalling update…\n`);
+  process.stderr.write(`Latest version  : v${latestVersion}\nInstalling update…\n`);
 
   try {
     runGlobalInstall(latestVersion);
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    throw new CliError(`npm install failed: ${msg}`, ExitCode.GENERAL_ERROR);
+    // npm printed its own output above (stdio inherit): name the command to rerun, not "Command failed: …".
+    const status = (err as { status?: unknown }).status;
+    const exit = typeof status === "number" ? ` (exit code ${status})` : "";
+    throw new CliError(`npm could not install v${latestVersion}${exit}. Run: npm install --global ${NPM_PACKAGE}@${latestVersion}`, ExitCode.GENERAL_ERROR);
   }
 
   return `✓ Updated graph-it-live to v${latestVersion}`;

@@ -296,14 +296,15 @@ const LISTED_CUTS = 10;
 
 /** `graph-it diagram` for the level, with `extra` options. */
 function diagramCommand(input: DiagramInput, extra: string): string {
-  const folder = input.scope === "units" ? "" : " --folder " + JSON.stringify(fitLabel(input.scope, 64));
+  // The whole key: a truncated one would name no folder. The renderers escape every note.
+  const folder = input.scope === "units" ? "" : " --folder " + JSON.stringify(input.scope);
   return `graph-it diagram${folder}${extra}`;
 }
 
 /** The heaviest cuts as note lines (from → to, file pairs, the command that lists them), and where to see all of them. */
 function cutList(input: DiagramInput, cuts: readonly DiagramEdge[], inCycle: number, cycles: number, pairs: number): string[] {
   const heaviest = cuts.toSorted((left, right) => right.fileEdgeCount - left.fileEdgeCount || byCodeUnit(left.from, right.from) || byCodeUnit(left.to, right.to));
-  const next = (edge: DiagramEdge) => (input.scope === "units" ? ` · next: graph-it architecture --level units --from ${fitLabel(edge.from, 40)} --to ${fitLabel(edge.to, 40)}` : "");
+  const next = (edge: DiagramEdge) => (input.scope === "units" ? ` · next: graph-it architecture --level units --from ${edge.from} --to ${edge.to}` : "");
   return [
     `${plural(inCycle, input.noun)} form ${plural(cycles, "cycles")}, too large to draw: breaking ${cycles === 1 ? "it" : "them"} takes ${plural(cuts.length, "cuts")} (${plural(pairs, "file pairs")}).`,
     cuts.length > LISTED_CUTS ? `The ${LISTED_CUTS} heaviest cuts:` : "The cuts, heaviest first:",
