@@ -64,15 +64,26 @@ describe("CallGraphViewService says why it shows nothing, or something else (#77
 
   it("refuses without an editor and on an unsupported language", () => {
     const { service } = serviceWith([], new Error("unused"));
-    expect(service.activeSourceEditor()).toBeUndefined();
+    expect(service.canShow()).toBe(false);
     expect(mocks.info).toHaveBeenLastCalledWith("Graph-It-Live: Open a source file and position the cursor on a symbol first.");
 
     mocks.editor = editorAt("/repo/README.md", "markdown", 0);
-    expect(service.activeSourceEditor()).toBeUndefined();
+    expect(service.canShow()).toBe(false);
     expect(mocks.info.mock.lastCall?.[0]).toMatch(/^Graph-It-Live: Call Graph is not supported for "markdown"/);
 
+    mocks.info.mockReset();
     mocks.editor = editorAt("/repo/schema.graphql", "plaintext", 0);
-    expect(service.activeSourceEditor()?.lang).toBe("graphql");
+    expect(service.canShow()).toBe(true);
+    expect(mocks.info).not.toHaveBeenCalled();
+  });
+
+  // Show Call Graph asks canShow() before switching the toolbar to call-graph mode.
+  it("cannot show during a re-index, and says so once", () => {
+    mocks.editor = editorAt("/repo/src/a.ts", "typescript", 0);
+    const { service, internals } = serviceWith([], new Error("unused"));
+    internals.reindexing = true;
+    expect(service.canShow()).toBe(false);
+    expect(mocks.info).toHaveBeenCalledOnce();
   });
 
   it("says a re-index is running instead of returning silently", async () => {

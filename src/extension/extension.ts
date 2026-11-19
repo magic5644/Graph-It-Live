@@ -17,6 +17,7 @@ import { LmToolsService } from './services/LmToolsService';
 import { registerBranchWatch } from './services/BranchWatchService';
 import { startPeriodicFlush, type PeriodicFlush } from '../analyzer/stats/statsPersistence';
 import { sessionStats } from '../shared/sessionStats';
+import { normalizePathForComparison } from '../shared/path';
 import { findConfiguredWorkspaceFolder, resolvePreferredWorkspaceFolder } from './workspaceFolder';
 
 // Keep track of MCP server provider for cleanup
@@ -93,7 +94,7 @@ export function activate(context: vscode.ExtensionContext) {
         // showCallGraph command
         vscode.commands.registerCommand('graph-it-live.showCallGraph', async () => {
             // Switch the toolbar to call-graph mode only for a file the call graph can render (#770).
-            if (!callGraphViewService.activeSourceEditor()) return;
+            if (!callGraphViewService.canShow()) return;
             await provider.setViewModeCallgraph();
             await callGraphViewService.show();
         }),
@@ -164,7 +165,7 @@ export function activate(context: vscode.ExtensionContext) {
         if (!target) return;
         mcpServerProvider?.updateWorkspaceFolder(target);
         log.info('Workspace switched to:', target.uri.fsPath);
-        if (target.uri.fsPath === provider.getWorkspaceRoot()) return;
+        if (normalizePathForComparison(target.uri.fsPath) === normalizePathForComparison(provider.getWorkspaceRoot() ?? '')) return;
         vscode.window.showInformationMessage(
             `Graph-It-Live: now analyzing "${target.name}" in the MCP server. Reload the window to update the graph view.`,
             'Reload Window'
@@ -207,6 +208,10 @@ export function activate(context: vscode.ExtensionContext) {
                 title: 'Graph-It-Live: Set Workspace Folder',
             });
             if (!pick) {
+                return;
+            }
+            if (findConfiguredWorkspaceFolder().folder?.uri.toString() === pick.folder.uri.toString()) {
+                vscode.window.showInformationMessage(`Graph-It-Live: Already analyzing "${pick.folder.name}".`);
                 return;
             }
             // The configuration listener below switches the MCP server and asks for the reload.

@@ -47,6 +47,14 @@ export async function settleFileEvents(files: vscode.Uri[], action: () => Thenab
   await vscode.commands.executeCommand('graph-it-live.e2eFileUpdatesIdle');
 }
 
+/** Poll `condition` until it holds; fails with `what` past the deadline. */
+export async function waitUntil(condition: () => Promise<boolean>, what: string, timeoutMs = 30_000, deadline = Date.now() + timeoutMs): Promise<void> {
+  if (await condition()) return;
+  if (Date.now() >= deadline) assert.fail(`Timed out after ${timeoutMs} ms waiting for ${what}`);
+  await sleep(200);
+  return waitUntil(condition, what, timeoutMs, deadline);
+}
+
 export async function getContextKey<T = unknown>(key: string): Promise<T | undefined> {
   return vscode.commands.executeCommand<T | undefined>('getContext', key);
 }

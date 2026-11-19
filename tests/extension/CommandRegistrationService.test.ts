@@ -300,6 +300,18 @@ describe('CommandRegistrationService', () => {
     expect(showErrorMessage).toHaveBeenCalledWith('Graph-It-Live: Refresh failed: cannot read src/a.ts');
   });
 
+  it('relativizes native Windows paths in the cause (#770)', async () => {
+    const provider = createProviderMock();
+    (provider.getWorkspaceRoot as ReturnType<typeof vi.fn>).mockReturnValue('C:\\repo');
+    const commandCoordinator = createCommandCoordinatorMock();
+    (commandCoordinator.handleRefreshGraph as ReturnType<typeof vi.fn>).mockRejectedValue(new Error('cannot read C:\\repo\\src\\a.ts'));
+    new CommandRegistrationService({ provider, commandCoordinator, logger: createLoggerMock() }).registerAll();
+
+    await registeredHandlers.get('graph-it-live.refreshGraph')?.();
+
+    expect(showErrorMessage).toHaveBeenCalledWith('Graph-It-Live: Refresh failed: cannot read src/a.ts');
+  });
+
   it('shows indexer information when available', async () => {
     const provider = createProviderMock();
     const commandCoordinator = createCommandCoordinatorMock();
