@@ -60,6 +60,10 @@ describe("unresolved import of a generated file (#774)", () => {
       ],
       excludedCount: 0,
       excludedExamples: [],
+      caseMismatchCount: 0,
+      caseMismatchExamples: [],
+      notAnalyzedCount: 0,
+      notAnalyzedExamples: [],
       next: UNRESOLVED_IMPORTS_NEXT,
     };
     const files = await scanUnreferencedFiles(spider, root, {});
@@ -116,15 +120,22 @@ describe("unresolved import of a generated file (#774)", () => {
     expect(await generatedMissing()).toBe(true);
   }, 60_000);
 
-  // An extensionless import of a data file, and a case variant of a source file, resolve to an existing file.
-  it("never reports an import whose base name exists with another extension or case", async () => {
+  // Neither import gets an indexed edge on any OS. `./settings` with settings.json: no edge (JSON is no analysed
+  // source). `./resolvers/Users` with users.ts: an edge to a path the index lacks on macOS/Windows, none on Linux.
+  // Both are reported, each with its own wording, the same on every OS.
+  it("reports an import matching only a file not analyzed, and one differing only in letter case", async () => {
     fs.writeFileSync(path.join(root, "backend/src/settings.json"), "{}\n");
     fs.writeFileSync(path.join(root, "backend/src/extra.ts"), 'import cfg from "./settings";\nimport { users } from "./resolvers/Users";\nexport const x = [cfg, users];\n');
     const spider = await indexed();
 
-    const specifiers = (await spider.getUnresolvedImports())?.map(({ specifier }) => specifier);
-    expect(specifiers).not.toContain("./settings");
-    expect(specifiers).not.toContain("./resolvers/Users");
+    const report = (await scanUnreferencedFiles(spider, root, {})).unresolvedImports;
+    expect(report).toMatchObject({
+      notAnalyzedCount: 1,
+      notAnalyzedExamples: [{ file: "backend/src/extra.ts", specifier: "./settings", existing: "backend/src/settings.json" }],
+      caseMismatchCount: 1,
+      caseMismatchExamples: [{ file: "backend/src/extra.ts", specifier: "./resolvers/Users", existing: "backend/src/resolvers/users.ts" }],
+    });
+    expect(report && "next" in report ? report.next : "").toContain("letter case");
   }, 60_000);
 
   it("is unknown (null) without a reverse index", async () => {

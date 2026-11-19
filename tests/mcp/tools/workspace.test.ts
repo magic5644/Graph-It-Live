@@ -141,7 +141,7 @@ describe("workspace tools", () => {
 
       const result = await executeGetIndexStatus();
 
-      expect(result.unresolvedImports).toEqual({ count: 1, examples: [{ file: "src/loader.ts", specifier: "./gen" }], excludedCount: 0, excludedExamples: [], next: expect.stringContaining("codegen") });
+      expect(result.unresolvedImports).toEqual({ count: 1, examples: [{ file: "src/loader.ts", specifier: "./gen" }], excludedCount: 0, excludedExamples: [], caseMismatchCount: 0, caseMismatchExamples: [], notAnalyzedCount: 0, notAnalyzedExamples: [], next: expect.stringContaining("codegen") });
       setupWorkerState({ ...idleSpider, getUnresolvedImports: async () => null });
       expect((await executeGetIndexStatus()).unresolvedImports).toEqual(UNTRACKED_IMPORTS);
     });
