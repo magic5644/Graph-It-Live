@@ -334,6 +334,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     assessment,
     diagrams,
     ...(unresolvedImports ? { unresolvedImports } : {}),
+    ...(flags.dryRun && requestedDir !== undefined ? { reportNotWritten: requestedDir } : {}),
   };
   if (outputDir !== undefined) {
     const page = path.posix.join(outputDir, "index.html");

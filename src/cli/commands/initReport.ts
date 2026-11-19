@@ -12,7 +12,7 @@
 import * as path from "node:path";
 import { ASSESSMENT_THRESHOLDS, matrixAction, type ArchitectureAssessment, type DeadFileGroup, type MatrixFinding, type GroupedCycles, type QuickWin } from "../../analyzer/architecture/architectureAssessment.js";
 import { ROOT_UNIT } from "../../analyzer/architecture/architectureUnits.js";
-import { describeUnresolvedImports, type UnresolvedImportsReport } from "../../analyzer/utils/unresolvedImports.js";
+import { describeUnresolvedImports, type UnresolvedImportsField } from "../../analyzer/utils/unresolvedImports.js";
 
 /** What happened to the config and baseline files. */
 export type InitStatus = "created" | "updated" | "unchanged" | "kept" | "dry-run";
@@ -34,6 +34,8 @@ export interface InitResult {
   written: string[];
   /** Workspace-relative report files written with `--output`: diagrams, index.html and report.md. */
   reportFiles: string[];
+  /** `--output` on a dry run: the folder index.html, report.md and the diagrams were not written to (#774). */
+  reportNotWritten?: string;
   /** The explorable page written with `--output` (#718), linked from report.md. */
   page?: string;
   /** One line per element, rule or accepted violation the proposal adds, changes or removes. */
@@ -43,7 +45,7 @@ export interface InitResult {
   assessment: ArchitectureAssessment;
   diagrams: InitDiagram[];
   /** Relative and alias imports resolving to no file (#774): the dead files may be imported by the missing ones. */
-  unresolvedImports?: UnresolvedImportsReport;
+  unresolvedImports?: UnresolvedImportsField;
 }
 
 /** Items listed per section in a terminal; report.md, the page, json and toon list them all. */
@@ -256,8 +258,13 @@ function summaryLines(result: InitResult, all: readonly ReportSection[]): string
   ];
 }
 
+/** `--output` on a dry run: the report files it names were not written; `dir` as the format shows it. */
+function notWrittenLine(dir: string): string {
+  return `Report: not written (dry run): ${dir}; rerun without --dry-run to write index.html, report.md and the diagrams.`;
+}
+
 /** The summary line on imports resolving to no file, placed under the dead files it may make wrong; none at 0. */
-function unresolvedLine(report: UnresolvedImportsReport | undefined): string[] {
+function unresolvedLine(report: UnresolvedImportsField | undefined): string[] {
   const line = report === undefined ? null : describeUnresolvedImports(report);
   return line === null ? [] : [`Unresolved imports: ${line}`];
 }
@@ -308,6 +315,7 @@ export function renderInitText(result: InitResult): string {
     rulesLine(result, result.configFile),
     ...result.written.map((file) => `  wrote ${file}`),
     ...(result.reportFiles.length === 0 ? [] : [`Report: wrote ${result.reportFiles.join(", ")}`]),
+    ...(result.reportNotWritten === undefined ? [] : [notWrittenLine(result.reportNotWritten)]),
     "",
     "Summary:",
     ...summaryLines(result, all).map((line) => `  ${line}`),
@@ -365,6 +373,7 @@ export function renderInitMarkdown(result: InitResult, base?: string): string {
     ...result.written.map((file) => `- wrote ${code(file)}`),
   ];
   if (result.reportFiles.length > 0) lines.push("", `Report: wrote ${result.reportFiles.map(code).join(", ")}.`);
+  if (result.reportNotWritten !== undefined) lines.push("", notWrittenLine(code(result.reportNotWritten)));
   if (result.page !== undefined) {
     lines.push("", `Explore: [${path.posix.basename(result.page)}](${encodeURI(base === undefined ? result.page : path.posix.relative(base, result.page))}): units as groups, findings, cycles, violations and dead files, offline.`);
   }

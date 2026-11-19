@@ -23,12 +23,11 @@ import { SymbolDependencyHelper } from './SymbolDependencyHelper';
 import type { Dependency, IndexingProgressCallback, SpiderConfig } from './types';
 import { RESOLVER_CONFIG_FILE_REGEX } from '@/shared/constants';
 import { normalizePath } from '@/shared/path';
-import { isPathWithinRoot } from '@/shared/pathSecurity';
 import type { GraphEdge } from '@/shared/graph-types';
 import { YIELD_INTERVAL_MS, yieldToEventLoop } from './utils/EventLoopYield';
 import { PathResolver } from './utils/PathResolver';
-import { findProjectRoot, type OutOfRootImports } from './utils/workspaceBoundary';
-import { locateUnfollowedImports, type UnfollowedImport, type UnresolvedImport } from './utils/unresolvedImports';
+import type { OutOfRootImports } from './utils/workspaceBoundary';
+import { existsWithAnyExtension, locateUnfollowedImports, projectFolders, type UnfollowedImport, type UnresolvedImport } from './utils/unresolvedImports';
 
 // Some file systems store mtimes in whole seconds: an edit during indexing may predate its start by that much.
 const MTIME_GRANULARITY_MS = 2000;
@@ -651,24 +650,15 @@ export class Spider {
     const missing = await Promise.all(recorded.map(async ({ sourcePath, specifier }): Promise<UnfollowedImport[]> => {
       const analyzer = this.languageService.getAnalyzer(sourcePath);
       const target = await (analyzer.localTargetOf ? analyzer.localTargetOf(sourcePath, specifier) : this.resolver.localTargetOf(sourcePath, specifier));
-      if (!target || (await fs.stat(target).then((stat) => stat.isFile(), () => false))) return [];
+      if (!target || existsWithAnyExtension(target)) return [];
       return [{ importer: sourcePath, specifier, target }];
     }));
     const isExcluded = createExclusionMatcher(this.config.rootDir);
     const excluded = this.reverseIndexManager.getUnindexedTargets()
       .filter(({ targetPath }) => isExcluded(targetPath))
       .map(({ sourcePath, specifier, targetPath }) => ({ importer: sourcePath, specifier, target: targetPath, excluded: true }));
-    const root = path.resolve(this.config.rootDir);
-    const projects = new Map<string, string>();
-    const projectOf = (dir: string) => {
-      let project = projects.get(dir);
-      if (project === undefined) {
-        const found = findProjectRoot(dir);
-        project = found && isPathWithinRoot(found, root) ? found : root;
-        projects.set(dir, project);
-      }
-      return project;
-    };
+    const root = normalizePath(path.resolve(this.config.rootDir));
+    const projectOf = projectFolders(root);
     return locateUnfollowedImports([...missing.flat(), ...excluded], root, this.reverseIndexManager.getIndexedFiles(), projectOf);
   }
 

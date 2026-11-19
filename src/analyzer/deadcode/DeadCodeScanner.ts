@@ -1,7 +1,7 @@
 import type { Spider } from "../Spider";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
-import { unresolvedImportsField, unresolvedImportsReaching, type UnresolvedImport, type UnresolvedImportsReport } from "../utils/unresolvedImports";
+import { unresolvedImportsField, unresolvedImportsReaching, type UnresolvedImport, type UnresolvedImportsField } from "../utils/unresolvedImports";
 import { countByConfidence, meetsConfidence, type DeadCodeConfidence, type DeadCodeReason, type ExcludedExport, type UnreferencedFile, type UnusedSymbol } from "./deadCodeConfidence";
 import { isGeneratedReason } from "./declaredEntryPoints";
 
@@ -47,7 +47,7 @@ export interface DeadCodeScanResult {
   /** Analysable files left out by maxFiles */
   filesBeyondLimit: number;
   /** Relative and alias imports resolving to no file: the files they would import look unused (absent when not tracked) */
-  unresolvedImports?: UnresolvedImportsReport;
+  unresolvedImports: UnresolvedImportsField;
   analysisTimeMs: number;
 }
 
@@ -144,7 +144,7 @@ export interface UnreferencedFilesScanResult {
   truncated: boolean;
   filesBeyondLimit: number;
   /** Relative and alias imports resolving to no file; the files they may import carry `unresolved-import-in-workspace` (absent when not tracked) */
-  unresolvedImports?: UnresolvedImportsReport;
+  unresolvedImports: UnresolvedImportsField;
   analysisTimeMs: number;
 }
 

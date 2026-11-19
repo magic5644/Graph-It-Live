@@ -2,6 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { getRelativePath } from "../../shared/path";
 import { normalizePath } from "../types";
+import { findProjectRoot } from "./workspaceBoundary";
 
 /** How many unresolved imports a report names */
 const EXAMPLES = 5;
@@ -50,6 +51,26 @@ const NON_CODE_EXTENSIONS = new Set([
 ]);
 
 /**
+ * A folder's project folder: its nearest project marker, `root` when none lies inside it. Keys and results are
+ * normalized (Windows separators and drive case), and each folder is looked up once.
+ */
+export function projectFolders(root: string, findProject: (dir: string) => string | null = findProjectRoot): (dir: string) => string {
+  const normalizedRoot = normalizePath(root);
+  const projects = new Map<string, string>();
+  return (dir) => {
+    const key = normalizePath(dir);
+    let project = projects.get(key);
+    if (project === undefined) {
+      // String compare of normalized paths: path.resolve() would read `d:/x` as relative on POSIX.
+      const found = normalizePath(findProject(dir) ?? "");
+      project = found === normalizedRoot || found.startsWith(`${normalizedRoot}/`) ? found : normalizedRoot;
+      projects.set(key, project);
+    }
+    return project;
+  };
+}
+
+/**
  * The reach of each import and the indexed files below it (#774). `projectOf` gives a folder's project folder
  * (nearest project marker, never above the workspace root); a reach above the importer's is dropped.
  */
@@ -93,11 +114,51 @@ export interface UnresolvedImportsReport {
   next?: string;
 }
 
+/** Whether `dir` is a readable folder; any stat error (ENOENT, ENOTDIR, EACCES) means no. */
+function isDirectory(dir: string): boolean {
+  try {
+    return fs.statSync(dir).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Whether a file named `target`, or `target` plus any extension (`./config` with `config.json` or `config.css`),
+ * exists, comparing names without case: such an import is not reported as resolving to no file, on any file system
+ * (macOS and Windows resolve `./Config` to `config.ts`, Linux does not; the report is the same on all three).
+ */
+export function existsWithAnyExtension(target: string): boolean {
+  const base = path.basename(target).toLowerCase();
+  try {
+    return fs.readdirSync(path.dirname(target), { withFileTypes: true })
+      .some((entry) => entry.isFile() && (entry.name.toLowerCase() === base || entry.name.toLowerCase().startsWith(`${base}.`)));
+  } catch {
+    return false;
+  }
+}
+
+/** What a result says when the reverse index is off: unresolved imports are recorded only while it is built. */
+export interface UntrackedImportsReport {
+  tracked: false;
+  warning: string;
+}
+
+export const UNTRACKED_IMPORTS: UntrackedImportsReport = {
+  tracked: false,
+  warning:
+    "Imports resolving to no file are not counted while the reverse index is off; dead-file results may miss them " +
+    "(VS Code: enable graph-it-live.enableBackgroundIndexing; CLI and MCP index on demand).",
+};
+
+/** The `unresolvedImports` field: the report, or why there is none. */
+export type UnresolvedImportsField = UnresolvedImportsReport | UntrackedImportsReport;
+
 /** The nearest existing folder of `target`, never above `rootDir`. */
 export function nearestExistingDir(target: string, rootDir: string): string {
   const root = path.resolve(rootDir);
   let dir = path.dirname(path.resolve(target));
-  while (dir.length > root.length && !fs.statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
+  while (dir.length > root.length && !isDirectory(dir)) {
     dir = path.dirname(dir);
   }
   return normalizePath(dir.length > root.length ? dir : root);
@@ -126,15 +187,17 @@ export function reportUnresolvedImports(imports: readonly UnresolvedImport[], ro
   };
 }
 
-/** The `unresolvedImports` field of a result; none when the reverse index does not track them (null). */
-export function unresolvedImportsField(imports: readonly UnresolvedImport[] | null, rootDir: string): { unresolvedImports?: UnresolvedImportsReport } {
-  return imports ? { unresolvedImports: reportUnresolvedImports(imports, rootDir) } : {};
+/** The `unresolvedImports` field of a result; says it is not tracked when the reverse index is off (null), never absent. */
+export function unresolvedImportsField(imports: readonly UnresolvedImport[] | null, rootDir: string): { unresolvedImports: UnresolvedImportsField } {
+  return { unresolvedImports: imports ? reportUnresolvedImports(imports, rootDir) : UNTRACKED_IMPORTS };
 }
 
 const listed = (examples: readonly Example[]) => examples.map(({ file, specifier }) => `${file} imports ${specifier}`).join(", ");
 
 /** One line for a terminal or a log, or null when every import is followed. */
-export function describeUnresolvedImports(report: UnresolvedImportsReport): string | null {
+export function describeUnresolvedImports(field: UnresolvedImportsField): string | null {
+  if ("tracked" in field) return field.warning;
+  const report = field;
   const parts: string[] = [];
   if (report.count > 0) {
     const plural = report.count !== 1;

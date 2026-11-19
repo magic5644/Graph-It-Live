@@ -1,3 +1,4 @@
+import { UNTRACKED_IMPORTS } from "../../../src/analyzer/utils/unresolvedImports";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -130,7 +131,7 @@ describe("workspace tools", () => {
     });
 
     // #774: an import of a generated file not built yet, counted with its importer, workspace-relative.
-    it("reports the imports resolving to no file, and nothing when the reverse index is off", async () => {
+    it("reports the imports resolving to no file, and says they are not tracked when the reverse index is off", async () => {
       const root = "/no-such-dir/graph-it-774";
       setupWorkerState({
         ...idleSpider,
@@ -142,7 +143,7 @@ describe("workspace tools", () => {
 
       expect(result.unresolvedImports).toEqual({ count: 1, examples: [{ file: "src/loader.ts", specifier: "./gen" }], excludedCount: 0, excludedExamples: [], next: expect.stringContaining("codegen") });
       setupWorkerState({ ...idleSpider, getUnresolvedImports: async () => null });
-      expect(await executeGetIndexStatus()).not.toHaveProperty("unresolvedImports");
+      expect((await executeGetIndexStatus()).unresolvedImports).toEqual(UNTRACKED_IMPORTS);
     });
 
     it("passes the cache provenance fields of warmup through", async () => {

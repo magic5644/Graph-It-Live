@@ -85,7 +85,10 @@ describe("graph-it init", { timeout: 60_000 }, () => {
   });
 
   it("writes nothing at all on a dry run", async () => {
-    expect(await init(["--dry-run", "--output", "report"])).toMatchObject({ status: "dry-run", written: [], diagrams: [] });
+    expect(await init(["--dry-run", "--output", "report"])).toMatchObject({ status: "dry-run", written: [], diagrams: [], reportNotWritten: "report" });
+    expect(await run(["--dry-run", "--output", "report"], runtime, "text", offline)).toContain("Report: not written (dry run): report;");
+    expect(await run(["--dry-run", "--output", "report"], runtime, "markdown", offline)).toContain("Report: not written (dry run): `report`;");
+    expect(await init(["--dry-run"])).not.toHaveProperty("reportNotWritten");
     expect(fs.readdirSync(root)).not.toContain(CONFIG);
     expect(fs.readdirSync(root)).not.toContain("report");
   });
