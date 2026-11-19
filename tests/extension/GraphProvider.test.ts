@@ -47,7 +47,8 @@ vi.mock("vscode", () => {
         get: () => true,
       }),
       openTextDocument: vi.fn(),
-      asRelativePath: (p: string) => p.replace(`${mockRootDir}/`, ""),
+      // Like VS Code: workspace-relative with "/" on every OS.
+      asRelativePath: (p: string) => path.relative(mockRootDir, p).replaceAll("\\", "/"),
       createFileSystemWatcher: vi.fn().mockReturnValue(mockFileSystemWatcher),
       onDidSaveTextDocument: vi.fn().mockReturnValue({ dispose: vi.fn() }),
     },
