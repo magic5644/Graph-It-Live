@@ -253,10 +253,11 @@ export class ReverseIndex {
   }
 
   /**
-   * Check if the index has any entries (useful for determining if fallback is needed)
+   * Whether the index was built: it has an import edge or an analyzed file. A workspace whose files import
+   * nothing of each other (a few Python scripts) has no edge, yet its index is complete, not missing.
    */
   hasEntries(): boolean {
-    return this.reverseMap.size > 0;
+    return this.reverseMap.size > 0 || this.fileHashes.size > 0;
   }
 
   /**
@@ -538,6 +539,16 @@ export class ReverseIndex {
       for (const specifier of skipped) specifiers.add(specifier);
     }
     return { count, examples: [...specifiers].sort((a, b) => a.localeCompare(b)).slice(0, OUT_OF_ROOT_EXAMPLES) };
+  }
+
+  /** Imports whose resolved target was never indexed (excluded from the analysis, or not analysable), with their source. */
+  getUnindexedTargets(): Array<{ sourcePath: string; specifier: string; targetPath: string }> {
+    const found: Array<{ sourcePath: string; specifier: string; targetPath: string }> = [];
+    for (const [targetPath, sources] of this.reverseMap) {
+      if (this.fileHashes.has(targetPath)) continue;
+      for (const [sourcePath, entry] of sources) found.push({ sourcePath, specifier: entry.module, targetPath });
+    }
+    return found;
   }
 
   /** Every recorded import that resolved to nothing (packages included), with its source file. */

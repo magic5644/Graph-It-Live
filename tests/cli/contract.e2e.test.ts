@@ -234,19 +234,26 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
       const json = (...args: string[]) => JSON.parse(run(...args, "--format", "json").stdout);
       const check = json("check", "--unreferencedFiles");
 
-      expect(check.unresolvedImports).toEqual({
-        count: 1,
-        examples: [{ file: "src/loader.ts", specifier: "./resolvers.generated" }],
+      expect(check.unresolvedImports).toMatchObject({
+        count: 3,
+        // The generated loader hides the most files: the first example, before the template's imports.
+        examples: [
+          { file: "backend/src/loader.ts", specifier: "./resolvers.generated" },
+          { file: "backend/template/setup.ts", specifier: "../../vitest.config" },
+          { file: "backend/template/setup.ts", specifier: "./data/seed.json" },
+        ],
+        excludedCount: 0,
         next: "Run the build or codegen that emits the missing files, or add the importing files to .graphitignore.",
       });
-      expect(check.unreferencedFiles.map((file: { reasons: string[] }) => file.reasons)).toEqual([
-        ["no-importer", "unresolved-import-in-workspace"],
-        ["no-importer", "unresolved-import-in-workspace"],
+      expect(check.unreferencedFiles.map((file: { relativePath: string; reasons: string[] }) => [file.relativePath, file.reasons])).toEqual([
+        ["backend/src/resolvers/orders.ts", ["no-importer", "unresolved-import-in-workspace"]],
+        ["backend/src/resolvers/users.ts", ["no-importer", "unresolved-import-in-workspace"]],
+        ["backend/template/setup.ts", ["no-importer"]],
       ]);
       expect(json("summary").unresolvedImports).toEqual(check.unresolvedImports);
       expect(json("init", "--dry-run").unresolvedImports).toEqual(check.unresolvedImports);
-      expect(run("init", "--dry-run").stdout).toContain("Unresolved imports: 1 import of workspace files resolves to no file (e.g. src/loader.ts imports ./resolvers.generated)");
-      expect(run("check", "--unreferencedFiles", "--format", "markdown").stdout).toContain("**Unresolved imports:** 1 import");
+      expect(run("init", "--dry-run").stdout).toContain("Unresolved imports: 3 imports of workspace files resolve to no file (e.g. backend/src/loader.ts imports ./resolvers.generated, ");
+      expect(run("check", "--unreferencedFiles", "--format", "markdown").stdout).toContain("**Unresolved imports:** 3 imports");
     } finally {
       fs.rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }

@@ -1384,6 +1384,8 @@ export interface GetIndexStatusResult extends OutOfRootReport {
   cacheFiles?: {
     reverseIndexBytes: number;
     callGraphBytes: number;
+    /** Persisted symbol analyses (`symbols.json`), reused by a warm run */
+    symbolsBytes: number;
   };
 }
 

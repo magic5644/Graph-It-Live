@@ -122,6 +122,29 @@ export class JavaParser implements ILanguageAnalyzer {
     }
   }
 
+    /**
+     * The class file an import names when its package is a folder of a source root above the importing file
+     * (`src/main/java/com/acme/app` for `com.acme.app.Missing`), existing or not (#774). Null for the standard library,
+     * wildcards, static imports and nested classes (their prefix is no folder), and packages the workspace lacks.
+     */
+    async localTargetOf(fromFile: string, moduleSpecifier: string): Promise<string | null> {
+        const segments = moduleSpecifier.split('.');
+        // A class name starts upper case; a lower-case last segment is the package of a wildcard import (`a.b.*`).
+        if (this.isJavaStdlibImport(moduleSpecifier) || moduleSpecifier.endsWith('.*') || segments.length < 2
+            || !/^[A-Z]/.test(segments.at(-1) ?? '') || segments.some(s => s === '' || s === '..' || s.includes('/'))) {
+            return null;
+        }
+        const roots: string[] = [];
+        for (let dir = path.dirname(extractFilePath(fromFile)); this.isWithinRoot(dir); dir = path.dirname(dir)) {
+            roots.push(dir);
+            if (dir === path.dirname(dir)) break;
+        }
+        const packageDirs = roots.map((root) => path.join(root, ...segments.slice(0, -1)));
+        const found = await Promise.all(packageDirs.map((dir) => fs.stat(dir).then((stat) => stat.isDirectory(), () => false)));
+        const index = found.indexOf(true);
+        return index < 0 ? null : normalizePath(path.join(packageDirs[index], `${segments.at(-1)}.java`));
+    }
+
     async resolvePath(_fromFile: string, moduleSpecifier: string): Promise<string | null> {
         try {
             // Skip Java standard library and well-known javax/sun packages

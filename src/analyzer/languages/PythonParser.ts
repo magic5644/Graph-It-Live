@@ -3,6 +3,7 @@ import path from "node:path";
 import { Node, Parser } from "web-tree-sitter";
 import { firstNonNull, firstNonNullConcurrent } from "../../shared/concurrency";
 import { normalizePath } from "../../shared/path";
+import { isPathWithinRootCanonical } from "../../shared/pathSecurity";
 import { FileReader } from "../FileReader";
 import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
 import { extractFilePath } from "../utils/PathExtractor";
@@ -288,17 +289,33 @@ export class PythonParser implements ILanguageAnalyzer {
   }
 
   /**
-   * Resolve absolute import (workspace-relative)
+   * Where an unresolved import deterministically points, existing or not (#774): a relative module (`.models`), or
+   * the submodule of a workspace package (`pkg.gen` when `pkg/__init__.py` exists). Null for anything else, as the
+   * standard library and site-packages hold most absolute imports.
    */
-  private async resolveAbsoluteImport(
-    fromDir: string,
-    moduleSpecifier: string,
-  ): Promise<string | null> {
-    // Convert module.submodule to module/submodule
-    const modulePath = moduleSpecifier.replaceAll(".", "/");
+  async localTargetOf(fromFile: string, moduleSpecifier: string): Promise<string | null> {
+    const fromDir = path.dirname(extractFilePath(fromFile));
+    const dots = /^\.*/u.exec(moduleSpecifier)?.[0].length ?? 0;
+    const segments = moduleSpecifier.slice(dots).split(".").filter(Boolean);
+    if (dots > 0) {
+      let dir = fromDir;
+      for (let i = 1; i < dots; i++) dir = path.dirname(dir);
+      return segments.length > 0 && isPathWithinRootCanonical(dir, this.rootDir) ? normalizePath(path.join(dir, ...segments)) : null;
+    }
+    if (segments.length < 2) return null;
+    const dirs = await this.searchDirs(fromDir);
+    const packages = await Promise.all(dirs.map((dir) => this.fileExists(path.join(dir, segments[0], "__init__.py"))));
+    const index = packages.indexOf(true);
+    return index < 0 ? null : normalizePath(path.join(dirs[index], ...segments));
+  }
+
+  /**
+   * The folders an absolute import is looked for in, nearest first: the importing file's folder up to the workspace
+   * root (or filesystem root), the configured root if the climb missed it, then their `src/` folders (a `src/` layout
+   * puts packages one level down: `examples/app/src/pkg` is imported as `pkg` from `examples/app`).
+   */
+  private async searchDirs(fromDir: string): Promise<string[]> {
     const normalizedRoot = normalizePath(this.rootDir);
-    // Directories in lookup order, each once: the importing file's directory up to the workspace root
-    // (or filesystem root), then the configured root if the climb missed it.
     const dirs = new Map<string, string>();
     const addDir = (dir: string) => {
       const normalizedDir = normalizePath(dir);
@@ -324,12 +341,23 @@ export class PythonParser implements ILanguageAnalyzer {
     }
     addDir(this.rootDir);
 
-    // Absolute imports mostly miss (stdlib, site-packages): probe every level at once, keep the nearest hit.
-    // A `src/` layout puts packages one level down: `examples/app/src/pkg` is imported as `pkg` from `examples/app`.
-    // Its candidates are probed only where a `src/` folder exists: most absolute imports miss (stdlib).
+    // Only where a `src/` folder exists: most absolute imports miss (stdlib).
     const srcDirs = await Promise.all([...dirs.values()].map(async (dir) => ((await this.isDirectory(path.join(dir, "src"))) ? [path.join(dir, "src")] : [])));
+    return [...dirs.values(), ...srcDirs.flat()];
+  }
+
+  /**
+   * Resolve absolute import (workspace-relative)
+   */
+  private async resolveAbsoluteImport(
+    fromDir: string,
+    moduleSpecifier: string,
+  ): Promise<string | null> {
+    // Convert module.submodule to module/submodule
+    const modulePath = moduleSpecifier.replaceAll(".", "/");
+    // Absolute imports mostly miss (stdlib, site-packages): probe every level at once, keep the nearest hit.
     return this.firstExistingFile(
-      [...dirs.values(), ...srcDirs.flat()].flatMap((dir) => moduleCandidates(dir, modulePath)),
+      (await this.searchDirs(fromDir)).flatMap((dir) => moduleCandidates(dir, modulePath)),
       firstNonNullConcurrent,
     );
   }

@@ -212,7 +212,7 @@ export class IndexCache {
       };
       writeFileAtomic(path.join(this.dir, META_FILE), JSON.stringify(meta, null, 2));
       const sizes = IndexCache.fileSizes(this.dir);
-      log.info(`Saved index cache: ${REVERSE_INDEX_FILE} ${sizes.reverseIndexBytes} B, ${CALLGRAPH_FILE} ${sizes.callGraphBytes} B`);
+      log.info(`Saved index cache: ${REVERSE_INDEX_FILE} ${sizes.reverseIndexBytes} B, ${CALLGRAPH_FILE} ${sizes.callGraphBytes} B, ${SYMBOLS_FILE} ${sizes.symbolsBytes} B`);
       return true;
     } catch (error) {
       log.warn("Could not save index cache:", error instanceof Error ? error.message : String(error));
@@ -221,7 +221,7 @@ export class IndexCache {
   }
 
   /** On-disk size of each payload cached in `dir`, 0 when missing or unreadable. Makes cache growth visible. */
-  static fileSizes(dir: string): { reverseIndexBytes: number; callGraphBytes: number } {
+  static fileSizes(dir: string): { reverseIndexBytes: number; callGraphBytes: number; symbolsBytes: number } {
     const size = (file: string): number => {
       try {
         return fs.statSync(path.join(dir, file)).size;
@@ -229,7 +229,7 @@ export class IndexCache {
         return 0;
       }
     };
-    return { reverseIndexBytes: size(REVERSE_INDEX_FILE), callGraphBytes: size(CALLGRAPH_FILE) };
+    return { reverseIndexBytes: size(REVERSE_INDEX_FILE), callGraphBytes: size(CALLGRAPH_FILE), symbolsBytes: size(SYMBOLS_FILE) };
   }
 
   /** Delete the cached payloads and guard. Leaves another process's lock in place. */

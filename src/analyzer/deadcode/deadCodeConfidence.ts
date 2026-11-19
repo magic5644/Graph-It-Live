@@ -32,6 +32,8 @@ export type DeadCodeConfidence = "high" | "medium" | "low";
  *   goes with them. Never above its own level nor theirs; a dead cycle nothing else imports is `low`.
  * - `unresolved-import-in-workspace`: unreferenced files only: a relative or alias import resolves to no file (a
  *   generated file not built yet) whose folder holds the file, so that missing file may import it. One level lower.
+ * - `excluded-importer-in-workspace`: unreferenced files only: an import resolves to a file the analysis excludes
+ *   (.gitignore, .graphitignore), in whose folder the file is; the excluded file's imports are not seen. One level lower.
  */
 export type DeadCodeReason =
   | "no-importer"
@@ -45,7 +47,8 @@ export type DeadCodeReason =
   | "published-deep-import"
   | "importers-use-other-exports"
   | "cascade"
-  | "unresolved-import-in-workspace";
+  | "unresolved-import-in-workspace"
+  | "excluded-importer-in-workspace";
 
 export const DEAD_CODE_CONFIDENCES = ["high", "medium", "low"] as const satisfies readonly DeadCodeConfidence[];
 

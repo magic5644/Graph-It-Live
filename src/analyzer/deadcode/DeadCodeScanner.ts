@@ -2,7 +2,7 @@ import type { Spider } from "../Spider";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { unresolvedImportsField, unresolvedImportsReaching, type UnresolvedImport, type UnresolvedImportsReport } from "../utils/unresolvedImports";
-import { countByConfidence, meetsConfidence, type DeadCodeConfidence, type ExcludedExport, type UnreferencedFile, type UnusedSymbol } from "./deadCodeConfidence";
+import { countByConfidence, meetsConfidence, type DeadCodeConfidence, type DeadCodeReason, type ExcludedExport, type UnreferencedFile, type UnusedSymbol } from "./deadCodeConfidence";
 import { isGeneratedReason } from "./declaredEntryPoints";
 
 export interface DeadCodeScanOptions {
@@ -150,10 +150,14 @@ export interface UnreferencedFilesScanResult {
 
 const LOWER: Readonly<Record<DeadCodeConfidence, DeadCodeConfidence>> = { high: "medium", medium: "low", low: "low" };
 
-/** A file a missing generated file may import (#774): one level less sure, with the reason. */
+/** A file a missing or excluded file may import (#774): one level less sure, with the reason of each kind. */
 export function withUnresolvedImports<T extends UnreferencedFile>(file: T, imports: readonly UnresolvedImport[]): T {
-  if (unresolvedImportsReaching(file.filePath, imports).length === 0) return file;
-  return { ...file, confidence: LOWER[file.confidence], reasons: [...file.reasons, "unresolved-import-in-workspace"] };
+  const reaching = unresolvedImportsReaching(file.filePath, imports);
+  if (reaching.length === 0) return file;
+  const reasons: DeadCodeReason[] = [];
+  if (reaching.some((item) => !item.excluded)) reasons.push("unresolved-import-in-workspace");
+  if (reaching.some((item) => item.excluded)) reasons.push("excluded-importer-in-workspace");
+  return { ...file, confidence: LOWER[file.confidence], reasons: [...file.reasons, ...reasons] };
 }
 
 /** The files of the scope no production file imports (#711): the export scan's `unreferencedFiles` option. */

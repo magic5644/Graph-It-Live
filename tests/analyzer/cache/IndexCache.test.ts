@@ -61,13 +61,21 @@ describe("IndexCache", () => {
     it("reports the on-disk size of each saved payload", () => {
       open().save({ reverseIndex: { data: "INDEX", options: OPTIONS }, callGraph: new Uint8Array(7) });
 
-      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 5, callGraphBytes: 7 });
+      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 5, callGraphBytes: 7, symbolsBytes: 0 });
+    });
+
+    // #774: the persisted symbol analyses grow with the workspace too.
+    it("counts symbols.json", () => {
+      fs.mkdirSync(cacheDir, { recursive: true });
+      fs.writeFileSync(path.join(cacheDir, "symbols.json"), "{}\n");
+
+      expect(IndexCache.fileSizes(cacheDir).symbolsBytes).toBe(3);
     });
 
     it("reports 0 for payloads not written yet", () => {
-      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 0, callGraphBytes: 0 });
+      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 0, callGraphBytes: 0, symbolsBytes: 0 });
       open().save({ reverseIndex: { data: "INDEX", options: OPTIONS } });
-      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 5, callGraphBytes: 0 });
+      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 5, callGraphBytes: 0, symbolsBytes: 0 });
     });
 
     it("reports 0 when the cache path is unreadable", () => {
@@ -75,7 +83,7 @@ describe("IndexCache", () => {
       fs.mkdirSync(path.dirname(cacheDir), { recursive: true });
       fs.writeFileSync(cacheDir, "not a directory");
 
-      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 0, callGraphBytes: 0 });
+      expect(IndexCache.fileSizes(cacheDir)).toEqual({ reverseIndexBytes: 0, callGraphBytes: 0, symbolsBytes: 0 });
     });
 
     it.each([
