@@ -14,11 +14,10 @@ import * as path from "node:path";
 import { resolveLlmClient } from "../../analyzer/llm/LlmClientFactory.js";
 import { executeQueryNaturalLanguage } from "../../mcp/tools";
 import type { QueryNaturalLanguageParams } from "../../mcp/tools/query.js";
-import { normalizePath } from "../../shared/path.js";
+import { normalizePath, relativizeWorkspacePaths } from "../../shared/path.js";
 import { CliError, ExitCode } from "../errors.js";
 import { readIntegerOption } from "../options.js";
 import type { CliOutputFormat } from "../formatter.js";
-import { relativizeWorkspacePaths } from "../../shared/path.js";
 import type { CliRuntime } from "../runtime.js";
 
 // ---------------------------------------------------------------------------

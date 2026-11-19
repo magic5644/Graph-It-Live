@@ -20,9 +20,9 @@ import { DEAD_CODE_CONFIDENCES, type DeadCodeConfidence, type UnusedSymbol } fro
 import type { OutOfRootReport } from "../analyzer/utils/workspaceBoundary";
 import { parseToolParams } from "./paramIssues";
 import { closestPathsHint } from "../analyzer/utils/SymbolLookup";
-import { normalizePath } from "../shared/path";
 import {
   getRelativePath as _getRelativePath,
+  normalizePath,
 } from "../shared/path";
 import {
   isPathWithinRoot as _isPathWithinRoot,
@@ -1026,7 +1026,7 @@ function resolveExistingPath(tool: McpToolName, key: string, value: string, root
   if (MAY_BE_MISSING.has(tool)) return absolute;
   const folder = FOLDER_PATH_PARAMS.has(key);
   const stats = fs.statSync(absolute, { throwIfNoEntry: false });
-  if (stats && stats.isDirectory() === folder) return absolute;
+  if (stats?.isDirectory() === folder) return absolute;
   const label = normalizePath(nodePath.relative(rootDir, absolute)) || ".";
   if (stats) throw new Error(`"${key}" must name a ${folder ? "folder" : "file"}: ${label} is a ${folder ? "file" : "folder"}.`);
   throw new Error(`${folder ? "Folder" : "File"} not found: ${label}.${closestPathsHint(absolute, rootDir)}`);

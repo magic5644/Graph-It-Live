@@ -175,5 +175,6 @@ export function unresolvedSeedMessage(seed: GraphContextSeed, snapshot: GraphCon
     wanted = target;
   }
   const close = closestNames([...new Set(names)], wanted);
-  return `Seed not found: ${target}.${close.length > 0 ? ` Did you mean: ${close.join(', ')}?` : ''}`;
+  const hint = close.length > 0 ? ` Did you mean: ${close.join(', ')}?` : '';
+  return `Seed not found: ${target}.${hint}`;
 }

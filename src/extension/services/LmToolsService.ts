@@ -216,7 +216,7 @@ function readResponseFormat(input: unknown): ResponseFormat {
 /** The refusal of a `response_format` outside the enum, or undefined when it is absent or valid (#769). */
 function invalidResponseFormat(input: unknown): string | undefined {
   const value = (input as { response_format?: unknown } | undefined)?.response_format;
-  if (value === undefined || LM_RESPONSE_FORMAT_PROPERTY.enum.some((format) => format === value)) return undefined;
+  if (value === undefined || (LM_RESPONSE_FORMAT_PROPERTY.enum as readonly unknown[]).includes(value)) return undefined;
   return `"response_format" must be one of ${LM_RESPONSE_FORMAT_PROPERTY.enum.join(', ')}; got ${JSON.stringify(value)}.`;
 }
 
