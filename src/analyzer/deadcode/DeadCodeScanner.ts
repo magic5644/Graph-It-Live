@@ -1,6 +1,7 @@
 import type { Spider } from "../Spider";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
+import { unresolvedImportsField, unresolvedImportsReaching, type UnresolvedImport, type UnresolvedImportsReport } from "../utils/unresolvedImports";
 import { countByConfidence, meetsConfidence, type DeadCodeConfidence, type ExcludedExport, type UnreferencedFile, type UnusedSymbol } from "./deadCodeConfidence";
 import { isGeneratedReason } from "./declaredEntryPoints";
 
@@ -45,6 +46,8 @@ export interface DeadCodeScanResult {
   truncated: boolean;
   /** Analysable files left out by maxFiles */
   filesBeyondLimit: number;
+  /** Relative and alias imports resolving to no file: the files they would import look unused (absent when not tracked) */
+  unresolvedImports?: UnresolvedImportsReport;
   analysisTimeMs: number;
 }
 
@@ -102,6 +105,7 @@ export async function scanDeadCode(
     skippedFiles: rawResult.skippedFiles,
     truncated: rawResult.filesBeyondLimit > 0,
     filesBeyondLimit: rawResult.filesBeyondLimit,
+    ...unresolvedImportsField(await spider.getUnresolvedImports(), rootDir),
     analysisTimeMs: Date.now() - startTime,
   };
 }
@@ -139,7 +143,17 @@ export interface UnreferencedFilesScanResult {
   /** True when maxFiles stopped the scan: unscanned files may be unreferenced too. */
   truncated: boolean;
   filesBeyondLimit: number;
+  /** Relative and alias imports resolving to no file; the files they may import carry `unresolved-import-in-workspace` (absent when not tracked) */
+  unresolvedImports?: UnresolvedImportsReport;
   analysisTimeMs: number;
+}
+
+const LOWER: Readonly<Record<DeadCodeConfidence, DeadCodeConfidence>> = { high: "medium", medium: "low", low: "low" };
+
+/** A file a missing generated file may import (#774): one level less sure, with the reason. */
+export function withUnresolvedImports<T extends UnreferencedFile>(file: T, imports: readonly UnresolvedImport[]): T {
+  if (unresolvedImportsReaching(file.filePath, imports).length === 0) return file;
+  return { ...file, confidence: LOWER[file.confidence], reasons: [...file.reasons, "unresolved-import-in-workspace"] };
 }
 
 /** The files of the scope no production file imports (#711): the export scan's `unreferencedFiles` option. */
@@ -153,8 +167,10 @@ export async function scanUnreferencedFiles(
   const minConfidence = options.minConfidence ?? "low";
   const startTime = Date.now();
   const raw = await spider.scanUnreferencedFiles(scopePath, { maxFiles: options.maxFiles, signal, onProgress: options.onProgress });
-  const byConfidence = countByConfidence(raw.files);
-  const unreferencedFiles = raw.files
+  const unresolved = await spider.getUnresolvedImports();
+  const files = raw.files.map((file) => withUnresolvedImports(file, unresolved ?? []));
+  const byConfidence = countByConfidence(files);
+  const unreferencedFiles = files
     .filter((file) => meetsConfidence(file.confidence, minConfidence))
     .map((file) => ({ ...file, relativePath: getRelativePath(file.filePath, rootDir) }))
     // Files nothing imports first, then those dead by cascade (#726).
@@ -176,6 +192,7 @@ export async function scanUnreferencedFiles(
     skippedFiles: raw.skippedFiles,
     truncated: raw.filesBeyondLimit > 0,
     filesBeyondLimit: raw.filesBeyondLimit,
+    ...unresolvedImportsField(unresolved, rootDir),
     analysisTimeMs: Date.now() - startTime,
   };
 }

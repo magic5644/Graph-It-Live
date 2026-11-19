@@ -446,6 +446,7 @@ export class ReverseIndex {
     }
 
     const newFiles = filesOnDisk ? this.addUnindexedFiles(filesOnDisk, staleFiles) : 0;
+    this.addImportersOfDeleted(missingFiles, staleFiles);
 
     // Denominator covers every distinct file considered: indexed ∪ on-disk.
     const totalFiles = (filesToCheck ? candidates.length : this.fileHashes.size) + newFiles;
@@ -470,14 +471,39 @@ export class ReverseIndex {
     targets.add(targetPath);
   }
 
-  /** Appends on-disk files absent from the index to staleFiles; returns how many were added. */
+  /** Appends the importers of deleted files to staleFiles: re-analysed, their import is recorded as unresolved (#774). */
+  private addImportersOfDeleted(missingFiles: readonly string[], staleFiles: string[]): void {
+    const skip = new Set([...missingFiles, ...staleFiles]);
+    for (const missing of missingFiles) {
+      for (const importer of this.reverseMap.get(missing)?.keys() ?? []) {
+        if (!skip.has(importer)) {
+          skip.add(importer);
+          staleFiles.push(importer);
+        }
+      }
+    }
+  }
+
+  /**
+   * Appends on-disk files absent from the index to staleFiles, with the indexed files whose unresolved import may
+   * name them: their own mtime never moves, so a generated file emitted between runs would stay unresolved (#774).
+   * Returns how many on-disk files were added.
+   */
   private addUnindexedFiles(filesOnDisk: readonly string[], staleFiles: string[]): number {
+    const stale = new Set(staleFiles);
+    const append = (filePath: string) => {
+      if (!stale.has(filePath)) {
+        stale.add(filePath);
+        staleFiles.push(filePath);
+      }
+    };
     let added = 0;
     for (const filePath of filesOnDisk) {
       const normalized = normalizePath(filePath);
-      if (!this.fileHashes.has(normalized) && !staleFiles.includes(normalized)) {
-        staleFiles.push(normalized);
+      if (!this.fileHashes.has(normalized) && !stale.has(normalized)) {
+        append(normalized);
         added++;
+        for (const importer of this.getUnresolvedImportersOf(normalized)) append(importer);
       }
     }
     return added;
@@ -512,6 +538,11 @@ export class ReverseIndex {
       for (const specifier of skipped) specifiers.add(specifier);
     }
     return { count, examples: [...specifiers].sort((a, b) => a.localeCompare(b)).slice(0, OUT_OF_ROOT_EXAMPLES) };
+  }
+
+  /** Every recorded import that resolved to nothing (packages included), with its source file. */
+  getUnresolvedImports(): Array<{ sourcePath: string; specifier: string }> {
+    return [...this.unresolvedImports].flatMap(([sourcePath, specifiers]) => specifiers.map((specifier) => ({ sourcePath, specifier })));
   }
 
   /**

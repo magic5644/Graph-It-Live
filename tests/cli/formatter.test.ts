@@ -853,6 +853,14 @@ describe("check --unreferencedFiles markdown (#711)", () => {
     expect(formatOutput({ ...result, excluded: [] }, "markdown", "check")).toContain("_None._");
   });
 
+  it("says when imports resolve to no file, only when there are some (#774)", () => {
+    const unresolvedImports = { count: 1, examples: [{ file: "src/loader.ts", specifier: "./gen" }], next: "Run the codegen." };
+    const md = formatOutput({ ...result, unresolvedImports }, "markdown", "check");
+    expect(md).toContain("**Unresolved imports:** 1 import of workspace files resolves to no file (e.g. src/loader.ts imports ./gen)");
+    expect(formatOutput({ ...result, unresolvedImports: { count: 0, examples: [] } }, "markdown", "check")).not.toContain("Unresolved imports");
+    expect(formatOutput(result, "markdown", "check")).not.toContain("Unresolved imports");
+  });
+
   it("counts the generated files left out in the summary, only when there are some (#743)", () => {
     const note = "2 generated file(s) left out (a graphql-codegen config writes them).";
     expect(formatOutput({ ...result, generatedFiles: 2 }, "markdown", "check")).toContain(`1 medium (only tests import them). ${note}`);

@@ -25,6 +25,7 @@ import type { GraphEdge } from '@/shared/graph-types';
 import { YIELD_INTERVAL_MS, yieldToEventLoop } from './utils/EventLoopYield';
 import { PathResolver } from './utils/PathResolver';
 import type { OutOfRootImports } from './utils/workspaceBoundary';
+import { nearestExistingDir, type UnresolvedImport } from './utils/unresolvedImports';
 
 // Some file systems store mtimes in whole seconds: an edit during indexing may predate its start by that much.
 const MTIME_GRANULARITY_MS = 2000;
@@ -634,6 +635,21 @@ export class Spider {
     missingFiles: string[];
   } | null> {
     return this.reverseIndexManager.validate(staleThreshold, filesOnDisk, filesToCheck);
+  }
+
+  /**
+   * Relative and alias imports of workspace files that resolve to no file (a generated file not built yet);
+   * null when the reverse index is off. Packages and imports of an existing non-source file are left out.
+   */
+  async getUnresolvedImports(): Promise<UnresolvedImport[] | null> {
+    const recorded = this.reverseIndexManager.getUnresolvedImports();
+    if (!recorded) return null;
+    const located = await Promise.all(recorded.map(async ({ sourcePath, specifier }) => {
+      const target = await this.resolver.localTargetOf(sourcePath, specifier);
+      if (!target || (await fs.stat(target).then((stat) => stat.isFile(), () => false))) return [];
+      return [{ importer: sourcePath, specifier, reach: nearestExistingDir(target, this.config.rootDir) }];
+    }));
+    return located.flat();
   }
 
   /** Imports the workspace-root boundary dropped from the reverse index; null when it is off. */

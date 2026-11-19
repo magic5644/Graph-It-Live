@@ -72,6 +72,17 @@ function bullets(entries: Array<[string, unknown]>): string[] {
   return shown.length === 0 ? [] : [...shown.map(([label, value]) => `- ${label}: ${markdownText(text(value))}`), ""];
 }
 
+/** Relative and alias imports resolving to no file (#774): the count, what to do and a few examples; nothing at 0. */
+function unresolvedImports(value: unknown): string[] {
+  const report = (value ?? {}) as Data;
+  if (typeof report.count !== "number" || report.count === 0) return [];
+  return [
+    `**Unresolved imports: ${report.count}.** Files they would import may be listed as unused. ${text(report.next)}`,
+    "",
+    ...table("Unresolved import examples", report.examples, ["file", "specifier"]),
+  ];
+}
+
 /** The rest of a paged result: what was left out and how to read it. */
 function continuation(data: Data): string[] {
   if (data.truncated !== true) return [];
@@ -143,6 +154,7 @@ const VIEWS: Record<string, View> = {
         ["Import references", stats.totalReferences],
         ["Imports leaving the workspace", d.outOfRootImports],
       ]),
+      ...unresolvedImports(d.unresolvedImports),
     ];
   },
   invalidate_files: (d) => [
@@ -253,6 +265,7 @@ const VIEWS: Record<string, View> = {
       ["By confidence", d.byConfidence],
       ["Partial (maxFiles reached)", d.truncated],
     ]),
+    ...unresolvedImports(d.unresolvedImports),
     ...table(
       "Unused exports",
       rows(d.entries).flatMap((entry) => rows(entry.unusedSymbols).map((symbol) => ({ file: entry.filePath, ...symbol }))),

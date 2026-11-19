@@ -230,5 +230,15 @@ describe("initReport", () => {
     expect(markdown).toContain("([diagram](folder-1-hub.svg))");
     expect(markdown).toContain("`hub/big.ts: lines unknown, 0 exports, low no-importer`");
   });
-});
 
+  it("says under the dead files that imports resolve to no file, with an example and what to do (#774)", () => {
+    const unresolvedImports = { count: 2, examples: [{ file: "src/loader.ts", specifier: "./gen" }], next: "Run the codegen." };
+    const text = renderInitText(result({ unresolvedImports }));
+    const markdown = renderInitMarkdown(result({ unresolvedImports }));
+
+    expect(text).toMatch(/ {2}Dead files: .*\n {2}Unresolved imports: 2 imports of workspace files resolve to no file \(e\.g\. src\/loader\.ts imports \.\/gen\)/);
+    expect(markdown).toContain("- Unresolved imports: 2 imports of workspace files resolve to no file");
+    expect(renderInitText(result({ unresolvedImports: { count: 0, examples: [] } }))).not.toContain("Unresolved imports");
+    expect(renderInitText(result())).not.toContain("Unresolved imports");
+  });
+});

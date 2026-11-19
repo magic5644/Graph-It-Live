@@ -291,6 +291,27 @@ export class PathResolver {
     return { path: kept, outsideRoot: candidate !== null && kept === null };
   }
 
+  /**
+   * Where a relative (`./x`, Python `.x`) or alias (tsconfig `paths`, package.json `#imports`) specifier points
+   * in the workspace, whether the file exists or not; null for a package, another language's module name, or a
+   * target outside the workspace. Tells an import that should resolve to a workspace file (a missing generated
+   * file) from a package left to node_modules.
+   */
+  async localTargetOf(currentFilePath: string, specifier: string): Promise<string | null> {
+    await this.ensureTsConfigLoaded();
+    // A bundler query (`./icon.svg?raw`) names the file before it.
+    const modulePath = specifier.split("?", 1)[0];
+    const target =
+      (this.isRelativePath(modulePath) ? path.resolve(path.dirname(currentFilePath), modulePath) : null) ??
+      (this.isPythonFile(currentFilePath) && this.isPythonRelativeImport(modulePath)
+        ? this.pythonRelativeTarget(currentFilePath, modulePath)
+        : null) ??
+      this.resolveAlias(modulePath) ??
+      (await this.resolveDynamicTsConfigAlias(currentFilePath, modulePath)) ??
+      (this.isSubpathImport(modulePath) ? await this.resolvePackageJsonImport(currentFilePath, modulePath) : null);
+    return target ? this.keepWithinWorkspace(normalizePath(path.resolve(target))) : null;
+  }
+
   private async resolveCandidate(
     currentFilePath: string,
     modulePath: string,
@@ -746,38 +767,38 @@ export class PathResolver {
     currentFilePath: string,
     modulePath: string,
   ): Promise<string | null> {
-    const currentDir = path.dirname(currentFilePath);
-    
-    // Count leading dots to determine relative level
-    let level = 0;
-    let moduleName = modulePath;
-    while (moduleName.startsWith('.')) {
-      level++;
-      moduleName = moduleName.substring(1);
-    }
-
-    // Navigate up 'level - 1' directories (one dot is current dir)
-    let targetDir = currentDir;
-    for (let i = 1; i < level; i++) {
-      targetDir = path.dirname(targetDir);
-    }
-
-    // If there's a module name after the dots, append it (`.pkg.mod` → pkg/mod)
-    if (moduleName) {
-      moduleName = moduleName.replaceAll('.', '/');
-      const moduleFilePath = path.join(targetDir, moduleName + '.py');
+    const target = this.pythonRelativeTarget(currentFilePath, modulePath);
+    if (target) {
+      const moduleFilePath = target + '.py';
       if (await this.fileExists(moduleFilePath)) {
         return normalizePath(moduleFilePath);
       }
       
       // Try __init__.py
-      const initPath = path.join(targetDir, moduleName, '__init__.py');
+      const initPath = path.join(target, '__init__.py');
       if (await this.fileExists(initPath)) {
         return normalizePath(initPath);
       }
     }
 
     return null;
+  }
+
+  /** The module a Python relative import names, without extension (`..pkg.mod` → ../pkg/mod); null for dots only. */
+  private pythonRelativeTarget(currentFilePath: string, modulePath: string): string | null {
+    // Count leading dots to determine relative level
+    let level = 0;
+    while (modulePath[level] === '.') level++;
+    const moduleName = modulePath.slice(level);
+    if (!moduleName) return null;
+
+    // Navigate up 'level - 1' directories (one dot is current dir)
+    let targetDir = path.dirname(currentFilePath);
+    for (let i = 1; i < level; i++) {
+      targetDir = path.dirname(targetDir);
+    }
+    // `.pkg.mod` → pkg/mod
+    return path.join(targetDir, ...moduleName.split('.'));
   }
 
   /**
