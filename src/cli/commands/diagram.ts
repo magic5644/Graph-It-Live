@@ -120,7 +120,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   const target = options.file === "-" ? undefined : resolveInWorkspace(workspaceRoot, options.file);
 
   await runtime.ensureIndexed();
-  const { markup, counts } = await renderWorkspaceDiagram(workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
+  const { markup, counts } = await renderWorkspaceDiagram(workspaceRoot, (filePath) => workerState.getSpider().analyzeFromIndex(filePath), {
     ...options,
     indexedAt: runtime.loadState()?.lastScanTimestamp,
   });

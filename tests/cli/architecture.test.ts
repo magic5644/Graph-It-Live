@@ -29,7 +29,7 @@ describe('architecture command', () => {
     mocks.executeAnalyzeDependencies.mockReset();
     // Same { dependencies } shape the analysis tool used to return, so the scenarios stay unchanged.
     vi.spyOn(workerState, 'getSpider').mockReturnValue({
-      analyze: async (filePath: string) => (await mocks.executeAnalyzeDependencies({ filePath })).dependencies,
+      analyzeFromIndex: async (filePath: string) => (await mocks.executeAnalyzeDependencies({ filePath })).dependencies,
     } as never);
   });
 

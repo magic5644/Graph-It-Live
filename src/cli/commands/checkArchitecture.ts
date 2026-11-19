@@ -112,7 +112,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   await runtime.ensureIndexed();
   const { workspaceRoot } = runtime;
   const graph = await runtime.progress.phase("Analyzing architecture", (onProgress) =>
-    buildArchitectureGraph(workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
+    buildArchitectureGraph(workspaceRoot, (filePath) => workerState.getSpider().analyzeFromIndex(filePath), {
       indexedAt: runtime.loadState()?.lastScanTimestamp,
       onProgress,
     }));

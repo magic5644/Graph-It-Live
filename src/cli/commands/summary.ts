@@ -26,7 +26,7 @@ function largest(counts: Map<string, number>): Array<[string, number]> {
 /** What the workspace holds, without a file argument: the overview `summary` promises, not the index status. */
 async function workspaceOverview(runtime: CliRuntime) {
   const { nodes, edges, scannedFiles, failedFiles } = await runtime.progress.phase("Analyzing workspace", (onProgress) =>
-    buildArchitectureGraph(runtime.workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
+    buildArchitectureGraph(runtime.workspaceRoot, (filePath) => workerState.getSpider().analyzeFromIndex(filePath), {
       indexedAt: runtime.loadState()?.lastScanTimestamp,
       onProgress,
     }));
