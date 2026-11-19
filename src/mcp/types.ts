@@ -1188,7 +1188,9 @@ export interface CrawlDependencyGraphResult {
   nodes: NodeInfo[];
   /** List of all edges (import relationships) */
   edges: EdgeInfo[];
-  /** Circular dependencies detected (if any) */
+  /** Number of circular dependencies in the whole crawl */
+  cycleCount: number;
+  /** Circular dependencies of this page: each cycle comes with the page of its last listed member */
   circularDependencies: string[][];
   /** Kind of each circular dependency, same order: `type-only` when every import closing it is type-only (#745) */
   cycleKinds: CycleKind[];
@@ -1196,8 +1198,8 @@ export interface CrawlDependencyGraphResult {
   nextOffset?: number;
   /** Set when a tokenBudget was applied: true if nodes or edges were cut */
   truncated?: boolean;
-  /** Nodes and edges of the page cut by the tokenBudget */
-  omitted?: { nodes: number; edges: number };
+  /** Nodes, edges and cycles of the page cut by the tokenBudget */
+  omitted?: { nodes: number; edges: number; cycles: number };
 }
 
 /**

@@ -13,7 +13,7 @@ import {
   buildNodeInfo,
   convertSpiderToLspFormat,
   detectCircularDependencies,
-  edgeOwners,
+  pageOwners,
   fitToTokenBudget,
   getRelativePath,
   mapKindToLspNumber,
@@ -259,31 +259,21 @@ describe("MCP Worker Helpers", () => {
     });
   });
 
-  describe("edgeOwners", () => {
+  describe("pageOwners", () => {
     it("gives each edge the page of its later listed end", () => {
-      const owners = edgeOwners(
-        ["A", "B", "C"],
-        [
-          { source: "A", target: "B" },
-          { source: "C", target: "A" },
-          { source: "B", target: "external" },
-        ],
-      );
-
-      expect(owners).toEqual([1, 2, 1]);
+      expect(pageOwners(["A", "B", "C"], [["A", "B"], ["C", "A"], ["B", "external"]])).toEqual([1, 2, 1]);
     });
 
-    it("puts an edge with no listed end on the first page", () => {
-      expect(edgeOwners(["A"], [{ source: "X", target: "Y" }])).toEqual([0]);
+    it("gives each cycle the page of its last listed member", () => {
+      expect(pageOwners(["A", "B", "C", "D"], [["B", "D", "A"], ["A", "C"], []])).toEqual([3, 2, 0]);
     });
 
-    it("matches Windows-style raw edge paths to normalized node paths", () => {
-      const owners = edgeOwners(
-        ["c:/repo/a.ts", "c:/repo/b.ts"],
-        [{ source: String.raw`C:\repo\b.ts`, target: String.raw`C:\repo\a.ts` }],
-      );
+    it("puts a group with no listed member on the first page", () => {
+      expect(pageOwners(["A"], [["X", "Y"]])).toEqual([0]);
+    });
 
-      expect(owners).toEqual([1]);
+    it("matches Windows-style raw paths to normalized node paths", () => {
+      expect(pageOwners(["c:/repo/a.ts", "c:/repo/b.ts"], [[String.raw`C:\repo\b.ts`, String.raw`C:\repo\a.ts`]])).toEqual([1]);
     });
   });
 

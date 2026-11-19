@@ -10,7 +10,7 @@ import {
     buildEdgeInfo,
     buildNodeInfo,
     detectCircularDependencies,
-    edgeOwners,
+    pageOwners,
     fitToTokenBudget,
     getRelativePath,
     updateNodeCounts,
@@ -129,7 +129,11 @@ export async function crawlDependencyGraph(
   const start = offset ?? 0;
   assertOffsetInRange(start, nodes.length, "nodes");
   const pageSize = Math.max(0, Math.min(nodes.length, limit === undefined ? nodes.length : start + limit) - start);
-  const owners = edgeOwners(nodes.map((node) => node.path), edges);
+  const nodePaths = nodes.map((node) => node.path);
+  const owners = pageOwners(nodePaths, edges.map((edge) => [edge.source, edge.target]));
+  // Cycles page like edges: on a large repository they outweigh a whole page of nodes.
+  const cycleOwners = pageOwners(nodePaths, circularDependencies);
+  const onPage = (end: number) => (_: unknown, index: number) => cycleOwners[index] >= start && cycleOwners[index] < end;
   const page = (count: number): CrawlDependencyGraphResult => {
     const end = start + count;
     return {
@@ -139,8 +143,9 @@ export async function crawlDependencyGraph(
       edgeCount: edges.length,
       nodes: nodes.slice(start, end),
       edges: edges.filter((_, index) => owners[index] >= start && owners[index] < end),
-      circularDependencies,
-      cycleKinds,
+      cycleCount: circularDependencies.length,
+      circularDependencies: circularDependencies.filter(onPage(end)),
+      cycleKinds: cycleKinds.filter(onPage(end)),
       // Partial whenever nodes remain after this page, cut by limit or by tokenBudget.
       truncated: end < nodes.length,
       ...(end < nodes.length ? { nextOffset: end } : {}),
@@ -156,6 +161,7 @@ export async function crawlDependencyGraph(
       omitted: {
         nodes: pageSize - count,
         edges: fullPage.edges.length - budgeted.edges.length,
+        cycles: fullPage.circularDependencies.length - budgeted.circularDependencies.length,
       },
     };
   }).result;
