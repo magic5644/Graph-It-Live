@@ -45,6 +45,46 @@ function packageName(packageJsonPath: string): string | undefined {
   }
 }
 
+/** The text of `file`, undefined when it cannot be read. */
+function readText(file: string): string | undefined {
+  try {
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return undefined;
+  }
+}
+
+/** The `name = "..."` of a TOML `[section]` (Cargo.toml `[package]`, pyproject.toml `[project]`). */
+function tomlName(text: string | undefined, section: string): string | undefined {
+  const body = text?.split(/^\[/m).find((part) => part.startsWith(`${section}]`));
+  return body?.match(/^[ \t]*name[ \t]*=[ \t]*["']([^"'\n]+)["']/m)?.[1];
+}
+
+/**
+ * The name a project folder's manifest gives it, as a reader of the project knows it: package.json `name`, the
+ * Maven `artifactId`, Cargo.toml `[package]` and pyproject.toml `[project]` (or Poetry) `name`, the Go module path,
+ * the .csproj file name. Text is only searched, nothing is executed. Undefined: the unit keeps its folder key.
+ * shortcut: Gradle names live in settings.gradle (`include`), not in the module; upgrade if Gradle units need names.
+ */
+function manifestName(folder: string): string | undefined {
+  const at = (file: string) => path.join(folder, file);
+  const pom = readText(at("pom.xml"))?.replaceAll(/<parent>[\s\S]*?<\/parent>|<!--[\s\S]*?-->/g, "");
+  const pyproject = readText(at("pyproject.toml"));
+  let csproj: string[] = [];
+  try {
+    csproj = fs.readdirSync(folder).filter((file) => file.endsWith(".csproj"));
+  } catch {
+    // Unreadable folder: no .csproj name.
+  }
+  const name = packageName(at("package.json"))
+    ?? pom?.match(/<artifactId>\s*([^<\s]+)\s*<\/artifactId>/)?.[1]
+    ?? tomlName(readText(at("Cargo.toml")), "package")
+    ?? tomlName(pyproject, "project") ?? tomlName(pyproject, "tool.poetry")
+    ?? readText(at("go.mod"))?.match(/^module[ \t]+(\S+)/m)?.[1]
+    ?? (csproj.length === 1 ? path.basename(csproj[0], ".csproj") : undefined);
+  return name?.trim() || undefined;
+}
+
 /** Parent folders of a workspace-relative file, deepest first ("a/b/c.ts" → "a/b", "a"). */
 function foldersOf(relativePath: string): string[] {
   const parts = relativePath.split("/").slice(0, -1);
@@ -70,7 +110,7 @@ export function assignUnits(workspaceRoot: string, files: readonly string[]): Un
     const unit = (hasProjects ? folders.find((folder) => isProject.get(folder)) : folders.at(-1)) ?? ROOT_UNIT;
     unitOf.set(relativePath, unit);
     if (!names.has(unit)) {
-      const name = unit !== ROOT_UNIT && hasProjects ? packageName(path.join(workspaceRoot, unit, "package.json")) : undefined;
+      const name = unit !== ROOT_UNIT && hasProjects ? manifestName(path.join(workspaceRoot, unit)) : undefined;
       names.set(unit, name ?? unit);
     }
   }

@@ -109,9 +109,36 @@ describe("assignUnits", () => {
       "services/README.py": ROOT_UNIT,
       "tools/x.py": ROOT_UNIT,
     });
-    // Only package.json carries a name; other manifests keep the folder key.
+    // A manifest without a name keeps the folder key.
     expect(names.get("apps/web")).toBe("@acme/web");
     expect(names.get("services/ml")).toBe("services/ml");
+    expect(names.get("services/billing")).toBe("Billing");
+  });
+
+  it("names a unit as its manifest does, in any language, and keeps the folder key otherwise", () => {
+    write("pom.xml", "<project><artifactId>acme-parent</artifactId></project>");
+    write("core/pom.xml", "<project>\n  <!-- <artifactId>commented</artifactId> -->\n  <parent>\n    <artifactId>acme-parent</artifactId>\n  </parent>\n  <artifactId> acme-core </artifactId>\n  <dependencies><dependency><artifactId>junit</artifactId></dependency></dependencies>\n</project>");
+    write("engine/Cargo.toml", "[workspace]\nname = \"no\"\n\n[package]\nversion = \"1.0\"\nname = \"acme-engine\"\n");
+    write("ml/pyproject.toml", "[build-system]\nrequires = []\n[project]\nname = 'acme-ml'\n");
+    write("legacy/pyproject.toml", "[tool.poetry]\nname = \"acme-legacy\"\n");
+    write("gateway/go.mod", "// gateway\nmodule github.com/acme/gateway\n\ngo 1.22\n");
+    write("multi/A.csproj");
+    write("multi/B.csproj");
+    write("app/build.gradle", "plugins {}\n");
+    write("blank/package.json", manifest("  "));
+    const units = ["core", "engine", "ml", "legacy", "gateway", "multi", "app", "blank"];
+    const { names } = assignUnits(root, units.map((unit) => `${unit}/src/X.java`));
+    expect(Object.fromEntries(names)).toEqual({
+      core: "acme-core",
+      engine: "acme-engine",
+      ml: "acme-ml",
+      legacy: "acme-legacy",
+      gateway: "github.com/acme/gateway",
+      // Two .csproj files, a Gradle module, a blank name: the folder key.
+      multi: "multi",
+      app: "app",
+      blank: "blank",
+    });
   });
 
   it("still uses the top-level folders when the only manifest is at the root, a Python one too", () => {
