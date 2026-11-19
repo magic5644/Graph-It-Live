@@ -807,9 +807,8 @@ export function renderCliOutput(
   format: CliOutputFormat,
   workspaceRoot: string,
 ): string {
-  // TOON is the token-optimized format, so the repeated workspace root — noise
-  // no model can use — is dropped there. `json` is a stable contract for
-  // scripts and keeps absolute paths.
-  const rendered = format === "toon" ? relativizeWorkspacePaths(output, workspaceRoot) : output;
+  // Workspace-relative paths, as the MCP tools return them (#769): the root
+  // repeated on every row is noise, and one path form serves both surfaces.
+  const rendered = format === "toon" || format === "json" ? relativizeWorkspacePaths(output, workspaceRoot) : output;
   return rendered.endsWith("\n") ? rendered : `${rendered}\n`;
 }

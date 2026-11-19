@@ -782,10 +782,8 @@ describe("renderCliOutput", () => {
     expect(renderCliOutput(row, "toon", "/repo")).toBe("[src/a.ts:A:3,A,class,src/a.ts,3,0]\n");
   });
 
-  it("leaves json output absolute, since scripts depend on it", () => {
-    const json = '{"filePath":"/repo/src/a.ts"}';
-
-    expect(renderCliOutput(json, "json", "/repo")).toBe(`${json}\n`);
+  it("makes json paths workspace-relative, like the MCP tools (#769)", () => {
+    expect(renderCliOutput('{"filePath":"/repo/src/a.ts","root":"/repo"}', "json", "/repo")).toBe('{"filePath":"src/a.ts","root":"."}\n');
   });
 
   it("leaves the other formats untouched", () => {
