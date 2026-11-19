@@ -8,6 +8,7 @@ import { viewArchitecture, type UnitSource } from "@/analyzer/architecture/archi
 import {
   architectureDiagramInput,
   fitLabel,
+  fitName,
   layoutDiagram,
   drawnKinds,
   legendLayout,
@@ -633,5 +634,42 @@ describe("diagram labels and strokes", () => {
 
   it("widens strokes with the file pairs, up to the cap", () => {
     expect([0, 1, 2, 4, 16, 10_000].map(strokeWidth)).toEqual([1, 1, 1.5, 2, 3, SIZES.maxStroke]);
+  });
+});
+
+describe("unit names sharing a long prefix (#774)", () => {
+  // Four packages of one scope whose names differ only past the 32-character label width, keyed by folder.
+  const names = ["access-rights-1", "access-rights-11", "access-rights-21", "accounting-declaration-2"]
+    .map((tail, index) => ({ key: `packages/unit-${index}`, label: `@acme-platform/document-${tail}` }));
+  const longPrefix = (): DiagramInput => ({
+    ...input(names.map(({ key }, index) => [key, index % 2, 3])),
+    nodes: names.map(({ key, label }, index) => ({ key, label, layer: index % 2, fileCount: 3 })),
+  });
+  /** Each drawn label with the title of its group: [label text, title]. */
+  const labelled = (svg: string, prefix: RegExp) =>
+    [...svg.matchAll(/<g><title>([^<]*)<\/title>(?:<rect[^>]*\/>)?<text class="label"[^>]*>([^<]*)<\/text>/g)].map((match) => [match[2].replace(prefix, ""), match[1]]);
+
+  it("cuts a name in the middle, keeping its distinct end, within the width", () => {
+    expect(fitName("short")).toBe("short");
+    const cut = fitName("@acme-platform/document-access-rights-11");
+    expect(cut).toBe("@acme-plat…ment-access-rights-11");
+    expect([...cut]).toHaveLength(SIZES.maxLabelChars);
+    // Wide characters count two cells.
+    expect(textWidth(fitName("文".repeat(40), 12), 10)).toBeLessThanOrEqual(textWidth("x".repeat(12), 10));
+    expect(fitName("<b>&\u0007", 32)).not.toContain("\u0007");
+  });
+
+  it("draws distinct labels in units.svg and matrix.svg, each with its full name and folder in a title", async () => {
+    const units = labelled(renderDiagramSvg(await layoutDiagram(longPrefix())), /^/);
+    const matrix = labelled(renderDiagramSvg(layoutMatrix(longPrefix())), /^\d+ /);
+    for (const drawn of [units, matrix]) {
+      expect(drawn).toHaveLength(names.length);
+      expect(new Set(drawn.map(([label]) => label)).size).toBe(names.length);
+      for (const { key, label } of names) {
+        const [text, title] = drawn.find(([, entry]) => entry.startsWith(`${label} (${key})`))!;
+        expect(text).toContain("…");
+        expect(label.endsWith(text.split("…")[1])).toBe(true);
+      }
+    }
   });
 });
