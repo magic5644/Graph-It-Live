@@ -84,7 +84,8 @@ export function getRelativePath(absolutePath: string, workspaceRoot: string): st
  * messages): paths are workspace-relative on every surface (#769).
  */
 export function relativizeWorkspacePaths(output: string, workspaceRoot: string): string {
-  const normalizedRoot = normalizePath(workspaceRoot).replace(/\/+$/, "");
+  let normalizedRoot = normalizePath(workspaceRoot);
+  while (normalizedRoot.endsWith("/")) normalizedRoot = normalizedRoot.slice(0, -1);
   // A filesystem root ("/", "c:/") would turn every absolute path, or every "/", into noise.
   if (/^(?:[a-z]:)?$/i.test(normalizedRoot)) {
     return output;
