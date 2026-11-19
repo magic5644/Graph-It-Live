@@ -31,6 +31,7 @@ import { mapWithConcurrency } from "@/shared/concurrency";
 import { getLogger } from "@/shared/logger";
 import { assertOffsetInRange } from "@/shared/paging";
 import { normalizePath } from "@/shared/path";
+import type { Database } from "sql.js";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { fitToTokenBudget } from "../shared/helpers";
@@ -430,8 +431,16 @@ export async function executeQueryCallGraph(
   if (!indexer) {
     throw new Error("Call graph indexer not initialized");
   }
-  const db = indexer.getDb();
-  const indexTimeMs = Date.now() - startTime;
+  return queryCallGraphInDb(indexer.getDb(), workerState.config?.rootDir ?? "", params, Date.now() - startTime);
+}
+
+/** query_call_graph on an open call graph, shared by the MCP tool and its VS Code language model tool. */
+export function queryCallGraphInDb(
+  db: Database,
+  rootDir: string,
+  params: QueryCallGraphParams,
+  indexTimeMs = 0,
+): QueryCallGraphResult {
 
   const direction = params.direction ?? "both";
   const depth = params.depth ?? 2;
@@ -441,12 +450,12 @@ export async function executeQueryCallGraph(
 
   const lookup = lookupCallGraphSymbol(db, {
     ...params,
-    symbolId: toIndexedSymbolId(params.symbolId, params.filePath, workerState.config?.rootDir),
+    symbolId: toIndexedSymbolId(params.symbolId, params.filePath, rootDir),
   });
   if (lookup.symbol === null && lookup.reason === "not_found") {
     // A missing symbol is an error with the closest names, like trace and impact.
     const names = symbolNamesInFile(db, params.filePath);
-    const label = normalizePath(path.relative(workerState.config?.rootDir ?? "", params.filePath));
+    const label = normalizePath(path.relative(rootDir, params.filePath));
     throw new Error(symbolNotFoundMessage(params.symbolName, label, closestNames(names, params.symbolName)));
   }
   if (lookup.symbol === null) {

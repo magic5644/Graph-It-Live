@@ -21,6 +21,8 @@ const { registeredTools, registerToolFn } = vi.hoisted(() => {
 
 const executeGraphContextWithIndexes = vi.hoisted(() => vi.fn());
 const exportArchitectureDiagram = vi.hoisted(() => vi.fn());
+const queryCallGraphInDb = vi.hoisted(() => vi.fn());
+const crawlDependencyGraph = vi.hoisted(() => vi.fn());
 const { reviewAnalyze, reviewGateCtor, queryEngineQuery, queryEngineCtor } = vi.hoisted(() => ({
   reviewAnalyze: vi.fn(),
   reviewGateCtor: vi.fn(),
@@ -50,6 +52,7 @@ vi.mock('vscode', () => {
     },
     workspace: {
       workspaceFolders: [{ uri: { fsPath: '/workspace' } }],
+      getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }),
     },
     LanguageModelTextPart,
     LanguageModelToolResult,
@@ -106,6 +109,8 @@ vi.mock('@/shared/path', async (importOriginal) => ({
 
 vi.mock('../../../src/mcp/tools/graphContext.js', () => ({ executeGraphContextWithIndexes }));
 vi.mock('../../../src/mcp/tools/architecture.js', () => ({ exportArchitectureDiagram }));
+vi.mock('../../../src/mcp/tools/callgraph.js', () => ({ queryCallGraphInDb }));
+vi.mock('../../../src/mcp/tools/graph.js', () => ({ crawlDependencyGraph }));
 
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn().mockRejectedValue(Object.assign(new Error('ENOENT'), { code: 'ENOENT' })),
@@ -197,6 +202,8 @@ describe('LmToolsService', () => {
     registeredTools.clear();
     registerToolFn.mockClear();
     executeGraphContextWithIndexes.mockReset();
+    queryCallGraphInDb.mockReset();
+    crawlDependencyGraph.mockReset();
     vi.mocked(fsPromises.readFile).mockRejectedValue(
       Object.assign(new Error('ENOENT'), { code: 'ENOENT' }),
     );
@@ -1072,6 +1079,8 @@ describe('LmToolsService', () => {
 
   describe('query_call_graph', () => {
     const TOOL = 'graph-it-live_query_call_graph';
+    const db = { exec: vi.fn() };
+    const withIndex = () => createProvider({ callGraphService: { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue({ getDb: () => db }) } });
 
     it('returns error when call graph index is not available', async () => {
       const provider = createProvider({ callGraphService: null });
@@ -1085,141 +1094,32 @@ describe('LmToolsService', () => {
       expect(result).toMatchObject({ error: expect.stringContaining('Call graph index not available') });
     });
 
-    it('fails on a symbol missing from the DB, like the MCP tool (#769)', async () => {
-      const mockDb = { exec: vi.fn().mockReturnValue([]) };
-      const mockIndexer = { getDb: vi.fn().mockReturnValue(mockDb) };
-      const mockCallGraphService = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue(mockIndexer) };
+    it('answers with the MCP query on the live call graph: same lookup, defaults and paging (#769)', async () => {
+      const answer = { symbol: { id: 'src/a.ts:myFn:1', name: 'myFn' }, callers: [], callees: [], totalCallers: 0, totalCallees: 0, depth: 2, direction: 'both' };
+      queryCallGraphInDb.mockReturnValueOnce(answer);
+      new LmToolsService({ provider: withIndex(), logger }).registerAll();
 
-      const provider = createProvider({ callGraphService: mockCallGraphService });
-      new LmToolsService({ provider, logger }).registerAll();
+      const result = await invokeTool(TOOL, { filePath: 'src/a.ts', symbolName: 'myFn', offset: 2, tokenBudget: 500 });
 
-      const result = await invokeTool(TOOL, {
-        filePath: '/workspace/src/a.ts',
-        symbolName: 'unknownFn',
+      expect(queryCallGraphInDb).toHaveBeenCalledWith(db, '/workspace', {
+        filePath: expect.stringMatching(/\/workspace\/src\/a\.ts$/), symbolName: 'myFn', offset: 2, tokenBudget: 500,
       });
-
-      expect(result).toEqual({ error: "Symbol 'unknownFn' not found in src/a.ts. No symbol with a similar name is declared in this file." });
+      expect(result).toEqual(answer);
     });
 
-    describe('exact selector', () => {
-      const rowAt = (line: number) => [`/workspace/src/a.ts:compute:${line}`, 'compute', 'method', 'typescript', '/workspace/src/a.ts', line, line + 2, 0];
+    it('returns the query error, a missing symbol among them, as a tool error', async () => {
+      queryCallGraphInDb.mockImplementationOnce(() => { throw new Error("Symbol 'gone' not found in src/a.ts."); });
+      new LmToolsService({ provider: withIndex(), logger }).registerAll();
 
-      function setup(exec: ReturnType<typeof vi.fn>) {
-        const mockIndexer = { getDb: vi.fn().mockReturnValue({ exec }) };
-        const mockCallGraphService = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue(mockIndexer) };
-        new LmToolsService({ provider: createProvider({ callGraphService: mockCallGraphService }), logger }).registerAll();
-      }
-
-      it('reports ambiguity with candidates for a shared bare name', async () => {
-        setup(vi.fn().mockReturnValue([{ values: [rowAt(1), rowAt(5)] }]));
-        const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'compute' }) as Record<string, unknown>;
-        expect(result).toMatchObject({ symbol: null, reason: 'ambiguous', totalCallers: 0 });
-        expect(result.candidates).toHaveLength(2);
-      });
-
-      it('passes symbolId and startLine as SQL parameters, never inline', async () => {
-        const exec = vi.fn().mockReturnValueOnce([{ values: [rowAt(5)] }]).mockReturnValue([{ values: [] }]);
-        setup(exec);
-        const result = await invokeTool(TOOL, {
-          filePath: '/workspace/src/a.ts', symbolName: 'compute', symbolId: "x' OR '1'='1", startLine: 5,
-        }) as Record<string, unknown>;
-        expect(result.symbol).toMatchObject({ startLine: 5 });
-        const [sql, params] = exec.mock.calls[0];
-        expect(sql).not.toContain('OR \'1\'');
-        // Windows resolves the workspace path against a drive letter
-        expect(params).toEqual([expect.stringMatching(/\/workspace\/src\/a\.ts$/), 'compute', "x' OR '1'='1", 5]);
-      });
-
-      it('reports a stale selector when the name exists but the selector misses', async () => {
-        setup(vi.fn().mockReturnValueOnce([]).mockReturnValueOnce([{ values: [rowAt(1), rowAt(5)] }]));
-        const result = await invokeTool(TOOL, {
-          filePath: '/workspace/src/a.ts', symbolName: 'compute', startLine: 42,
-        }) as Record<string, unknown>;
-        expect(result).toMatchObject({ symbol: null, reason: 'stale_selector' });
-        expect(result.candidates).toHaveLength(2);
-      });
-
-      it('fails on a deleted symbol with a selector (#769)', async () => {
-        setup(vi.fn().mockReturnValue([]));
-        const result = await invokeTool(TOOL, {
-          filePath: '/workspace/src/a.ts', symbolName: 'gone', symbolId: '/workspace/src/a.ts:gone:3',
-        });
-        expect(result).toEqual({ error: expect.stringContaining("Symbol 'gone' not found in src/a.ts.") });
-      });
+      expect(await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'gone' })).toEqual({ error: "Symbol 'gone' not found in src/a.ts." });
     });
 
-    it('returns symbol info and BFS results when symbol is found', async () => {
-      const symbolRow = ['sym1', 'myFn', 'function', 'typescript', '/workspace/src/a.ts', 10, 20, 1];
-      const edgeRow = ['sym2', 'sym1', 'call', 0, 15, 'caller', '/workspace/src/b.ts', 'myFn', '/workspace/src/a.ts'];
+    it('refuses a parameter the MCP tool does not take before querying', async () => {
+      new LmToolsService({ provider: withIndex(), logger }).registerAll();
 
-      const mockDb = {
-        exec: vi.fn()
-          // First call: SELECT symbol by path + name
-          .mockReturnValueOnce([{ values: [symbolRow] }])
-          // Second call: BFS callers (depth 1, finding sym2 → sym1)
-          .mockReturnValueOnce([{ values: [edgeRow] }])
-          // Third call: BFS callees
-          .mockReturnValueOnce([{ values: [] }])
-          // Remaining BFS iterations: no more edges
-          .mockReturnValue([{ values: [] }]),
-      };
-      const mockIndexer = { getDb: vi.fn().mockReturnValue(mockDb) };
-      const mockCallGraphService = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue(mockIndexer) };
-
-      const provider = createProvider({ callGraphService: mockCallGraphService });
-      new LmToolsService({ provider, logger }).registerAll();
-
-      const result = await invokeTool(TOOL, {
-        filePath: '/workspace/src/a.ts',
-        symbolName: 'myFn',
-        direction: 'both',
-        depth: 1,
-      }) as Record<string, unknown>;
-
-      expect(result.symbol).toMatchObject({
-        id: 'sym1',
-        name: 'myFn',
-        type: 'function',
-        lang: 'typescript',
-      });
-      expect(result.totalCallers).toBe(1);
-      expect(result.totalCallees).toBe(0);
-      expect(result.direction).toBe('both');
-      expect(result.depth).toBe(1);
-    });
-
-    it('queries only callers when direction is "callers"', async () => {
-      const symbolRow = ['sym1', 'myFn', 'function', 'typescript', '/workspace/src/a.ts', 1, 5, 1];
-
-      const mockDb = {
-        exec: vi.fn()
-          .mockReturnValueOnce([{ values: [symbolRow] }]) // symbol lookup
-          .mockReturnValue([{ values: [] }]),              // BFS callers (empty)
-      };
-      const mockIndexer = { getDb: vi.fn().mockReturnValue(mockDb) };
-      const mockCallGraphService = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue(mockIndexer) };
-
-      const provider = createProvider({ callGraphService: mockCallGraphService });
-      new LmToolsService({ provider, logger }).registerAll();
-
-      const result = await invokeTool(TOOL, {
-        filePath: '/workspace/src/a.ts',
-        symbolName: 'myFn',
-        direction: 'callers',
-      }) as Record<string, unknown>;
-
-      expect(result.direction).toBe('callers');
-      expect(result.callees).toEqual([]);
-    });
-
-    it('returns the database error as a tool error', async () => {
-      const exec = vi.fn().mockImplementation(() => { throw new Error('db closed'); });
-      const service = { getCallGraphIndexerForLmTools: vi.fn().mockReturnValue({ getDb: () => ({ exec }) }) };
-      new LmToolsService({ provider: createProvider({ callGraphService: service }), logger }).registerAll();
-
-      const result = await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'myFn' });
-
-      expect(result).toEqual({ error: 'db closed' });
+      expect(await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'f', bogus: 1 }))
+        .toEqual({ error: expect.stringContaining('Unknown parameter "bogus".') });
+      expect(queryCallGraphInDb).not.toHaveBeenCalled();
     });
   });
 
@@ -1260,7 +1160,8 @@ describe('LmToolsService', () => {
     expect(result).toEqual({ error: 'No workspace open or dependency index not initialized.' });
   });
 
-  it.each(spiderTools)('%s returns the analyzer failure as a tool error', async (tool, input) => {
+  // crawl runs the MCP crawl, mocked in its own describe.
+  it.each(spiderTools.filter(([tool]) => tool !== 'graph-it-live_crawl_dependency_graph'))('%s returns the analyzer failure as a tool error', async (tool, input) => {
     const fail = () => Promise.reject(new Error('analyzer failed'));
     const spider = {
       findReferencingFilesThroughBarrels: fail, analyze: fail, crawl: fail, getSymbolGraph: fail,
@@ -1286,12 +1187,21 @@ describe('LmToolsService', () => {
     expect(await invokeTool('graph-it-live_find_referencing_files', { targetPath: A })).toEqual({ error: 'plain failure' });
   });
 
-  it('rejects a relative input path before calling the analyzer', async () => {
+  it('resolves a workspace-relative input path against the workspace, like the MCP tools (#769)', async () => {
+    const spider = { analyze: vi.fn().mockResolvedValue([]) };
+    new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
+
+    await invokeTool('graph-it-live_analyze_dependencies', { filePath: 'src/a.ts' });
+
+    expect(spider.analyze).toHaveBeenCalledWith(path.resolve('/workspace', 'src/a.ts'));
+  });
+
+  it('refuses a relative input path that leaves the workspace', async () => {
     const spider = { analyze: vi.fn() };
     new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
     const handler = registeredTools.get('graph-it-live_analyze_dependencies');
 
-    await expect(handler?.invoke(makeOptions({ filePath: 'src/a.ts' }), fakeToken)).rejects.toThrow('absolute path');
+    await expect(handler?.invoke(makeOptions({ filePath: '../outside.ts' }), fakeToken)).rejects.toThrow('inside an open workspace folder');
     expect(spider.analyze).not.toHaveBeenCalled();
   });
 
@@ -1393,25 +1303,32 @@ describe('LmToolsService', () => {
   describe('crawl_dependency_graph', () => {
     const TOOL = 'graph-it-live_crawl_dependency_graph';
 
-    it('returns nodes and edges with relative paths and forwards maxDepth', async () => {
-      const crawl = vi.fn().mockResolvedValue({ nodes: [A, B], edges: [{ source: A, target: B }] });
-      new LmToolsService({ provider: createProvider({ spider: { crawl } }), logger }).registerAll();
+    it('answers with the MCP crawl on the live spider: same paging, budget and usage filter (#769)', async () => {
+      const spider = { crawl: vi.fn() };
+      const answer = { entryFile: A, nodeCount: 2, edgeCount: 1, nodes: [], edges: [], truncated: true, nextOffset: 1 };
+      crawlDependencyGraph.mockResolvedValueOnce(answer);
+      new LmToolsService({ provider: createProvider({ spider }), logger }).registerAll();
 
-      const result = await invokeTool(TOOL, { entryFile: A, maxDepth: 2 });
+      const result = await invokeTool(TOOL, { entryFile: A, maxDepth: 2, limit: 1, communityMode: 'louvain' });
 
-      expect(crawl).toHaveBeenCalledWith(path.resolve(A), { maxDepth: 2, signal: expect.any(AbortSignal) });
-      expect(result).toEqual({
-        entryFile: 'src/a.ts',
-        nodeCount: 2,
-        edgeCount: 1,
-        nodes: [{ path: 'src/a.ts', relativePath: 'src/a.ts' }, { path: 'src/b.ts', relativePath: 'src/b.ts' }],
-        edges: [{ source: 'src/a.ts', target: 'src/b.ts', sourceRelative: 'src/a.ts', targetRelative: 'src/b.ts' }],
-      });
+      expect(crawlDependencyGraph).toHaveBeenCalledWith(
+        { spider, rootDir: '/workspace', maxDepth: 50 },
+        { entryFile: path.resolve(A), maxDepth: 2, limit: 1, communityMode: 'louvain', tokenBudget: 4000 },
+        expect.any(AbortSignal),
+      );
+      expect(result).toMatchObject({ entryFile: 'src/a.ts', truncated: true, nextOffset: 1 });
+    });
+
+    it('returns the crawl failure as a tool error', async () => {
+      crawlDependencyGraph.mockRejectedValueOnce(new Error('File not found: src/a.ts'));
+      new LmToolsService({ provider: createProvider({ spider: { crawl: vi.fn() } }), logger }).registerAll();
+
+      expect(await invokeTool(TOOL, { entryFile: A })).toEqual({ error: 'File not found: src/a.ts' });
     });
 
     it('turns an aborted crawl into a cancellation', async () => {
-      const crawl = vi.fn().mockRejectedValue(Object.assign(new Error('aborted'), { name: 'AbortError' }));
-      new LmToolsService({ provider: createProvider({ spider: { crawl } }), logger }).registerAll();
+      crawlDependencyGraph.mockRejectedValueOnce(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+      new LmToolsService({ provider: createProvider({ spider: { crawl: vi.fn() } }), logger }).registerAll();
 
       await expect(registeredTools.get(TOOL)?.invoke(makeOptions({ entryFile: A }), fakeToken))
         .rejects.toBeInstanceOf(vscode.CancellationError);
@@ -1609,7 +1526,7 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool(TOOL, { filePaths: Array.from({ length: 10_001 }, () => A) });
 
-      expect(result).toEqual({ error: 'At most 10000 files can be invalidated per invocation; use rebuild_index for the whole workspace.' });
+      expect(result).toEqual({ error: '"filePaths" must be at most 10000 items; got 10001 items.' });
       expect(invalidateFile).not.toHaveBeenCalled();
     });
   });
@@ -1734,7 +1651,7 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool('graph-it-live_scan_dead_code', { maxFiles });
 
-      expect(result).toEqual({ error: expect.stringMatching(/^maxFiles: /) });
+      expect(result).toEqual({ error: expect.stringMatching(/^"maxFiles" must be /) });
       expect(scanDeadCode).not.toHaveBeenCalled();
     });
 

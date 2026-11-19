@@ -95,7 +95,8 @@ function issueMessage(issue: Issue, known: readonly string[]): string {
   }
   const expected = expectation(issue);
   if (expected === undefined) return name === "" ? issue.message : `"${name}": ${issue.message}`;
-  const got = input === undefined ? "" : `; got ${shown(input)}`;
+  const sized = Array.isArray(input) && (issue.code === "too_big" || issue.code === "too_small");
+  const got = input === undefined ? "" : `; got ${sized ? `${input.length} items` : shown(input)}`;
   return `${name === "" ? "Parameters" : `"${name}"`} must be ${expected}${got}.`;
 }
 
