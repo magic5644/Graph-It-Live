@@ -8,6 +8,7 @@ import { FileReader } from "../FileReader";
 import { Dependency, ILanguageAnalyzer, SpiderError } from "../types";
 import { extractFilePath } from "../utils/PathExtractor";
 import { ReportReads } from "../utils/ReportReads";
+import { createIgnoreMatcher, shouldSkipDirectory } from "../SourceFileFilters";
 import { WasmParserFactory } from "./WasmParserFactory";
 
 /** A listed .java file: normalized path, and its depth below the workspace root (1 = in the root). */
@@ -271,6 +272,8 @@ export class JavaParser implements ILanguageAnalyzer {
     /** Every .java file below the root (no symbolic link followed, so all inside it), shallowest first. */
     private async listJavaFiles(): Promise<Map<string, JavaFile[]>> {
         const byName = new Map<string, JavaFile[]>();
+        // The files the index reads: build outputs and ignored folders hold copies that must not win (#774).
+        const isIgnored = createIgnoreMatcher(this.root());
         const walk = async (dir: string, depth: number): Promise<void> => {
             let entries: Dirent[];
             try {
@@ -280,9 +283,10 @@ export class JavaParser implements ILanguageAnalyzer {
             }
             await Promise.all(entries.map(async (entry) => {
                 const file = this.under(dir, entry.name);
-                if (entry.isDirectory() && !entry.name.startsWith('.') && entry.name !== 'node_modules') {
+                const relative = path.relative(this.root(), file);
+                if (entry.isDirectory() && !shouldSkipDirectory(entry.name, true) && !isIgnored(relative, true)) {
                     await walk(file, depth + 1);
-                } else if (entry.isFile() && entry.name.endsWith('.java')) {
+                } else if (entry.isFile() && entry.name.endsWith('.java') && !isIgnored(relative, false)) {
                     const files = byName.get(entry.name) ?? [];
                     files.push({ file, depth });
                     byName.set(entry.name, files);
