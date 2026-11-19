@@ -143,7 +143,11 @@ export class JavaParser implements ILanguageAnalyzer {
      * package wildcards, lower-case class names, and packages the workspace lacks. A static import or a nested class
      * names its top-level class file.
      */
-    async localTargetOf(fromFile: string, moduleSpecifier: string, reads = new ReportReads()): Promise<string | null> {
+    localTargetOf(fromFile: string, moduleSpecifier: string, reads = new ReportReads()): Promise<string | null> {
+        return Promise.resolve(this.localTargetSync(fromFile, moduleSpecifier, reads));
+    }
+
+    private localTargetSync(fromFile: string, moduleSpecifier: string, reads: ReportReads): string | null {
         const segments = this.classSegments(moduleSpecifier);
         // A class name starts upper case; a lower-case last segment is a package (`a.b.util`).
         if (!segments || segments.length < 2 || !/^[A-Z]/.test(segments.at(-1) ?? '')) {
