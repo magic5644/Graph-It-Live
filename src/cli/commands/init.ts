@@ -275,13 +275,16 @@ async function deadCodeFiles(workspaceRoot: string, progress: CliProgress, focus
       ...(via ? { via } : {}),
       ...(tests ? { tests: await Promise.all(tests.map(async (test) => ({ relativePath: test, lines: await lineCount(workspaceRoot, test) }))) } : {}),
     }))),
+    unresolvedImports: unreferenced.unresolvedImports,
   };
 }
 
 export async function run(args: string[], runtime: CliRuntime, format: CliOutputFormat, io: InitIo = terminalIo): Promise<string> {
   const flags = readFlags(args, format);
   const { workspaceRoot } = runtime;
-  const outputDir = flags.output === undefined || flags.dryRun ? undefined : readOutputDir(workspaceRoot, flags.output);
+  // Checked on a dry run too, which writes nothing: an outside path fails the same way with or without it.
+  const requestedDir = flags.output === undefined ? undefined : readOutputDir(workspaceRoot, flags.output);
+  const outputDir = flags.dryRun ? undefined : requestedDir;
   const current = await readCurrentFiles(workspaceRoot);
 
   await runtime.ensureIndexed();
@@ -304,7 +307,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     ? await writeRulesFiles(workspaceRoot, current, `${JSON.stringify(config, null, 2)}\n`, formatBaseline(baseline), baseline.length === 0)
     : [];
 
-  const deadCode = await deadCodeFiles(workspaceRoot, runtime.progress, focus?.files);
+  const { unresolvedImports, ...deadCode } = await deadCodeFiles(workspaceRoot, runtime.progress, focus?.files);
   const assessment = await runtime.progress.phase("Assessing architecture", () => assessArchitecture({
     graph,
     units,
@@ -330,6 +333,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     guard: GUARD_SNIPPETS,
     assessment,
     diagrams,
+    ...(unresolvedImports ? { unresolvedImports } : {}),
   };
   if (outputDir !== undefined) {
     const page = path.posix.join(outputDir, "index.html");

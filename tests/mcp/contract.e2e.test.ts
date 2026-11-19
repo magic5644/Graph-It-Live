@@ -216,4 +216,25 @@ describe.skipIf(!distExists)("MCP user contract (E2E)", { timeout: TIMEOUT_MS },
     expect(page.pagination).toMatchObject({ hasMore: true });
     expectReadableError(await call("crawl_dependency_graph", { entryFile: "src/a.ts", offset: 99 }), "offset 99 is past the end: 3 nodes, last offset 2.");
   });
+
+  // #774, last: it moves the session to another workspace. MCP and CLI count the same unresolved imports.
+  it("reports an import resolving to no file like the CLI, in scan_dead_code and get_index_status", async () => {
+    const fixture = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-mcp-unresolved-")));
+    try {
+      fs.cpSync(path.join(REPO_ROOT, "tests/fixtures/unresolved-generated-import"), fixture, { recursive: true });
+      const cli = spawnSync(process.execPath, [DIST_ENTRY, "check", "--unreferencedFiles", "--format", "json"], { cwd: fixture, encoding: "utf-8" });
+      const expected = JSON.parse(cli.stdout).unresolvedImports;
+      expect(expected.count).toBe(1);
+
+      expect((await call("set_workspace", { workspacePath: fixture })).isError).toBeFalsy();
+      const data = async (tool: string, args: Args) => JSON.parse((await call(tool, { ...args, response_format: "json" })).content[0].text).data;
+      const files = await data("scan_dead_code", { unreferencedFiles: true });
+      expect(files.unresolvedImports).toEqual(expected);
+      expect(files.unreferencedFiles.every((file: { reasons: string[] }) => file.reasons.includes("unresolved-import-in-workspace"))).toBe(true);
+      expect((await data("get_index_status", {})).unresolvedImports).toEqual(expected);
+      expect((await call("scan_dead_code", { unreferencedFiles: true, response_format: "markdown" })).content[0].text).toContain("**Unresolved imports: 1.**");
+    } finally {
+      fs.rmSync(fixture, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  });
 });

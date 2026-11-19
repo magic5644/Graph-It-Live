@@ -18,6 +18,7 @@ import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import { DEAD_CODE_CONFIDENCES, type DeadCodeConfidence, type UnusedSymbol } from "../analyzer/deadcode/deadCodeConfidence";
 import type { OutOfRootReport } from "../analyzer/utils/workspaceBoundary";
+import type { UnresolvedImportsReport } from "../analyzer/utils/unresolvedImports";
 import { parseToolParams } from "./paramIssues";
 import { closestPathsHint } from "../analyzer/utils/SymbolLookup";
 import {
@@ -1325,6 +1326,8 @@ export interface SetWorkspaceResult {
  * Result of get_index_status tool
  */
 export interface GetIndexStatusResult extends OutOfRootReport {
+  /** Relative and alias imports resolving to no file (absent when the reverse index is off) */
+  unresolvedImports?: UnresolvedImportsReport;
   /** Current indexing state */
   state: "idle" | "counting" | "indexing" | "complete" | "error";
   /** Whether the index is ready for queries */
@@ -1836,6 +1839,8 @@ export interface ScanDeadCodeResult {
   truncated: boolean;
   /** Analysable files left out by maxFiles */
   filesBeyondLimit: number;
+  /** Relative and alias imports resolving to no file: the files they would import look unused (absent when not tracked) */
+  unresolvedImports?: UnresolvedImportsReport;
   /** Total analysis time in milliseconds */
   analysisTimeMs: number;
 }

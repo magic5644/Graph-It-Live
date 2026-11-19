@@ -8,6 +8,7 @@
  */
 
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
+import { unresolvedImportsField } from "../../analyzer/utils/unresolvedImports.js";
 import { workerState } from "../../mcp/shared/state";
 import { executeGetIndexStatus, executeGenerateCodemap } from "../../mcp/tools";
 import type { CliOutputFormat } from "../formatter";
@@ -44,6 +45,7 @@ async function workspaceOverview(runtime: CliRuntime) {
     files: scannedFiles,
     failedFiles: failedFiles.length,
     importEdges: edges.length,
+    ...unresolvedImportsField(await workerState.getSpider().getUnresolvedImports(), runtime.workspaceRoot),
     extensions: Object.fromEntries(largest(extensions)),
     mostImported,
     largestFolders: largest(folders).map(([folder, files]) => ({ folder, files })),

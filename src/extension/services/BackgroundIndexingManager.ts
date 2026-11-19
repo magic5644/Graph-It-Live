@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { IndexCache, type ReverseIndexOptions } from '../../analyzer/cache/IndexCache';
 import { Spider } from '../../analyzer/Spider';
 import { reportOutOfRootImports } from '../../analyzer/utils/workspaceBoundary';
+import { describeUnresolvedImports, reportUnresolvedImports } from '../../analyzer/utils/unresolvedImports';
 
 type Logger = {
   info: (message: string, ...args: unknown[]) => void;
@@ -189,11 +190,24 @@ export class BackgroundIndexingManager {
    * a sub-package folder does not look like the whole monorepo.
    */
   private warnOutOfRootImports(): void {
+    void this.warnUnresolvedImports().catch((error: unknown) => this.log.warn('Could not count unresolved imports:', error));
     if (this.outOfRootWarned) return;
     const { warning } = reportOutOfRootImports(this.spider.getOutOfRootImports(), this.spider.workspaceRoot);
     if (!warning) return;
     this.outOfRootWarned = true;
     this.log.warn(warning);
+  }
+
+  /**
+   * Logs, and shows in the status bar tooltip, the relative and alias imports resolving to no file (a generated
+   * file not built yet): dead-file results may list the files they would import (#774).
+   */
+  private async warnUnresolvedImports(): Promise<void> {
+    const report = reportUnresolvedImports((await this.spider.getUnresolvedImports()) ?? [], this.spider.workspaceRoot);
+    const warning = describeUnresolvedImports(report);
+    if (!warning || this.disposed) return;
+    this.log.warn(warning);
+    if (this._statusBarItem) this._statusBarItem.tooltip = warning;
   }
 
   private clearScheduledIndexing(): void {

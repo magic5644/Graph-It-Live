@@ -38,6 +38,8 @@ import type * as vscode from 'vscode';
 import { IndexCache } from '../../src/analyzer/cache/IndexCache';
 import { BackgroundIndexingManager, type BackgroundIndexingConfig } from '../../src/extension/services/BackgroundIndexingManager';
 import type { Spider } from '../../src/analyzer/Spider';
+import type { UnresolvedImport } from '../../src/analyzer/utils/unresolvedImports';
+import * as vscodeApi from 'vscode';
 
 type MockContext = {
     workspaceState: { update: ReturnType<typeof vi.fn>; get: ReturnType<typeof vi.fn> };
@@ -66,6 +68,7 @@ const createSpider = () => ({
     buildFullIndexInWorker: vi.fn(async () => ({ indexedFiles: 1, duration: 0, cancelled: false })),
     subscribeToIndexStatus: vi.fn(() => () => {}),
     getOutOfRootImports: vi.fn(() => ({ count: 0, examples: [] as string[] })),
+    getUnresolvedImports: vi.fn(async (): Promise<UnresolvedImport[] | null> => []),
 });
 
 const baseConfig: BackgroundIndexingConfig = {
@@ -146,6 +149,32 @@ describe('BackgroundIndexingManager', () => {
         expect(logger.warn).toHaveBeenCalledOnce();
         expect(logger.warn.mock.calls[0][0]).toContain('2 imports resolve outside the workspace root');
         expect(logger.warn.mock.calls[0][0]).toContain('VS Code: open it as the workspace folder');
+    });
+
+    // #774: a generated file not built yet makes dead-file results look complete while they are wrong.
+    it('logs, and shows in the status bar tooltip, the imports resolving to no file', async () => {
+        const { restore, spider, logger } = createManager();
+        spider.getUnresolvedImports.mockResolvedValue([
+            { importer: path.join(workspaceRoot, 'src/loader.ts'), specifier: './gen', reach: path.join(workspaceRoot, 'src') },
+        ]);
+
+        await restore();
+        await vi.waitFor(() => expect(logger.warn).toHaveBeenCalledOnce());
+
+        const warning = logger.warn.mock.calls[0][0] as string;
+        expect(warning).toContain('1 import of workspace files resolves to no file (e.g. src/loader.ts imports ./gen)');
+        expect(warning).toContain('.graphitignore');
+        expect(vi.mocked(vscodeApi.window.createStatusBarItem).mock.results[0].value.tooltip).toBe(warning);
+    });
+
+    it('says when the unresolved imports cannot be counted, once', async () => {
+        const { restore, spider, logger } = createManager();
+        spider.getUnresolvedImports.mockRejectedValue(new Error('boom'));
+
+        await restore();
+        await vi.waitFor(() => expect(logger.warn).toHaveBeenCalledOnce());
+
+        expect(logger.warn.mock.calls[0][0]).toBe('Could not count unresolved imports:');
     });
 
     it('stays silent when no import was skipped', async () => {

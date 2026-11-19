@@ -9,10 +9,12 @@ const mocks = vi.hoisted(() => ({
   buildArchitectureGraph: vi.fn(),
   executeGetIndexStatus: vi.fn(),
   executeGenerateCodemap: vi.fn(),
+  getUnresolvedImports: vi.fn(),
 }));
 
 vi.mock("@/analyzer/architecture/ArchitectureGraphBuilder.js", () => ({ buildArchitectureGraph: mocks.buildArchitectureGraph }));
 vi.mock("@/mcp/tools", () => ({ executeGetIndexStatus: mocks.executeGetIndexStatus, executeGenerateCodemap: mocks.executeGenerateCodemap }));
+vi.mock("@/mcp/shared/state", () => ({ workerState: { getSpider: () => ({ getUnresolvedImports: mocks.getUnresolvedImports }) } }));
 
 import { run as summary } from "@/cli/commands/summary";
 import { run as scan } from "@/cli/commands/scan";
@@ -37,6 +39,8 @@ describe("summary (#767)", () => {
       scannedFiles: 4,
       failedFiles: [],
     });
+    // A generated file not built yet (#774): counted, named with its importer, workspace-relative.
+    mocks.getUnresolvedImports.mockResolvedValue([{ importer: "/workspace/src/a.ts", specifier: "./gen", reach: "/workspace/src" }]);
 
     const overview = JSON.parse(await summary([], runtime(), "json"));
 
@@ -44,6 +48,7 @@ describe("summary (#767)", () => {
       files: 4,
       failedFiles: 0,
       importEdges: 4,
+      unresolvedImports: { count: 1, examples: [{ file: "src/a.ts", specifier: "./gen" }], next: expect.stringContaining(".graphitignore") },
       extensions: { ts: 3, py: 1 },
       mostImported: [{ file: "src/b.ts", importedBy: 3, imports: 1 }, { file: "lib/c.py", importedBy: 1, imports: 1 }],
       largestFolders: [{ folder: "src", files: 2 }, { folder: "lib", files: 1 }],

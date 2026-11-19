@@ -502,3 +502,50 @@ describe("PathResolver - candidate probing", () => {
     expect(await new PathResolver(undefined, true, root).resolve(main, "utils.db")).toBe(near);
   });
 });
+
+/** #774: where a relative or alias import points, so one resolving to no file is told apart from a package. */
+describe("PathResolver.localTargetOf", () => {
+  let root: string;
+  const at = (relative: string) => normalizePath(path.join(root, relative));
+  const write = (relative: string, content = "") => {
+    fs.mkdirSync(path.dirname(path.join(root, relative)), { recursive: true });
+    fs.writeFileSync(path.join(root, relative), content);
+    return path.join(root, relative);
+  };
+
+  beforeEach(() => {
+    root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-local-target-")));
+    write("package.json", JSON.stringify({ name: "fx", imports: { "#gen/*": "./src/gen/*" } }));
+    write("tsconfig.json", JSON.stringify({ compilerOptions: { baseUrl: ".", paths: { "@/*": ["src/*"] } } }));
+  });
+  afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it("names the target of relative, alias and #imports specifiers, existing or not", async () => {
+    const main = write("src/app/main.ts");
+    const resolver = new PathResolver(undefined, true, root);
+
+    expect(await resolver.localTargetOf(main, "./x.generated")).toBe(at("src/app/x.generated"));
+    expect(await resolver.localTargetOf(main, "../gen/loader")).toBe(at("src/gen/loader"));
+    expect(await resolver.localTargetOf(main, "./icon.svg?raw")).toBe(at("src/app/icon.svg"));
+    expect(await resolver.localTargetOf(main, "@/gen/types")).toBe(at("src/gen/types"));
+    expect(await resolver.localTargetOf(main, "#gen/types")).toBe(at("src/gen/types"));
+  });
+
+  it("names a Python relative module, and nothing for dots alone", async () => {
+    const main = write("pkg/sub/main.py");
+    const resolver = new PathResolver(undefined, true, root);
+
+    expect(await resolver.localTargetOf(main, ".models")).toBe(at("pkg/sub/models"));
+    expect(await resolver.localTargetOf(main, "..core.db")).toBe(at("pkg/core/db"));
+    expect(await resolver.localTargetOf(main, "..")).toBeNull();
+  });
+
+  it("is null for packages, other languages' module names, and targets outside the workspace", async () => {
+    const main = write("src/main.ts");
+    const resolver = new PathResolver(undefined, true, root);
+
+    const specifiers = ["react", "@scope/lib", "node:fs", "lodash/debounce", "crate::net", "../../outside/x"];
+    const targets = await Promise.all(specifiers.map((specifier) => resolver.localTargetOf(main, specifier)));
+    expect(Object.fromEntries(specifiers.map((specifier, i) => [specifier, targets[i]]))).toEqual(Object.fromEntries(specifiers.map((specifier) => [specifier, null])));
+  });
+});

@@ -13,6 +13,7 @@ import { IndexCache } from '@/analyzer/cache/IndexCache';
 import { LspCallHierarchyAnalyzer } from '@/analyzer/LspCallHierarchyAnalyzer';
 import { ReviewGateAnalyzer } from '@/analyzer/ReviewGateAnalyzer';
 import { reportOutOfRootImports } from '@/analyzer/utils/workspaceBoundary';
+import { unresolvedImportsField } from '@/analyzer/utils/unresolvedImports';
 import { confidenceHint, filterByConfidence, scanDeadCode, scanUnreferencedFiles } from '@/analyzer/deadcode/DeadCodeScanner';
 import type { DeadCodeConfidence } from '@/analyzer/deadcode/deadCodeConfidence';
 import {
@@ -938,6 +939,7 @@ export class LmToolsService {
                   cacheSize: cacheStats.dependencyCache.size,
                   reverseIndexStats: cacheStats.reverseIndexStats,
                   ...reportOutOfRootImports(spider.getOutOfRootImports(), spider.workspaceRoot),
+                  ...unresolvedImportsField(await spider.getUnresolvedImports(), spider.workspaceRoot),
                   cacheFiles: IndexCache.fileSizes(IndexCache.dirFor(spider.workspaceRoot)),
                 }),
               ),
