@@ -104,18 +104,13 @@ export async function executeAnalyzeBreakingChanges(
 
   const astWorkerHost = workerState.getAstWorkerHost();
 
-  let results: import("../../analyzer/SignatureAnalyzer").SignatureComparisonResult[];
-  try {
-    results = await astWorkerHost.analyzeBreakingChanges(
-      filePath,
-      oldContent,
-      newContent,
-      symbolName,
-    );
-  } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : "Unknown error";
-    throw new Error(`Failed to analyze breaking changes: ${errorMsg}`, { cause: error });
-  }
+  // The analyzer's message already names what is wrong (missing symbol, parse error).
+  const results = await astWorkerHost.analyzeBreakingChanges(
+    filePath,
+    oldContent,
+    newContent,
+    symbolName,
+  );
 
   // Aggregate all breaking changes
   const breakingChanges: BreakingChangeInfo[] = [];

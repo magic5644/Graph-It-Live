@@ -384,14 +384,14 @@ describe("MCP Worker Helpers", () => {
 
     it("should throw for relative path", async () => {
       await expect(validateAnalysisInput("relative/path.ts")).rejects.toThrow(
-        "Path must be absolute",
+        "filePath must be resolved against the workspace first",
       );
     });
 
     it("should throw for non-existent file", async () => {
       await expect(
         validateAnalysisInput("/nonexistent/file.ts"),
-      ).rejects.toThrow("FILE_NOT_FOUND");
+      ).rejects.toThrow("File not found: /nonexistent/file.ts.");
     });
 
     it("should throw for unsupported extension", async () => {
@@ -399,7 +399,7 @@ describe("MCP Worker Helpers", () => {
       await fs.writeFile(unsupportedFile, "test");
 
       await expect(validateAnalysisInput(unsupportedFile)).rejects.toThrow(
-        "UNSUPPORTED_FILE_TYPE",
+        "Unsupported file type '.txt'",
       );
 
       await fs.unlink(unsupportedFile);

@@ -13,7 +13,7 @@ import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import { COMMUNITY_MODES } from "../shared/graph-types";
 import type { CycleKind } from "../shared/cycleUtils";
-import { DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel } from "../analyzer/diagram/diagramStyle";
+import { defaultDiagramFile, DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel } from "../analyzer/diagram/diagramStyle";
 import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import { DEAD_CODE_CONFIDENCES, type DeadCodeConfidence, type UnusedSymbol } from "../analyzer/deadcode/deadCodeConfidence";
@@ -600,18 +600,9 @@ export const QueryNaturalLanguageParamsSchema = z.object({
     .string()
     .max(256)
     .optional()
-    .describe("Glob pattern to restrict search scope"),
-  outputFormat: z
-    .enum(["toon", "json"])
-    .default("toon")
-    .optional()
-    .describe(
-      "Output format. 'toon' (default): compact TOON encoding (header+rows), " +
-        "typically 30-50% fewer tokens than JSON for node/edge lists — prefer this " +
-        "unless you need to re-parse structured JSON programmatically. " +
-        "'json': short-key JSON object per node/edge — use when the calling client " +
-        "needs to JSON.parse() the result directly (e.g. building its own graph structure).",
-    ),
+    .describe("Workspace-relative glob restricting the search (e.g. 'src/analyzer/**'); a glob matching no indexed file is an error"),
+  // Internal: the MCP server and the LM tool set it from response_format, so it is not in their schemas.
+  outputFormat: z.enum(["toon", "json"]).optional(),
 }).strict();
 export type QueryNaturalLanguageParams = z.infer<typeof QueryNaturalLanguageParamsSchema>;
 
@@ -845,6 +836,11 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
   }
   if (!params.rules && (params.config !== undefined || params.baseline !== undefined)) {
     context.addIssue({ code: "custom", message: "config and baseline apply to the rules overlay: add rules: true" });
+  }
+  const format = params.diagramFormat ?? "svg";
+  const extension = nodePath.extname(defaultDiagramFile(format));
+  if (params.output !== undefined && nodePath.extname(params.output).toLowerCase() !== extension) {
+    context.addIssue({ code: "custom", message: `output must end with ${extension} for diagramFormat ${format}; got ${params.output}` });
   }
 });
 export type ExportArchitectureDiagramParams = z.infer<typeof ExportArchitectureDiagramParamsSchema>;

@@ -167,7 +167,7 @@ describe("impact tools", () => {
       await expect(
         executeAnalyzeBreakingChanges({ filePath, oldContent: "PLACEHOLDER", symbolName: "greet" }),
       ).rejects.toThrow(
-        "Failed to analyze breaking changes: Symbol 'greet' is not declared in oldContent; cannot compare.",
+        "Symbol 'greet' is not declared in oldContent; cannot compare.",
       );
       expect(analyze).toHaveBeenCalledWith(filePath, "PLACEHOLDER", oldContent, "greet");
     });
