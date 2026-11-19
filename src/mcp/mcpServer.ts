@@ -830,7 +830,7 @@ server.registerTool(
     inputSchema: toolInputSchema(GetSessionStatsSchema.safeExtend({ response_format: ResponseFormatSchema })),
     annotations: READ_ONLY,
   },
-  async ({ response_format }) => {
+  ({ response_format }) => {
     const startTime = Date.now();
     const result = executeGetSessionStats();
     const response = createSuccessResponse<GetSessionStatsResult>(

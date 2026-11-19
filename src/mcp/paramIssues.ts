@@ -29,7 +29,7 @@ function shown(input: unknown): string {
   if (Array.isArray(input)) return "an array";
   if (input === null) return "null";
   if (typeof input === "object") return "an object";
-  return String(input);
+  return String(input as string | number | boolean | bigint | symbol | undefined);
 }
 
 const TYPE_NAMES: Record<string, string> = {
@@ -98,8 +98,10 @@ function issueMessage(issue: Issue, known: readonly string[]): string {
   const expected = expectation(issue);
   if (expected === undefined) return name === "" ? issue.message : `"${name}": ${issue.message}`;
   const sized = Array.isArray(input) && (issue.code === "too_big" || issue.code === "too_small");
-  const got = input === undefined ? "" : `; got ${sized ? `${input.length} items` : shown(input)}`;
-  return `${name === "" ? "Parameters" : `"${name}"`} must be ${expected}${got}.`;
+  const received = sized ? `${input.length} items` : shown(input);
+  const got = input === undefined ? "" : `; got ${received}`;
+  const subject = name === "" ? "Parameters" : JSON.stringify(name);
+  return `${subject} must be ${expected}${got}.`;
 }
 
 /** Top-level parameter names a schema accepts, in declaration order. */

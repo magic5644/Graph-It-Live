@@ -20,9 +20,13 @@ export function markdownCell(text: string): string {
   return markdownText(text).replaceAll("\\", "\\\\").replaceAll("|", String.raw`\|`);
 }
 
+function fenceLanguage(format: unknown): string {
+  return format === "diagram-spec" ? "json" : text(format);
+}
+
 function text(value: unknown): string {
   if (value === undefined || value === null) return "";
-  return markdownText(typeof value === "object" ? JSON.stringify(value) : String(value));
+  return markdownText(typeof value === "string" ? value : JSON.stringify(value));
 }
 
 function rows(value: unknown): Row[] {
@@ -297,7 +301,7 @@ const VIEWS: Record<string, View> = {
     "",
     ...bullets([["Content", d.counts]]),
     ...(d.path === undefined
-      ? fence(d.format === "diagram-spec" ? "json" : text(d.format), String(d.markup ?? ""))
+      ? fence(fenceLanguage(d.format), typeof d.markup === "string" ? d.markup : "")
       : [`Written to ${code(d.path)} (${text(d.characters)} characters).`, ""]),
   ],
   query_natural_language: (d) => [
