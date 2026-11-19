@@ -49,9 +49,16 @@ export interface ReverseIndexOptions {
   ignoreTypeImports: boolean;
 }
 
+/** Id of the dev build running (esbuild define), empty in a release and in unbundled tests. */
+export function analyzerBuild(): string {
+  return process.env.GRAPH_IT_BUILD ?? "";
+}
+
 interface IndexCacheMeta {
   schema: number;
   version: string;
+  /** Id of the dev build that wrote the cache (empty in a release): see analyzerBuild(). */
+  build?: string;
   savedAt: string;
   workspaceRoot: string;
   configFingerprint: string;
@@ -143,8 +150,8 @@ export class IndexCache {
   /**
    * Whether the guard matches this workspace, configuration and analyzer version.
    *
-   * NOTE: the version is "0.0.0-dev" in a local build, so a rebuilt analyzer does
-   * NOT invalidate the cache during development — use `--reindex` there.
+   * A local build keeps version "0.0.0-dev": its build id (stamped by esbuild) drops a cache an older
+   * build wrote, so a rebuilt analyzer never reuses imports resolved by the previous one (#774).
    */
   isValid(): boolean {
     return this.matches(this.readMeta());
@@ -189,6 +196,7 @@ export class IndexCache {
       const meta: IndexCacheMeta = {
         schema: INDEX_CACHE_SCHEMA,
         version: ANALYZER_VERSION,
+        build: analyzerBuild(),
         savedAt: new Date().toISOString(),
         workspaceRoot: this.workspaceRoot,
         configFingerprint: fingerprint,
@@ -353,6 +361,7 @@ export class IndexCache {
       fingerprint !== undefined &&
       meta?.schema === INDEX_CACHE_SCHEMA &&
       meta.version === ANALYZER_VERSION &&
+      (meta.build ?? "") === analyzerBuild() &&
       meta.configFingerprint === fingerprint &&
       typeof meta.workspaceRoot === "string" &&
       normalizePath(meta.workspaceRoot) === normalizePath(this.workspaceRoot)

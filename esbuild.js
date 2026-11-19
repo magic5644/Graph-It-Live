@@ -17,6 +17,10 @@ const cliOnly = process.argv.includes('--cli-only');
 const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
 // The committed version stays 0.0.1; CI bumps it before release builds. Mark local builds as dev.
 const CLI_VERSION = pkg.version === '0.0.1' ? '0.0.0-dev' : pkg.version;
+// A dev build keeps version 0.0.0-dev: this id, shared by every bundle of one build, drops the index cache an
+// older build wrote (#774). Release builds leave it empty so the CLI and the extension of one version share it.
+// shortcut: a --watch session keeps one id across rebuilds, run `npm run build` (or --reindex) after analyzer edits.
+const ANALYZER_BUILD = CLI_VERSION === '0.0.0-dev' ? `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}` : '';
 
 // Extract metafile path from --metafile=path argument
 const metafileArg = process.argv.find(arg => arg.startsWith('--metafile='));
@@ -199,7 +203,7 @@ function nodeBundle(entryPoint, outfile, extra = {}) {
     metafile: !!metafilePath,
     loader: { '.wasm': 'file' },
     // Every Node bundle stamps the shared .graph-it/cache/ guard with the same version.
-    define: { 'process.env.CLI_VERSION': JSON.stringify(CLI_VERSION) },
+    define: { 'process.env.CLI_VERSION': JSON.stringify(CLI_VERSION), 'process.env.GRAPH_IT_BUILD': JSON.stringify(ANALYZER_BUILD) },
     ...extra,
   };
 }
