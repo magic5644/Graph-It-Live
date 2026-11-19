@@ -340,8 +340,8 @@ describe.runIf(cliBuilt && wasmBuilt)('main', () => {
     const [corpus] = report.corpora;
     expect(corpus.files).toBe(23);
     expect(Object.keys(corpus.metrics)).toEqual([
-      'cli.coldStart', 'scan.cold', 'scan.warm', 'scan.afterEdit', 'callGraph.cold', 'callGraph.warm',
-      'mcp.firstResponse', 'mcp.findReferencingFiles', 'mcp.queryCallGraph', 'mcp.concurrent5', 'mcp.concurrent5.queueWait',
+      'cli.coldStart', 'scan.cold', 'scan.warm', 'scan.afterEdit', 'init.cold', 'init.warm',
+      'callGraph.cold', 'callGraph.warm', 'mcp.firstResponse', 'mcp.findReferencingFiles', 'mcp.queryCallGraph', 'mcp.concurrent5', 'mcp.concurrent5.queueWait',
     ]);
     expect(corpus.metrics['mcp.concurrent5'].runs).toBe(5);
     expect(corpus.metrics['mcp.concurrent5.queueWait'].p50Ms).toBeLessThanOrEqual(corpus.metrics['mcp.concurrent5'].p50Ms);
