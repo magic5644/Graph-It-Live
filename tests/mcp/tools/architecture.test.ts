@@ -42,7 +42,7 @@ describe("executeExploreArchitecture", () => {
     workerState.config = { rootDir: workspaceRoot, excludeNodeModules: true, maxDepth: 3 };
     // Same { dependencies } shape the analysis tool used to return, so the scenarios stay unchanged.
     vi.spyOn(workerState, "getSpider").mockReturnValue({
-      analyze: async (filePath: string) => (await mocks.executeAnalyzeDependencies({ filePath })).dependencies,
+      analyzeFromIndex: async (filePath: string) => (await mocks.executeAnalyzeDependencies({ filePath })).dependencies,
     } as never);
     mocks.collectAllSourceFiles.mockResolvedValue(Object.keys(imports).map(file));
     mocks.executeAnalyzeDependencies.mockImplementation(async ({ filePath }: { filePath: string }) => {

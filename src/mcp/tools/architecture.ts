@@ -33,7 +33,7 @@ export async function executeExploreArchitecture(
   // ponytail: rebuilds the graph on every call (Spider caches each file's analysis); cache by index revision if paging gets slow.
   const graph = await buildArchitectureGraph(
     workerState.getConfig().rootDir,
-    (filePath) => workerState.getSpider().analyze(filePath),
+    (filePath) => workerState.getSpider().analyzeFromIndex(filePath),
     { maxFiles: params.maxFiles, communityMode: params.communityMode, signal },
   );
   if (params.level === "units") {
@@ -58,7 +58,7 @@ export async function executeExploreArchitecture(
 /** The declared architecture rules checked against every import pair, violations paged. */
 export async function executeCheckArchitecture(params: CheckArchitectureParams, signal?: AbortSignal) {
   const { rootDir } = workerState.getConfig();
-  const graph = await buildArchitectureGraph(rootDir, (filePath) => workerState.getSpider().analyze(filePath), { signal });
+  const graph = await buildArchitectureGraph(rootDir, (filePath) => workerState.getSpider().analyzeFromIndex(filePath), { signal });
   const check = await checkWorkspaceArchitecture(graph, rootDir, { config: params.config, baseline: params.baseline });
   return exploreArchitectureCheck(check, params);
 }
@@ -102,7 +102,7 @@ export async function exportArchitectureDiagram(
 export function executeExportArchitectureDiagram(params: ExportArchitectureDiagramParams, signal?: AbortSignal) {
   return exportArchitectureDiagram(
     workerState.getConfig().rootDir,
-    (filePath) => workerState.getSpider().analyze(filePath),
+    (filePath) => workerState.getSpider().analyzeFromIndex(filePath),
     params,
     signal,
   );

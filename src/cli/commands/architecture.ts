@@ -101,7 +101,7 @@ export async function run(
   await runtime.ensureIndexed();
 
   const graph = await runtime.progress.phase("Analyzing architecture", (onProgress) =>
-    buildArchitectureGraph(runtime.workspaceRoot, (filePath) => workerState.getSpider().analyze(filePath), {
+    buildArchitectureGraph(runtime.workspaceRoot, (filePath) => workerState.getSpider().analyzeFromIndex(filePath), {
       maxFiles,
       communityMode,
       indexedAt: runtime.loadState()?.lastScanTimestamp,
