@@ -1706,9 +1706,85 @@ export function mayBuildType(
   return mentions.some((mention) => {
     const after = content.slice(mention.index + typeName.length).trimStart();
     if (isImportOrExportSpecifier(content, mention.index, after)) return false;
+    if (isParameterAnnotation(content, mention.index, mention.index + typeName.length)) return false;
     const call = typeArgumentCall(content, mention.index, after);
     return !call || !typesResultOnly(call.callee, call.index);
   });
+}
+
+/** A parameter's head up to its type: `units: `, `readonly u?: Pick<`, `...rest: ` (no `=`: a default value builds). */
+const PARAMETER_HEAD = /^\s*(?:(?:public|private|protected|readonly|override)\s+)*(?:\.\.\.)?[\w$]+\??\s*:[^=]*$/;
+
+/**
+ * `T` in a declared parameter's type (`function f(units: T)`, `(u?: Pick<T, "a">) =>`, a method or a
+ * constructor): the function receives a T, it does not build one (#776). Not when the parameter has a
+ * default value (`= {…}`), nor in a function type (`cb: (u: T) => void`): whoever calls `cb` builds the T.
+ */
+function isParameterAnnotation(content: string, start: number, end: number): boolean {
+  const open = enclosingParenthesis(content, start);
+  if (open < 0 || !opensParameterList(content, open)) return false;
+  return PARAMETER_HEAD.test(content.slice(lastTopLevelComma(content, open, start) + 1, start)) && !hasDefaultValue(content, end);
+}
+
+/** Index of the unclosed `(` before `index`, or -1 when an unclosed `{`, `[` or a `;` comes first. */
+function enclosingParenthesis(content: string, index: number): number {
+  let depth = 0;
+  for (let position = index - 1; position >= 0; position--) {
+    const char = content[position];
+    if (char === ")" || char === "]" || char === "}") depth++;
+    else if (char === "(" || char === "[" || char === "{") {
+      if (depth === 0) return char === "(" ? position : -1;
+      depth--;
+    } else if (char === ";" && depth === 0) return -1;
+  }
+  return -1;
+}
+
+/** Whether `(` at `open` starts a declaration's parameters: after a name (`f(`, `method<T>(`) or as an arrow function value, never in a type. */
+function opensParameterList(content: string, open: number): boolean {
+  const before = content.slice(Math.max(0, open - 200), open).replace(/<[^<>()]*>\s*$/, "").trimEnd();
+  if (/(?:^|[^\w$.])[\w$]+$/.test(before)) return true;
+  // An arrow function value (`= (u: T) =>`, `f((u: T) =>`); after `:`, `|`, `&` or `<` it is a function type.
+  return !/[:|&<]$/.test(before) && /^\s*=>/.test(content.slice(closingParenthesis(content, open) + 1));
+}
+
+/** Index of the `)` closing the `(` at `open`, or the end of `content`. */
+function closingParenthesis(content: string, open: number): number {
+  let depth = 0;
+  for (let position = open; position < content.length; position++) {
+    if (content[position] === "(") depth++;
+    else if (content[position] === ")" && --depth === 0) return position;
+  }
+  return content.length;
+}
+
+/** Index of the last `,` between `open` and `index` outside any bracket, or `open`. */
+function lastTopLevelComma(content: string, open: number, index: number): number {
+  let depth = 0;
+  let comma = open;
+  for (let position = open + 1; position < index; position++) {
+    const char = content[position];
+    if ("([{<".includes(char)) depth++;
+    else if (")]}".includes(char) || (char === ">" && content[position - 1] !== "=" && depth > 0)) depth--;
+    else if (char === "," && depth === 0) comma = position;
+  }
+  return comma;
+}
+
+/** Whether the parameter whose type goes on at `index` has a default value: a top-level `=` before its `,` or `)`. */
+function hasDefaultValue(content: string, index: number): boolean {
+  let depth = 0;
+  for (let position = index; position < content.length; position++) {
+    const char = content[position];
+    if ("([{<".includes(char)) depth++;
+    else if (char === ">" && content[position - 1] === "=") continue;
+    else if (")]}>".includes(char)) {
+      if (depth === 0) return false;
+      depth--;
+    } else if (depth === 0 && char === ",") return false;
+    else if (depth === 0 && char === "=") return true;
+  }
+  return false;
 }
 
 /** `T` in `import { A, type T }` or `export { T } from`: not in a tuple `[A, T, B]` nor a type literal. */
