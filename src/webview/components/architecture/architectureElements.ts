@@ -1,5 +1,5 @@
 import type { Collection, Core, LayoutOptions, NodeSingular, Position } from "cytoscape";
-import type { ArchitectureUnit, ArchitectureUnitEdgeKind } from "../../../shared/architecture-model";
+import type { ArchitectureUnit, ArchitectureUnitEdgeKind, UnitRuleCheck } from "../../../shared/architecture-model";
 import type {
   ArchitectureGroupDetailMessage,
   ArchitectureRulesView,
@@ -628,20 +628,47 @@ function decorateViolations(elements: ArchitectureElement[], rules: Architecture
   });
 }
 
-/** A unit's role badge: `[role]` when declared, `[role?]` when inferred. */
-export const roleBadge = (unit: Pick<ArchitectureUnit, "role" | "confidence">) => `[${unit.role}${unit.confidence === "inferred" ? "?" : ""}]`;
+/** A unit's role badge, declared or inferred alike: an inferred role is drawn with a dashed border instead. */
+export const roleBadge = (unit: Pick<ArchitectureUnit, "role">) => `[${unit.role}]`;
 
-/** The badge on top of the unit's label, and its role with every piece of evidence in the tooltip. */
+/** The role line of a unit's tooltip: who declared it, or every piece of evidence it was inferred from. */
+function roleLine(unit: ArchitectureUnit): string {
+  if (unit.confidence === "declared") return `Role: ${unit.role}, ${unit.evidence[0]?.detail ?? "declared in graphit.architecture.json"}`;
+  const evidence = unit.evidence.map((entry) => `\n- ${entry.role === unit.role ? "" : entry.role + ": "}${entry.detail}`).join("");
+  return `Role: ${unit.role}, inferred from:${evidence || "\n- no evidence"}`;
+}
+
+const VERDICT_TEXT: Record<UnitRuleCheck["verdict"], string> = { pass: "passes", accepted: "accepted by the baseline", violated: "VIOLATED" };
+
+/** One line per rule with its verdict and counts, under `title`; nothing without rules. */
+export function ruleLines(title: string, rules: readonly UnitRuleCheck[] | undefined): string {
+  if (!rules?.length) return "";
+  return `\n${title}${rules.map((rule) => {
+    const counts = rule.violations > 0 ? `, ${plural(rule.violations, "violation")} (${rule.newViolations} new)` : "";
+    return `\n- ${rule.name}: ${VERDICT_TEXT[rule.verdict]} on ${plural(rule.checkedPairs, "file pair")}${counts}`;
+  }).join("")}`;
+}
+
+/** The badge on top of the unit's label, its role and evidence in the tooltip, then the rules on the imports leaving it. */
 function roleData(data: ArchitectureElement["data"], unit: ArchitectureUnit): ArchitectureElement["data"] {
   const lines = [roleBadge(unit), unitDisplayName(unit), plural(unit.fileCount, "file")];
-  const evidence = unit.evidence.map((entry) => `\n- ${entry.role === unit.role ? "" : entry.role + ": "}${entry.detail}`).join("");
   return {
     role: unit.role,
     evidenceCount: unit.evidence.length,
+    ...(unit.confidence === "inferred" ? { inferredRole: true } : {}),
     label: lines.join("\n"),
     ...nodeBox(lines, groupSize(unit.fileCount)),
-    tooltip: `${data.tooltip}\nRole: ${unit.role} (${unit.confidence})${evidence || "\n- no evidence"}`,
+    tooltip: `${data.tooltip}\n${roleLine(unit)}${ruleLines("Rules on the imports leaving it:", unit.rules)}`,
   };
+}
+
+/** A unit edge's rules: in the tooltip with their verdict; a new violation also writes `breaks <rule>` on the edge. */
+function edgeRuleData(rules: readonly UnitRuleCheck[] | undefined) {
+  if (!rules?.length) return {};
+  const broken = rules.filter((rule) => rule.verdict === "violated").map((rule) => rule.name);
+  if (broken.length === 0) return { ruled: true };
+  const more = broken.length > 1 ? ` +${broken.length - 1}` : "";
+  return { ruled: true, ruleLabel: `breaks ${broken[0]}${more}` };
 }
 
 /** Hides (class `filtered`) the units of other roles and their edges; null shows them all. Returns the units left. */
@@ -717,7 +744,8 @@ function decorateUnits(elements: ArchitectureElement[], level: ArchitectureUnitL
         ...(edge.cycleKind === undefined ? {} : { cycleKind: edge.cycleKind }),
         ...(edge.typeOnlyEdgeCount !== undefined && edge.typeOnlyEdgeCount === edge.fileEdgeCount ? { typeOnly: true } : {}),
         capped: capped.has(`${edge.from}\0${edge.to}`),
-        tooltip: `${element.data.tooltip}${cycleNote} · click files`,
+        ...edgeRuleData(edge.rules),
+        tooltip: `${element.data.tooltip}${cycleNote} · click files${ruleLines("Rules:", edge.rules)}`,
       },
     };
   });
@@ -899,13 +927,18 @@ export function measureUnitLevel(cy: Core, background?: Rgba) {
     routedEdges: drawn.filter((edge) => edge.data("routed") === true).length,
     hiddenEdges: cy.edges(".weak").length,
     minLabelPx: Math.round(ARCHITECTURE_FONT_SIZE * cy.zoom() * 100) / 100,
-    roleBadges: units.filter((node) => String(node.data("label")).startsWith(`[${node.data("role")}`)).length,
-    // The role line, then one line per piece of evidence ("- no evidence" without any).
+    roleBadges: units.filter((node) => String(node.data("label")).startsWith(`[${node.data("role")}]\n`)).length,
+    // The role line: who declared it, or "inferred from:" then one line per piece of evidence.
     roleTooltips: units.filter((node) => {
-      const [, role, ...evidence] = String(node.data("tooltip")).split("\nRole: ");
-      return role !== undefined && evidence.length === 0 && role.startsWith(`${node.data("role")} (`)
-        && role.split("\n- ").length - 1 === Math.max(1, Number(node.data("evidenceCount")));
+      const [, role, ...more] = String(node.data("tooltip")).split("\nRole: ");
+      if (role === undefined || more.length > 0 || !role.startsWith(`${node.data("role")}, `)) return false;
+      const [own] = role.split("\nRules on the imports leaving it:");
+      return node.data("inferredRole") === true
+        ? own.startsWith(`${node.data("role")}, inferred from:`) && own.split("\n- ").length - 1 === Math.max(1, Number(node.data("evidenceCount")))
+        : own.includes(", declared by ");
     }).length,
+    inferredRoleBorders: units.filter((node) => node.style("border-style") === "dashed").length,
+    ruledEdges: drawn.filter((edge) => edge.data("ruled") === true).length,
     shownUnits: units.not(".filtered").length,
   };
 }

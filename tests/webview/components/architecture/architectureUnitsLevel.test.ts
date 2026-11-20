@@ -36,11 +36,11 @@ const colors = { foreground: "#fff", background: "#000", border: "#888", edge: "
 // web → ui → core ↔ types (cycle), web → core; tool stands alone. Groups: web/pages (1), ui (2), core (3), types (4), tool (5).
 const units: ArchitectureUnitLevel = {
   units: [
-    { key: "apps/web", name: "@ws/web", fileCount: 3, internalEdgeCount: 1, layer: 2, role: "frontend", confidence: "inferred", evidence: [{ role: "frontend", detail: "`react` in dependencies" }, { role: "frontend", detail: "`index.html`" }] },
-    { key: "packages/ui", name: "@ws/ui", fileCount: 1, internalEdgeCount: 0, layer: 1, role: "library", confidence: "declared", evidence: [{ role: "library", detail: 'declared by roles["@ws/ui"] in graphit.architecture.json' }, { role: "library", detail: "imported by `@ws/web`" }] },
-    { key: "packages/core", name: "@ws/core", fileCount: 1, internalEdgeCount: 0, layer: 0, role: "library", confidence: "inferred", evidence: [{ role: "library", detail: "imported by `@ws/types`, `@ws/ui`, `@ws/web`" }] },
-    { key: "packages/types", name: "@ws/types", fileCount: 1, internalEdgeCount: 0, layer: 0, role: "library", confidence: "inferred", evidence: [{ role: "library", detail: "imported by `@ws/core`" }] },
-    { key: "tool", name: "tool", fileCount: 1, internalEdgeCount: 0, layer: 0, role: "unknown", confidence: "inferred", evidence: [] },
+    { key: "apps/web", name: "@ws/web", folder: "apps/web", fileCount: 3, internalEdgeCount: 1, layer: 2, role: "frontend", confidence: "inferred", evidence: [{ role: "frontend", detail: "`react` in dependencies" }, { role: "frontend", detail: "`index.html`" }] },
+    { key: "packages/ui", name: "@ws/ui", folder: "packages/ui", fileCount: 1, internalEdgeCount: 0, layer: 1, role: "library", confidence: "declared", evidence: [{ role: "library", detail: 'declared by roles["@ws/ui"] in graphit.architecture.json' }, { role: "library", detail: "imported by `@ws/web`" }] },
+    { key: "packages/core", name: "@ws/core", folder: "packages/core", fileCount: 1, internalEdgeCount: 0, layer: 0, role: "library", confidence: "inferred", evidence: [{ role: "library", detail: "imported by `@ws/types`, `@ws/ui`, `@ws/web`" }] },
+    { key: "packages/types", name: "@ws/types", folder: "packages/types", fileCount: 1, internalEdgeCount: 0, layer: 0, role: "library", confidence: "inferred", evidence: [{ role: "library", detail: "imported by `@ws/core`" }] },
+    { key: "tool", name: "tool", folder: "tool", fileCount: 1, internalEdgeCount: 0, layer: 0, role: "unknown", confidence: "inferred", evidence: [] },
   ],
   unitEdges: [
     { from: "apps/web", to: "packages/ui", fileEdgeCount: 2, kind: "down" },
@@ -49,6 +49,7 @@ const units: ArchitectureUnitLevel = {
     { from: "packages/types", to: "packages/core", fileEdgeCount: 1, kind: "cycle" },
     { from: "packages/ui", to: "packages/core", fileEdgeCount: 1, kind: "down" },
   ],
+  unitsFrom: "manifests",
   upwardEdges: 0,
   cycles: 1,
   layerCount: 3,
@@ -170,19 +171,66 @@ describe("toLevelElements", () => {
     expect(String(runtime[1].tooltip)).toContain("lazy cycle · click files");
   });
 
-  it("badges each unit with its role, and lists the role's evidence in its tooltip", () => {
+  it("badges each unit with its role, never a `?`, and lists the role's evidence in its tooltip", () => {
     const nodes = toLevelElements(summary, null).filter(element => element.group === "nodes").map(element => element.data);
     expect(nodes.map(node => [node.role, String(node.label).split("\n")[0]])).toEqual([
-      ["frontend", "[frontend?]"], ["library", "[library]"], ["library", "[library?]"], ["library", "[library?]"], ["unknown", "[unknown?]"],
+      ["frontend", "[frontend]"], ["library", "[library]"], ["library", "[library]"], ["library", "[library]"], ["unknown", "[unknown]"],
     ]);
-    expect(nodes[0].tooltip).toBe("apps/web\n3 files\n1 internal edge\nRole: frontend (inferred)\n- `react` in dependencies\n- `index.html`");
-    expect(nodes[1].tooltip).toContain('Role: library (declared)\n- declared by roles["@ws/ui"] in graphit.architecture.json\n- imported by `@ws/web`');
-    expect(nodes[4].tooltip).toContain("Role: unknown (inferred)\n- no evidence");
+    expect(nodes.some(node => String(node.label).includes("?"))).toBe(false);
+    expect(nodes[0].tooltip).toBe("apps/web\n3 files\n1 internal edge\nRole: frontend, inferred from:\n- `react` in dependencies\n- `index.html`");
+    // Declared: who declared it, on the role line; no inferred evidence list.
+    expect(nodes[1].tooltip).toContain('Role: library, declared by roles["@ws/ui"] in graphit.architecture.json');
+    expect(nodes[1].tooltip).not.toContain("imported by");
+    expect(nodes[4].tooltip).toContain("Role: unknown, inferred from:\n- no evidence");
+    expect(nodes.map(node => node.inferredRole === true)).toEqual([true, false, true, true, true]);
     // Evidence for another role than the unit's says which.
     const mixed = { ...units.units[0], evidence: [...units.units[0].evidence, { role: "library" as const, detail: "imported by `x`" }] };
     const withMixed = { ...summary, units: { ...units, units: [mixed, ...units.units.slice(1)] } };
     expect(toLevelElements(withMixed, null)[0].data.tooltip).toContain("\n- library: imported by `x`");
-    expect(roleBadge({ role: "service", confidence: "declared" })).toBe("[service]");
+    expect(roleBadge({ role: "service" })).toBe("[service]");
+  });
+
+  it("draws an inferred role with a dashed border and a declared one solid, and counts them", () => {
+    const cy = canvas();
+    expect(cy.nodes("[unitKey]").map(node => node.style("border-style"))).toEqual(["dashed", "solid", "dashed", "dashed", "dashed"]);
+    expect(measureUnitLevel(cy)).toMatchObject({ roleBadges: 5, roleTooltips: 5, inferredRoleBorders: 4, ruledEdges: 0 });
+    // A selected unit gets its solid focus ring back.
+    cy.nodes("[unitKey]").first().addClass("selected");
+    expect(cy.nodes("[unitKey]").first().style("border-style")).toBe("solid");
+  });
+
+  it("draws the rules on the unit edges they check with their verdict, a violated one named on the edge, and leaf rules on their unit", () => {
+    const check = (name: string, verdict: "pass" | "accepted" | "violated", violations = 0, newViolations = 0) =>
+      ({ name, kind: "forbid" as const, severity: "error" as const, checkedPairs: 2, violations, newViolations, verdict });
+    const ruledUnits: ArchitectureUnitLevel = {
+      ...units,
+      unitsFrom: "elements",
+      units: units.units.map(unit => (unit.key === "packages/core" ? { ...unit, rules: [check("core-is-a-leaf", "pass")] } : unit)),
+      unitEdges: units.unitEdges.map(edge => {
+        if (edge.from === "apps/web" && edge.to === "packages/ui") return { ...edge, rules: [check("web-not-ui", "violated", 2, 2), check("no-tests", "pass")], ruleVerdict: "violated" as const };
+        if (edge.from === "apps/web") return { ...edge, rules: [check("old", "accepted", 1, 0)], ruleVerdict: "accepted" as const };
+        return edge;
+      }),
+    };
+    const totals = { files: 7, unmatchedFiles: 0, rules: 3, brokenRules: 2, violations: 3, newViolations: 2, errors: 3, newErrors: 2, warnings: 0, resolved: 0 };
+    const ruled: ArchitectureSummaryMessage = {
+      ...summary,
+      units: ruledUnits,
+      rules: { configFile: "graphit.architecture.json", totals, rules: [], configWarnings: [], unitEdges: { "apps/web>packages/ui": ["web-not-ui"] }, groupEdges: {} },
+    };
+    const cy = canvas(toLevelElements(ruled, null));
+    const broken = cy.getElementById("edge-1-2");
+    expect(broken.data("tooltip")).toContain("Rules:\n- web-not-ui: VIOLATED on 2 file pairs, 2 violations (2 new)\n- no-tests: passes on 2 file pairs");
+    expect(broken.style("label")).toBe("breaks web-not-ui");
+    expect(broken.style("line-style")).toBe("dashed");
+    const accepted = cy.getElementById("edge-1-3");
+    expect(accepted.data("tooltip")).toContain("- old: accepted by the baseline on 2 file pairs, 1 violation (0 new)");
+    expect(accepted.data("ruleLabel")).toBeUndefined();
+    expect(cy.nodes("[unitKey = 'packages/core']").data("tooltip")).toContain("Rules on the imports leaving it:\n- core-is-a-leaf: passes on 2 file pairs");
+    expect(measureUnitLevel(cy)).toMatchObject({ ruledEdges: 2, roleTooltips: 5 });
+    // Several broken rules: the first named, the others counted.
+    const twice = { ...ruledUnits, unitEdges: [{ ...ruledUnits.unitEdges[0], rules: [check("a", "violated", 1, 1), check("b", "violated", 1, 1)] }] };
+    expect(toLevelElements({ ...ruled, units: twice }, null).find(element => element.data.id === "edge-1-2")?.data.ruleLabel).toBe("breaks a +1");
   });
 
   it("filters the units by role, hiding the others and their edges, and measures what is left", () => {
