@@ -159,4 +159,12 @@ describe("parseTargetRef (#767)", () => {
     expect(closestPathsHint(path.join(root, "missing", "a.ts"), root)).toBe("");
     expect(closestPathsHint(path.join(root, "src", "servic.ts"), root)).toMatch(/^ Did you mean: src\/service\.ts, /);
   });
+
+  it("finds the file name in another folder when the folder is mistyped, never in node_modules or dot folders", () => {
+    fs.mkdirSync(path.join(root, "node_modules", "pkg"), { recursive: true });
+    fs.mkdirSync(path.join(root, ".cache"), { recursive: true });
+    fs.writeFileSync(path.join(root, "node_modules", "pkg", "service.ts"), "");
+    fs.writeFileSync(path.join(root, ".cache", "service.ts"), "");
+    expect(closestPathsHint(path.join(root, "lib", "Servce.ts"), root)).toBe(" Did you mean: src/service.ts, src/server.ts?");
+  });
 });
