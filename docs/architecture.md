@@ -4,7 +4,7 @@ Graph-It-Live draws the architecture of a workspace from its static imports, che
 
 ## What it answers
 
-- **What are my layers?** Projects (or top-level folders), ordered so that each one imports only those below it, with the loops between them.
+- **What are my layers?** The elements you declare, else the projects (or top-level folders), ordered so that each one imports only those below it, with the loops between them.
 - **Who depends on this?** Every package or folder that imports a package, a folder or a file, directly or not.
 - **Does the code follow my architecture?** Every import checked against the rules of `graphit.architecture.json`, locally or in CI.
 
@@ -19,7 +19,7 @@ Each term has one meaning in this page, the README and [`docs/CLI.md`](CLI.md).
 | Term | Meaning |
 | --- | --- |
 | **File pair** | One file importing another file (static import). Every count in the view is a number of file pairs. |
-| **Unit** | A project: a folder holding a project manifest of a supported language (`package.json`, `tsconfig.json`, `pyproject.toml`, `requirements.txt`, `go.mod`, `Cargo.toml`, `*.csproj`, `pom.xml`, `build.gradle`..., the [workspace markers](CLI.md#global-options)), workspace member or not, outside `node_modules`. Without any project below the root, each top-level folder is a unit. Files outside every project form the `(root)` unit. Before 1.25.4, only `package.json` made a unit. |
+| **Unit** | A declared element of `graphit.architecture.json` (one per instance with `each`; the files no element selects form `(unmatched)`), when it declares any. Otherwise a project: a folder holding a project manifest of a supported language (`package.json`, `tsconfig.json`, `pyproject.toml`, `requirements.txt`, `go.mod`, `Cargo.toml`, `*.csproj`, `pom.xml`, `build.gradle`..., the [workspace markers](CLI.md#global-options)), workspace member or not, outside `node_modules`. Files outside every project form one unit per top-level folder; `(root)` holds only the files at the workspace root. A project below a test folder (`test`, `tests`, `__tests__`, `spec`, `specs`, `e2e`) folds into its parent. Before 1.25.4, only `package.json` made a unit; before 1.25.5, the declared elements did not, and `(root)` held every file outside a project. |
 | **Group** | A node of one level: a unit, a folder inside a unit, or a Louvain community. |
 | **Level** | What the view draws at once: the units, the folders of an entered unit or folder, or the Louvain communities. |
 | **Edge** | The file pairs from one group to another of the same level. |
@@ -57,7 +57,7 @@ Each part of the view below answers three questions: what it is for, how to read
 
   | Count | Meaning |
   | --- | --- |
-  | *N units* | Projects (folders holding a project manifest: `package.json`, `pyproject.toml`, `go.mod`...), else top-level folders |
+  | *N units* | The elements declared in `graphit.architecture.json`, else projects (folders holding a project manifest: `package.json`, `pyproject.toml`, `go.mod`...) and top-level folders |
   | *N layers* | Bands of the units level |
   | *N upward* | Unit edges to a unit on the same or a higher layer, outside a cycle; red when above 0 |
   | *N cycles* | Groups of units that import each other; a click shows the first cycle block |
@@ -174,9 +174,9 @@ Rows 1–2 are outlined. The red cell, `core` → `shared`, has 6 pairs; its mir
 
 **What it is for.** Tell what each unit is (`function`, `frontend`, `library`…), so that rules can target units by role (`{ "role": "function" }` in an element) and the graph can show one kind of unit. A role says nothing about what the code does: it comes from manifests and file names only (see [Roles](#roles)).
 
-**How to read it.** The legend, top left at the units level, lists the role counts, then each unit with its colour and badge. `[role?]` is inferred; `[role]` is declared under `roles` in `graphit.architecture.json`. Hover a unit for its key, layer, role and confidence, and the unit on the graph for the evidence. Click a role to show only its units; click it again to show every unit. Click a unit to select it.
+**How to read it.** The legend, top left at the units level, lists the role counts, then each unit with its colour and badge. A dashed border marks an inferred role, a solid one a role declared under `roles` in `graphit.architecture.json`. Hover a unit for its key, layer, role and confidence, and the unit on the graph for the evidence. Click a role to show only its units; click it again to show every unit. Click a unit to select it.
 
-**How to fix it.** A wrong or `[unknown?]` role: declare the right one under [`roles`](#roles-key).
+**How to fix it.** A wrong or `[unknown]` role: declare the right one under [`roles`](#roles-key).
 
 ### *Files changed* banner
 
@@ -201,7 +201,8 @@ Colours follow the VS Code theme: *red* is the theme's error colour, *focus* its
 | Dotted grey border | A *more* placeholder: click it to load the next files of the group |
 | Box around files, title on top | An expanded group: a compound around its files |
 | Thin border | A file inside an expanded group |
-| `[role?]` or `[role]` in the label | The unit's role, inferred or declared (units level) |
+| `[role]` in the label, dashed border | The unit's inferred role (units level); hover for its evidence |
+| `[role]` in the label, solid border | The unit's declared role (units level) |
 | Solid focus border | The selected group |
 | Solid focus border on a highlighted background | A *Find group* match |
 
@@ -393,26 +394,29 @@ After it opens, the view rebuilds on **Refresh** and when `graph-it-live.communi
 
 ## Roles
 
-A role describes a unit. It comes from the unit's manifest, top-level configs, `index.html` and entry file, never from the code's meaning. Each file read stays inside the workspace and under 1 MiB; nothing is executed.
+A role describes a unit. It comes from the unit's manifest, top-level configs, `index.html` and entry file, never from the code's meaning. Each file read stays inside the workspace and under 1 MiB; nothing is executed. Test, fixture and tooling evidence wins over the `application` and `library` evidence of the same unit: a test module often has a product-like manifest. A folder with no manifest of its own inherits the root manifest's evidence, marked `(workspace root manifest)`.
 
 | Role | Evidence (any of) |
 | --- | --- |
+| `application` | an executable: `bin` in `package.json`, `engines.vscode` and `main` (editor extension), `[project.scripts]` in `pyproject.toml`, `[[bin]]` in `Cargo.toml` or `src/main.rs`, `main.go` declaring `package main`, `spring-boot-maven-plugin` or a `<mainClass>` in `pom.xml` |
 | `function` | `@types/aws-lambda`, `aws-lambda`, `@azure/functions` or `firebase-functions` dependency; `serverless.yml`, `host.json`, or a SAM `template.yaml` in the unit; an exported `handler` in its entry (`main`, `index.*`, `handler.*`) |
 | `micro-frontend` | `@module-federation/*` or `single-spa` dependency; `ModuleFederationPlugin` in a bundler config |
 | `frontend` | `react`, `vue`, `@angular/core`, `svelte` or `solid-js` dependency, with an `index.html` or a bundler config (vite, webpack, next, nuxt, rspack, `angular.json`) |
 
 | `service` | `express`, `fastify`, `@nestjs/core`, `koa` or `hono` dependency; a `Dockerfile` with `EXPOSE` |
-| `library` | none of the above, and imported by another unit (unless all its files are tooling) |
-| `tooling` | only scripts, tests or config files (`scripts/`, `tools/`, `e2e/`, `tests/`, `.github/`, `*.test.*`, `*.config.*`), even when imported |
+| `library` | none of the above, and imported by another unit |
+| `test` | only test, fixture or tooling files, tests the most (`test/`, `tests/`, `__tests__/`, `__mocks__/`, `spec/`, `e2e/`, `*.test.*`, `*.spec.*`, `*_test.go`, `*Test.java`...), or a test-module name (`*-tests`, `*.e2e`, `integration-tests`...) |
+| `fixture` | only test, fixture or tooling files, fixtures the most (`fixtures/`, `__fixtures__/`, `testdata/`, or `examples/`, `samples/`, `demo/` at the project root) |
+| `tooling` | only test, fixture or tooling files, tooling the most (`.github/`, or `scripts/`, `tools/`, `bench/` at the project root, `eslint.config.*`, `vitest.config.*`...) |
 | `unknown` | nothing conclusive |
 
 A Vue SFC counts its imports, its `<script src>` and its HTML `<template src>` as dependencies: an external block is an import edge of its `.vue`, inside the workspace only (a symbolic link that leaves it is refused).
 
-A unit matching several roles takes the first in the table; the other matches stay as evidence. The badge reads `[role?]` when inferred and `[role]` when declared; its tooltip lists the evidence.
+A unit matching several roles takes the first in the table; the other matches stay as evidence. An inferred role has a dashed border, a declared one a solid border; the tooltip lists the evidence, and text and markdown tables show the first one in their **Evidence** column.
 
 ![Units legend with role badges; the libraries filter keeps only the five library units](../media/architecture-roles-filter.png)
 
-*`[library?]` is inferred, `[library]` declared. Click a role in the legend to keep only its units.*
+*A dashed border marks an inferred role, a solid one a declared role. Click a role in the legend to keep only its units.*
 
 ## The config file
 
@@ -422,7 +426,7 @@ A unit matching several roles takes the first in the table; the other matches st
 | --- | --- | --- |
 | `elements` | Which files belong together? | Names sets of files for the rules |
 | `rules` | Which imports are allowed? | Violations in the view, `check-architecture` exit code |
-| `roles` | What is each unit? | Badge `[role]` instead of `[role?]`, legend counts, `role` selectors of elements |
+| `roles` | What is each unit? | Solid border instead of dashed, legend counts, `role` selectors of elements |
 
 A file without `rules` checks nothing. Rules are your annotation: the tool only compares import pairs with them.
 
@@ -448,8 +452,7 @@ A monorepo with serverless functions, a frontend, micro-frontends, a backend and
     { "name": "no-unit-cycles", "noCycles": "units", "severity": "error" }
   ],
   "roles": {
-    "@acme/shared-*": "library",
-    "tools/*": "tooling"
+    "shared": "library"
   }
 }
 ```
@@ -478,25 +481,27 @@ A rule that could never report is refused: `noCycles` on an element without `eac
 
 ### Roles key
 
-`roles` maps unit keys or package names to a role; `*` matches any characters and the first match wins. It only replaces the inferred role: it is not a rule. Its keys are unit keys or package names, never element names.
+`roles` maps unit keys or package names to a role; `*` matches any characters and the first match wins. It only replaces the inferred role: it is not a rule. When the units are your declared elements, their keys are element names (`element (instance)` with `each`): key `roles` by them. A key naming a detected project still sets that project's role for the `role` selectors of `elements`, not the role drawn on an element. A key that matches no unit, or `(root)`, gets a config warning.
 
 ### Write the file for your workspace
 
 1. Run `graph-it architecture --level units` (or open the Architecture view) and note the unit keys.
 2. Under `elements`, name each part of your architecture by `path`, `unit` or `role`. Every source file should belong to an element: `check-architecture` reports the others as `unmatchedFiles`.
 3. Under `rules`, write what each element may import (`allowOnly`) or must not import (`forbid`), with a `reason`.
-4. Optionally, under `roles`, fix every role the view infers wrongly or marks `[unknown?]`.
+4. Optionally, under `roles`, fix every role the view infers wrongly or marks `unknown`.
 5. Run `graph-it check-architecture`: it should report 0 violations, no unmatched file and no config warning.
 
-A single-package repository has its top-level folders as units. Graph-It-Live's own [`graphit.architecture.json`](../graphit.architecture.json) is one: its elements split `src/` into layers, and `roles` declares the units:
+Graph-It-Live's own [`graphit.architecture.json`](../graphit.architecture.json) is a single-package example: its elements split `src/` into layers and are its units, and `roles` declares them:
 
 ```json
 "roles": {
-  "src": "library",
-  "tests": "tooling",
-  "scripts": "tooling",
-  ".github": "tooling",
-  "(root)": "tooling"
+  "shared": "library",
+  "analyzer": "library",
+  "mcp": "application",
+  "cli": "application",
+  "extension": "application",
+  "webview": "frontend",
+  "tooling": "tooling"
 }
 ```
 
