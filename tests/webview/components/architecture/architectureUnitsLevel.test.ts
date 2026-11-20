@@ -393,6 +393,22 @@ describe("fitReadable on a large graph", () => {
     expect((box.x1 + box.x2) / 2).toBeCloseTo(200, 0);
   });
 
+  it("moves the graph below the legend it would sit under, and leaves a graph beside it alone", () => {
+    const nodes = [{ group: "nodes" as const, data: { id: "a" }, position: { x: 0, y: 0 } }, { group: "nodes" as const, data: { id: "b" }, position: { x: 0, y: 300 } }];
+    const cy = cytoscape({ headless: true, elements: nodes });
+    vi.spyOn(cy, "width").mockReturnValue(800);
+    vi.spyOn(cy, "height").mockReturnValue(600);
+    vi.spyOn(cy, "fit").mockImplementation(() => { cy.zoom(1); cy.pan({ x: 400, y: 30 }); return cy; });
+    fitReadable(cy, false, { right: 500, bottom: 200 });
+    const box = cy.elements().renderedBoundingBox();
+    expect(box.y1).toBeGreaterThanOrEqual(200 - 1);
+    expect(box.y2).toBeLessThanOrEqual(600);
+    expect(cy.zoom()).toBeGreaterThanOrEqual(MIN_READABLE_ZOOM);
+    // Beside the legend (rendered left edge past its right edge): the fit stays.
+    fitReadable(cy, false, { right: 100, bottom: 200 });
+    expect(cy.pan()).toEqual({ x: 400, y: 30 });
+  });
+
   it("keeps the whole graph in view below the readable zoom when asked (the Fit button)", () => {
     const cy = cytoscape({ headless: true, elements: [{ group: "nodes", data: { id: "n" } }] });
     vi.spyOn(cy, "fit").mockImplementation(() => cy.zoom(0.05));
