@@ -122,7 +122,7 @@ function foldersOf(relativePath: string): string[] {
  * SourceFileCollector, so node_modules is never read.
  */
 export function assignUnits(workspaceRoot: string, files: readonly string[], declared: readonly string[] = []): UnitAssignment {
-  const relativePaths = files.map(normalizePath);
+  const relativePaths = files.map((file) => normalizePath(file));
   const isProject = new Map<string, boolean>();
   for (const folder of new Set(relativePaths.flatMap(foldersOf))) {
     isProject.set(folder, hasProjectMarker(path.join(workspaceRoot, folder)));

@@ -5,13 +5,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { buildArchitectureGraph, type AnalyzeFile } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import { compareArchitecture, renderArchitectureMarkdown } from "@/analyzer/architecture/architectureReview";
 import { ArchitectureRulesFileError, checkGraphArchitecture, parseArchitectureConfig, unitCyclePairs, type ArchitectureConfig } from "@/analyzer/architecture/architectureRules";
-import { assignUnits, ROOT_UNIT } from "@/analyzer/architecture/architectureUnits";
+import { assignUnits, byCodeUnit, ROOT_UNIT } from "@/analyzer/architecture/architectureUnits";
 import { viewArchitecture } from "@/analyzer/architecture/architectureView";
 import { loadWorkspaceUnits, UNMATCHED_UNIT, workspaceUnits } from "@/analyzer/architecture/workspaceUnits";
 import type { ArchitectureUnits } from "@/shared/architecture-model";
 import { normalizePath } from "@/shared/path";
 
 let root: string;
+const byFirst = (left: string[], right: string[]) => byCodeUnit(left[0], right[0]);
 
 function write(relative: string, content = ""): void {
   const file = path.join(root, relative);
@@ -46,7 +47,7 @@ describe("workspaceUnits: element units", () => {
     const { units, assignment } = workspaceUnits(graph, root, config({ elements: { a: { path: "src/a/" }, b: { path: "src/" } } }));
     expect(units.unitsFrom).toBe("elements");
     expect(Object.fromEntries(assignment.unitOf)).toEqual({ "src/a/x.ts": "a", "src/b/y.ts": "b", "src/b/z.ts": "b" });
-    expect(units.units.map(({ key, name, folder, fileCount }) => ({ key, name, folder, fileCount })).sort((l, r) => l.key.localeCompare(r.key))).toEqual([
+    expect(units.units.map(({ key, name, folder, fileCount }) => ({ key, name, folder, fileCount })).sort((l, r) => byCodeUnit(l.key, r.key))).toEqual([
       { key: "a", name: "a", folder: "src/a", fileCount: 1 },
       { key: "b", name: "b", folder: "src/b", fileCount: 2 },
     ]);
@@ -56,14 +57,14 @@ describe("workspaceUnits: element units", () => {
   it("draws no unit for an element first for no file, and warns about nothing then (init's acyclic-units)", async () => {
     const graph = await graphOf({ "a/x.ts": [], "b/y.ts": [] });
     const { units } = workspaceUnits(graph, root, config({ elements: { a: { path: "a/" }, b: { path: "b/" }, "acyclic-units": { path: ["a/", "b/"] } } }));
-    expect(units.units.map((entry) => entry.key).sort()).toEqual(["a", "b"]);
+    expect(units.units.map((entry) => entry.key).sort(byCodeUnit)).toEqual(["a", "b"]);
     expect(units.configWarnings).toEqual([]);
   });
 
   it("gives one unit per instance with each, and a never-dropped (unmatched) unit with its warning", async () => {
     const graph = await graphOf({ "mfe/cart/a.ts": ["mfe/checkout/b.ts"], "mfe/checkout/b.ts": [], "docs/x.ts": [], "y.ts": [] });
     const { units } = workspaceUnits(graph, root, config({ elements: { mfe: { path: "mfe/*", each: true } } }));
-    expect(units.units.map(({ key, folder }) => [key, folder]).sort()).toEqual([[UNMATCHED_UNIT, ""], ["mfe (mfe/cart)", "mfe/cart"], ["mfe (mfe/checkout)", "mfe/checkout"]]);
+    expect(units.units.map(({ key, folder }) => [key, folder]).sort(byFirst)).toEqual([[UNMATCHED_UNIT, ""], ["mfe (mfe/cart)", "mfe/cart"], ["mfe (mfe/checkout)", "mfe/checkout"]]);
     expect(unit(units, UNMATCHED_UNIT).fileCount).toBe(2);
     expect(units.configWarnings).toEqual([`$.elements: 2 files match no element; drawn in unit "${UNMATCHED_UNIT}"`]);
   });
@@ -106,8 +107,8 @@ describe("workspaceUnits: element units", () => {
     write("app/package.json", JSON.stringify({ name: "app" }));
     const graph = await graphOf({ "app/a.ts": ["lib/i.ts"], "lib/i.ts": [] });
     const { units, detected } = workspaceUnits(graph, root, config({ elements: { libs: { role: "library" }, rest: { path: "*" } } }));
-    expect(units.units.map((entry) => entry.key).sort()).toEqual(["libs", "rest"]);
-    expect([...detected.names.keys()].sort()).toEqual(["app", "lib"]);
+    expect(units.units.map((entry) => entry.key).sort(byCodeUnit)).toEqual(["libs", "rest"]);
+    expect([...detected.names.keys()].sort(byCodeUnit)).toEqual(["app", "lib"]);
   });
 });
 
@@ -162,7 +163,7 @@ describe("workspaceUnits: rules on unit edges", () => {
       elements: { app: { path: "app/" }, legacy: { path: "app/x.ts" }, db: { path: "db/" } },
       rules: [{ name: "legacy-no-db", from: "legacy", forbid: "db" }],
     }));
-    expect(units.units.map((entry) => entry.key).sort()).toEqual(["app", "db"]);
+    expect(units.units.map((entry) => entry.key).sort(byCodeUnit)).toEqual(["app", "db"]);
     expect(edge(units, "app", "db")).toMatchObject({ ruleVerdict: "violated", rules: [{ name: "legacy-no-db", checkedPairs: 1, newViolations: 1 }] });
   });
 
@@ -267,7 +268,7 @@ describe("checkGraphArchitecture and the review keep the detected projects (#776
     const rules = config({ elements: { all: { path: ["p/", "q/"] } }, rules: [{ name: "no-cycles", noCycles: "units" }] });
     const { assignment } = checkGraphArchitecture(graph, root, rules);
     const unitCycles = unitCyclePairs(graph, assignment);
-    expect(unitCycles.map(({ from, to }) => `${from}>${to}`).sort()).toEqual(["p>q", "q>p"]);
+    expect(unitCycles.map(({ from, to }) => `${from}>${to}`).sort(byCodeUnit)).toEqual(["p>q", "q>p"]);
     expect(workspaceUnits(graph, root, rules).units.cycles).toBe(0);
     const review = compareArchitecture({ check: { rules: [], violations: [], unitCycles: [] } }, { check: { rules: [], violations: [], unitCycles } }, false);
     const markdown = renderArchitectureMarkdown(review, (value) => value).join("\n");

@@ -157,9 +157,10 @@ export function viewArchitecture(
   source?: WorkspaceUnits | DeclaredRoles,
 ): ReturnType<typeof viewGroups> & Partial<Pick<ReturnType<typeof viewUnitLevel>, "units">> & { source?: UnitSource } {
   if (graph.context.communityMode !== "path") return viewGroups(graph, maxGroups);
-  const units = isWorkspaceUnits(source)
-    ? source
-    : workspaceUnits(graph, workspaceRoot, source === undefined ? undefined : { elements: {}, rules: [], roles: declaredOnly(source) });
+  let units: WorkspaceUnits;
+  if (isWorkspaceUnits(source)) units = source;
+  else if (source === undefined) units = workspaceUnits(graph, workspaceRoot);
+  else units = workspaceUnits(graph, workspaceRoot, { elements: {}, rules: [], roles: declaredOnly(source) });
   return { ...viewUnitLevel(units, maxGroups), source: units };
 }
 

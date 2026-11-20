@@ -316,9 +316,9 @@ function rootWarning(where: string, assignment: UnitAssignment): string | undefi
   const units = listUnits([...moved].map((unit) => ({ unit, files: size(unit) }))
     .sort((left, right) => right.files - left.files || byCodeUnit(left.unit, right.unit)).map(({ unit }) => unit));
   const rootFiles = size(ROOT_UNIT);
-  return rootFiles === 0
-    ? `${where}: "${ROOT_UNIT}" matches no unit; files outside every project are now in the units ${units}`
-    : `${where}: "${ROOT_UNIT}" now holds only the ${rootFiles} ${rootFiles === 1 ? "file" : "files"} at the workspace root; files outside every project moved to the units ${units}: name those instead`;
+  if (rootFiles === 0) return `${where}: "${ROOT_UNIT}" matches no unit; files outside every project are now in the units ${units}`;
+  const files = rootFiles === 1 ? "file" : "files";
+  return `${where}: "${ROOT_UNIT}" now holds only the ${rootFiles} ${files} at the workspace root; files outside every project moved to the units ${units}: name those instead`;
 }
 
 /** Roles a `tooling` selector selected before #776 split them out of tooling. */
@@ -329,7 +329,8 @@ function toolingRoleWarning(at: string, roles: readonly string[], assignment: Un
   if (!roles.includes("tooling") || missing.length === 0) return [];
   const units = [...roleOf].filter(([, role]) => (missing as readonly string[]).includes(role)).map(([key]) => assignment.names.get(key) ?? key).sort(byCodeUnit);
   if (units.length === 0) return [];
-  return [`${at}: "tooling" no longer selects ${missing.join(" and ")} units (${listUnits(units)}); add ${missing.map((role) => `"${role}"`).join(", ")} to keep them`];
+  const quoted = missing.map((role) => JSON.stringify(role)).join(", ");
+  return [`${at}: "tooling" no longer selects ${missing.join(" and ")} units (${listUnits(units)}); add ${quoted} to keep them`];
 }
 
 /** Instance of `file` in one element (path first, then unit), or undefined outside it. */
