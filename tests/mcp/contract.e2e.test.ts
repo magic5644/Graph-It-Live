@@ -277,7 +277,7 @@ describe.skipIf(!distExists)("MCP units contract (#776, E2E)", { timeout: TIMEOU
   it("returns the declared elements, edges with their rules and the element cycle; review_pr sees the detected-project cycles only", async () => {
     const units = await data("explore_architecture", { level: "units" });
     expect(units).toMatchObject({ unitsFrom: "elements", configFile: "graphit.architecture.json", configWarnings: [], cycles: 1 });
-    expect(units.units.map((unit: { key: string }) => unit.key).sort()).toEqual(["alpha", "beta", "pkgs"]);
+    expect(units.units.map((unit: { key: string }) => unit.key).toSorted((left: string, right: string) => left.localeCompare(right))).toEqual(["alpha", "beta", "pkgs"]);
     const edge = units.unitEdges.find((candidate: { from: string }) => candidate.from === "alpha");
     expect(edge).toMatchObject({ to: "beta", kind: "cycle", ruleVerdict: "violated", rules: [{ name: "alpha-not-beta", verdict: "violated" }] });
     expect(units.rules.map((rule: { name: string }) => rule.name)).toEqual(["alpha-not-beta"]);
