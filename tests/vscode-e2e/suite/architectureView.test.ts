@@ -998,7 +998,7 @@ suite('Architecture view mode', () => {
       await exportTo({ target: 'file', output: 'architecture-e2e.svg' });
       const svg = Buffer.from(await written(svgFile)).toString('utf8');
       assert.match(svg, /^<svg /, 'an SVG of the analyzer renderer, not a canvas screenshot');
-      assert.strictEqual(svg.match(/<rect class="node"/g)?.length, EXPECTED.roles.libraries, 'the drawn units: the libraries only');
+      assert.strictEqual(svg.match(/<rect class="node[ "]/g)?.length, EXPECTED.roles.libraries, 'the drawn units: the libraries only');
       assert.ok(svg.includes('role library'), 'the caption names the role filter');
 
       await exportTo({ target: 'file', output: 'architecture-e2e.png' });
