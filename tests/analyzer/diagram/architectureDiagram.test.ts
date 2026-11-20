@@ -372,7 +372,7 @@ describe("diagram spec", () => {
   });
 
   it("publishes the roles and edge kinds the analyzer produces, and refuses unknown fields", () => {
-    const { nodes, edges } = SPEC_SCHEMA.properties;
+    const { nodes, edges } = SPEC_SCHEMA.$defs.architecture.properties;
     expect(nodes.items.properties.role.enum).toEqual([...UNIT_ROLES]);
     expect(edges.items.properties.kind.enum).toEqual(["down", "upward", "cycle"] satisfies DiagramSpec["edges"][number]["kind"][]);
     const spec = diagramSpec(input([["a", 0, 1]]));

@@ -35,7 +35,7 @@ import { getLogger } from "@/shared/logger";
 import { normalizePath } from "@/shared/path";
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { Node as TreeNode } from "web-tree-sitter";
+import type { Node as TreeNode, Tree } from "web-tree-sitter";
 import { Query } from "web-tree-sitter";
 import type { CallGraphEdge, CallGraphNode } from "./CallGraphIndexer";
 import { importLocalNames, resolveImportBindings, resolveNamedImportCalls } from "./importBindings";
@@ -560,15 +560,26 @@ export class GraphExtractor {
     // A content the pass already holds is reused; any other is read and dropped: only the annotations are kept.
     const content = await (reads.get(normalizePath(filePath)) ?? fs.readFile(filePath, "utf8").catch(() => null));
     if (content === null) return null;
-    const { source, grammar } = parseInput(lang, filePath, content);
-    const parser = await WasmParserFactory.getInstance().getParser(grammar, path.join(this.config.extensionPath, "dist", "wasm", this.langToWasmFileName(grammar)));
-    const tree = parser.parse(source);
+    const tree = await this.parseTree(filePath, lang, content);
     if (!tree) return null;
     try {
       return fileReturns(tree.rootNode, lang === "python" ? "python" : "typescript");
     } finally {
       tree.delete();
     }
+  }
+
+  /**
+   * The tree-sitter tree of a file as the extractor parses it (an SFC's same-length script view, so rows match the
+   * file), for a reader of its AST; the caller deletes it. Null when tree-sitter returns no tree.
+   */
+  async parseTree(filePath: string, lang: SupportedLang, content: string): Promise<Tree | null> {
+    const { source, grammar } = parseInput(lang, filePath, content);
+    const wasm = path.join(this.config.extensionPath, "dist", "wasm");
+    const factory = WasmParserFactory.getInstance();
+    await factory.init(path.join(wasm, "tree-sitter.wasm"));
+    const parser = await factory.getParser(grammar, path.join(wasm, this.langToWasmFileName(grammar)));
+    return parser.parse(source);
   }
 
   // ---------------------------------------------------------------------------
