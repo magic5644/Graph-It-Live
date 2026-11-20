@@ -1,5 +1,15 @@
 # Changelog
 
+## v1.25.6
+
+Patch release that brings the SonarCloud quality gate of `main` back to green.
+
+### Security
+- **Webviews ignore messages from other origins** (#783, PR #785): the file graph view and its graph component accepted any window `message` event. All four webview listeners (file graph, file graph component, call graph, architecture) now share one check that accepts only the extension's own origin. That is `vscode-webview://` on desktop, or the page's own origin when VS Code runs in a browser. Nothing changes for users.
+
+### Changed
+- **Release checklist checks the `main` gate** (#783): a release is tagged only after the SonarCloud quality gate of `main` itself passes, not only the pull request gates. New analyzer rules had raised security issues on older lines that fell in the new-code period, so pull request gates stayed green while `main` was red. The other 13 issues were reviewed and closed as false positives, with the reason written on each.
+
 ## v1.25.5
 
 Patch release on the user contract of every surface: the CLI, the MCP server and VS Code refuse what they do not understand and say why they cannot run, instead of ignoring input or reporting an empty success. It also makes warm `graph-it init` runs reuse unchanged work on large monorepos, and draws architecture units from the elements you declare.
