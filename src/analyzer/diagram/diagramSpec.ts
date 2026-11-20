@@ -2,13 +2,14 @@
  * The diagram spec: the exact data of one architecture diagram level as a small JSON document
  * (schemas/diagram-spec.schema.json), for an agent diagram skill that draws a hand-crafted or
  * branded diagram. The same level, filters and violations as the SVG, but every node: the size
- * cap is a drawing concern, left to the skill.
+ * cap is a drawing concern, left to the skill. A flow spec (`kind: "flow"`) carries one entry symbol's flow model.
  *
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
 import { byCodeUnit } from "../architecture/architectureUnits";
 import { brokenRules, cyclesOf, diagramHeader, sanitizeText, type DiagramEdge, type DiagramInput, type DiagramNode } from "./architectureDiagram";
+import type { FlowModel } from "./flowModel";
 
 export const DIAGRAM_SPEC_SCHEMA = "https://raw.githubusercontent.com/magic5644/Graph-It-Live/main/schemas/diagram-spec.schema.json";
 
@@ -38,6 +39,30 @@ export interface DiagramSpec {
   cycles: string[][];
   /** Rule-breaking file pairs between two nodes, those the baseline accepts, and the broken rules' names. */
   violations: { count: number; accepted: number; rules: string[] };
+}
+
+/** The flow of one entry symbol (`kind: "flow"`): its steps in call order, their lanes and source locations. */
+export interface FlowDiagramSpec extends Omit<FlowModel, "entry"> {
+  $schema: string;
+  version: number;
+  kind: "flow";
+  /** Workspace folder name, never its absolute path. */
+  workspace: string;
+  /** Id of the entry step. */
+  entry: string;
+}
+
+/** The spec of one flow model; the model is in call order already, so one index revision gives one document. */
+export function flowSpec(model: FlowModel, workspace: string): FlowDiagramSpec {
+  return {
+    $schema: DIAGRAM_SPEC_SCHEMA,
+    version: DIAGRAM_SPEC_VERSION,
+    kind: "flow",
+    workspace: sanitizeText(workspace),
+    ...model,
+    nodes: model.nodes.map((node) => ({ ...node, title: sanitizeText(node.title), ...(node.subtitle ? { subtitle: sanitizeText(node.subtitle) } : {}) })),
+    edges: model.edges.map((edge) => ({ ...edge, ...(edge.condition ? { condition: sanitizeText(edge.condition) } : {}) })),
+  };
 }
 
 /** The spec of one level: every node and edge, sorted by key, so one index revision gives one document. */
