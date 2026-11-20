@@ -13,10 +13,9 @@ import { normalizePath } from "@/shared/path";
  * graph are rebuilt from scratch every invocation unless they are persisted.
  * These tests cover the persistence round-trip and every invalidation path.
  */
-// Every test indexes a workspace cold at least once. On the Windows runner a
-// single cold index already comes close to the default 5 s, so tests kept
-// timing out one by one; the whole file gets the multi-run timeout instead.
-describe("CliRuntime index cache", { timeout: 15_000 }, () => {
+// Every test indexes a workspace cold at least once: the 30 s floor of
+// vitest.config.mts applies (a lower suite timeout timed out on Windows).
+describe("CliRuntime index cache", () => {
   let tmpDir: string;
   let cacheDir: string;
   const runtimes: CliRuntime[] = [];

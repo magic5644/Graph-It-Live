@@ -98,7 +98,7 @@ async function createArchitectureRepository(): Promise<string> {
 const runCli = (...args: string[]): string =>
   execFileSync(process.execPath, [cliEntry, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
 
-describe.skipIf(!fsSync.existsSync(cliEntry))("review-pr CLI E2E", { timeout: 15_000 }, () => {
+describe.skipIf(!fsSync.existsSync(cliEntry))("review-pr CLI E2E", () => {
   it("runs the built entry point against a real working-tree diff", async () => {
     const root = await createRepository();
     try {
@@ -145,7 +145,7 @@ describe.skipIf(!fsSync.existsSync(cliEntry))("review-pr CLI E2E", { timeout: 15
     } finally {
       await fs.rm(root, { recursive: true, force: true });
     }
-  });
+  }, 60_000);
 
   it("reports a new architecture violation in every format, through the CLI and MCP alike (#443)", async () => {
     const root = await createArchitectureRepository();
