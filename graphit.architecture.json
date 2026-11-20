@@ -127,10 +127,12 @@
     }
   ],
   "roles": {
-    "src": "library",
-    "tests": "tooling",
-    "scripts": "tooling",
-    ".github": "tooling",
-    "(root)": "tooling"
+    "shared": "library",
+    "analyzer": "library",
+    "mcp": "application",
+    "cli": "application",
+    "extension": "application",
+    "webview": "frontend",
+    "tooling": "tooling"
   }
 }
