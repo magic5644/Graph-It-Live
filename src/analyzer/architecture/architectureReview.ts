@@ -73,7 +73,7 @@ export interface ArchitectureReview {
   /** New error violations the head baseline does not accept: they raise the review risk and fail the Review Gate. */
   newErrors: number;
   rules: ArchitectureRuleReview[];
-  /** Import cycles between units (graph-it architecture --level units), whatever the rules. */
+  /** Import cycles between detected projects (manifest units, never the declared elements), whatever the rules. JSON name kept (#776). */
   unitCycles: ArchitecturePairDiff;
   /** Present when the diff edits the config or its baseline. */
   configChange?: ArchitectureConfigChange;
@@ -281,6 +281,8 @@ const MAX_MARKDOWN_ITEMS = 20;
 export function renderArchitectureMarkdown(review: ArchitectureReview, safe: (value: string) => string): string[] {
   const pair = (rule: string, { source, target, line, from, to, cycle }: ArchitecturePair) =>
     `- ${safe(rule)}: ${safe(source)}${line === undefined ? "" : ":" + line} -> ${safe(target)} (${safe(from)} -> ${safe(to)}${cycle === "type-only" ? ", type-only cycle" : ""})`;
+  const projectCycle = ({ source, target, line, from, to, cycle }: ArchitecturePair) =>
+    `- cycle between detected projects ${safe(from)}, ${safe(to)}: ${safe(source)}${line === undefined ? "" : ":" + line} -> ${safe(target)}${cycle === "type-only" ? " (type-only cycle)" : ""}`;
   const rows = review.rules.map((rule) =>
     `| ${safe(rule.name)} | ${rule.severity} | ${rule.newViolations.length} | ${rule.resolvedViolations.length} | ${rule.unchanged} |`);
   const added = review.rules.flatMap((rule) => rule.newViolations.map((violation) =>
@@ -304,12 +306,12 @@ export function renderArchitectureMarkdown(review: ArchitectureReview, safe: (va
   return [
     "", `### Architecture rules: ${review.verdict.toUpperCase()}`,
     "",
-    `New error violations: ${review.newErrors}. Unit cycles: ${unitCycles.newViolations.length} new, ${unitCycles.resolvedViolations.length} resolved, ${unitCycles.unchanged} unchanged.`,
+    `New error violations: ${review.newErrors}. Detected-project cycles: ${unitCycles.newViolations.length} new, ${unitCycles.resolvedViolations.length} resolved, ${unitCycles.unchanged} unchanged.`,
     ...(rows.length > 0 ? ["", "| Rule | Severity | New | Resolved | Unchanged |", "| --- | --- | ---: | ---: | ---: |", ...rows] : []),
     ...capped("#### New violations", added),
     ...capped("#### Resolved violations", resolved),
-    ...capped("#### New unit cycles", unitCycles.newViolations.map((violation) => pair("units", violation))),
-    ...capped("#### Resolved unit cycles", unitCycles.resolvedViolations.map((violation) => pair("units", violation))),
+    ...capped("#### New cycles between detected projects", unitCycles.newViolations.map(projectCycle)),
+    ...capped("#### Resolved cycles between detected projects", unitCycles.resolvedViolations.map(projectCycle)),
     ...config,
   ];
 }
