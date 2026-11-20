@@ -91,7 +91,7 @@ export interface ArchitectureGroupDetail {
 // ---------------------------------------------------------------------------
 
 /** In priority order: a unit matching several roles takes the first. */
-export const UNIT_ROLES = ["function", "micro-frontend", "frontend", "service", "library", "tooling", "unknown"] as const;
+export const UNIT_ROLES = ["application", "function", "micro-frontend", "frontend", "service", "library", "test", "fixture", "tooling", "unknown"] as const;
 export type UnitRole = (typeof UNIT_ROLES)[number];
 
 export interface UnitRoleEvidence {
@@ -107,11 +107,26 @@ export interface UnitRoleInfo {
   evidence: UnitRoleEvidence[];
 }
 
-export interface ArchitectureUnit {
-  /** Workspace-relative folder, or ROOT_UNIT. */
-  key: string;
-  /** package.json `name`, else the folder. */
+/** One rule's result on a unit edge, or on the pairs leaving a unit. */
+export interface UnitRuleCheck {
   name: string;
+  kind: ArchitectureRuleKind;
+  severity: "error" | "warning";
+  /** File pairs of the edge (or leaving the unit) the rule checks. */
+  checkedPairs: number;
+  violations: number;
+  newViolations: number;
+  /** violated: a new violation; accepted: violations, all in the baseline; pass: none. */
+  verdict: "pass" | "accepted" | "violated";
+}
+
+export interface ArchitectureUnit {
+  /** manifests: folder or "(root)"; elements: element name, "element (instance)" with each, or "(unmatched)". */
+  key: string;
+  /** Manifest name (package.json `name`...), else the folder; for elements the element name. */
+  name: string;
+  /** Folder holding every file of the unit; "" for (root), (unmatched) or files across top-level folders. Paths for commands come from here, never from key. */
+  folder: string;
   fileCount: number;
   /** Distinct directed file pairs with both ends in this unit. */
   internalEdgeCount: number;
@@ -120,6 +135,8 @@ export interface ArchitectureUnit {
   role: UnitRole;
   confidence: UnitRoleInfo["confidence"];
   evidence: UnitRoleInfo["evidence"];
+  /** forbid/allowOnly rules whose `from` names this unit's element, over the pairs leaving it. */
+  rules?: UnitRuleCheck[];
 }
 
 /** `upward`: to a unit at the same or a higher layer; `cycle`: both units in one cycle. */
@@ -141,6 +158,10 @@ export interface ArchitectureUnitEdge {
   typeOnlyEdgeCount?: number;
   /** Cycle edges only: how the cycle the edge belongs to runs (#745). */
   cycleKind?: UnitCycleKind;
+  /** Rules that check at least one pair of this edge, by config order. */
+  rules?: UnitRuleCheck[];
+  /** Worst verdict of `rules`; absent without rules. */
+  ruleVerdict?: UnitRuleCheck["verdict"];
 }
 
 /** Units, layers and unit → unit edges of an architecture graph (buildArchitectureUnits). */
@@ -156,6 +177,14 @@ export interface ArchitectureUnits {
   /** Units per role, in role priority order; roles no unit has are left out. */
   roleCounts: Partial<Record<UnitRole, number>>;
   totals: { files: number; fileEdges: number; intraUnitEdges: number; interUnitEdges: number };
+  /** elements: the declared elements of graphit.architecture.json; manifests: the detected projects. */
+  unitsFrom: "elements" | "manifests";
+  configFile?: string;
+  baselineFile?: string;
+  /** Present whenever a config was read; the check's warnings plus (unmatched) and overlap warnings. */
+  configWarnings?: string[];
+  /** Every rule of the config with its totals; absent without rules. */
+  rules?: ArchitectureRuleSummary[];
 }
 
 // ---------------------------------------------------------------------------

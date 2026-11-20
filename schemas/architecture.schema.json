@@ -58,11 +58,14 @@
               {
                 "type": "string",
                 "enum": [
+                  "application",
                   "function",
                   "micro-frontend",
                   "frontend",
                   "service",
                   "library",
+                  "test",
+                  "fixture",
                   "tooling",
                   "unknown"
                 ]
@@ -74,11 +77,14 @@
                 "items": {
                   "type": "string",
                   "enum": [
+                    "application",
                     "function",
                     "micro-frontend",
                     "frontend",
                     "service",
                     "library",
+                    "test",
+                    "fixture",
                     "tooling",
                     "unknown"
                   ]
@@ -215,11 +221,14 @@
       "additionalProperties": {
         "type": "string",
         "enum": [
+          "application",
           "function",
           "micro-frontend",
           "frontend",
           "service",
           "library",
+          "test",
+          "fixture",
           "tooling",
           "unknown"
         ]

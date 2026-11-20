@@ -24,6 +24,7 @@ import { hasProjectMarker } from "../utils/workspaceBoundary";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { layerGraph } from "./stronglyConnectedComponents";
 import { unitRole, type DeclaredRoles } from "./unitRoles";
+import type { UnitSource } from "./workspaceUnits";
 
 /** Unit of the files outside every project (or at the root of a workspace without projects). */
 export const ROOT_UNIT = "(root)";
@@ -33,6 +34,8 @@ export interface UnitAssignment {
   unitOf: Map<string, string>;
   /** Display name of every unit key. */
   names: Map<string, string>;
+  /** Folder of every unit key: the key for manifest units, "" for (root), (unmatched) and units across folders. */
+  folders: Map<string, string>;
 }
 
 function packageName(packageJsonPath: string): string | undefined {
@@ -119,16 +122,18 @@ export function assignUnits(workspaceRoot: string, files: readonly string[]): Un
   const hasProjects = [...isProject.values()].some(Boolean);
   const unitOf = new Map<string, string>();
   const names = new Map<string, string>();
+  const folders = new Map<string, string>();
   for (const relativePath of relativePaths) {
-    const folders = foldersOf(relativePath);
-    const unit = (hasProjects ? folders.find((folder) => isProject.get(folder)) : folders.at(-1)) ?? ROOT_UNIT;
+    const parents = foldersOf(relativePath);
+    const unit = (hasProjects ? parents.find((folder) => isProject.get(folder)) : parents.at(-1)) ?? ROOT_UNIT;
     unitOf.set(relativePath, unit);
     if (!names.has(unit)) {
       const name = unit !== ROOT_UNIT && hasProjects ? manifestName(path.join(workspaceRoot, unit)) : undefined;
       names.set(unit, name ?? unit);
+      folders.set(unit, unit === ROOT_UNIT ? "" : unit);
     }
   }
-  return { unitOf, names };
+  return { unitOf, names, folders };
 }
 
 /** One unit (or group) pair: its file pairs, those whose every import is type-only, those loaded only through import(). */
@@ -193,7 +198,7 @@ export function buildArchitectureUnits(
   assignment?: UnitAssignment,
   declaredRoles?: DeclaredRoles,
 ): ArchitectureUnits {
-  const { unitOf, names } = assignment ?? assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
+  const { unitOf, names, folders } = assignment ?? assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
   const unitKeys = [...names.keys()].sort(byCodeUnit);
   const files = new Map<string, string[]>(unitKeys.map((key) => [key, []]));
   const internal = new Map<string, number>(unitKeys.map((key) => [key, 0]));
@@ -220,6 +225,7 @@ export function buildArchitectureUnits(
     .map((key) => ({
       key,
       name: names.get(key)!,
+      folder: folders.get(key) ?? (key === ROOT_UNIT ? "" : key),
       fileCount: files.get(key)!.length,
       internalEdgeCount: internal.get(key)!,
       layer: layerOf.get(key)!,
@@ -263,6 +269,7 @@ export function buildArchitectureUnits(
       intraUnitEdges: graph.edges.length - interUnitEdges,
       interUnitEdges,
     },
+    unitsFrom: "manifests",
   };
 }
 
@@ -386,12 +393,19 @@ export function layerGroupsWithinUnits(
  * The level below a unit or folder key (path mode), as `graph-it architecture --folder` and
  * explore_architecture `folder` report it: the files below it, grouped by its sub-folders.
  */
-export function folderLevel(graph: ArchitectureGraph, workspaceRoot: string, folder: string) {
+export function folderLevel(source: UnitSource, folder: string): ReturnType<typeof groupByUnit>;
+/** @deprecated #776 transition for the callers of set B: pass the UnitSource of workspaceUnits. */
+export function folderLevel(graph: ArchitectureGraph, workspaceRoot: string, folder: string): ReturnType<typeof groupByUnit>;
+export function folderLevel(first: UnitSource | ArchitectureGraph, second: string, third?: string) {
+  const legacy = third !== undefined;
+  const graph = legacy ? first as ArchitectureGraph : (first as UnitSource).graph;
   if (graph.context.communityMode !== "path") {
     throw new Error("folder levels exist in communityMode 'path' only: Louvain groups have no folders.");
   }
-  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
-  const level = groupByUnit(graph, buildArchitectureUnits(graph, workspaceRoot, assignment), assignment, folder);
+  const folder = legacy ? third : second;
+  const assignment = legacy ? assignUnits(second, graph.nodes.map((node) => node.relativePath)) : (first as UnitSource).assignment;
+  const units = legacy ? buildArchitectureUnits(graph, second, assignment) : (first as UnitSource).units;
+  const level = groupByUnit(graph, units, assignment, folder);
   if (level.graph.nodes.length === 0) {
     throw new Error(`No file below folder "${folder}". Pass a unit key (level units) or a group key of a folder level.`);
   }
