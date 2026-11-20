@@ -76,7 +76,7 @@ const cy = vi.hoisted(() => {
       state.handlers.set(name, handler ?? (selector as (event: unknown) => void)),
     collection: () => ({ empty: () => true, nonempty: () => false, length: 0, map: () => [] }),
     center: vi.fn(),
-    elements: () => Object.assign([...state.nodes, ...state.edges], { remove: () => { state.nodes = []; state.edges = []; } }),
+    elements: () => Object.assign([...state.nodes, ...state.edges], { remove: () => { state.nodes = []; state.edges = []; }, boundingBox: () => ({ x1: 0, y1: 0, x2: 100, y2: 100, w: 100, h: 100 }) }),
     add: (elements: { group: string; data: Data }[]) => {
       state.nodes.push(...elements.filter(element => element.group === "nodes").map(element => fakeNode(element.data)));
       state.edges.push(...elements.filter(element => element.group === "edges").map(element => fakeEdge(element.data)));

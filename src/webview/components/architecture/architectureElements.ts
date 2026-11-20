@@ -797,13 +797,27 @@ const FIT_PADDING = 30;
  * Fits everything. Unless `whole`, never below MIN_READABLE_ZOOM: a larger graph keeps its top
  * centre in view (the units nobody depends on) and the rest is reached by panning.
  */
-export function fitReadable(cy: Core, whole = false): void {
+export function fitReadable(cy: Core, whole = false, overlay?: { right: number; bottom: number }): void {
   cy.fit(undefined, FIT_PADDING);
-  if (whole || cy.zoom() >= MIN_READABLE_ZOOM) return;
+  if (!whole && cy.zoom() < MIN_READABLE_ZOOM) {
+    const box = cy.elements().boundingBox();
+    cy.zoom(MIN_READABLE_ZOOM);
+    // Rendered = model × zoom + pan: put the box's top centre at the top centre of the view.
+    cy.pan({ x: cy.width() / 2 - ((box.x1 + box.x2) / 2) * MIN_READABLE_ZOOM, y: FIT_PADDING - box.y1 * MIN_READABLE_ZOOM });
+  }
+  if (overlay) clearOverlay(cy, whole, overlay);
+}
+
+/** Moves the graph below an overlay at the view's top left (the legend), zooming out only as far as the height left needs. */
+function clearOverlay(cy: Core, whole: boolean, overlay: { right: number; bottom: number }): void {
   const box = cy.elements().boundingBox();
-  cy.zoom(MIN_READABLE_ZOOM);
-  // Rendered = model × zoom + pan: put the box's top centre at the top centre of the view.
-  cy.pan({ x: cy.width() / 2 - ((box.x1 + box.x2) / 2) * MIN_READABLE_ZOOM, y: FIT_PADDING - box.y1 * MIN_READABLE_ZOOM });
+  const { x, y } = cy.pan();
+  if (box.x1 * cy.zoom() + x >= overlay.right || box.y1 * cy.zoom() + y >= overlay.bottom) return;
+  const room = cy.height() - overlay.bottom - FIT_PADDING;
+  const fitting = box.h > 0 && room > 0 ? Math.min(cy.zoom(), room / box.h) : cy.zoom();
+  const zoom = whole ? fitting : Math.max(fitting, Math.min(cy.zoom(), MIN_READABLE_ZOOM));
+  cy.zoom(zoom);
+  cy.pan({ x: cy.width() / 2 - ((box.x1 + box.x2) / 2) * zoom, y: overlay.bottom - box.y1 * zoom });
 }
 
 /** E2E observability of a group level: its isolated groups, how many sit below every other group, and the label size. */
