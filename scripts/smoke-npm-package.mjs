@@ -101,7 +101,7 @@ try {
   writeFileSync(path.join(workspace, 'App.vue'), '<template>\n  <p>{{ total() }}</p>\n</template>\n\n<script setup lang="ts">\nimport { add } from "./util";\nfunction total() {\n  return add(1, 2);\n}\n</script>\n');
   const vueOut = run(bin, ['tool', 'query_call_graph', '--filePath', realpathSync(path.join(workspace, 'App.vue')), '--symbolName', 'total', '--format', 'json'], workspace);
   const vueCallees = JSON.parse(vueOut.slice(vueOut.indexOf('{'))).callees ?? [];
-  assert.ok(vueCallees.some((edge) => edge.targetName === 'add' && edge.sourceLine === 7), `query_call_graph App.vue: ${vueOut}`);
+  assert.ok(vueCallees.some((edge) => edge.targetName === 'add' && edge.sourceLine === 8), `query_call_graph App.vue: ${vueOut}`);
   pass('graph-it tool query_call_graph on a .vue file (bundled Vue compiler, .vue line)');
   await checkMcpServer(entry, workspace, version);
   // The REPL needs a TTY: load its externals from the installed package instead.
