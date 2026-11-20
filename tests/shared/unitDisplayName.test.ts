@@ -15,9 +15,9 @@ describe("unitDisplayName", () => {
   });
 
   it("reads the folder, never the key: an element unit shows its folder, a unit across folders none", () => {
-    expect(unitSecondaryName({ key: "analyzer", name: "analyzer", folder: "src/analyzer" })).toBe("src/analyzer");
-    expect(unitSecondaryName({ key: "tooling", name: "tooling", folder: "" })).toBeUndefined();
-    expect(unitSecondaryName({ key: "(root)", name: "(root)", folder: "" })).toBeUndefined();
-    expect(unitSecondaryName({ key: "app", name: "@acme/app", folder: "packages/app" })).toBe("packages/app");
+    expect(unitSecondaryName({ name: "analyzer", folder: "src/analyzer" })).toBe("src/analyzer");
+    expect(unitSecondaryName({ name: "tooling", folder: "" })).toBeUndefined();
+    expect(unitSecondaryName({ name: "(root)", folder: "" })).toBeUndefined();
+    expect(unitSecondaryName({ name: "@acme/app", folder: "packages/app" })).toBe("packages/app");
   });
 });
