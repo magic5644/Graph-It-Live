@@ -13,6 +13,7 @@ import type { Database } from "sql.js";
 import { normalizePath } from "@/shared/path";
 
 export interface CallGraphSymbol {
+  /** SQLite node id: its line part stays 0-based (callgraph.ts shiftIdLine converts it for display); never add 1 to startLine again. */
   id: string;
   name: string;
   type: string;

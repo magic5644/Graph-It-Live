@@ -74,8 +74,8 @@ Line numbers keep each surface's documented base: call-graph results
 locations after that documented conversion.
 
 > Superseded by #793: every line a user or agent sees or passes is now
-> 1-based, call-graph results and the `startLine` selector included; only the
-> SQLite call graph and the ids that embed a line stay 0-based.
+> 1-based, call-graph results, the ids shown and the `startLine` selector
+> included; only the SQLite call graph stays 0-based, converted at each boundary.
 
 ## Alternatives rejected
 

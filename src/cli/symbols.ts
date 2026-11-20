@@ -10,6 +10,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { sanitizeText } from "../analyzer/diagram/architectureDiagram";
 import { closestPathsHint } from "../analyzer/utils/SymbolLookup";
 import { normalizePath } from "../shared/path";
 import { isPathWithinRootCanonical } from "../shared/pathSecurity";
@@ -75,7 +76,7 @@ export function parseSymbolRef(ref: string, workspaceRoot: string): SymbolRef {
   const normalizedFile = path.resolve(filePath);
   if (!isPathWithinRootCanonical(normalizedFile, workspaceRoot)) {
     throw new CliError(
-      `File path "${rawPath}" resolves outside workspace: pass a file of the workspace.`,
+      `File path "${sanitizeText(rawPath)}" resolves outside workspace: pass a file of the workspace.`,
       ExitCode.SECURITY_VIOLATION,
     );
   }
@@ -88,7 +89,8 @@ export function parseTargetRef(ref: string, workspaceRoot: string): SymbolRef {
   const parsed = parseSymbolRef(ref, workspaceRoot);
   const stats = fs.statSync(parsed.filePath, { throwIfNoEntry: false });
   if (stats?.isFile()) return parsed;
-  const relative = normalizePath(path.relative(workspaceRoot, parsed.filePath));
+  // The path is echoed to a terminal: no control character from the argument reaches it.
+  const relative = sanitizeText(normalizePath(path.relative(workspaceRoot, parsed.filePath)));
   if (stats) throw new CliError(`${relative} is a folder: pass a file.`, ExitCode.GENERAL_ERROR);
   throw new CliError(`File not found: ${relative}.${closestPathsHint(parsed.filePath, workspaceRoot)}`, ExitCode.GENERAL_ERROR);
 }

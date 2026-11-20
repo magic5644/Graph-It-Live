@@ -19,6 +19,7 @@
 
 ### Fixed
 - **`(root)` warning cleared once the moved units are named** (#790): since v1.25.5, a `graphit.architecture.json` naming `(root)` warns that the files outside every project moved to per-folder units. The warning stayed after those units were named in the same element `unit` selector (or matched by a wildcard or the element's `role`), or by other `roles` keys. It now lists only the moved units the selector does not cover, and disappears when it covers them all.
+- **No guessed call graph edge for an unimported name** (#793): in a TypeScript or JavaScript ES module, `throw new Error()`, `new Map()`, `extends Error`, `: Promise<T>` or a call to a parameter no longer link to a same-named Vue component (`error.vue`, named after its file) or to a declaration of another file the module does not import; such a name reaches a declaration of its own file only. No bare name reaches a Vue SFC component node. The call graph cache is rebuilt once.
 
 ## v1.25.6
 

@@ -356,6 +356,28 @@ function positionKey(node: TreeNode): string {
   return `${node.startPosition.row}:${node.startPosition.column}:${node.type}`;
 }
 
+/** Relations a bare name of an ES module can reach only through an import or a same-file declaration. */
+const MODULE_SCOPED_CAPTURES = new Set(["call", "inherit", "impl", "uses"]);
+
+/** Whether a TS/JS file is an ES module: its top-level names are not globals another file can reach unimported. */
+function isEsModule(root: TreeNode): boolean {
+  return root.namedChildren.some(node => node.type === "import_statement" || node.type === "export_statement");
+}
+
+/**
+ * In an ES module, a bare name (`new Error()`, `extends Error`, `: Promise<T>`, `cb()`) that no import binds is a
+ * same-file declaration or a global (builtin, ambient): `LOCAL_ONLY`, never a workspace-wide name match, as in
+ * Python (#497). Imported names keep their rules; member and qualified names (`ns.Base`) are left as they are.
+ * shortcut: an ambient global of a script `.d.ts` called from a module links nowhere; upgrade by indexing which
+ * files are scripts and resolving these names among their declarations only.
+ */
+function bindUnimportedNames(captures: ReturnType<Query["captures"]>, importTargets: Map<number, string | null>, imported: ReadonlySet<string>): void {
+  for (const { name, node } of captures) {
+    const bare = node.type === "identifier" || (node.type === "type_identifier" && node.parent?.type !== "nested_type_identifier");
+    if (bare && MODULE_SCOPED_CAPTURES.has(name) && !importTargets.has(node.id) && !imported.has(node.text)) importTargets.set(node.id, LOCAL_ONLY);
+  }
+}
+
 /** One edge per source/target/relation; any React JSX use of it marks the kept edge. */
 function addEdge(seen: Map<string, CallGraphEdge>, edges: CallGraphEdge[], edge: CallGraphEdge, reactComponent: boolean): void {
   const key = `${edge.sourceId}::${edge.targetId}::${edge.typeRelation}`;
@@ -534,6 +556,7 @@ export class GraphExtractor {
       const parse = (calleePath: string) => this.readReturns(calleePath, passReads);
       if (lang === "typescript" || lang === "javascript") {
         importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver, { references, declared, parse }, passReads);
+        if (isEsModule(tree.rootNode)) bindUnimportedNames(captures, importTargets, new Set(importLocalNames(tree.rootNode)));
       } else if (lang === "python") {
         importTargets = await resolvePythonImportCalls(tree.rootNode, calls, normalizedPath, resolver, parse, passReads);
       } else {
