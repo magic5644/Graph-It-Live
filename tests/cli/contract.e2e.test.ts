@@ -298,7 +298,7 @@ describe.skipIf(!distExists)("CLI units contract (#776, E2E)", { timeout: TIMEOU
     expect(text.stdout).not.toMatch(/\[[a-z-]+\?\]/);
     const json = JSON.parse(run(elements, "architecture", "--level", "units", "--format", "json").stdout);
     expect(json).toMatchObject({ unitsFrom: "elements", configFile: "graphit.architecture.json", configWarnings: [] });
-    expect(json.units.map((unit: { key: string }) => unit.key).sort()).toEqual(["alpha", "beta", "pkgs"]);
+    expect(json.units.map((unit: { key: string }) => unit.key).toSorted((left: string, right: string) => left.localeCompare(right))).toEqual(["alpha", "beta", "pkgs"]);
     expect(json.unitEdges.find((edge: { from: string }) => edge.from === "alpha")).toMatchObject({ to: "beta", ruleVerdict: "violated" });
     const review = run(elements, "review-pr", "--base", "HEAD~2", "--head", "HEAD~1", "--format", "markdown");
     expect(review.status, review.stderr).toBe(0);
