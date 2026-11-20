@@ -305,15 +305,22 @@ function listUnits(names: readonly string[]): string {
   return names.length > MAX_LISTED_UNITS ? `${shown} and ${names.length - MAX_LISTED_UNITS} more` : shown;
 }
 
+/** A unit key or name matches one of these patterns, `(root)` left out. */
+function namedBy(patterns: readonly string[], assignment: UnitAssignment): (unit: string) => boolean {
+  const others = patterns.filter((pattern) => pattern !== ROOT_UNIT);
+  return (unit) => others.some((pattern) => matchesWildcard(pattern, unit) || matchesWildcard(pattern, assignment.names.get(unit) ?? unit));
+}
+
 /**
  * A config naming `(root)` (a roles key or an element unit selector) meant every file outside every
- * project; since #776 those files form one unit per top-level folder. Undefined when nothing moved.
+ * project; since #776 those files form one unit per top-level folder. Undefined when nothing moved,
+ * or when the same selector already names every moved unit (`covered`, #790).
  */
-function rootWarning(where: string, assignment: UnitAssignment): string | undefined {
-  const moved = assignment.outsideProjects;
-  if (moved === undefined || moved.size === 0) return undefined;
+function rootWarning(where: string, assignment: UnitAssignment, covered: (unit: string) => boolean): string | undefined {
+  const moved = [...(assignment.outsideProjects ?? [])].filter((unit) => !covered(unit));
+  if (moved.length === 0) return undefined;
   const size = (unit: string) => [...assignment.unitOf.values()].filter((key) => key === unit).length;
-  const units = listUnits([...moved].map((unit) => ({ unit, files: size(unit) }))
+  const units = listUnits(moved.map((unit) => ({ unit, files: size(unit) }))
     .sort((left, right) => right.files - left.files || byCodeUnit(left.unit, right.unit)).map(({ unit }) => unit));
   const rootFiles = size(ROOT_UNIT);
   if (rootFiles === 0) return `${where}: "${ROOT_UNIT}" matches no unit; files outside every project are now in the units ${units}`;
@@ -357,6 +364,13 @@ function elementInstance(name: string, element: ArchitectureConfig["elements"][s
   };
 }
 
+/** The units an element selects besides `(root)`: by another unit pattern or by role. */
+function elementCovers(element: ArchitectureConfig["elements"][string], assignment: UnitAssignment, roleOf: RoleOf): (unit: string) => boolean {
+  const named = namedBy(asList(element.unit), assignment);
+  const roles = asList<string>(element.role);
+  return (unit) => named(unit) || roles.includes(roleOf.get(unit) ?? "");
+}
+
 /**
  * ponytail: elements × files × folder depth `ignore` calls, then rules × edges; fine for tens of
  * thousands of files and tens of rules, index the files by folder if a large config gets slow.
@@ -378,7 +392,7 @@ export function resolveElements(config: ArchitectureConfig, files: readonly stri
       }),
       ...patternWarnings(`${at}.unit`, element.unit, (pattern) =>
         [...assignment.names].some(([key, unitName]) => matchesWildcard(pattern, key) || matchesWildcard(pattern, unitName)),
-      (pattern, where) => (pattern === ROOT_UNIT ? rootWarning(where, assignment) : undefined)),
+      (pattern, where) => (pattern === ROOT_UNIT ? rootWarning(where, assignment, elementCovers(element, assignment, roleOf)) : undefined)),
       ...patternWarnings(`${at}.role`, element.role, (role) => [...roleOf.values()].includes(role)),
       ...toolingRoleWarning(`${at}.role`, asList<string>(element.role), assignment, roleOf),
     );
@@ -395,7 +409,7 @@ function rolesWarnings(config: ArchitectureConfig, assignment: UnitAssignment, e
   const names = [...assignment.names].flat();
   return Object.keys(config.roles ?? {}).flatMap((pattern) => {
     const where = `$.roles[${JSON.stringify(pattern)}]`;
-    const root = pattern === ROOT_UNIT ? rootWarning(where, assignment) : undefined;
+    const root = pattern === ROOT_UNIT ? rootWarning(where, assignment, namedBy(Object.keys(config.roles ?? {}), assignment)) : undefined;
     if (root !== undefined) return [root];
     const matches = names.some((name) => matchesWildcard(pattern, name)) || [...elementUnits].some((unit) => matchesWildcard(pattern, unit));
     return matches ? [] : [`${where}: matches no unit`];

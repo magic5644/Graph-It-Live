@@ -409,6 +409,31 @@ describe("config warnings of #776: (root), roles keys and tooling selectors", ()
     expect(check(["a.ts"], { roles: { "(root)": "tooling" } }).join()).not.toContain("moved");
   });
 
+  // #790: naming the moved units next to (root), as the warning asks, clears it.
+  it("drops the moved units the same selector already names, by key, wildcard or role", () => {
+    const list = files(["a.ts", "b.ts", "src/x.ts", "src/y.ts", "scripts/s.ts", "packages/lib/i.ts"]);
+    const onlyScripts = '"(root)" now holds only the 2 files at the workspace root; files outside every project moved to the units scripts: name those instead';
+    expect(check(list, { elements: { root: { unit: ["(root)", "src", "scripts"] } } })).toEqual([]);
+    expect(check(list, { elements: { root: { unit: ["(root)", "s*"] } } })).toEqual([]);
+    expect(check(list, { elements: { root: { unit: ["(root)", "src"] } } })).toEqual([`$.elements.root.unit[0]: ${onlyScripts}`]);
+    expect(check(list, { elements: { root: { unit: ["(root)"], role: "tooling" } } }, new Map([["src", "tooling"], ["scripts", "tooling"]]))).toEqual([]);
+    expect(check(list, { roles: { "(root)": "tooling", src: "library", "scr*": "tooling" } })).toEqual([]);
+    expect(check(list, { roles: { "(root)": "tooling", src: "library" } })).toEqual([`$.roles["(root)"]: ${onlyScripts}`]);
+    // Another element naming the moved units does not cover this one's (root).
+    expect(check(list, { elements: { root: { unit: "(root)" }, rest: { unit: ["src", "scripts"] } } }))
+      .toEqual(['$.elements.root.unit: "(root)" now holds only the 2 files at the workspace root; files outside every project moved to the units src, scripts: name those instead']);
+    // A negated pattern names nothing; a role covering one unit leaves the other listed.
+    expect(check(list, { elements: { root: { unit: ["(root)", "!src", "scripts"] } } })[0]).toMatch(/moved to the units src: name those instead$/);
+    expect(check(list, { elements: { root: { unit: ["(root)"], role: "tooling" } } }, new Map([["scripts", "tooling"]]))[0])
+      .toMatch(/moved to the units src: name those instead$/);
+  });
+
+  it("falls back to matches no unit when (root) holds no file and every moved unit is named", () => {
+    const list = files(["src/x.ts", "packages/lib/i.ts"]);
+    expect(check(list, { elements: { root: { unit: ["(root)", "src"] } } })).toEqual(['$.elements.root.unit[0]: "(root)" matches no unit']);
+    expect(check(list, { roles: { "(root)": "tooling", src: "library" } })).toEqual(['$.roles["(root)"]: matches no unit']);
+  });
+
   it("lists at most 10 moved units, then how many more", () => {
     const list = files(["a.ts", ...Array.from({ length: 12 }, (_, index) => `d${String(index).padStart(2, "0")}/x.ts`)]);
     expect(check(list, { roles: { "(root)": "tooling" } })[0]).toMatch(/units d00, d01, d02, d03, d04, d05, d06, d07, d08, d09 and 2 more: name those instead$/);
