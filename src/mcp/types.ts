@@ -1401,6 +1401,8 @@ export interface GetIndexStatusResult extends OutOfRootReport {
     indexedFiles: number;
     symbols: number;
     relations: number;
+    /** Auto-imports (Nuxt, unplugin) the call graph binds; absent when no project declares or lacks any */
+    autoImports?: CallGraphAutoImports;
   };
   /**
    * On-disk size of the shared `.graph-it/cache/` payloads, 0 for one not written
@@ -1412,6 +1414,14 @@ export interface GetIndexStatusResult extends OutOfRootReport {
     /** Persisted symbol analyses (`symbols.cache`), reused by a warm run */
     symbolsBytes: number;
   };
+}
+
+/** Generated auto-import declarations the call graph read, and those a project lacks, workspace-relative. */
+export interface CallGraphAutoImports {
+  /** Projects whose declaration files bind names, with the number of names */
+  projects: Array<{ project: string; sources: string[]; entries: number }>;
+  /** Declarations a project's tooling should have generated: their names stay unresolved until it does */
+  missing: Array<{ project: string; source: string; hint: string }>;
 }
 
 /**

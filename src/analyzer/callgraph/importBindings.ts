@@ -1,5 +1,6 @@
 import { DEFAULT_ONLY, findDeclaration, type DeclarationReads } from "@/analyzer/utils/declarations";
 import type { PathResolver } from "@/analyzer/utils/PathResolver";
+import type { AutoImport } from "./autoImports";
 import type { ReExportTarget } from "@/analyzer/utils/reExports";
 import { mapWithConcurrency } from "@/shared/concurrency";
 import { normalizePath } from "@/shared/path";
@@ -76,6 +77,7 @@ async function collectNamedImports(
   resolver: PathResolver,
   reads: DeclarationReads,
   used: Set<string>,
+  autoImports?: ReadonlyMap<string, AutoImport>,
 ): Promise<Map<string, ImportedDeclaration | null>> {
   const statements = root.namedChildren.filter(node => node.type === "import_statement");
   const bindings = await Promise.all(statements.map(async (statement): Promise<Array<[string, ImportedDeclaration | null]>> => {
@@ -91,7 +93,21 @@ async function collectNamedImports(
       return [local.text, declaration && { ...declaration, typeOnly: typeOnly || isType }];
     }));
   }));
-  return new Map(bindings.flat());
+  const named = new Map(bindings.flat());
+  // A name no import statement binds, that the project's generated declarations auto-import, binds the same way;
+  // one from a package or node_modules binds to nothing, as an import of a package does.
+  const declared = [...used].flatMap((name): Array<[string, AutoImport]> => {
+    const entry = named.has(name) ? undefined : autoImports?.get(name);
+    return entry ? [[name, entry]] : [];
+  });
+  const auto = await Promise.all(declared.map(async ([name, { from, specifier, imported }]): Promise<[string, ImportedDeclaration | null]> => {
+    const targetPath = await resolver.resolve(from, specifier).catch(() => null);
+    if (!targetPath || normalizePath(targetPath).split("/").includes("node_modules")) return [name, null];
+    const declaration = declarationOf(await findDeclaration(targetPath, imported, resolver, reads), targetPath, imported);
+    return [name, declaration && { ...declaration, typeOnly: false }];
+  }));
+  for (const [name, declaration] of auto) named.set(name, declaration);
+  return named;
 }
 
 /** `import * as ns from './mod'` bindings: local name -> resolved module path. Type-only imports bind nothing at runtime. */
@@ -204,8 +220,9 @@ export async function resolveImportBindings(
   resolver: PathResolver,
   names: ReadonlySet<string>,
   reads: DeclarationReads = new Map(),
+  autoImports?: ReadonlyMap<string, AutoImport>,
 ): Promise<Map<string, string | null>> {
-  const imports = await collectNamedImports(root, filePath, resolver, reads, new Set(names));
+  const imports = await collectNamedImports(root, filePath, resolver, reads, new Set(names), autoImports);
   return new Map([...imports].filter(([name]) => names.has(name)).map(([name, declaration]) => [name, callStub(declaration)]));
 }
 
@@ -282,8 +299,10 @@ export async function resolveNamedImportCalls(
   calls: TreeNode[],
   filePath: string,
   resolver: PathResolver,
-  { references = new Set(), declared = new Set(), parse }: {
+  { references = new Set(), declared = new Set(), parse, autoImports }: {
     references?: ReadonlySet<number>;
+    /** Names the project's generated declarations auto-import (Nuxt, unplugin): bound like named imports. */
+    autoImports?: ReadonlyMap<string, AutoImport>;
     declared?: ReadonlySet<string>;
     /** Annotations of another file (#623); without it, a method called on a returned value is left to the extractor. */
     parse?: ChainContext["parse"];
@@ -303,7 +322,7 @@ export async function resolveNamedImportCalls(
   const receiverTypes = importedReceiverTypes(root, members, calls, declarations);
   const used = new Set([...calls.filter(call => call.type === "identifier").map(call => call.text), ...receiverTypes.values()]);
   const [imports, namespaces] = await Promise.all([
-    collectNamedImports(root, filePath, resolver, reads, used),
+    collectNamedImports(root, filePath, resolver, reads, used, autoImports),
     collectNamespaceImports(root, filePath, resolver),
   ]);
   const targets = new Map<number, string | null>();

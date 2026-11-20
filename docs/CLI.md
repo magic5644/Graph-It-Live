@@ -2417,6 +2417,8 @@ interleaved, so both directions shrink together. A cut sets `truncated: true`,
 and `nextOffset` gives the next page: pass it as `--offset` until it is absent.
 `totalCallers` and `totalCallees` keep the full counts.
 
+**Auto-imports.** In a project (a folder with a `package.json`), the names its tooling declares in generated files bind like imports of the declared export, in calls, JSX and Vue templates: Nuxt `.nuxt/imports.d.ts` and `.nuxt/components.d.ts`, unplugin-auto-import `auto-imports.d.ts` and unplugin-vue-components `components.d.ts` (at the project root or under `src/`, or the string `dts` paths of its Vite config). A name declared from a package (`ref` from `'vue'`) links nowhere; ambient globals of script `.d.ts` files and undeclared names stay unresolved, never guessed. A changed declaration file re-extracts the files of its project on the next run; an unchanged one re-extracts nothing. A Nuxt app (a `nuxt.config` and a `nuxt` dependency) without `.nuxt/imports.d.ts` (fresh clone: run `nuxi prepare`) or a Vite project whose declaration file is absent: the command prints one `Warning:` line on stderr for all of them, and `get_index_status` reports it in `callGraph.autoImports.missing`.
+
 > **Note:** Requires the call graph index to have been built (auto-triggered on first use or when the VS Code panel is opened).
 
 ---

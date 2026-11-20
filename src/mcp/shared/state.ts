@@ -17,7 +17,7 @@ import type { Spider } from "../../analyzer/Spider";
 import type { SymbolReverseIndex } from "../../analyzer/SymbolReverseIndex";
 import type { PathResolver } from "../../analyzer/utils/PathResolver";
 import { normalizePath } from "../../shared/path";
-import type { McpWorkerConfig } from "../types";
+import type { CallGraphAutoImports, McpWorkerConfig } from "../types";
 
 /**
  * Warmup completion status
@@ -57,6 +57,10 @@ export class WorkerState {
   private _indexCache: IndexCache | null = null;
   private readonly _callGraphPendingFiles = new Set<string>();
   private _callGraphFullRebuild = false;
+  /** Auto-imports the last call graph refresh read, for get_index_status. */
+  callGraphAutoImports: CallGraphAutoImports | undefined = undefined;
+  /** Where a call graph notice goes besides the log (the CLI: stderr). */
+  callGraphNotice: ((message: string) => void) | null = null;
 
   // ============================================================================
   // Core Components
@@ -333,6 +337,7 @@ export class WorkerState {
     }
     this._callGraphIndexedRoot = null;
     this._callGraphPendingFiles.clear();
+    this.callGraphAutoImports = undefined;
     this._callGraphFullRebuild = false;
     this._indexCache = null;
 

@@ -262,6 +262,19 @@ describe('MCP file watcher', () => {
     expect(postMessage.mock.calls.every(([message]) => message.filePath === newPath)).toBe(true);
   }, testTimeout);
 
+  it('watches the auto-import declarations of a new .nuxt folder, and nothing else in it', async () => {
+    const stale = vi.spyOn(workerState, 'markCallGraphStale');
+    await fs.mkdir(path.join(root, '.nuxt/types'), { recursive: true });
+    await fs.writeFile(path.join(root, '.nuxt/nuxt.d.ts'), 'export {};');
+    await fs.writeFile(path.join(root, '.nuxt/types/imports.d.ts'), 'export {};');
+    const declaration = normalizePath(path.join(root, '.nuxt/imports.d.ts'));
+    await fs.writeFile(declaration, "export { useX } from '../composables/x';");
+    await vi.waitFor(() => {
+      expect(stale).toHaveBeenCalledWith([declaration]);
+    }, { timeout: eventTimeout });
+    expect(postMessage.mock.calls.every(([message]) => message.filePath === declaration)).toBe(true);
+  }, testTimeout);
+
   it('skips excluded and gitignored subdirectories when reconciling a new directory', async () => {
     const batch = path.join(root, 'src/batch');
     await fs.mkdir(path.join(batch, 'deep'), { recursive: true });

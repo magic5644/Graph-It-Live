@@ -6,6 +6,7 @@ import {
     SUPPORTED_FILE_EXTENSIONS,
 } from "../../shared/constants";
 import { createIgnoreMatcher, type IgnoreMatcher } from "../../analyzer/SourceFileFilters";
+import { isAutoImportDeclaration } from "../../analyzer/callgraph/autoImports";
 import { getLogger } from "../../shared/logger";
 import { normalizePath } from "../../shared/path";
 import { workerState } from "../shared/state";
@@ -80,10 +81,11 @@ export function setupFileWatcher(
     let initialScanComplete = false;
     let watcherActive = true;
     const watcher = watch(watchRoot, {
-      ignored: (filePath, stats) =>
+      // Generated auto-import declarations (`.nuxt/imports.d.ts`, often git-ignored) rebind call graph names: watched.
+      ignored: (filePath, stats) => !isAutoImportDeclaration(path.relative(watchRoot, filePath)) && (
         path.relative(watchRoot, filePath).split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part)) ||
       isIgnoredByRules(path.relative(watchRoot, filePath), stats?.isDirectory() === true) ||
-      (stats?.isFile() === true && !isWatchedFile(filePath)),
+      (stats?.isFile() === true && !isWatchedFile(filePath))),
       persistent: true,
       ignoreInitial: false,
       usePolling,
@@ -185,8 +187,8 @@ async function reportNewDirectoryFiles(
     for (const entry of entries) {
       const filePath = path.join(directory, entry.name);
       const relative = path.relative(watchRoot, filePath);
-      if (relative.split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part))) continue;
-      if (isIgnoredByRules(relative, entry.isDirectory())) continue;
+      const ignored = relative.split(path.sep).some(part => IGNORED_DIRECTORIES.includes(part)) || isIgnoredByRules(relative, entry.isDirectory());
+      if (ignored && !isAutoImportDeclaration(relative)) continue;
       if (entry.isDirectory()) {
         // eslint-disable-next-line no-await-in-loop -- depth-first and one directory at a time, like SourceFileCollector: `add` events go out as files are found, and a large new tree does not flood the libuv pool
         await reportNewDirectoryFiles(postMessage, filePath, watchRoot, isIgnoredByRules);

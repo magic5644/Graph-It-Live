@@ -733,6 +733,28 @@ export class CallGraphIndexer {
     return result;
   }
 
+  /** A value stored with the index (e.g. the auto-import declarations it was built from), or null when unset. */
+  getMetadata(key: string): string | null {
+    const value = this.getDb().exec("SELECT value FROM metadata WHERE key = ?", [key])[0]?.values[0]?.[0];
+    return typeof value === "string" ? value : null;
+  }
+
+  setMetadata(key: string, value: string): void {
+    this.getDb().run("INSERT OR REPLACE INTO metadata (key, value) VALUES (?, ?)", [key, value]);
+  }
+
+  /** Other files with a resolved edge into a node of `filePath`, whatever bound it (an import or an auto-import). */
+  getCallerFiles(filePath: string): string[] {
+    const rows = this.getDb().exec(
+      `SELECT DISTINCT source.path FROM edges
+       JOIN nodes source ON source.id = edges.source_id
+       JOIN nodes target ON target.id = edges.target_id
+       WHERE target.path = ? AND source.path != ?`,
+      [filePath, filePath],
+    );
+    return (rows[0]?.values ?? []).map(([value]) => String(value));
+  }
+
   /**
    * Row counts for the three tables, via COUNT(*) rather than materializing rows.
    * Cheap enough to call on every status query, unlike getIndexSnapshot().
