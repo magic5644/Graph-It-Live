@@ -1240,10 +1240,17 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
    */
   const fittedRef = useRef<"readable" | "whole" | false>("readable");
   const fitAll = (cy: cytoscape.Core, whole = false) => {
-    // The legend floats over the canvas: the fit keeps every unit out from under it.
-    const legend = legendRef.current?.getBoundingClientRect();
-    const canvas = cy.container()?.getBoundingClientRect();
-    fitReadable(cy, whole, legend && canvas ? { right: legend.right - canvas.left, bottom: legend.bottom - canvas.top } : undefined);
+    // The legend floats over the canvas: the fit keeps every unit out from under it. When the graph
+    // fits below it only at an unreadable zoom, the legend folds to its summary line instead.
+    const overlay = () => {
+      const legend = legendRef.current?.getBoundingClientRect();
+      const canvas = cy.container()?.getBoundingClientRect();
+      return legend && canvas ? { right: legend.right - canvas.left, bottom: legend.bottom - canvas.top } : undefined;
+    };
+    if (!fitReadable(cy, whole, overlay()) && legendRef.current) {
+      legendRef.current.open = false;
+      fitReadable(cy, whole, overlay());
+    }
     fittedRef.current = whole ? "whole" : "readable";
   };
   /** What the next render fits: the focus, an entered group once its files are drawn, everything, or the level's last viewport. */

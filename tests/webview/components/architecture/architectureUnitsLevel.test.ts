@@ -394,19 +394,28 @@ describe("fitReadable on a large graph", () => {
   });
 
   it("moves the graph below the legend it would sit under, and leaves a graph beside it alone", () => {
-    const nodes = [{ group: "nodes" as const, data: { id: "a" }, position: { x: 0, y: 0 } }, { group: "nodes" as const, data: { id: "b" }, position: { x: 0, y: 300 } }];
-    const cy = cytoscape({ headless: true, elements: nodes });
+    const cy = cytoscape({ headless: true, elements: [{ group: "nodes", data: { id: "a" } }, { group: "nodes", data: { id: "b" } }] });
+    // Headless keeps no initial position: place the two units 300 apart.
+    cy.getElementById("b").position({ x: 0, y: 300 });
+    expect(cy.elements().boundingBox().h).toBeGreaterThan(300);
     vi.spyOn(cy, "width").mockReturnValue(800);
     vi.spyOn(cy, "height").mockReturnValue(600);
     vi.spyOn(cy, "fit").mockImplementation(() => { cy.zoom(1); cy.pan({ x: 400, y: 30 }); return cy; });
-    fitReadable(cy, false, { right: 500, bottom: 200 });
+    expect(fitReadable(cy, false, { right: 500, bottom: 200 })).toBe(true);
     const box = cy.elements().renderedBoundingBox();
     expect(box.y1).toBeGreaterThanOrEqual(200 - 1);
     expect(box.y2).toBeLessThanOrEqual(600);
     expect(cy.zoom()).toBeGreaterThanOrEqual(MIN_READABLE_ZOOM);
     // Beside the legend (rendered left edge past its right edge): the fit stays.
-    fitReadable(cy, false, { right: 100, bottom: 200 });
+    expect(fitReadable(cy, false, { right: 100, bottom: 200 })).toBe(true);
     expect(cy.pan()).toEqual({ x: 400, y: 30 });
+    // A legend leaving too little height: false and the fit untouched (the caller folds the legend), unless whole.
+    expect(fitReadable(cy, false, { right: 500, bottom: 500 })).toBe(false);
+    expect(cy.pan()).toEqual({ x: 400, y: 30 });
+    expect(fitReadable(cy, true, { right: 500, bottom: 500 })).toBe(true);
+    expect(cy.elements().renderedBoundingBox().y1).toBeGreaterThanOrEqual(499);
+    // No height left at all: false even for the whole graph.
+    expect(fitReadable(cy, true, { right: 500, bottom: 590 })).toBe(false);
   });
 
   it("keeps the whole graph in view below the readable zoom when asked (the Fit button)", () => {
