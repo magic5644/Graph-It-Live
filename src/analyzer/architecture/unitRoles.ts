@@ -51,10 +51,12 @@ const TEST_ANYWHERE = new Set(["test", "tests", "__tests__", "__mocks__", "spec"
 /** `.github` holds CI workflows and the actions they run: tooling, not shipped code. */
 const TOOLING_ANYWHERE = new Set([".github"]);
 const TOOLING_AT_PROJECT_ROOT = new Set(["scripts", "script", "tools", "bench", "benchmarks"]);
-const TEST_FILES = [/\.(?:test|spec)\.[cm]?[jt]sx?$/, /_test\.go$/, /^test_.+\.py$/, /_test\.py$/, /(?:Tests?|IT)\.java$/, /Test\.kt$/, /Tests\.cs$/];
+const TEST_FILES = [/\.(?:test|spec)\.[cm]?[jt]sx?$/, /_test\.go$/, /_test\.py$/, /(?:Tests?|IT)\.java$/, /Test\.kt$/, /Tests\.cs$/];
 /** Only these configs are tooling: app, nuxt, vite, tailwind... configs ship with or build the product. */
 const TOOL_CONFIGS = new Set(["eslint", "prettier", "stylelint", "vitest", "jest", "playwright", "cypress", "evalite", "karma", "commitlint", "typedoc", "knip"]);
 const CONFIG_EXTENSIONS = new Set(["js", "ts", "mjs", "cjs", "mts", "cts"]);
+
+const isPythonTest = (fileName: string) => fileName.startsWith("test_") && fileName.endsWith(".py") && fileName.length > "test_.py".length;
 
 /** `vitest.config.ts`, `vitest.e2e.config.mts`: a listed tool, optional dotted parts, `config`, a script extension. */
 function isToolConfig(fileName: string): boolean {
@@ -75,7 +77,7 @@ export function fileKind(relativePath: string, projectRoot: string): FileKind {
   const first = folders[depth];
   const atProjectRoot = (names: ReadonlySet<string>) => first !== undefined && names.has(first);
   if (folders.some((folder) => FIXTURE_ANYWHERE.has(folder)) || atProjectRoot(FIXTURE_AT_PROJECT_ROOT)) return "fixture";
-  if (folders.some((folder) => TEST_ANYWHERE.has(folder)) || TEST_FILES.some((pattern) => pattern.test(fileName))) return "test";
+  if (folders.some((folder) => TEST_ANYWHERE.has(folder)) || TEST_FILES.some((pattern) => pattern.test(fileName)) || isPythonTest(fileName)) return "test";
   if (folders.some((folder) => TOOLING_ANYWHERE.has(folder)) || atProjectRoot(TOOLING_AT_PROJECT_ROOT) || isToolConfig(fileName)) return "tooling";
   return "other";
 }

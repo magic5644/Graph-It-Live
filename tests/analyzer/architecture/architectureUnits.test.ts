@@ -14,6 +14,7 @@ import {
   groupByUnit,
   layerGroupsWithinUnits,
   ROOT_UNIT,
+  byCodeUnit,
 } from "@/analyzer/architecture/architectureUnits";
 import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation";
 import { workspaceUnits } from "@/analyzer/architecture/workspaceUnits";
@@ -21,6 +22,7 @@ import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
 import { normalizePath } from "@/shared/path";
 
 let root: string;
+const byFirst = (left: string[], right: string[]) => byCodeUnit(left[0], right[0]);
 
 function write(relative: string, content = ""): void {
   const file = path.join(root, relative);
@@ -524,7 +526,7 @@ describe("folder levels", () => {
   it("folderLevel reads a UnitSource: an element unit by its key or its folder (#776)", async () => {
     const { graph } = await levelsOf(nested);
     const source = workspaceUnits(graph, root, { elements: { core: { path: "app/src/core/" } }, rules: [] });
-    const keys = (folder: string) => folderLevel(source, folder).graph.nodes.map((node) => node.communityKey).sort();
+    const keys = (folder: string) => folderLevel(source, folder).graph.nodes.map((node) => node.communityKey).sort(byCodeUnit);
     expect(keys("core")).toEqual(keys("app/src/core"));
     // Only app/src/core: app/tests/core, drawn in app/core by the detected unit, is outside the element.
     expect(keys("core")).toEqual(["core", "core/util", "core/util"]);
@@ -564,7 +566,7 @@ describe("assignUnits folds and splits (#776)", () => {
     write("tests/fixtures/a/package.json", manifest("@acme/fixture-a"));
     write("tests/fixtures/b/package.json", manifest("fixture-b"));
     const files = ["tests/fixtures/a/x.ts", "tests/fixtures/b/y.ts"];
-    const units = (declared: string[]) => [...new Set(assignUnits(root, files, declared).unitOf.values())].sort();
+    const units = (declared: string[]) => [...new Set(assignUnits(root, files, declared).unitOf.values())].sort(byCodeUnit);
     expect(units([])).toEqual(["tests"]);
     expect(units(["*", "**"])).toEqual(["tests"]);
     expect(units(["tests/fixtures/a"])).toEqual(["tests", "tests/fixtures/a"]);
@@ -581,13 +583,13 @@ describe("assignUnits folds and splits (#776)", () => {
       "src/cli/x.ts": "src", "src/cli/y.ts": "src", "scripts/a.ts": "scripts", "packages/lib/i.ts": "packages/lib", "index.ts": ROOT_UNIT,
     });
     expect(Object.fromEntries(assignment.folders)).toEqual({ src: "src", scripts: "scripts", "packages/lib": "packages/lib", [ROOT_UNIT]: "" });
-    expect([...assignment.outsideProjects ?? []].sort()).toEqual(["scripts", "src"]);
+    expect([...assignment.outsideProjects ?? []].sort(byCodeUnit)).toEqual(["scripts", "src"]);
     expect(Object.fromEntries(assignment.kinds ?? [])).toMatchObject({ "scripts/a.ts": "tooling", "src/cli/x.ts": "other" });
   });
 
   it("gives the units their folder, and the folder keys of an element unit read that folder, never the key", async () => {
     const { units } = await unitsOf({ "a/x.ts": ["b/y.ts"], "b/y.ts": [], "top.ts": [] });
-    expect(units.units.map((unit) => [unit.key, unit.folder]).sort()).toEqual([[ROOT_UNIT, ""], ["a", "a"], ["b", "b"]]);
+    expect(units.units.map((unit) => [unit.key, unit.folder]).sort(byFirst)).toEqual([[ROOT_UNIT, ""], ["a", "a"], ["b", "b"]]);
     expect(folderKeys("src/analyzer/community/x.ts", "analyzer", "src/analyzer")).toEqual(["analyzer", "analyzer/community"]);
     expect(folderKeys("tests/unit/x.ts", "tooling", "")).toEqual(["tooling", "tooling/unit"]);
     const elements = { unitOf: new Map([["src/analyzer/community/x.ts", "analyzer"], ["src/analyzer/y.ts", "analyzer"]]), names: new Map([["analyzer", "analyzer"]]), folders: new Map([["analyzer", "src/analyzer"]]) };

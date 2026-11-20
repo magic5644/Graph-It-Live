@@ -155,6 +155,39 @@ const verdictOf = ({ violations, newViolations }: Tally): UnitRuleCheck["verdict
 
 const VERDICT_ORDER: UnitRuleCheck["verdict"][] = ["pass", "accepted", "violated"];
 
+interface AttachContext {
+  membership: ReadonlyMap<string, Membership>;
+  detected: UnitAssignment;
+  assignment: UnitAssignment;
+  elementOf: ReadonlyMap<string, string>;
+}
+
+/** The units a forbid/allowOnly rule also sits on: every unit of an element in its `from`. */
+function ruleUnits(rule: Rule, elementOf: ReadonlyMap<string, string>): Map<string, Tally> {
+  const from = asList(rule.from);
+  return new Map([...elementOf].filter(([, element]) => rule.noCycles === undefined && from.includes(element)).map(([key]) => [key, emptyTally()]));
+}
+
+/** One rule's tallies: per unit edge (`from\0to`) it checks or a violation falls on, and per unit of an element in its `from`. */
+function tallyRule(rule: Rule, graph: ArchitectureGraph, check: WorkspaceArchitectureCheck, context: AttachContext) {
+  const checks = pairChecker(rule, context.membership, context.detected);
+  const found = new Map(check.violations.filter((violation) => violation.rule === rule.name).map((violation) => [`${violation.source}\0${violation.target}`, violation.new]));
+  const byEdge = new Map<string, Tally>();
+  const fromUnits = ruleUnits(rule, context.elementOf);
+  const unitOf = (file: string) => context.assignment.unitOf.get(file)!;
+  for (const edge of graph.edges.filter((pair) => unitOf(pair.sourceRelative) !== unitOf(pair.targetRelative))) {
+    const checked = checks(edge);
+    const isNew = found.get(`${edge.sourceRelative}\0${edge.targetRelative}`);
+    if (!checked && isNew === undefined) continue;
+    const key = `${unitOf(edge.sourceRelative)}\0${unitOf(edge.targetRelative)}`;
+    if (!byEdge.has(key)) byEdge.set(key, emptyTally());
+    for (const tally of [byEdge.get(key), fromUnits.get(unitOf(edge.sourceRelative))]) if (tally) count(tally, checked, isNew);
+  }
+  return { byEdge, fromUnits };
+}
+
+const worstVerdict = (rules: readonly UnitRuleCheck[]) => VERDICT_ORDER[Math.max(...rules.map((rule) => VERDICT_ORDER.indexOf(rule.verdict)))];
+
 /**
  * Every rule (severity off aside) on the unit edges it checks or a violation of it falls on, and
  * forbid/allowOnly rules on every unit of an element in their `from`, over the pairs leaving it.
@@ -166,41 +199,23 @@ function attachRules(
   graph: ArchitectureGraph,
   config: ArchitectureConfig,
   check: WorkspaceArchitectureCheck,
-  context: { membership: ReadonlyMap<string, Membership>; detected: UnitAssignment; assignment: UnitAssignment; elementOf: ReadonlyMap<string, string> },
+  context: AttachContext,
 ): Pick<ArchitectureUnits, "units" | "unitEdges"> {
-  const { membership, detected, assignment, elementOf } = context;
   const edgeRules = new Map<string, UnitRuleCheck[]>();
   const unitRules = new Map<string, UnitRuleCheck[]>();
+  const add = (rules: Map<string, UnitRuleCheck[]>, key: string, result: UnitRuleCheck) => rules.set(key, [...rules.get(key) ?? [], result]);
   for (const [index, rule] of config.rules.entries()) {
-    const summary = check.rules[index];
-    if (summary.severity === "off") continue;
-    const checks = pairChecker(rule, membership, detected);
-    const found = new Map(check.violations.filter((violation) => violation.rule === rule.name).map((violation) => [`${violation.source}\0${violation.target}`, violation.new]));
-    const byEdge = new Map<string, Tally>();
-    const fromUnits = rule.noCycles === undefined
-      ? new Map([...elementOf].filter(([, element]) => asList(rule.from).includes(element)).map(([key]): [string, Tally] => [key, emptyTally()]))
-      : new Map<string, Tally>();
-    for (const edge of graph.edges) {
-      const from = assignment.unitOf.get(edge.sourceRelative)!;
-      const to = assignment.unitOf.get(edge.targetRelative)!;
-      if (from === to) continue;
-      const checked = checks(edge);
-      const isNew = found.get(`${edge.sourceRelative}\0${edge.targetRelative}`);
-      if (!checked && isNew === undefined) continue;
-      const key = `${from}\0${to}`;
-      if (!byEdge.has(key)) byEdge.set(key, emptyTally());
-      for (const tally of [byEdge.get(key), fromUnits.get(from)]) if (tally) count(tally, checked, isNew);
-    }
-    const result = (tally: Tally): UnitRuleCheck => ({ name: rule.name, kind: summary.kind, severity: summary.severity as UnitRuleCheck["severity"], ...tally, verdict: verdictOf(tally) });
-    for (const [key, tally] of byEdge) edgeRules.set(key, [...edgeRules.get(key) ?? [], result(tally)]);
-    for (const [key, tally] of fromUnits) unitRules.set(key, [...unitRules.get(key) ?? [], result(tally)]);
+    const { kind, severity } = check.rules[index];
+    if (severity === "off") continue;
+    const result = (tally: Tally): UnitRuleCheck => ({ name: rule.name, kind, severity, ...tally, verdict: verdictOf(tally) });
+    const { byEdge, fromUnits } = tallyRule(rule, graph, check, context);
+    for (const [key, tally] of byEdge) add(edgeRules, key, result(tally));
+    for (const [key, tally] of fromUnits) add(unitRules, key, result(tally));
   }
   const units: ArchitectureUnit[] = built.units.map((unit) => (unitRules.has(unit.key) ? { ...unit, rules: unitRules.get(unit.key) } : unit));
   const unitEdges: ArchitectureUnitEdge[] = built.unitEdges.map((edge) => {
     const rules = edgeRules.get(`${edge.from}\0${edge.to}`);
-    if (rules === undefined) return edge;
-    const ruleVerdict = VERDICT_ORDER[Math.max(...rules.map((rule) => VERDICT_ORDER.indexOf(rule.verdict)))];
-    return { ...edge, rules, ruleVerdict };
+    return rules === undefined ? edge : { ...edge, rules, ruleVerdict: worstVerdict(rules) };
   });
   return { units, unitEdges };
 }
