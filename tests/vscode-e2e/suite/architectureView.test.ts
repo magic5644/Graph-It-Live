@@ -21,7 +21,7 @@ interface ArchitectureRender {
     units: number; colors: number; redEdges: number; edgesNotDown: number; routedEdges: number; hiddenEdges: number; minLabelPx: number;
     roleBadges: number; roleTooltips: number; shownUnits: number;
     layerBands: number; unitsOutsideBand: number; cycleBlocks: number; cycleMembersOutside: number;
-    minLabelContrast?: number; labelledRedEdges: number;
+    minLabelContrast?: number; labelledRedEdges: number; inferredRoleBorders: number; ruledEdges: number;
   };
   /** Drawn edges breaking a declared rule, and the Rules panel as `name=count`. */
   violationEdges: number;
@@ -39,17 +39,19 @@ interface ArchitectureRender {
 // architecture edges, #595):
 //   node dist/graph-it.js architecture --level units --format json -w tests/fixtures
 //   node dist/graph-it.js architecture --groups --communities louvain --format json -w tests/fixtures
-// Path mode draws the units (14 projects or (root), 9 unit edges, the 2 edges of the
-// workspaces-project core ↔ types cycle in red); (root) holds 17 folder groups and 4 group edges.
+// Path mode draws the units (28 detected projects: the 14 projects, and one unit per top-level folder
+// outside them instead of a catch-all (root), #776; 9 unit edges, the 2 edges of the workspaces-project
+// core ↔ types cycle in red); bench-permanent holds 3 folder groups and 3 group edges (its src ↔ components cycle).
 // go-project (go.mod) and sample-project (tsconfig.json) are units of their own (#758).
-//   node dist/graph-it.js architecture --folder "(root)/graphql-project" --format json -w tests/fixtures
+//   node dist/graph-it.js architecture --folder bench-permanent --format json -w tests/fixtures
 //   node dist/graph-it.js architecture --level units --from workspaces-project/apps/web --to workspaces-project/packages/ui --format json -w tests/fixtures
 // Louvain: rendered groups = groups.length + 1 for the unassigned files.
 const EXPECTED = {
-  // 3 layers (@ws/web… on 2, (root), core, types… on 0); 1 cycle block (core ↔ types).
-  units: { groups: 14, groupEdges: 9, redEdges: 2, layers: 3, cycles: 1 },
-  root: { groups: 17, groupEdges: 4 },
-  graphql: { groups: 3, groupEdges: 2, evidenceOf: '(root)/graphql-project/queries' },
+  // 3 layers (@ws/web… on 2, core, types, bench-permanent… on 0); 1 cycle block (core ↔ types).
+  units: { groups: 28, groupEdges: 9, redEdges: 2, layers: 3, cycles: 1 },
+  bench: { groups: 3, groupEdges: 3 },
+  // WALK_FILES, written for the folder walk: zz-walk (top.ts) → zz-walk/inner (holding a and b), a → b.
+  walk: { groups: 2, groupEdges: 1, inner: { groups: 2, groupEdges: 1 }, evidenceOf: 'zz-walk/inner/a' },
   louvain: { groups: 25 + 1, groupEdges: 1 },
   // The first edge of @ws/web, its heaviest: apps/web → packages/ui.
   unitEvidence: {
@@ -60,28 +62,64 @@ const EXPECTED = {
       'workspaces-project/apps/web/src/pages/home.ts → workspaces-project/packages/ui/src/index.ts',
     ],
   },
-  // node dist/graph-it.js architecture --level units --matrix --format json -w tests/fixtures (and --folder "(root)", --communities louvain).
+  // node dist/graph-it.js architecture --level units --matrix --format json -w tests/fixtures (and --folder bench-permanent, --communities louvain).
   matrix: {
-    units: { rows: 14, cells: 17, fileEdges: 212, upwardCells: 1, cycles: 1 },
-    root: { rows: 17, cells: 18, fileEdges: 184, upwardCells: 1, cycles: 1 },
+    units: { rows: 28, cells: 29, fileEdges: 212, upwardCells: 1, cycles: 1 },
+    bench: { rows: 3, cells: 5, fileEdges: 118, upwardCells: 1, cycles: 1 },
     louvain: { rows: 26, cells: 26, fileEdges: 212, upwardCells: 0, cycles: 0 },
   },
   // RULES_CONFIG written at the workspace root, then:
   //   node dist/graph-it.js check-architecture --format json -w tests/fixtures
   // web-not-ui: the 2 pairs of the @ws/web → @ws/ui edge; no-unit-cycles: both core ↔ types imports.
+  // The elements are the units (#776): web, ui and (unmatched) (179 files); core ↔ types sit inside
+  // (unmatched), so only the web → ui edge is drawn violating. Units of
+  //   node dist/graph-it.js architecture --level units --format json -w tests/fixtures (with RULES_CONFIG).
   rules: {
     panel: ['web-not-ui=2', 'no-unit-cycles=2'],
-    violationEdges: 3,
+    units: 3,
+    violationEdges: 1,
+    unmatchedWarning: '$.elements: 179 files match no element; drawn in unit "(unmatched)"',
     title: 'Rule "web-not-ui" (error): 2 violating file pairs: The web app reaches the UI kit through core.',
   },
   // roleCounts of: node dist/graph-it.js architecture --level units --format json -w tests/fixtures
   // (with ROLES_CONFIG written at the workspace root for `declared`).
   roles: {
-    legend: ['function=1', 'library=4', 'tooling=2', 'unknown=7'],
-    libraries: 4,
-    declared: ['function=1', 'frontend=1', 'library=4', 'tooling=2', 'unknown=6'],
+    legend: ['application=1', 'function=1', 'library=5', 'tooling=1', 'unknown=20'],
+    libraries: 5,
+    declared: ['application=1', 'function=1', 'frontend=1', 'library=5', 'tooling=1', 'unknown=19'],
+  },
+  // ELEMENTS_CONFIG (#776), units of the same command: web (@ws/web, frontend declared, 2 files), ui (@ws/ui,
+  // library declared, 1 file), rest (library inferred from its importers, 179 files); 4 unit edges, rest ↔ ui a
+  // cycle; web → ui violates web-not-ui (2 new); web-not-ui sits on web → ui and web → rest, rest-not-web
+  // passes on rest → ui (ui → rest is checked by no rule); 0 config warnings.
+  elements: {
+    units: 3, groupEdges: 4, inferred: 1, ruledEdges: 3, violationEdges: 1,
+    roles: ['frontend=1', 'library=2'],
+    header: '3 declared elements',
+    rules: ['web-not-ui=2', 'rest-not-web=0'],
   },
 } as const;
+
+/** 3 elements (the third every file the first two leave), 2 rules (one violated), 2 declared roles: rest's role is inferred. */
+const ELEMENTS_CONFIG = {
+  elements: {
+    web: { unit: '@ws/web' },
+    ui: { unit: '@ws/ui' },
+    rest: { path: ['*.*', '!workspaces-project/apps/web/**', '!workspaces-project/packages/ui/**'] },
+  },
+  rules: [
+    { name: 'web-not-ui', from: 'web', forbid: 'ui', reason: 'The web app reaches the UI kit through core.' },
+    { name: 'rest-not-web', from: 'rest', forbid: 'web' },
+  ],
+  roles: { web: 'frontend', ui: 'library' },
+};
+
+/** The folder walk's files: a unit (top-level folder) holding a folder with sub-folders. */
+const WALK_FILES: Record<string, string> = {
+  'zz-walk/top.ts': "import { x } from './inner/a/x';\nimport { y } from './inner/b/y';\nexport const top = x + y;\n",
+  'zz-walk/inner/a/x.ts': "import { y } from '../b/y';\nexport const x = y;\n",
+  'zz-walk/inner/b/y.ts': 'export const y = 1;\n',
+};
 
 /** Declares a role only: no element, no rule. */
 const ROLES_CONFIG = { roles: { '@ws/web': 'frontend' } };
@@ -257,6 +295,10 @@ interface RenderedReport {
   legendScrolls?: boolean;
   headerRows?: string[];
   zoom?: number;
+  legendNotes?: string[];
+  unitsHeader?: string;
+  rulesError?: string;
+  configWarnings?: string[];
 }
 const readRendered = async () => (await getContextKey<RenderedReport>('graph-it-live.architectureRendered')) ?? {};
 
@@ -426,6 +468,9 @@ suite('Architecture view mode', () => {
       minLabelContrast: byFolder.unitLevel?.minLabelContrast,
       // Upward and cycle edges show their count without a hover.
       labelledRedEdges: EXPECTED.units.redEdges,
+      // No config: every role is inferred, so every unit has a dashed border; no rule sits on an edge.
+      inferredRoleBorders: EXPECTED.units.groups,
+      ruledEdges: 0,
     }, 'one colour and role badge per unit, red cycle edges, every other edge drawn downwards, none hidden');
     assert.ok((byFolder.unitLevel?.minLabelContrast ?? 0) >= 4.5, `unit labels readable on their fill: ${byFolder.unitLevel?.minLabelContrast}:1`);
     assert.ok((byFolder.unitLevel?.minLabelPx ?? 0) >= 8, `labels readable after the fit: ${byFolder.unitLevel?.minLabelPx}px`);
@@ -653,45 +698,62 @@ suite('Architecture view mode', () => {
 
   test('walks down a unit folder by folder: its sub-folders and their edges, evidence there, and back up', async function () {
     this.timeout(240000);
-    await openFreshArchitecture();
-    const root = await enterUnit('(root)');
-    assert.strictEqual(root.groupCount, EXPECTED.root.groups);
-    // (root)/graphql-project holds 3 sub-folders, 2 folder edges between them (graph-it architecture --folder).
-    const graphql = await enterFolder('(root)/graphql-project', '(root)/graphql-project');
-    assert.strictEqual(graphql.unit, '(root)');
-    assert.strictEqual(graphql.groupCount, EXPECTED.graphql.groups, 'the sub-folders of graphql-project');
-    assert.strictEqual(graphql.groupEdgeCount, EXPECTED.graphql.groupEdges, 'the edges between them');
-    assert.notStrictEqual(graphql.revision, undefined);
-    assertReadableLayout(graphql);
-    const { evidence } = await expectDetail('the evidence one level down', { evidenceOf: EXPECTED.graphql.evidenceOf }, detail => detail.evidence !== undefined);
-    assert.ok(evidence && evidence.total > 0 && evidence.total === evidence.edgeCount, 'the evidence lists the edge\'s file pairs');
-    const up = await enterFolder('', undefined);
-    assert.strictEqual(up.groupCount, EXPECTED.root.groups, 'back to the unit\'s top folders');
-    assert.strictEqual(up.positions, root.positions, 'the top folders come back where they were');
-    await enterUnit('');
+    // No fixture unit holds a folder with sub-folders since (root) split into top-level folders (#776): write one.
+    const root = vscode.workspace.workspaceFolders![0].uri;
+    const files = Object.keys(WALK_FILES).map(relative => vscode.Uri.joinPath(root, relative));
+    const unitFolder = vscode.Uri.joinPath(root, 'zz-walk');
+    try {
+      await settleFileEvents(files, async () => {
+        for (const [relative, content] of Object.entries(WALK_FILES)) await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(root, relative), Buffer.from(content));
+      });
+      await openFreshArchitecture();
+      const unit = await enterUnit('zz-walk');
+      assert.strictEqual(unit.groupCount, EXPECTED.walk.groups);
+      assert.strictEqual(unit.groupEdgeCount, EXPECTED.walk.groupEdges);
+      // zz-walk/inner holds 2 sub-folders, 1 folder edge between them (graph-it architecture --folder zz-walk/inner).
+      const inner = await enterFolder('zz-walk/inner', 'zz-walk/inner');
+      assert.strictEqual(inner.unit, 'zz-walk');
+      assert.strictEqual(inner.groupCount, EXPECTED.walk.inner.groups, 'the sub-folders of zz-walk/inner');
+      assert.strictEqual(inner.groupEdgeCount, EXPECTED.walk.inner.groupEdges, 'the edge between them');
+      assert.notStrictEqual(inner.revision, undefined);
+      assertReadableLayout(inner);
+      const { evidence } = await expectDetail('the evidence one level down', { evidenceOf: EXPECTED.walk.evidenceOf }, detail => detail.evidence !== undefined);
+      assert.ok(evidence && evidence.total > 0 && evidence.total === evidence.edgeCount, 'the evidence lists the edge\'s file pairs');
+      const up = await enterFolder('', undefined);
+      assert.strictEqual(up.groupCount, EXPECTED.walk.groups, 'back to the unit\'s top folders');
+      assert.strictEqual(up.positions, unit.positions, 'the top folders come back where they were');
+      await enterUnit('');
+    } finally {
+      // Let the delete mark the view stale before Refresh.
+      await settleFileEvents([unitFolder], () => vscode.workspace.fs.delete(unitFolder, { recursive: true }));
+    }
+    const staleCount = (await readRender()).renderCount;
+    await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { unit: '' });
+    await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+    await waitForRender('the fixtures again', staleCount, render => !render.stale && render.groupCount === EXPECTED.units.groups);
   });
 
   test('labels only highlighted edges, highlights a found group neighbourhood, filters weak edges, and clears', async function () {
     this.timeout(240000);
     await openFreshArchitecture();
-    await enterUnit('(root)');
-    const { groups, groupEdges } = EXPECTED.root;
-    // The (root) ↔ components cycle edges always show their count; any other edge only once highlighted.
+    await enterUnit('bench-permanent');
+    const { groups, groupEdges } = EXPECTED.bench;
+    // The bench-permanent ↔ components cycle edges always show their count; any other edge only once highlighted.
     const red = 2;
     const nothing = { highlightedGroups: 0, fadedGroups: 0, labelledEdges: red };
     const noFileEdge = { shownFileEdges: 0 };
     try {
       // Count labels are hidden until an edge is highlighted.
       await expectInteraction('the default picture', undefined, { ...nothing, shownGroupEdges: groupEdges, ...noFileEdge });
-      // layers imports one file of the (root) group: both stay, the 16 other groups fade.
+      // layers imports one file of the bench-permanent group: both stay, the other group fades.
       await expectInteraction('the layers neighbourhood', { find: 'LAYERS' }, {
         highlightedGroups: 2, fadedGroups: groups - 2, labelledEdges: 1 + red, shownGroupEdges: groupEdges, ...noFileEdge,
       });
-      // 1 of the 4 group edges carries a single import: the layers edge.
+      // 1 of the 3 group edges carries a single import: the layers edge.
       await expectInteraction('the min-imports filter', { minImports: 2 }, {
-        highlightedGroups: 1, fadedGroups: groups - 1, labelledEdges: red, shownGroupEdges: 3, ...noFileEdge,
+        highlightedGroups: 1, fadedGroups: groups - 1, labelledEdges: red, shownGroupEdges: groupEdges - 1, ...noFileEdge,
       });
-      await expectInteraction('the cleared find', { find: '' }, { ...nothing, shownGroupEdges: 3, ...noFileEdge });
+      await expectInteraction('the cleared find', { find: '' }, { ...nothing, shownGroupEdges: groupEdges - 1, ...noFileEdge });
       await expectInteraction('the reset filter', { minImports: 1 }, { ...nothing, shownGroupEdges: groupEdges, ...noFileEdge });
     } finally {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { find: '', minImports: 1 });
@@ -702,24 +764,24 @@ suite('Architecture view mode', () => {
   test('focuses and enters a group, lists the evidence of its edge, opens a file and goes back, in path and louvain modes', async function () {
     this.timeout(300000);
     await openFreshArchitecture();
-    const byFolder = await enterUnit('(root)');
-    // layers (4 files) imports one file of the (root) group.
-    await exploreGroup('(root)/layers', EXPECTED.root.groups, EXPECTED.root.groupEdges);
+    const byFolder = await enterUnit('bench-permanent');
+    // layers (4 files) imports one file of the bench-permanent group.
+    await exploreGroup('bench-permanent/layers', EXPECTED.bench.groups, EXPECTED.bench.groupEdges);
 
     // A stale mark keeps the entered unit and the expanded group.
-    await expectDetail('expanding layers again', { expand: '(root)/layers' }, detail => detail.expandedGroups === 1);
+    await expectDetail('expanding layers again', { expand: 'bench-permanent/layers' }, detail => detail.expandedGroups === 1);
     const file = getProjectFile('sample-project', 'src', 'utils.ts');
     const original = await vscode.workspace.fs.readFile(file);
     try {
       await vscode.workspace.fs.writeFile(file, Buffer.concat([Buffer.from(original), Buffer.from('\n// architecture detail E2E\n')]));
       await waitForRender('the stale banner', byFolder.renderCount, render => render.stale);
       const kept = await expectDetail('the stale detail', undefined, detail => detail.expandedGroups === 1);
-      assert.strictEqual((await readRender()).unit, '(root)', 'a stale mark keeps the entered unit');
+      assert.strictEqual((await readRender()).unit, 'bench-permanent', 'a stale mark keeps the entered unit');
       assert.strictEqual(kept.renderedFiles, Math.min(kept.expandedFileCount, 200), 'a stale mark keeps the rendered files');
     } finally {
       await vscode.workspace.fs.writeFile(file, original);
     }
-    await expectDetail('collapsing layers', { collapse: '(root)/layers' }, detail => detail.expandedGroups === 0);
+    await expectDetail('collapsing layers', { collapse: 'bench-permanent/layers' }, detail => detail.expandedGroups === 0);
     await expectDetail('the overview', { focus: '' }, detail => detail.focusedGroup === undefined);
 
     await config().update('communityMode', 'louvain', vscode.ConfigurationTarget.Global);
@@ -745,8 +807,8 @@ suite('Architecture view mode', () => {
       assert.deepStrictEqual(evidence.pairs, pairs, 'the cell lists the unit edge\'s file pairs');
       assert.strictEqual(evidence.total, evidence.edgeCount, 'the evidence total equals the cell');
 
-      const root = await expectMatrix('the (root) matrix', { matrixHeader: '(root)' }, matrix => matrix.unit === '(root)');
-      assert.deepStrictEqual(totalsOf(root), EXPECTED.matrix.root, 'an entered unit\'s groups, as graph-it architecture --folder "(root)" --matrix');
+      const root = await expectMatrix('the bench-permanent matrix', { matrixHeader: 'bench-permanent' }, matrix => matrix.unit === 'bench-permanent');
+      assert.deepStrictEqual(totalsOf(root), EXPECTED.matrix.bench, 'an entered unit\'s groups, as graph-it architecture --folder bench-permanent --matrix');
       const back = await expectMatrix('the units matrix again', { unit: '' }, matrix => matrix.unit === undefined);
       assert.strictEqual(back.digest, units.digest, 'back to the units');
 
@@ -780,7 +842,9 @@ suite('Architecture view mode', () => {
       const ruled = await waitForRender('the render with rules', stale.renderCount, render => !render.stale && render.rulesPanel.length > 0);
       assert.deepStrictEqual(ruled.rulesPanel, EXPECTED.rules.panel, 'Rules panel counts equal graph-it check-architecture');
       assert.strictEqual(ruled.violationEdges, EXPECTED.rules.violationEdges, 'violating unit edges drawn red');
-      assert.strictEqual(ruled.groupCount, EXPECTED.units.groups, 'rules change no unit');
+      // The declared elements are the units (#776); the files no element selects form (unmatched), with its warning.
+      assert.strictEqual(ruled.groupCount, EXPECTED.rules.units, 'web, ui and (unmatched)');
+      assert.deepStrictEqual((await readRendered()).configWarnings, [EXPECTED.rules.unmatchedWarning], 'the (unmatched) warning in the Rules panel');
 
       const { evidence } = await expectDetail('the pairs of web-not-ui', { rule: 'web-not-ui' }, detail => detail.evidence?.title === EXPECTED.rules.title);
       assert.deepStrictEqual(evidence?.pairs, EXPECTED.unitEvidence.pairs, 'clicking a rule lists its violating pairs');
@@ -810,7 +874,7 @@ suite('Architecture view mode', () => {
 
     // A real click on the legend's button: only the libraries stay drawn; a second click shows every unit.
     await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { role: 'library' });
-    const filtered = await waitForRender('the library filter', built.renderCount, render => render.roles.includes('library=4*'));
+    const filtered = await waitForRender('the library filter', built.renderCount, render => render.roles.includes(`library=${EXPECTED.roles.libraries}*`));
     assert.strictEqual(filtered.unitLevel?.shownUnits, EXPECTED.roles.libraries, 'the filter keeps the libraries only');
     await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { role: 'library' });
     const all = await waitForRender('every unit again', filtered.renderCount, render => !render.roles.some(role => role.endsWith('*')));
@@ -835,6 +899,78 @@ suite('Architecture view mode', () => {
     await waitForRender('the inferred roles again', staleCount, render => !render.stale && render.roles.join() === EXPECTED.roles.legend.join());
   });
 
+  /** Writes a config, refreshes, and waits for the render `predicate` accepts; the caller deletes the config. */
+  async function renderWithConfig(description: string, configFile: vscode.Uri, content: string, predicate: (render: ArchitectureRender) => boolean) {
+    const before = (await openFreshArchitecture()).renderCount;
+    await settleFileEvents([configFile], () => vscode.workspace.fs.writeFile(configFile, Buffer.from(content)));
+    const stale = await waitForRender(`the stale banner before ${description}`, before, render => render.stale);
+    await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+    return waitForRender(description, stale.renderCount, render => !render.stale && predicate(render));
+  }
+
+  /** Deletes the config, then waits for the detected projects again. */
+  async function restoreWithoutConfig(configFile: vscode.Uri) {
+    await settleFileEvents([configFile], () => vscode.workspace.fs.delete(configFile).then(undefined, () => undefined));
+    const staleCount = (await readRender()).renderCount;
+    await vscode.commands.executeCommand('graph-it-live.refreshGraph');
+    await waitForRender('the detected projects again', staleCount, render => !render.stale && render.groupCount === EXPECTED.units.groups && render.rulesPanel.length === 0);
+  }
+
+  test('draws the declared elements as the units: dashed inferred role, rules on the edges they check, legend and header (#776)', async function () {
+    this.timeout(240000);
+    const configFile = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, 'graphit.architecture.json');
+    try {
+      const render = await renderWithConfig('the declared elements', configFile, JSON.stringify(ELEMENTS_CONFIG, null, 2),
+        current => current.groupCount === EXPECTED.elements.units);
+      const { elements } = EXPECTED;
+      assert.strictEqual(render.unitLevel?.units, elements.units, '3 declared elements, 3 units');
+      assert.strictEqual(render.groupEdgeCount, elements.groupEdges);
+      // roleBadges counts labels starting with exactly `[role]` and a line break: a `[role?]` badge fails it.
+      assert.strictEqual(render.unitLevel?.roleBadges, elements.units, 'every unit badged with its role, none with ?');
+      assert.strictEqual(render.unitLevel?.roleTooltips, elements.units, 'declared by, or inferred from its evidence, in every tooltip');
+      assert.strictEqual(render.unitLevel?.inferredRoleBorders, elements.inferred, 'only rest\'s inferred role is drawn dashed');
+      assert.strictEqual(render.unitLevel?.ruledEdges, elements.ruledEdges, 'rules drawn on the edges they check');
+      assert.strictEqual(render.violationEdges, elements.violationEdges, 'web → ui drawn violating');
+      assert.deepStrictEqual(render.roles, elements.roles);
+      assert.deepStrictEqual(render.rulesPanel, elements.rules);
+      const rendered = await readRendered();
+      assert.strictEqual(rendered.unitsHeader, elements.header, 'the header names the declared elements');
+      assert.ok(rendered.legendNotes?.includes('Dashed border: role inferred (hover for the evidence)'), `legend: ${rendered.legendNotes?.join(' | ')}`);
+      assert.deepStrictEqual(rendered.configWarnings, [], 'no config warning');
+    } finally {
+      await restoreWithoutConfig(configFile);
+    }
+  });
+
+  test('a refused config: the Rules panel says why and the header says detected projects (#776)', async function () {
+    this.timeout(240000);
+    const configFile = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, 'graphit.architecture.json');
+    try {
+      await renderWithConfig('the refused config', configFile, '{ "roles": { "x": "nope" } }', current => current.groupCount === EXPECTED.units.groups);
+      const rendered = await readRendered();
+      assert.match(rendered.rulesError ?? '', /^Architecture rules not checked: graphit\.architecture\.json: \$\.roles\.x: /);
+      assert.strictEqual(rendered.unitsHeader, `${EXPECTED.units.groups} detected projects (graphit.architecture.json refused)`);
+    } finally {
+      await restoreWithoutConfig(configFile);
+    }
+  });
+
+  test('a roles key naming (root): its warning in the Rules panel, the detected projects drawn (#776)', async function () {
+    this.timeout(240000);
+    const configFile = vscode.Uri.joinPath(vscode.workspace.workspaceFolders![0].uri, 'graphit.architecture.json');
+    try {
+      await renderWithConfig('the (root) warning', configFile, '{ "roles": { "(root)": "tooling" } }', current => current.rulesPanel.length === 0 && current.groupCount === EXPECTED.units.groups);
+      const rendered = await readRendered();
+      // node dist/graph-it.js architecture --level units --format json -w tests/fixtures: no file sits at the fixtures' root.
+      assert.deepStrictEqual(rendered.configWarnings?.map(warning => warning.split(';')[0]), ['$.roles["(root)"]: "(root)" matches no unit']);
+      assert.match(rendered.configWarnings?.[0] ?? '', /now in the units bench-permanent, symbols, .* and 5 more$/);
+      assert.strictEqual(rendered.unitsHeader, `${EXPECTED.units.groups} detected projects`);
+      assert.strictEqual(rendered.rulesError, undefined);
+    } finally {
+      await restoreWithoutConfig(configFile);
+    }
+  });
+
   test('exports the drawn level with its role filter as the analyzer\'s SVG and PNG, and copies it as SVG (#448)', async function () {
     this.timeout(240000);
     const built = await openFreshArchitecture();
@@ -856,7 +992,7 @@ suite('Architecture view mode', () => {
     };
     const exportTo = (exportDiagram: Record<string, string>) => vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { exportDiagram });
     await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { role: 'library' });
-    const filtered = await waitForRender('the library filter', built.renderCount, render => render.roles.includes('library=4*'));
+    const filtered = await waitForRender('the library filter', built.renderCount, render => render.roles.includes(`library=${EXPECTED.roles.libraries}*`));
     const clipboard = await vscode.env.clipboard.readText();
     try {
       await exportTo({ target: 'file', output: 'architecture-e2e.svg' });
@@ -897,23 +1033,23 @@ suite('Architecture view mode', () => {
   test('keeps the focused group, the find and the viewport across a stale mark and the min-imports filter', async function () {
     this.timeout(240000);
     await openFreshArchitecture();
-    await enterUnit('(root)');
+    await enterUnit('bench-permanent');
     const file = getProjectFile('sample-project', 'src', 'utils.ts');
     const original = await vscode.workspace.fs.readFile(file);
     try {
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { find: 'LAYERS' });
-      const focused = await expectDetail('focusing layers', { focus: '(root)/layers' }, detail => detail.focusedGroup === '(root)/layers');
+      const focused = await expectDetail('focusing layers', { focus: 'bench-permanent/layers' }, detail => detail.focusedGroup === 'bench-permanent/layers');
       const highlight = await getContextKey<ArchitectureInteraction>('graph-it-live.architectureInteraction');
       const before = (await readRender()).renderCount;
       await vscode.workspace.fs.writeFile(file, Buffer.concat([Buffer.from(original), Buffer.from('\n// architecture context E2E\n')]));
       const stale = await waitForRender('the stale banner', before, render => render.stale);
-      assert.strictEqual(stale.unit, '(root)', 'a stale mark keeps the entered unit');
-      const kept = await expectDetail('the stale detail', undefined, detail => detail.focusedGroup === '(root)/layers');
+      assert.strictEqual(stale.unit, 'bench-permanent', 'a stale mark keeps the entered unit');
+      const kept = await expectDetail('the stale detail', undefined, detail => detail.focusedGroup === 'bench-permanent/layers');
       assert.strictEqual(kept.viewport, focused.viewport, 'a stale mark does not move the viewport');
       assert.deepStrictEqual(await getContextKey('graph-it-live.architectureInteraction'), highlight, 'a stale mark keeps the found highlight');
-      assert.strictEqual(stale.groupLevel?.totalGroups, EXPECTED.root.groups, 'hidden and isolated groups stay counted');
+      assert.strictEqual(stale.groupLevel?.totalGroups, EXPECTED.bench.groups, 'hidden and isolated groups stay counted');
 
-      const filtered = await expectDetail('the min-imports filter', { minImports: 2 }, detail => detail.focusedGroup === '(root)/layers');
+      const filtered = await expectDetail('the min-imports filter', { minImports: 2 }, detail => detail.focusedGroup === 'bench-permanent/layers');
       assert.strictEqual(filtered.viewport, focused.viewport, 'the min-imports filter does not move the viewport');
     } finally {
       await vscode.workspace.fs.writeFile(file, original);
@@ -924,7 +1060,7 @@ suite('Architecture view mode', () => {
 
   test('draws the 50 largest groups of a folder, finds a hidden one, and Show more groups draws up to 150', async function () {
     this.timeout(300000);
-    // A (root) folder of 60 sub-folders: d0..d49 hold 2 files, d50..d59 one; d0 → d1 → … → d45 import each other.
+    // A top-level folder (a unit of its own, #776) of 60 sub-folders: d0..d49 hold 2 files, d50..d59 one; d0 → d1 → … → d45 import each other.
     const root = vscode.workspace.workspaceFolders![0].uri;
     const unit = vscode.Uri.joinPath(root, 'zz-many-groups');
     try {
@@ -934,8 +1070,7 @@ suite('Architecture view mode', () => {
         if (index < 50) await vscode.workspace.fs.writeFile(vscode.Uri.joinPath(unit, `d${index}`, 'b.ts'), Buffer.from('export const b = 1;\n'));
       }
       await openFreshArchitecture();
-      await enterUnit('(root)');
-      const capped = await enterFolder('(root)/zz-many-groups', '(root)/zz-many-groups');
+      const capped = await enterUnit('zz-many-groups');
       assert.strictEqual(capped.groupCount, 50, 'the 50 largest groups are drawn');
       assert.deepStrictEqual(capped.groupLevel, {
         shownGroups: 50, totalGroups: 60, hiddenGroups: 10, hiddenGroupEdges: 0,
@@ -954,7 +1089,7 @@ suite('Architecture view mode', () => {
 
       await vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', { showMoreGroups: true });
       const more = await waitForRender('Show more groups', capped.renderCount, render => render.groupCount === 60);
-      assert.strictEqual(more.folder, '(root)/zz-many-groups', 'Show more groups keeps the entered folder');
+      assert.strictEqual(more.unit, 'zz-many-groups', 'Show more groups keeps the entered unit');
       assert.strictEqual(more.revision, capped.revision, 'Show more groups keeps the revision');
       assert.deepStrictEqual({ ...more.groupLevel, minLabelPx: 0 }, {
         shownGroups: 60, totalGroups: 60, hiddenGroups: 0, hiddenGroupEdges: 0, isolatedGroups: 14, isolatedBelow: 14, minLabelPx: 0,
@@ -1102,7 +1237,7 @@ suite('Architecture view mode', () => {
 
   // Expected rows from the view's answers on tests/fixtures (path mode), checked against
   // node dist/graph-it.js architecture --level units --format json -w tests/fixtures: @ws/web imports @ws/ui
-  // twice and workspaces-root once; in (root), only the (root) group reaches graphql-project's fragments/user.gql (depth 2).
+  // twice and workspaces-root once; in the graphql-project unit, its own files and queries import fragments.
   test('shows dependents by group from a unit, a group and a file, highlights them in the graph and the matrix, and clears', async function () {
     this.timeout(240000);
     await openFreshArchitecture();
@@ -1115,16 +1250,17 @@ suite('Architecture view mode', () => {
     await expectDependents('the graph again', { view: 'graph' }, (report, count) => report.view === 'graph' && count === 2);
     await expectDependents('the cleared dependents', { clearDependents: true }, (report, count) => report.seedLabel === '' && count === 0);
 
-    await enterUnit('(root)');
-    const group = await expectDependents('the dependents of graphql-project', { dependentsOf: '(root)/graphql-project' },
-      (report) => report.seedLabel === '(root)/graphql-project');
-    assert.deepStrictEqual(group.rows, ['(root)=1/1@1']);
-    assert.strictEqual(group.highlightedGroups, 1);
-    await expectDetail('graphql-project expanded', { expand: '(root)/graphql-project' }, (detail) => detail.expandedGroups === 1);
+    await enterUnit('graphql-project');
+    const group = await expectDependents('the dependents of fragments', { dependentsOf: 'graphql-project/fragments' },
+      (report) => report.seedLabel === 'graphql-project/fragments');
+    assert.deepStrictEqual(group.rows, ['graphql-project=1/2@1', 'graphql-project/queries=1/1@1']);
+    assert.strictEqual(group.highlightedGroups, 2);
+    await expectDetail('fragments expanded', { expand: 'graphql-project/fragments' }, (detail) => detail.expandedGroups === 1);
     const file = await expectDependents('the dependents of a file', { dependentsOf: 'graphql-project/fragments/user.gql' },
       (report) => report.seedLabel === 'graphql-project/fragments/user.gql');
-    assert.deepStrictEqual(file.rows, ['(root)=0/1@2']);
-    assert.strictEqual(file.highlightedGroups, 1);
+    // user.gql is imported directly by both groups that import fragments.
+    assert.deepStrictEqual(file.rows, ['graphql-project=1/2@1', 'graphql-project/queries=1/1@1']);
+    assert.strictEqual(file.highlightedGroups, 2);
     // Another level groups dependents differently: leaving the unit clears them.
     await enterUnit('');
     await expectDependents('the dependents cleared by the level change', {}, (report, count) => report.seedLabel === '' && count === 0);
