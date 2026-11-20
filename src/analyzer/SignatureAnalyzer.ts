@@ -205,7 +205,7 @@ export class SignatureAnalyzer {
           kind: 'method',
           isExported: classDecl.isExported() && visibility !== 'private',
           parameters: this.extractParameters(method.getParameters()),
-          returnType: this.safeGetTypeNodeText(method.getReturnTypeNode(), 'void'),
+          returnType: this.safeGetTypeNodeText(method.getReturnTypeNode(), ''),
           isAsync: method.isAsync(),
           isStatic: method.isStatic(),
           visibility,
@@ -319,8 +319,11 @@ export class SignatureAnalyzer {
     // Check for parameter changes
     this.compareParameters(oldSig, newSig, breakingChanges, nonBreakingChanges);
 
-    // Check return type
-    if (oldSig.returnType !== newSig.returnType) {
+    // Check return type. "" = no annotation, so the compiler infers it: adding or dropping one names the
+    // type, it does not change it by itself (#776: an inferred return read as 'void' failed the review gate).
+    if (oldSig.returnType !== newSig.returnType && (oldSig.returnType === '' || newSig.returnType === '')) {
+      nonBreakingChanges.push(`Return type annotation ${newSig.returnType === '' ? 'removed' : 'added'}: '${oldSig.returnType || 'inferred'}' to '${newSig.returnType || 'inferred'}'`);
+    } else if (oldSig.returnType !== newSig.returnType) {
       // Widening return type is a breaking change for consumers
       breakingChanges.push({
         type: 'return-type-changed',
@@ -1411,7 +1414,7 @@ export class SignatureAnalyzer {
       kind: 'function',
       isExported: func.isExported(),
       parameters: this.extractParameters(func.getParameters()),
-      returnType: this.safeGetTypeNodeText(func.getReturnTypeNode(), 'void'),
+      returnType: this.safeGetTypeNodeText(func.getReturnTypeNode(), ''),
       isAsync: func.isAsync(),
       typeParameters: func.getTypeParameters().map(tp => this.safeGetText(tp)),
       line: startLineOf(func),

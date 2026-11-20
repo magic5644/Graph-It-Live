@@ -392,6 +392,19 @@ describe('SignatureAnalyzer', () => {
       expect(returnChange).toBeDefined();
     });
 
+    it('treats a return annotation added to or dropped from an inferred return as non-breaking, in functions and methods (#776)', () => {
+      const unannotated = 'export function level(a: string) { return { a }; }\nexport class C { m() { return 1; } }\n';
+      const annotated = 'export function level(a: string): ReturnType<typeof make> { return make(a); }\nexport class C { m(): number { return 1; } }\n';
+      for (const [before, after] of [[unannotated, annotated], [annotated, unannotated]]) {
+        const results = analyzer.analyzeBreakingChanges('/x.ts', before, after);
+        expect(results.flatMap(result => result.breakingChanges)).toEqual([]);
+        expect(results.flatMap(result => result.nonBreakingChanges).filter(change => change.startsWith('Return type annotation'))).toHaveLength(2);
+      }
+      // Two annotations that differ still break.
+      const changed = analyzer.analyzeBreakingChanges('/x.ts', annotated, annotated.replace('m(): number', 'm(): string'));
+      expect(changed.flatMap(result => result.breakingChanges).map(change => change.type)).toEqual(['return-type-changed']);
+    });
+
     it('should detect visibility reduction as breaking', () => {
       const oldSig: SignatureInfo = {
         name: 'MyClass.doSomething',

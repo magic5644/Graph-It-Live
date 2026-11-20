@@ -626,6 +626,9 @@ describe("mayBuildType", () => {
     ["a call type argument next to a function type", "const r = invoke<Result, (x: number) => void>(cb);\n"],
     ["a tuple element", "import { Key } from './key';\nconst row: [Key, Result, Extra] = [k, { a: 1 }, e];\n"],
     ["a type literal member list", "type Row = { first: Key, Result };\n"],
+    ["a parameter with a default value", "export function f(r: Result = { a: 1 }) { return r; }\n"],
+    ["a function type's parameter (whoever calls it builds the value)", "export function each(cb: (r: Result) => void) { cb({ a: 1 }); }\n"],
+    ["a function type's parameter in a type argument", "const handlers: Array<(r: Result) => void> = [];\n"],
   ])("counts %s as building the type", (_label, content) => {
     expect(mayBuildType(content, "Result", resultOnly)).toBe(true);
   });
@@ -639,6 +642,12 @@ describe("mayBuildType", () => {
     ["the result-only type argument of a call with nested ones", "const r = pair<Map<string, number>, Result>(m, { a: 1 });\nconst s = invoke<Result, Array<number>>([1]);\n"],
     ["a longer name sharing its prefix", "const r: ResultList = [];\nconst s: MyResult = {};\n"],
     ["a file that never writes the name", "const r = await scan(); r.a;\n"],
+    // #776: a parameter receives the value; adding a required member breaks its builders, not its readers.
+    ["a function parameter", "export function exploreUnits(units: Result, options = {}) { return units.a; }\n"],
+    ["a multiline parameter list with a Pick", "export function unitMatrix(\n  first: string,\n  units: Pick<Result, \"a\" | \"b\">,\n): number { return 1; }\n"],
+    ["an optional, rest or constructor parameter", "class S { constructor(private readonly r?: Result) {} m(...rs: Result[]) {} }\n"],
+    ["an arrow function's parameter", "const f = (r: Result) => r.a;\nlist.map((r: Result, i: number) => r.a + i);\n"],
+    ["a generic method's parameter", "class S { put<K>(key: K, r: Result): void {} }\n"],
   ])("does not count %s", (_label, content) => {
     expect(mayBuildType(content, "Result", resultOnly)).toBe(false);
   });
