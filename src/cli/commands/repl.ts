@@ -15,6 +15,7 @@ import { CLI_OUTPUT_FORMATS, formatOutput } from '../formatter.js';
 import type { CliOutputFormat } from '../formatter.js';
 import { CliError, ExitCode } from '../errors.js';
 import { readStringOption } from '../options.js';
+import { parseCommandArgs } from '../commandSpec.js';
 import type { CliRuntime } from '../runtime.js';
 import { normalizePathForComparison } from '../../shared/path.js';
 import { loggerFactory, type LogLevel } from '../../shared/logger.js';
@@ -435,17 +436,19 @@ async function runDiagramCommand(
   if (readStringOption(cleanedArgs, '--output', 'a file of the workspace') === '-') {
     throw new CliError('/diagram writes a file: --output - would print the markup in the terminal. Pass a file name.', ExitCode.GENERAL_ERROR);
   }
-  const [first] = cleanedArgs;
+  // As on the command line: the positional (a directory, or file#symbol with --view flow) may sit after the options.
+  const ordered = parseCommandArgs('diagram', cleanedArgs);
+  const [first] = ordered;
   const hasDirectory = first !== undefined && !first.startsWith('-');
   const scoped = state.workspaceRoot !== runtime.workspaceRoot;
-  const viewsUnits = readStringOption(cleanedArgs, '--view', 'units, folder or matrix') === 'units';
+  const view = readStringOption(ordered, '--view', 'units, folder, matrix or flow');
   let directory: string | undefined;
   if (hasDirectory) directory = path.resolve(state.workspaceRoot, first.replaceAll('\\', '/'));
-  else if (scoped && !viewsUnits && !cleanedArgs.includes('--folder')) directory = state.workspaceRoot;
+  else if (scoped && view !== 'units' && view !== 'flow' && !ordered.includes('--folder')) directory = state.workspaceRoot;
   // Relative to the workspace root, so its errors never show an absolute path.
   const args = directory === undefined
-    ? cleanedArgs
-    : [path.relative(runtime.workspaceRoot, directory), ...cleanedArgs.slice(hasDirectory ? 1 : 0)];
+    ? ordered
+    : [path.relative(runtime.workspaceRoot, directory), ...ordered.slice(hasDirectory ? 1 : 0)];
   const { run } = await import('./diagram.js');
   return { command: 'diagram', output: await run(args, runtime, effectiveFormat) };
 }
