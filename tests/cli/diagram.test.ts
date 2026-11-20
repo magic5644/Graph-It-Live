@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { run as checkArchitecture } from "@/cli/commands/checkArchitecture";
-import { readDiagramOptions, readDirectory, run } from "@/cli/commands/diagram";
+import { readDiagramOptions, readDirectory, readFlowOptions, run } from "@/cli/commands/diagram";
 import { classifyError, ExitCode } from "@/cli/errors";
 import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
@@ -71,6 +71,47 @@ describe("graph-it diagram options", () => {
     } catch (error) {
       expect(classifyError(error)).toEqual({ message: `graph-it diagram writes --format svg, html or diagram-spec, not "${format}".`, exitCode: ExitCode.UNSUPPORTED_FORMAT });
     }
+  });
+});
+
+describe("graph-it diagram --view flow options (#793)", () => {
+  const ROOT = path.resolve(__dirname, "../..");
+  const REF = "src/cli/commands/diagram.ts#run";
+
+  it("reads the entry symbol, its 1-based startLine, the step cap and flow.<format>", () => {
+    const options = readFlowOptions([REF, "--view", "flow", "--maxSteps", "12", "--startLine", "1"], "svg", ROOT);
+    expect(options).toMatchObject({ format: "svg", file: "flow.svg", theme: "light", request: { symbolName: "run", startLine: 1, maxSteps: 12 } });
+    expect(options.request.filePath).toBe(path.join(ROOT, "src/cli/commands/diagram.ts"));
+    expect(readFlowOptions([REF], "text", ROOT)).toMatchObject({ format: "html", file: "flow.html", request: { startLine: undefined, maxSteps: undefined } });
+    expect(readFlowOptions([REF, "--output", "-"], "diagram-spec", ROOT)).toMatchObject({ format: "diagram-spec", file: "-" });
+    expect(readFlowOptions([REF, "--theme", "dark"], "svg", ROOT)).toMatchObject({ theme: "dark" });
+  });
+
+  it.each([
+    [[], "--view flow draws one symbol's flow: pass <file#symbol>", ExitCode.GENERAL_ERROR],
+    [["--view", "flow"], "--view flow draws one symbol's flow: pass <file#symbol>", ExitCode.GENERAL_ERROR],
+    [["src/cli/commands/diagram.ts"], "--view flow draws one symbol's flow: pass <file#symbol>", ExitCode.GENERAL_ERROR],
+    [[REF, "--folder", "src"], "--folder applies to --view units, folder or matrix, not flow", ExitCode.GENERAL_ERROR],
+    [[REF, "--rules"], "--rules applies to --view units, folder or matrix, not flow", ExitCode.GENERAL_ERROR],
+    [[REF, "--maxSteps", "13"], '--maxSteps must be an integer between 1 and 12, got "13"', ExitCode.GENERAL_ERROR],
+    [[REF, "--maxSteps", "0"], '--maxSteps must be an integer between 1 and 12, got "0"', ExitCode.GENERAL_ERROR],
+    [[REF, "--startLine", "0"], '--startLine must be an integer >= 1, got "0"', ExitCode.GENERAL_ERROR],
+    [[REF, "--theme", "dark", "--output", "a.html"], "--theme sets the colours of --format svg", ExitCode.GENERAL_ERROR],
+    [["src/cli/commands/nope.ts#run"], "File not found: src/cli/commands/nope.ts.", ExitCode.GENERAL_ERROR],
+    [["../outside.ts#run"], "resolves outside workspace", ExitCode.SECURITY_VIOLATION],
+  ] as const)("refuses %j", (args, message, exitCode) => {
+    try {
+      readFlowOptions([...args], "text", ROOT);
+      expect.unreachable();
+    } catch (error) {
+      expect(classifyError(error)).toMatchObject({ message: expect.stringContaining(message), exitCode });
+    }
+  });
+
+  it("refuses the flow options without --view flow, and a file#symbol positional as a directory", () => {
+    expect(() => readDiagramOptions(["--maxSteps", "3"], "text")).toThrow("--maxSteps applies to --view flow");
+    expect(() => readDiagramOptions(["--startLine", "3"], "svg")).toThrow("--startLine applies to --view flow");
+    expect(() => readDirectory([REF], ROOT)).toThrow(`a file#symbol positional needs --view flow: ${REF}`);
   });
 });
 

@@ -108,7 +108,7 @@ describe.skipIf(!wasmBuilt)("query_call_graph on a returned value (#623)", { tim
       .callees.filter(r => r.targetName === method).map(r => r.targetId);
 
   it.each(CASES)("%s %s: the call reaches Calculator's method, never OtherCalculator's", async (caller, symbol, declaring, method, ownLine) => {
-    expect(await calleesOf(caller, symbol, method)).toEqual([`${file(declaring)}:${method}:${ownLine}`]);
+    expect(await calleesOf(caller, symbol, method)).toEqual([`${file(declaring)}:${method}:${ownLine + 1}`]);
   });
 
   // Gaps: their stubs carry no return type, so a chain is not typed there.
@@ -124,7 +124,7 @@ describe.skipIf(!wasmBuilt)("query_call_graph on a returned value (#623)", { tim
     const factory = file("ts/factory.ts");
     rewriteKeepingMtime(factory, TS_FACTORY("OtherCalculator"));
     executeInvalidateFiles({ filePaths: [factory] });
-    expect(await calleesOf("ts/use.ts", "returned", "compute")).toEqual([`${file("ts/service.ts")}:compute:1`]);
-    expect(await calleesOf("ts/use.ts", "generic", "compute")).toEqual([`${file("ts/service.ts")}:compute:0`]);
+    expect(await calleesOf("ts/use.ts", "returned", "compute")).toEqual([`${file("ts/service.ts")}:compute:2`]);
+    expect(await calleesOf("ts/use.ts", "generic", "compute")).toEqual([`${file("ts/service.ts")}:compute:1`]);
   });
 });

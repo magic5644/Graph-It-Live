@@ -133,7 +133,7 @@ Commands:
   architecture      Build full workspace architecture graph
   check-architecture
                     Check the imports against graphit.architecture.json (exit 1 on a new error)
-  diagram           Write a static architecture diagram: --format svg|html|diagram-spec --output <file>
+  diagram           Write an architecture diagram, or one symbol's flow (--view flow): --format svg|html|diagram-spec --output <file>
   init              Generate graphit.architecture.json from the current code, plus a quick-win report
   check <file>      Find unused exported symbols
   review-pr         Review a Git diff: --base <ref> [--head <ref>]

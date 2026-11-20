@@ -73,6 +73,10 @@ Line numbers keep each surface's documented base: call-graph results
 (trace, dependents, impact) are 1-based. Cross-surface tests compare source
 locations after that documented conversion.
 
+> Superseded by #793: every line a user or agent sees or passes is now
+> 1-based, call-graph results and the `startLine` selector included; only the
+> SQLite call graph and the ids that embed a line stay 0-based.
+
 ## Alternatives rejected
 
 - **Keep `USES` for JSX and handler references** (text of #575): the default

@@ -52,6 +52,7 @@ interface CallGraphRelation {
   targetName: string;
   targetFile: string;
   relation: string;
+  /** 1-based line of the call in the caller's file */
   sourceLine: number;
   isCyclic: boolean;
 }
@@ -416,10 +417,26 @@ function toIndexedSymbolId(
   rootDir: string | undefined,
 ): string | undefined {
   if (!symbolId || !rootDir) return symbolId;
+  const stored = shiftIdLine(symbolId, -1);
   const relative = normalizePath(path.relative(rootDir, filePath));
-  if (!symbolId.startsWith(`${relative}:`)) return symbolId;
-  return `${normalizePath(filePath)}${symbolId.slice(relative.length)}`;
+  if (!stored.startsWith(`${relative}:`)) return stored;
+  return `${normalizePath(filePath)}${stored.slice(relative.length)}`;
 }
+
+/**
+ * Node ids end with the stored 0-based declaration row; results show it 1-based, the line of
+ * `startLine` (#793), and toIndexedSymbolId shifts it back. Only the trailing `:<row>` changes.
+ */
+function shiftIdLine(id: string, delta: 1 | -1): string {
+  return id.replace(/:(\d+)$/, (_match, row: string) => `:${Number(row) + delta}`);
+}
+
+const shownSymbol = (symbol: CallGraphSymbol): CallGraphSymbol => ({ ...symbol, id: shiftIdLine(symbol.id, 1) });
+const shownRelation = (relation: CallGraphRelation): CallGraphRelation => ({
+  ...relation,
+  sourceId: shiftIdLine(relation.sourceId, 1),
+  targetId: shiftIdLine(relation.targetId, 1),
+});
 
 export async function executeQueryCallGraph(
   params: QueryCallGraphParams,
@@ -462,7 +479,7 @@ export function queryCallGraphInDb(
     return {
       symbol: null,
       reason: lookup.reason,
-      candidates: lookup.candidates,
+      candidates: lookup.candidates.map(shownSymbol),
       callers: [],
       callees: [],
       totalCallers: 0,
@@ -490,7 +507,7 @@ export function queryCallGraphInDb(
   }
 
   const result: QueryCallGraphResult = {
-    symbol,
+    symbol: shownSymbol(symbol),
     callers,
     callees,
     totalCallers: callers.length,
@@ -516,8 +533,8 @@ export function queryCallGraphInDb(
     const slice = sequence.slice(offset, end);
     return {
       ...result,
-      callers: slice.filter((item) => item.direction === "callers").map((item) => item.relation),
-      callees: slice.filter((item) => item.direction === "callees").map((item) => item.relation),
+      callers: slice.filter((item) => item.direction === "callers").map((item) => shownRelation(item.relation)),
+      callees: slice.filter((item) => item.direction === "callees").map((item) => shownRelation(item.relation)),
       ...(end < sequence.length ? { nextOffset: end } : {}),
     };
   };
@@ -625,7 +642,7 @@ function queryEdges(
     targetId: r[1] as string,
     relation: r[2] as string,
     isCyclic: (r[3] as number) === 1,
-    sourceLine: r[4] as number,
+    sourceLine: (r[4] as number) + 1,
     sourceName: r[5] as string,
     sourceFile: r[6] as string,
     targetName: r[7] as string,

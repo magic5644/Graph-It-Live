@@ -221,6 +221,20 @@ describe.skipIf(!distExists)("MCP user contract (E2E)", { timeout: TIMEOUT_MS },
     expectReadableError(await call("crawl_dependency_graph", { entryFile: "src/a.ts", offset: 99 }), "offset 99 is past the end: 3 nodes, last offset 2.");
   });
 
+  it("draws a flow (#793) and refuses a flow without its symbol, an unknown symbol or a level parameter", async () => {
+    const flow = { view: "flow", filePath: "src/a.ts", symbolName: "run" };
+    const spec = JSON.parse(JSON.parse((await call("export_architecture_diagram", { ...flow, diagramFormat: "diagram-spec", response_format: "json" })).content[0].text).data.markup);
+    expect(spec).toMatchObject({ kind: "flow", entry: "src/a.ts#run", nodes: [{ id: "src/a.ts#run" }, { id: "src/b.ts#helper" }, { id: "lib/u.ts#util" }] });
+    const svg = await call("export_architecture_diagram", { ...flow, response_format: "json" });
+    expect(JSON.parse(svg.content[0].text).data).toMatchObject({ format: "svg", counts: "3 steps · 2 calls · 0 references" });
+    expectReadableError(await call("export_architecture_diagram", { ...flow, bogusParam: 1 }), 'Unknown parameter "bogusParam".');
+    expectReadableError(await call("export_architecture_diagram", { view: "flow", filePath: "src/a.ts" }), "view flow draws one symbol's flow: pass symbolName.");
+    expectReadableError(await call("export_architecture_diagram", { ...flow, symbolName: "rnu" }), "Symbol 'rnu' not found in src/a.ts. Did you mean: run?");
+    expectReadableError(await call("export_architecture_diagram", { ...flow, folder: "src" }), "folder applies to view units, folder or matrix, not flow.");
+    expectReadableError(await call("export_architecture_diagram", { filePath: "src/a.ts", symbolName: "run" }), "filePath applies to view flow only.");
+    expectReadableError(await call("export_architecture_diagram", { ...flow, filePath: "src/nope.ts" }), "File not found: src/nope.ts.");
+  });
+
   // #774, last: it moves the session to another workspace. MCP and CLI count the same unresolved imports.
   it("reports an import resolving to no file like the CLI, in scan_dead_code and get_index_status", async () => {
     const fixture = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-mcp-unresolved-")));

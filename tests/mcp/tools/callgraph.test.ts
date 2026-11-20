@@ -302,7 +302,9 @@ describe("executeQueryCallGraph", () => {
     });
 
     expect(mcpResult.symbol).not.toBeNull();
-    const rootId = mcpResult.symbol!.id;
+    // Results show the id's line 1-based (#793); the neighbourhood reads stored 0-based ids.
+    const shiftLine = (id: string, delta: number) => id.replace(/:(\d+)$/, (_match, row: string) => `:${Number(row) + delta}`);
+    const rootId = shiftLine(mcpResult.symbol!.id, -1);
     const neighbourhood = queryNeighbourhood(indexer.getDb(), rootId, 2);
 
     const mcpEdges = new Set(
@@ -312,7 +314,7 @@ describe("executeQueryCallGraph", () => {
     const neighbourhoodOutgoing = new Set(
       neighbourhood.edges
         .filter((e) => e.direction === "outgoing" || e.direction === "lateral")
-        .map((e) => `${e.sourceId}->${e.targetId}`),
+        .map((e) => `${shiftLine(e.sourceId, 1)}->${shiftLine(e.targetId, 1)}`),
     );
 
     // The neighbourhood contains the same subgraph; MCP callee traversal should match outgoing/lateral edges.

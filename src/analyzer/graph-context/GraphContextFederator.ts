@@ -98,15 +98,16 @@ export class GraphContextFederator {
       if (!relativePath) continue;
 
       const kind = isTestPath(relativePath) ? 'test' : 'symbol';
-      const id = `${kind}:${relativePath}:${node.name}:${node.startLine}`;
+      // Shown lines are 1-based, the id's line too (#793): the same line as startLine.
+      const id = `${kind}:${relativePath}:${node.name}:${node.startLine + 1}`;
       symbolIds.set(node.id, id);
       nodesById.set(id, {
         id,
         kind,
         name: node.name,
         path: relativePath,
-        startLine: node.startLine,
-        endLine: node.endLine,
+        startLine: node.startLine + 1,
+        endLine: node.endLine + 1,
         language: node.lang,
       });
       const namedNodes = symbolNodesByName.get(node.name);
@@ -119,8 +120,8 @@ export class GraphContextFederator {
         origin: 'AST',
         workspaceRoot,
         sourcePath: filePath,
-        sourceLine: node.startLine,
-        sourceEndLine: node.endLine,
+        sourceLine: node.startLine + 1,
+        sourceEndLine: node.endLine + 1,
         stale: isStale(fileStateByPath.get(filePath)),
       }));
     }
@@ -147,7 +148,7 @@ export class GraphContextFederator {
         origin: 'AST',
         workspaceRoot,
         sourcePath: sourceNode?.path,
-        sourceLine: edge.sourceLine,
+        sourceLine: edge.sourceLine + 1,
         ambiguous,
         stale: isStale(fileStateByPath.get(sourcePath)),
       }));

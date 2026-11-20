@@ -5,6 +5,18 @@
 ### Added
 - **Most coupled pairs and bridging files** (#342): `graph-it architecture --coupling` and `explore_architecture` with `view: "coupling"` list, for the groups, a folder level (`--folder`) or the units (`--level units`), the pairs of rows coupled by file pairs (`aToB`, `bToA`, `mutual`, heaviest first) and the files whose imports cross into 2 or more other rows, each with up to 3 evidence file pairs and the formulas. Counts are the matrix cells folded two by two; no extraction score. Group cycles and Ca/Ce/instability stay in `--matrix` / `view: "matrix"`.
 
+- **Flow diagram of one entry symbol** (#793): `graph-it diagram --view flow <file#symbol>` draws the calls of a function from the call graph index, one column per step in call order and one row per lane (main, alternative, error) read from the call sites (TypeScript, JavaScript, Python), as SVG, HTML or a `kind: "flow"` diagram spec. `--maxSteps` (1 to 12, default 8) caps the steps and a note counts the callees left out; `--startLine` (1-based) picks one of several same-name symbols. The `export_architecture_diagram` MCP tool and its VS Code language model tool take `view: "flow"` with `filePath`, `symbolName`, `startLine` and `maxSteps`, and draw the same markup. A warm run restores the call graph from `.graph-it/cache` and re-extracts nothing. `graph-it tool export_architecture_diagram` now runs the tool from the CLI.
+  ![Flow diagram of invokeTool](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/cli-diagram-flow.png)
+
+### Changed — breaking
+- **Call graph lines are 1-based, the editor line, everywhere** (#793). They used to be 0-based (editor line 3 was 2). Changed fields and parameters:
+  - MCP and VS Code language model `query_call_graph`: the `startLine` parameter (now at least 1), `symbol.startLine`/`endLine`, `candidates[].startLine`/`endLine`, and `callers[]`/`callees[]` `sourceLine`. `startLine: 0` fails with `"startLine" must be >= 1; got 0. startLine is 1-based (the editor line): the first line is 1.`
+  - VS Code language model `get_symbol_callers`: `callers[].line` when it comes from the call graph.
+  - `query_natural_language` and `graph-it query`: the node line (`l` in TOON, `startLine` in JSON, `file:line` in text).
+  - `graph_context` and `graph-it context`: symbol and test `nodes[].startLine`/`endLine`, and `sourceLine`/`sourceEndLine` on `CONTAINS` and call graph edges. Before, a call on line 1 lost its line.
+  - `generate_wiki` and `graph-it wiki`: the symbol `Line` column and the caller/callee call-site line.
+  - Symbol ids that embed a line (`file:name:line` in `query_call_graph`, `symbol:file:name:line` in `graph_context`) show the same 1-based line: an id copied from a result still selects its symbol, an id from an older result is reported as `stale_selector`.
+
 ### Fixed
 - **`(root)` warning cleared once the moved units are named** (#790): since v1.25.5, a `graphit.architecture.json` naming `(root)` warns that the files outside every project moved to per-folder units. The warning stayed after those units were named in the same element `unit` selector (or matched by a wildcard or the element's `role`), or by other `roles` keys. It now lists only the moved units the selector does not cover, and disappears when it covers them all.
 

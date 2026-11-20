@@ -60,13 +60,21 @@ describe("lookupCallGraphSymbol", () => {
     }
   });
 
-  it("selects a homonym by startLine", () => {
+  it("selects a homonym by its 1-based startLine and reports 1-based lines", () => {
+    // Stored 0-based row 5 is editor line 6.
     const result = lookupCallGraphSymbol(indexer.getDb(), {
       filePath: FILE,
       symbolName: "compute",
-      startLine: 5,
+      startLine: 6,
     });
-    expect(result.symbol?.startLine).toBe(5);
+    expect(result.symbol).toMatchObject({ id: second.id, startLine: 6, endLine: 8 });
+  });
+
+  it("selects a symbol declared on the file's first line with startLine 1", () => {
+    const top = node(FILE, "boot", 0);
+    indexer.indexFile([top, first, second, unique], [], FILE, "typescript", Date.now());
+    const result = lookupCallGraphSymbol(indexer.getDb(), { filePath: FILE, symbolName: "boot", startLine: 1 });
+    expect(result.symbol).toMatchObject({ id: top.id, startLine: 1 });
   });
 
   it("flags a stale symbolId and lists the current same-name nodes", () => {

@@ -58,6 +58,7 @@ export const COMMAND_SPECS: Readonly<Record<string, CommandSpec>> = {
     options: {
       "--view": "value", "--folder": "value", "--theme": "value", "--output": "value",
       "--rules": "flag", "--config": "value", "--baseline": "optional-value",
+      "--maxSteps": "value", "--startLine": "value",
     },
     maxPositionals: 1,
   },

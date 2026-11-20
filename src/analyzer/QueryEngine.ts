@@ -41,6 +41,11 @@ const UNSCOPED_FILE_MATCHER: CompiledFileScope = {
 // Config
 // ---------------------------------------------------------------------------
 
+/** The nodes table stores 0-based rows; results show the 1-based editor line. */
+function editorLine(row: SqlValue): number | undefined {
+  return row === null ? undefined : (row as number) + 1;
+}
+
 export interface QueryEngineConfig {
   defaultDepth: number;         // 2
   defaultTokenBudget: number;   // 4000
@@ -312,7 +317,7 @@ export class QueryEngine {
       name: row[1] as string,
       type: row[2] as string,
       path: nodePath,
-      startLine: (row[4] as number | null) ?? undefined,
+      startLine: editorLine(row[4]),
       relevanceScore: score,
     });
     return id;
@@ -364,7 +369,7 @@ export class QueryEngine {
         name: row[1] as string,
         type: row[2] as string,
         path: nodePath,
-        startLine: (row[4] as number | null) ?? undefined,
+        startLine: editorLine(row[4]),
         relevanceScore: scoreMap.get(id) ?? 0,
       }];
     });

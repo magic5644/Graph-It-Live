@@ -264,28 +264,40 @@ Examples:
   graph-it init --focus apps/api --output architecture-report
   graph-it init --yes --format json
 `,
-  diagram: `graph-it diagram — Write a static architecture diagram
+  diagram: `graph-it diagram — Write a static architecture diagram, or the call flow of one symbol
 
 Usage: graph-it diagram [dir] [options]
+       graph-it diagram --view flow <file#symbol> [--maxSteps N] [--startLine N] [options]
 
 Draws one level of the architecture as the Architecture view lays it out: the units (layers
 top to bottom, layer 0 at the bottom, cycles outlined, stroke width = file pairs), the groups
 of one unit or folder, or their dependency matrix. The output has no script and no external
 URL: drop it in a README, a wiki or a pull request. At most 60 units or groups are drawn.
 
+--view flow draws the calls of one entry symbol from the call graph index: one column per
+step in call order (a step is one file's symbols), one row per lane (main, alternative,
+error) read from the call sites of TypeScript, JavaScript and Python.
+
 Arguments:
   dir                Workspace directory whose level is drawn, as --folder draws its key
                      (a unit root: the unit's groups); . draws the units
+  file#symbol        With --view flow: the entry symbol and its file, in the workspace
 
 Options:
-  --view VIEW        units|folder|matrix (default: units, or folder with dir or --folder);
-                     matrix draws the units, or with --folder that folder's groups
+  --view VIEW        units|folder|matrix|flow (default: units, or folder with dir or
+                     --folder); matrix draws the units, or with --folder that folder's
+                     groups; flow draws the call flow of file#symbol
+  --maxSteps N       With --view flow: most steps drawn, 1 to 12 (default: 8); a note
+                     counts the callees left out
+  --startLine N      With --view flow: declaration line of the symbol, 1-based (the
+                     editor line), to pick one of several same-name symbols
   --folder KEY       Unit or folder key, as graph-it architecture --folder takes it
   --format, -f       html|svg|diagram-spec (default: html, or svg when --output ends with .svg);
                      the HTML page follows the reader's light or dark scheme
   --theme THEME      light|dark colours of --format svg (default: light)
   --output FILE      File in the workspace, relative to its root (default:
-                     architecture.html or architecture.svg); - writes to stdout
+                     architecture.html or architecture.svg, flow.html or flow.svg for
+                     --view flow); - writes to stdout
   --rules            Draw the violations of graphit.architecture.json in the error
                      colour, their rule names in the legend
   --config FILE      Rules file in the workspace, with --rules
@@ -301,6 +313,8 @@ Examples:
   graph-it diagram packages/core --rules --baseline
   graph-it diagram --folder packages/core --view matrix
   graph-it diagram --view matrix --format svg --output - > matrix.svg
+  graph-it diagram --view flow src/cli/index.ts#main --format svg --output docs/main-flow.svg
+  graph-it diagram --view flow src/app.ts#start --startLine 42 --maxSteps 12
 `,
   check: `graph-it check — Find unused exported symbols in the workspace, a folder or a file
 

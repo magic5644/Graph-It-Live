@@ -662,7 +662,7 @@ export class WikiGenerator {
         symbols.push({
           name: row.name,
           type: row.type as WikiSymbol["type"],
-          declarationLine: row.start_line,
+          declarationLine: row.start_line + 1,
         });
       }
       stmt.free();
@@ -693,7 +693,7 @@ export class WikiGenerator {
         callers.push({
           name: row.caller_name,
           filePath: normalizePath(row.caller_path),
-          callSiteLine: row.source_line,
+          callSiteLine: row.source_line + 1,
         });
       }
       stmt.free();
@@ -724,7 +724,7 @@ export class WikiGenerator {
         callees.push({
           name: row.callee_name,
           filePath: normalizePath(row.callee_path),
-          callSiteLine: row.source_line,
+          callSiteLine: row.source_line + 1,
         });
       }
       stmt.free();

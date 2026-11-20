@@ -1554,7 +1554,7 @@
         "displayName": "Graph-It-Live: Query Call Graph",
         "icon": "$(type-hierarchy)",
         "userDescription": "Query cross-file callers and callees of a symbol via BFS traversal on the indexed call graph database",
-        "modelDescription": "Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.\n\nWHEN: \"who calls X\" (direction=callers, depth=1), \"what does X call\" (direction=callees), multi-hop traversal (\"three levels deep\"), or cycle detection across modules.\nWHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and runtime references (REFERENCES) rather than import edges. Type-only references (USES) are added with includeTypeOnly.\nREFERENCES: a function passed as an argument (register(save), items.map(format), Python cb=save, Java this::save, C# Register(Save)), and in .jsx/.tsx files a JSX component (<Card />, <UI.Card />) or an attribute value (onClick={save}, render={Row}), is a REFERENCES edge: rendered or passed, never reported as a call; register(save()) and onClick={() => save()} are CALLS edges at their line. REACT: Imports resolve through aliases, barrels and default exports to the declaration (a default export keeps its declared name), and memo(), forwardRef() and lazy(() => import('./literal')) to the wrapped component. Lowercase intrinsic tags, parameters or locals named like a function, members of objects other than this/self, non-literal or unknown wrappers, and unimported or ambiguous names stay unresolved, never guessed; props contracts are not analysed. VUE: a Vue 3 .vue file has a component node named after the file at its <template>; a template <Child />, handler (@click=save) or interpolation is a REFERENCES edge from it and save() a CALLS edge, also from an HTML <template src> of the workspace. Global, auto-imported and dynamic :is components stay unresolved.\nRETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2. A symbol missing from the file is an error naming the closest ones.\nSELECTING: two same-name methods in one file return reason=ambiguous with candidates; pass one candidate's symbolId or startLine to select it exactly. A stale selector returns reason=stale_selector (ids embed the line and change after edits); 'Class.method' names are not supported.\nNOT THIS TOOL: for every file that imports a file, use graph-it-live_find_referencing_files.\nLIMITS: needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error. output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.\nPARAMETERS: filePath, symbolName, symbolId, startLine, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget, response_format.",
+        "modelDescription": "Traces calls across files for several hops, in either direction, from a SQLite-backed call graph.\n\nWHEN: \"who calls X\" (direction=callers, depth=1), \"what does X call\" (direction=callees), multi-hop traversal (\"three levels deep\"), or cycle detection across modules.\nWHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and runtime references (REFERENCES) rather than import edges. Type-only references (USES) are added with includeTypeOnly.\nREFERENCES: a function passed as an argument (register(save), items.map(format), Python cb=save, Java this::save, C# Register(Save)), and in .jsx/.tsx files a JSX component (<Card />, <UI.Card />) or an attribute value (onClick={save}, render={Row}), is a REFERENCES edge: rendered or passed, never reported as a call; register(save()) and onClick={() => save()} are CALLS edges at their line. REACT: Imports resolve through aliases, barrels and default exports to the declaration (a default export keeps its declared name), and memo(), forwardRef() and lazy(() => import('./literal')) to the wrapped component. Lowercase intrinsic tags, parameters or locals named like a function, members of objects other than this/self, non-literal or unknown wrappers, and unimported or ambiguous names stay unresolved, never guessed; props contracts are not analysed. VUE: a Vue 3 .vue file has a component node named after the file at its <template>; a template <Child />, handler (@click=save) or interpolation is a REFERENCES edge from it and save() a CALLS edge, also from an HTML <template src> of the workspace. Global, auto-imported and dynamic :is components stay unresolved.\nRETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2. A symbol missing from the file is an error naming the closest ones.\nSELECTING: two same-name methods in one file return reason=ambiguous with candidates; pass one candidate's symbolId or startLine to select it exactly. Every line (startLine, endLine, sourceLine) is 1-based, the editor line. A stale selector returns reason=stale_selector (ids embed the line and change after edits; treat them as opaque); 'Class.method' names are not supported.\nNOT THIS TOOL: for every file that imports a file, use graph-it-live_find_referencing_files.\nLIMITS: needs the call graph index, built in the background when the Graph-It-Live view first loads (graph-it-live.preIndexCallGraph) or when the Call Graph panel opens; until then the tool returns an error. output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.\nPARAMETERS: filePath, symbolName, symbolId, startLine, direction, depth, relationTypes, includeTypeOnly, offset, tokenBudget, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
@@ -1574,9 +1574,9 @@
               "maxLength": 500
             },
             "startLine": {
-              "description": "Declaration line of the symbol, 0-based like 'startLine' in results and candidates (editor line 3 is 2). Selects one of several same-name symbols.",
+              "description": "Declaration line of the symbol, 1-based (the editor line) like 'startLine' in results and candidates. Selects one of several same-name symbols.",
               "type": "integer",
-              "minimum": 0,
+              "minimum": 1,
               "maximum": 9007199254740991
             },
             "direction": {
@@ -1832,17 +1832,18 @@
         "displayName": "Graph-It-Live: Export Architecture Diagram",
         "icon": "$(type-hierarchy)",
         "userDescription": "Draw a static architecture diagram of the workspace as SVG or self-contained HTML",
-        "modelDescription": "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix) as SVG or self-contained HTML, or returns its data as a diagram spec.\n\nWHEN: \"draw the architecture\", \"give me a diagram for the README / the PR / the design doc\", or to share as a picture the structure that graph-it architecture reports as data. For a polished or branded diagram drawn by a diagram skill, use diagramFormat 'diagram-spec' and draw only the nodes and edges it lists.\nWHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.\nRETURNS: format, counts (one line, e.g. '7 units · 3 layers · 1 cycle · 0 violations', covering the whole level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>, architecture.diagram-spec.json for a spec) with its size in characters. A diagram-spec is JSON (schemas/diagram-spec.schema.json): every node with label, layer, file count and role, layers, weighted edges with kind and broken rules, cycles, violations and the caption lines.\nLIMITS: import relations only (static analysis); at most 60 nodes drawn (a spec lists them all), the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.\nPARAMETERS: view, folder, diagramFormat, theme, rules, config, baseline, output, response_format.",
+        "modelDescription": "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix), or the call flow of one entry symbol, as SVG or self-contained HTML, or returns its data as a diagram spec.\n\nWHEN: \"draw the architecture\", \"give me a diagram for the README / the PR / the design doc\", or to share as a picture the structure that graph-it architecture reports as data. For a polished or branded diagram drawn by a diagram skill, use diagramFormat 'diagram-spec' and draw only the nodes and edges it lists.\nWHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.\nRETURNS: format, counts (one line, e.g. '7 units · 3 layers · 1 cycle · 0 violations', covering the whole level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>, architecture.diagram-spec.json for a spec) with its size in characters. A diagram-spec is JSON (schemas/diagram-spec.schema.json): every node with label, layer, file count and role, layers, weighted edges with kind and broken rules, cycles, violations and the caption lines.\nLIMITS: import relations only (static analysis); at most 60 nodes drawn (a spec lists them all), the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.\nFLOW: view 'flow' with filePath (workspace-relative or absolute, inside the workspace) and symbolName draws the call flow of that entry symbol from the call graph index: one column per step in call order (a step is one file's symbols), rows for the main, alternative and error lanes read from the call sites (TypeScript, JavaScript, Python; other languages put every step on main). startLine (1-based, the editor line) selects one of several same-name symbols; maxSteps caps the steps (1 to 12, default 8) and a note counts the callees left out. Default file flow.<diagramFormat> (flow.diagram-spec.json for a spec, kind 'flow'). An unknown, ambiguous or unindexed symbol is an error naming the candidates; folder, rules, config and baseline do not apply to a flow.\nPARAMETERS: view, folder, filePath, symbolName, startLine, maxSteps, diagramFormat, theme, rules, config, baseline, output, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "view": {
-              "description": "'units' (default): every unit; 'folder': the groups of the unit or folder named by folder (default when folder is set); 'matrix': the dependency structure matrix of that level",
+              "description": "'units' (default): every unit; 'folder': the groups of the unit or folder named by folder (default when folder is set); 'matrix': the dependency structure matrix of that level; 'flow': the call flow of one entry symbol (filePath + symbolName), from the call graph index",
               "type": "string",
               "enum": [
                 "units",
                 "folder",
-                "matrix"
+                "matrix",
+                "flow"
               ]
             },
             "folder": {
@@ -1851,8 +1852,30 @@
               "minLength": 1,
               "maxLength": 1024
             },
+            "filePath": {
+              "description": "With view flow: file of the entry symbol, workspace-relative or absolute, inside the workspace",
+              "type": "string",
+              "maxLength": 1024
+            },
+            "symbolName": {
+              "description": "With view flow: name of the entry symbol (a function, method or class)",
+              "type": "string",
+              "maxLength": 500
+            },
+            "startLine": {
+              "description": "With view flow: declaration line of the entry symbol, 1-based (the editor line); selects one of several same-name symbols",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "maxSteps": {
+              "description": "With view flow: most steps drawn, 1 to 12 (default: 8); a step is one file's symbols the flow enters",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 12
+            },
             "diagramFormat": {
-              "description": "'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme; 'diagram-spec': the level's data as JSON (schemas/diagram-spec.schema.json) for a diagram skill",
+              "description": "'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme; 'diagram-spec': the level's (or the flow's) data as JSON (schemas/diagram-spec.schema.json) for a diagram skill",
               "type": "string",
               "enum": [
                 "svg",
@@ -1885,7 +1908,7 @@
               "maxLength": 1024
             },
             "output": {
-              "description": "File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec)",
+              "description": "File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec; flow.<diagramFormat> for view flow)",
               "type": "string",
               "minLength": 1,
               "maxLength": 1024

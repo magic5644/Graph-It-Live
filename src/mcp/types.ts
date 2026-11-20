@@ -13,7 +13,7 @@ import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import { COMMUNITY_MODES } from "../shared/graph-types";
 import type { CycleKind } from "../shared/cycleUtils";
-import { defaultDiagramFile, DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel } from "../analyzer/diagram/diagramStyle";
+import { defaultDiagramFile, DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel, MAX_FLOW_STEPS } from "../analyzer/diagram/diagramStyle";
 import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import { DEAD_CODE_CONFIDENCES, type DeadCodeConfidence, type UnusedSymbol } from "../analyzer/deadcode/deadCodeConfidence";
@@ -543,10 +543,10 @@ export const QueryCallGraphParamsSchema = z.object({
   startLine: z
     .number()
     .int()
-    .min(0)
+    .min(1, "startLine is 1-based (the editor line): the first line is 1")
     .optional()
     .describe(
-      "Declaration line of the symbol, 0-based like 'startLine' in results and candidates (editor line 3 is 2). Selects one of several same-name symbols.",
+      "Declaration line of the symbol, 1-based (the editor line) like 'startLine' in results and candidates. Selects one of several same-name symbols.",
     ),
   direction: z
     .enum(["callers", "callees", "both"])
@@ -812,13 +812,24 @@ export const CheckArchitectureParamsSchema = z.object({
 }).strict();
 export type CheckArchitectureParams = z.infer<typeof CheckArchitectureParamsSchema>;
 
+/** The parameters of view flow, and those of the architecture levels a flow refuses. */
+const FLOW_DIAGRAM_PARAMS = ["filePath", "symbolName", "startLine", "maxSteps"] as const;
+const LEVEL_DIAGRAM_PARAMS = ["folder", "rules", "config", "baseline"] as const;
+
 export const ExportArchitectureDiagramParamsSchema = z.object({
   view: z.enum(DIAGRAM_VIEWS).optional()
-    .describe("'units' (default): every unit; 'folder': the groups of the unit or folder named by folder (default when folder is set); 'matrix': the dependency structure matrix of that level"),
+    .describe("'units' (default): every unit; 'folder': the groups of the unit or folder named by folder (default when folder is set); 'matrix': the dependency structure matrix of that level; 'flow': the call flow of one entry symbol (filePath + symbolName), from the call graph index"),
   folder: z.string().min(1).max(1024).optional()
     .describe("Unit or folder key, '/'-separated as explore_architecture returns it (e.g. 'src/analyzer')"),
+  filePath: FilePathSchema.optional()
+    .describe("With view flow: file of the entry symbol, workspace-relative or absolute, inside the workspace"),
+  symbolName: SymbolNameSchema.optional().describe("With view flow: name of the entry symbol (a function, method or class)"),
+  startLine: z.number().int().min(1, "startLine is 1-based (the editor line): the first line is 1").optional()
+    .describe("With view flow: declaration line of the entry symbol, 1-based (the editor line); selects one of several same-name symbols"),
+  maxSteps: z.number().int().min(1).max(MAX_FLOW_STEPS).optional()
+    .describe(`With view flow: most steps drawn, 1 to ${MAX_FLOW_STEPS} (default: 8); a step is one file's symbols the flow enters`),
   diagramFormat: z.enum(DIAGRAM_FORMATS).optional()
-    .describe("'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme; 'diagram-spec': the level's data as JSON (schemas/diagram-spec.schema.json) for a diagram skill"),
+    .describe("'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme; 'diagram-spec': the level's (or the flow's) data as JSON (schemas/diagram-spec.schema.json) for a diagram skill"),
   theme: z.enum(DIAGRAM_THEMES).optional().describe("Colours of the SVG (default: light); svg only"),
   rules: z.boolean().optional()
     .describe("Draw the violations of graphit.architecture.json in the error colour, and the baseline's accepted ones dashed"),
@@ -826,20 +837,11 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
   baseline: RulesFileSchema.optional()
     .describe("Accepted violations with rules, relative to the workspace (default: graphit.architecture.baseline.json when it exists)"),
   output: RulesFileSchema.optional()
-    .describe("File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec)"),
+    .describe("File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec; flow.<diagramFormat> for view flow)"),
 }).strict().superRefine((params, context) => {
-  const { view } = diagramLevel(params.view, params.folder);
-  if (view === "folder" && params.folder === undefined) {
-    context.addIssue({ code: "custom", message: "view folder draws the groups of one unit or folder: pass folder" });
-  }
-  if (view === "units" && params.folder !== undefined) {
-    context.addIssue({ code: "custom", message: "view units draws every unit: drop folder, or use view folder" });
-  }
+  for (const message of diagramViewIssues(params)) context.addIssue({ code: "custom", message });
   if (params.theme !== undefined && (params.diagramFormat ?? "svg") !== "svg") {
     context.addIssue({ code: "custom", message: "theme sets the colours of diagramFormat svg; the HTML page follows the reader's scheme and a spec has none" });
-  }
-  if (!params.rules && (params.config !== undefined || params.baseline !== undefined)) {
-    context.addIssue({ code: "custom", message: "config and baseline apply to the rules overlay: add rules: true" });
   }
   const format = params.diagramFormat ?? "svg";
   const extension = nodePath.extname(defaultDiagramFile(format));
@@ -847,6 +849,28 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
     context.addIssue({ code: "custom", message: `output must end with ${extension} for diagramFormat ${format}; got ${params.output}` });
   }
 });
+
+/** The parameters that name no single diagram for the view asked, each issue naming its parameter. */
+function diagramViewIssues(params: {
+  view?: (typeof DIAGRAM_VIEWS)[number]; folder?: string; rules?: boolean; config?: string; baseline?: string;
+  filePath?: string; symbolName?: string; startLine?: number; maxSteps?: number;
+}): string[] {
+  if (params.view === "flow") {
+    return [
+      ...(["filePath", "symbolName"] as const).filter((key) => params[key] === undefined).map((key) => `view flow draws one symbol's flow: pass ${key}.`),
+      ...LEVEL_DIAGRAM_PARAMS.filter((key) => params[key] !== undefined).map((key) => `${key} applies to view units, folder or matrix, not flow.`),
+    ];
+  }
+  const issues = FLOW_DIAGRAM_PARAMS.filter((key) => params[key] !== undefined).map((key) => `${key} applies to view flow only.`);
+  const { folder } = params;
+  const { view } = diagramLevel(params.view, folder);
+  if (view === "folder" && folder === undefined) issues.push("view folder draws the groups of one unit or folder: pass folder.");
+  if (view === "units" && folder !== undefined) issues.push("view units draws every unit: drop folder, or use view folder.");
+  if (!params.rules && (params.config !== undefined || params.baseline !== undefined)) {
+    issues.push("config and baseline apply to the rules overlay: add rules: true.");
+  }
+  return issues;
+}
 export type ExportArchitectureDiagramParams = z.infer<typeof ExportArchitectureDiagramParamsSchema>;
 
 // NEW: Schema for scan_dead_code (workspace-wide dead code scan)
@@ -1013,6 +1037,7 @@ const TOOL_FILE_PATH_PARAMS: Partial<Record<McpToolName, readonly string[]>> = {
   generate_codemap: ["filePath"],
   query_call_graph: ["filePath"],
   scan_dead_code: ["scopePath"],
+  export_architecture_diagram: ["filePath"],
 };
 
 /** Parameters naming a folder instead of a file. */

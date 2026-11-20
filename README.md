@@ -220,6 +220,14 @@ To share the drawn level as a picture, click *Export Architecture Diagram* (icon
 
 *An exported diagram with the role filter on `library`: the caption names the filter.*
 
+To see what one function does step by step, draw its call flow: `graph-it diagram --view flow src/mcp/worker/invokeTool.ts#invokeTool --format svg`. Each column is one step in call order (a file's symbols), and each row a lane: main, alternative (a branch that returns) or error (a `catch`, or a branch that throws). `--maxSteps` (up to 12) and `--startLine` (1-based, for same-name symbols) refine it; the `export_architecture_diagram` MCP tool draws the same with `view: "flow"`.
+
+<div align="center">
+<img src="media/cli-diagram-flow.png" alt="Flow diagram of invokeTool: eight steps in call order, postMessage on the alternative lane, closestPathsHint on the error lane, each edge labelled with its call line" width="900"/>
+</div>
+
+*`graph-it diagram --view flow` on this repository: one step per column, one lane per row.*
+
 ### Architecture rules
 
 Declare your intended architecture in `graphit.architecture.json` at the workspace root: `elements` name sets of files, `rules` say what each may import, and `roles` declare what each unit is. The view lists each rule with its violations; `graph-it check-architecture` exits with 1 on a new `error` violation, so it can gate CI, with SARIF output for code scanning and a baseline for existing code. On existing code, `graph-it init` writes the config from today's imports, so only new drift fails, and reports quick wins and the reading of the dependency matrix. See [the config file](docs/architecture.md#the-config-file) for a complete example.
@@ -316,7 +324,7 @@ graph-it check [path]                 Find unused exported symbols
 graph-it architecture --groups        Show the workspace architecture by folder or community
 graph-it init                         Generate graphit.architecture.json from the current code, plus quick wins
 graph-it check-architecture           Check imports against graphit.architecture.json
-graph-it diagram                      Write a static architecture diagram (SVG, HTML or diagram spec)
+graph-it diagram                      Write a static architecture diagram or one symbol's call flow (SVG, HTML or diagram spec)
 graph-it query "<question>"           Ask a natural-language graph question
 graph-it context "<question>"         Retrieve bounded graph context
 graph-it wiki                         Generate a navigable Markdown wiki

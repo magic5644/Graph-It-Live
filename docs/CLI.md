@@ -1128,13 +1128,13 @@ Writes a static architecture diagram: one level of the Architecture view as a ba
 Every diagram draws from one legend, shared with the `init` page, and lists only the styles it uses: dependency, upward, runtime cycle, type-only cycle (dotted: every import between its units is type-only), lazy cycle (dashed: it closes only through `import()`), cell to cut (matrix), rule broken, accepted in the baseline (dashed). A cycle block takes the style of its cycle and is titled with its kind; a broken rule outranks the cycle style of an edge. Edge and cell tooltips count the type-only file pairs. A [diagram spec](#diagram-spec) gives each cycle edge its `cycleKind` (`runtime`, `type-only`, `lazy`) and `typeOnlyEdgeCount` when some pairs are type-only.
 
 ```bash
-graph-it diagram [<dir>] [--view units|folder|matrix] [--folder <key>] [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
+graph-it diagram [<dir>] [--view units|folder|matrix|flow] [--folder <key>] [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
 ```
 
 | Option | Default | Meaning |
 |--------|---------|---------|
 | `<dir>` | — | Workspace directory, relative to its root (`\` is read as `/`), drawn as `--folder` draws its key: a unit root draws the unit's groups, a folder its own (an element's folder draws the element; an umbrella folder such as `src` is its unit). `.` draws the units. Comes first; not with `--folder` |
-| `--view` | `units` (`folder` with `--folder` or `<dir>`) | `units`: the units in layers (layer 0 at the bottom), cycles outlined, stroke width = file pairs. `folder`: the groups below one unit or folder. `matrix`: the dependency structure matrix of the units, or with `--folder` of that folder's groups, in the [`architecture --matrix`](#architecture) order |
+| `--view` | `units` (`folder` with `--folder` or `<dir>`) | `units`: the units in layers (layer 0 at the bottom), cycles outlined, stroke width = file pairs. `folder`: the groups below one unit or folder. `matrix`: the dependency structure matrix of the units, or with `--folder` of that folder's groups, in the [`architecture --matrix`](#architecture) order. `flow`: the calls of one symbol, see [Flow of one symbol](#flow-of-one-symbol) |
 | `--folder <key>` | — | Unit or folder key, as [`architecture --folder`](#architecture) takes it; `\` is read as `/` |
 | `--format` | `html` (`svg` when `--output` ends with `.svg`) | `html`: one page that follows the reader's light or dark scheme. `svg`: a bare SVG in one theme. `diagram-spec`: the data of `--view units` or `folder` as JSON (`--view matrix` with it exits 4) |
 | `--theme` | `light` | `light` or `dark` colours, `--format svg` only |
@@ -1154,6 +1154,31 @@ At most 60 units or groups are drawn, the largest ones; a note counts the others
 **Exit code**: 0 when the file is written. An invalid `--view` or `--theme`, a `--folder` without files, a `<dir>` that is missing, holds no indexed file or spans several units, `--view folder` without `--folder` or `<dir>`, `--view units` with `--folder` or `<dir>`, `<dir>` with `--folder`, `--theme` with `--format html` or `diagram-spec`, `--config` or `--baseline` without `--rules`, a missing rules file, a missing named baseline or an `--output` whose extension does not match the format (`--format svg --output a.html`) exit 1. A `<dir>`, `--output`, `--config` or `--baseline` outside the workspace exits 5, and any other `--format`, or `diagram-spec` with `--view matrix`, exits 4.
 
 **MCP and VS Code**: the `graphitlive_export_architecture_diagram` MCP tool and the `graph-it-live_export_architecture_diagram` Language Model tool (`#graphArchitectureDiagram`) draw the same diagram from `view`, `folder`, `diagramFormat` (default `svg`), `theme`, `rules`, `config` and `baseline`. They return the markup inline up to 60,000 characters; with `output`, or for a larger diagram, they write it to that workspace file (default `architecture.<diagramFormat>`) and return its workspace-relative path. With `rules` and no `baseline`, they read `graphit.architecture.baseline.json` when it exists, as `check_architecture` does. An `output` outside the workspace is refused before any work. `diagramFormat: "diagram-spec"` returns the spec below as `markup` (default file `architecture.diagram-spec.json`).
+
+#### Flow of one symbol
+
+`--view flow <file#symbol>` draws the calls of one entry symbol from the call graph index instead of an architecture level: one column per step in call order (a step is one file's symbols, the entry first), one row per lane. A call under a `catch` / `except`, or in a branch that throws or exits with a failure code, is on the **error** lane; a call in a branch that ends in `return` or a successful exit is on the **alternative** lane; any other is on **main**. Lanes are read from the call sites of TypeScript, JavaScript and Python; in another language every step is on main, in call order, and a note says so. Each edge is labelled with its condition when it is short, else with its call line.
+
+```bash
+graph-it diagram --view flow <file#symbol> [--maxSteps <n>] [--startLine <n>] [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>]
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `<file#symbol>` | — | Entry symbol and its file, relative to the workspace root |
+| `--maxSteps <n>` | `8` | Most steps drawn, 1 to 12. Past the cap, a note counts the callees left out and gives the `--maxSteps` that draws them, up to 12 |
+| `--startLine <n>` | — | Declaration line of the symbol, 1-based (the editor line), to pick one of several same-name symbols in the file |
+| `--output <file>` | `flow.html` / `flow.svg` / `flow.diagram-spec.json` | As for the other views |
+
+`--format diagram-spec` writes the flow model as JSON (`kind: "flow"`): its steps with file, 1-based line, lane and symbol count, its edges with call line, relation, lane and condition, and `omittedSteps`. A warm run restores the call graph from `.graph-it/cache/` and re-extracts only the files that changed.
+
+<img src="../media/cli-diagram-flow.svg" alt="graph-it diagram --view flow on src/mcp/worker/invokeTool.ts#invokeTool: eight steps in call order, postMessage on the alternative lane, closestPathsHint on the error lane, edge labels with the call lines, and a note counting one callee left out" width="1000"/>
+
+*`graph-it diagram --view flow src/mcp/worker/invokeTool.ts#invokeTool --format svg` on this repository.*
+
+**Exit code**: 1 for `--view flow` without a `<file#symbol>` (or without `#symbol`), a `<file#symbol>` with another view, an unknown symbol (the message names the closest ones), an ambiguous one or a `--startLine` no symbol of that name starts at (both list the candidates with their lines), a missing file (with the closest paths), a `--maxSteps` outside 1–12 or not a number, a `--startLine` below 1, `--folder`, `--rules`, `--config` or `--baseline` with `--view flow`, and `--maxSteps` or `--startLine` without it. A `<file#symbol>` or `--output` outside the workspace exits 5; any other `--format` exits 4.
+
+**MCP and VS Code**: `export_architecture_diagram` takes `view: "flow"` with `filePath` (workspace-relative or absolute, inside the workspace), `symbolName`, `startLine` (1-based) and `maxSteps` (1 to 12), and returns the same markup as the CLI (default file `flow.<diagramFormat>`). `folder`, `rules`, `config` and `baseline` are refused with a flow, and the flow parameters without it. The VS Code language model tool reads the index of the Call Graph panel; without one it answers `Call graph index not available. Open the Call Graph panel (graph-it-live.showCallGraph) first to build the index.`
 
 #### Diagram spec
 
@@ -2377,7 +2402,7 @@ graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=cr
 graph-it tool query_call_graph --filePath=/abs/path/to/Spider.ts --symbolName=crawl --direction=callers --depth=1
 
 # Two methods share a name? The first call returns reason "ambiguous" with candidates;
-# select one by its startLine (0-based, as reported in the candidates) or its symbolId (valid for the current index only)
+# select one by its startLine (1-based editor line, as reported in the candidates) or its symbolId (valid for the current index only)
 graph-it tool query_call_graph --filePath=/abs/path/to/service.ts --symbolName=compute --startLine=3
 ```
 

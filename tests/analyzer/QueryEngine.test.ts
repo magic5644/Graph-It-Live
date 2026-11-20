@@ -366,6 +366,8 @@ describe('QueryEngine.scoreSeedNodes', () => {
     const spider = results.find(n => n.id === 'id-spider');
     expect(spider).toBeDefined();
     expect(spider!.relevanceScore).toBeGreaterThan(0);
+    // Stored row 10 is editor line 11.
+    expect(spider!.startLine).toBe(11);
   });
 
   it('does not return non-matching nodes', () => {
@@ -634,6 +636,8 @@ describe('QueryEngine.query (end-to-end)', () => {
     expect(mockLlm.calls[0].messages.map(message => message.content).join('\n'))
       .not.toContain('crawl-id');
     expect(result.seedNodeIds).toContain('spider-id');
+    expect(result.nodes.length).toBeGreaterThan(0);
+    expect(result.nodes.map(node => node.startLine)).toEqual(result.nodes.map(() => 11));
     expect(result.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({ source: 'spider-id', target: 'crawl-id' }),
     ]));

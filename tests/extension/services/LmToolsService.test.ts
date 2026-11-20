@@ -524,7 +524,7 @@ describe('LmToolsService', () => {
 
       const result = await invokeTool(TOOL, { folder: 'src', rules: true });
 
-      expect(exportArchitectureDiagram).toHaveBeenCalledWith('/workspace', expect.any(Function), { folder: 'src', rules: true }, expect.any(AbortSignal));
+      expect(exportArchitectureDiagram).toHaveBeenCalledWith('/workspace', expect.any(Function), { folder: 'src', rules: true }, expect.any(AbortSignal), expect.any(Function));
       // The chat's cancellation aborts the analysis.
       const onCancel = vi.mocked(fakeToken.onCancellationRequested).mock.calls.at(-1)?.[0] as () => void;
       const signal = exportArchitectureDiagram.mock.calls[0][3] as AbortSignal;
@@ -536,6 +536,37 @@ describe('LmToolsService', () => {
       // Unchanged files come from the index: a warm diagram re-parses nothing (#774).
       expect(vi.mocked(provider.getSpiderForLmTools)()?.analyzeFromIndex).toHaveBeenCalledWith('/workspace/src/a.ts');
       expect(result).toEqual({ format: 'svg', counts: '2 units', markup: '<svg />' });
+    });
+
+    it('reads a flow from the Call Graph panel index and parser, and fails as query_call_graph without an index', async () => {
+      const db = { exec: vi.fn() };
+      const extractor = { parseTree: vi.fn() };
+      const callGraphService = {
+        getCallGraphIndexerForLmTools: vi.fn().mockReturnValue({ getDb: () => db }),
+        getGraphExtractorForLmTools: vi.fn().mockReturnValue(extractor),
+      };
+      const provider = createProvider({ callGraphService });
+      new LmToolsService({ provider, logger }).registerAll();
+      exportArchitectureDiagram.mockResolvedValueOnce({ format: 'svg', counts: '2 steps', markup: '<svg />' });
+      const input = { view: 'flow', filePath: 'src/a.ts', symbolName: 'run', startLine: 3, maxSteps: 4 };
+      expect(await invokeTool(TOOL, input)).toEqual({ format: 'svg', counts: '2 steps', markup: '<svg />' });
+      expect(exportArchitectureDiagram).toHaveBeenCalledWith('/workspace', expect.any(Function), input, expect.any(AbortSignal), expect.any(Function));
+      const flow = exportArchitectureDiagram.mock.calls[0][4] as () => Promise<unknown>;
+      await expect(flow()).resolves.toEqual({ db, extractor });
+      expect(callGraphService.getGraphExtractorForLmTools).toHaveBeenCalledWith('/workspace');
+
+      callGraphService.getCallGraphIndexerForLmTools.mockReturnValue(null);
+      await expect(flow()).rejects.toThrow('Call graph index not available. Open the Call Graph panel (graph-it-live.showCallGraph) first to build the index.');
+      vi.mocked(provider.getCallGraphViewServiceForLmTools).mockReturnValue(null);
+      await expect(flow()).rejects.toThrow('Call graph index not available');
+    });
+
+    it('rejects a flow without its symbol, or with a level parameter, before drawing', async () => {
+      new LmToolsService({ provider: createProvider(), logger }).registerAll();
+      expect(await invokeTool(TOOL, { view: 'flow', filePath: 'src/a.ts' })).toEqual({ error: expect.stringContaining('pass symbolName') });
+      expect(await invokeTool(TOOL, { view: 'flow', filePath: 'src/a.ts', symbolName: 'run', folder: 'src' }))
+        .toEqual({ error: expect.stringContaining('folder applies to view units, folder or matrix, not flow') });
+      expect(exportArchitectureDiagram).not.toHaveBeenCalled();
     });
 
     it('rejects input that fails the MCP schema, an absolute output among them, without drawing', async () => {
@@ -796,6 +827,7 @@ describe('LmToolsService', () => {
   // LM tool results are redacted to workspace-relative paths before reaching the model.
   describe('get_symbol_callers', () => {
     const TOOL = 'graph-it-live_get_symbol_callers';
+    // `line` is the stored 0-based row; results show it 1-based.
     const edgeRow = (relation: string, line: number, name: string, file: string) =>
       ['src', 'sym1', relation, 0, line, name, file, 'helper', '/workspace/src/a.ts'];
 
@@ -824,8 +856,8 @@ describe('LmToolsService', () => {
       expect(spider.getSymbolDependents).not.toHaveBeenCalled();
       expect(result).toMatchObject({ source: 'call-graph', callerCount: 2, runtimeCallerCount: 2, typeOnlyCallerCount: 0, referenceCallerCount: 0 });
       expect(result.callers).toEqual([
-        { callerSymbolId: 'src/b.ts:runB', callerFilePath: 'src/b.ts', callerRelativePath: 'src/b.ts', line: 12, isTypeOnly: false, relation: 'CALLS' },
-        { callerSymbolId: 'src/c.ts:runC', callerFilePath: 'src/c.ts', callerRelativePath: 'src/c.ts', line: 4, isTypeOnly: false, relation: 'CALLS' },
+        { callerSymbolId: 'src/b.ts:runB', callerFilePath: 'src/b.ts', callerRelativePath: 'src/b.ts', line: 13, isTypeOnly: false, relation: 'CALLS' },
+        { callerSymbolId: 'src/c.ts:runC', callerFilePath: 'src/c.ts', callerRelativePath: 'src/c.ts', line: 5, isTypeOnly: false, relation: 'CALLS' },
       ]);
       expect(result.callerFiles).toEqual(['src/b.ts', 'src/c.ts']);
     });
@@ -842,8 +874,8 @@ describe('LmToolsService', () => {
 
       expect(exec.mock.calls[1][1]).toEqual(['sym1', 'CALLS', 'REFERENCES', 'USES']);
       expect((result.callers as Array<Record<string, unknown>>).map((c) => [c.callerSymbolId, c.line, c.isTypeOnly])).toEqual([
-        ['src/b.ts:runB', 9, false],
-        ['src/types.ts:Shape', 3, true],
+        ['src/b.ts:runB', 10, false],
+        ['src/types.ts:Shape', 4, true],
       ]);
       expect(result).toMatchObject({ runtimeCallerCount: 1, typeOnlyCallerCount: 1 });
     });
@@ -852,19 +884,19 @@ describe('LmToolsService', () => {
       {
         title: 'labels a JSX or handler reference as REFERENCES, not as a call',
         rows: [['REFERENCES', 7]],
-        expected: [['src/Page.tsx:Page', 7, 'REFERENCES']],
+        expected: [['src/Page.tsx:Page', 8, 'REFERENCES']],
         counts: { runtimeCallerCount: 1, referenceCallerCount: 1, typeOnlyCallerCount: 0 },
       },
       {
         title: 'keeps the call when a caller both renders and calls the symbol',
         rows: [['REFERENCES', 3], ['CALLS', 8]],
-        expected: [['src/Page.tsx:Page', 8, 'CALLS']],
+        expected: [['src/Page.tsx:Page', 9, 'CALLS']],
         counts: { runtimeCallerCount: 1, referenceCallerCount: 0, typeOnlyCallerCount: 0 },
       },
       {
         title: 'keeps the reference over a type-only use of the same caller',
         rows: [['USES', 1], ['REFERENCES', 5]],
-        expected: [['src/Page.tsx:Page', 5, 'REFERENCES']],
+        expected: [['src/Page.tsx:Page', 6, 'REFERENCES']],
         counts: { runtimeCallerCount: 1, referenceCallerCount: 1, typeOnlyCallerCount: 0 },
       },
     ] as const)('$title', async ({ rows, expected, counts }) => {
@@ -1140,6 +1172,14 @@ describe('LmToolsService', () => {
       new LmToolsService({ provider: withIndex(), logger }).registerAll();
 
       expect(await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'gone' })).toEqual({ error: "Symbol 'gone' not found in src/a.ts." });
+    });
+
+    it('rejects startLine 0 before querying: lines are 1-based', async () => {
+      new LmToolsService({ provider: withIndex(), logger }).registerAll();
+
+      expect(await invokeTool(TOOL, { filePath: '/workspace/src/a.ts', symbolName: 'f', startLine: 0 }))
+        .toEqual({ error: expect.stringContaining('startLine is 1-based') });
+      expect(queryCallGraphInDb).not.toHaveBeenCalled();
     });
 
     it('refuses a parameter the MCP tool does not take before querying', async () => {

@@ -103,6 +103,8 @@ describe("WikiGenerator", () => {
 
     const artDir = await fs.readdir(path.join(tmpDir, "articles"));
     expect(artDir).toHaveLength(2);
+    // Stored row 1 is editor line 2.
+    expect(await fs.readFile(path.join(tmpDir, "articles", "src_foo.ts.md"), "utf-8")).toContain("| fooFn | function | 2 |");
   });
 
   it("draws the index architecture diagram grouped by path community from file call pairs", async () => {
@@ -462,8 +464,8 @@ describe("WikiGenerator regressions (v1.17.1)", () => {
       await new WikiGenerator({ db, outputDir: tmpDir, workspaceRoot: "/workspace", scope: "src/wiki" }).generate();
 
       const a = await fs.readFile(path.join(tmpDir, "articles", "src_wiki_a.ts.md"), "utf-8");
-      expect(a).toContain("| bFn | [src/wiki/b.ts](src_wiki_b.ts.md) | 1 |");
-      expect(a).toContain("| cFn | src/other/c.ts | 2 |");
+      expect(a).toContain("| bFn | [src/wiki/b.ts](src_wiki_b.ts.md) | 2 |");
+      expect(a).toContain("| cFn | src/other/c.ts | 3 |");
       expect(a).not.toContain("src_other_c.ts.md");
 
       for (const { from, target } of await collectLinks(tmpDir)) {

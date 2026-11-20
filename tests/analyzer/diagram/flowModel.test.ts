@@ -289,18 +289,18 @@ describe("buildFlowModel (#792)", () => {
     expect(model).toMatchObject({ language: "go", lanes: "unsupported", nodes: [{ id: "main.go#Run", lane: "main", symbolCount: 3 }], edges: [] });
   });
 
-  it("names the closest candidates for an unknown symbol or file, and every candidate with its startLine for an ambiguous one", async () => {
+  it("names the closest candidates for an unknown symbol or file, and every candidate with its 1-based line for an ambiguous one", async () => {
     const files = {
       "svc.ts": "export class A {\n  run() { return 1; }\n}\nexport class B {\n  run() { return 2; }\n}\nexport function runner() { return 3; }\n",
     };
     await expect(flowOf(files, { file: "svc.ts", symbolName: "runer" })).rejects.toThrow("Symbol 'runer' not found in svc.ts. Did you mean: runner, run?");
     await expect(flowOf(files, { file: "svc.ts", symbolName: "run" })).rejects.toThrow(
-      "Symbol 'run' is ambiguous in svc.ts: run (method, startLine 1), run (method, startLine 4). Pass startLine to select one.",
+      "Symbol 'run' is ambiguous in svc.ts: run (method, line 2), run (method, line 5). Pass startLine to select one.",
     );
     await expect(flowOf(files, { file: "svc.ts", symbolName: "run", startLine: 9 })).rejects.toThrow(
-      "No symbol 'run' starts at startLine 9 in svc.ts. Candidates: run (method, startLine 1), run (method, startLine 4).",
+      "No symbol 'run' starts at line 9 in svc.ts. Candidates: run (method, line 2), run (method, line 5). Pass startLine to select one.",
     );
-    const selected = await flowOf(files, { file: "svc.ts", symbolName: "run", startLine: 4 });
+    const selected = await flowOf(files, { file: "svc.ts", symbolName: "run", startLine: 5 });
     expect(selected.nodes).toMatchObject([{ id: "svc.ts#run", line: 5 }]);
     await expect(flowOf(files, { file: "sv.ts", symbolName: "run" })).rejects.toThrow("File 'sv.ts' is not in the call graph index. Did you mean: svc.ts?");
   });

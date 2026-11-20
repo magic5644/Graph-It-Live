@@ -48,8 +48,10 @@ describe.skipIf(!wasmBuilt)("query_call_graph on same-named methods (#505)", { t
     const filePath = normalizePath(path.join(tmpDir, "src", file));
     const callees = await executeQueryCallGraph({ filePath, symbolName: caller, direction: "callees", depth: 1 });
     expect(callees.callees.filter(r => r.targetName === method && r.relation === "CALLS").map(r => r.targetId))
-      .toEqual([`${filePath}:${method}:${bLine}`]);
-    const callers = await executeQueryCallGraph({ filePath, symbolName: method, startLine: aLine, direction: "callers", depth: 1 });
+      .toEqual([`${filePath}:${method}:${bLine + 1}`]);
+    // The fixture lines are 0-based rows; ids and startLine show the 1-based editor line.
+    const callers = await executeQueryCallGraph({ filePath, symbolName: method, startLine: aLine + 1, direction: "callers", depth: 1 });
+    expect(callers.symbol?.id).toBe(`${filePath}:${method}:${aLine + 1}`);
     expect(callers.callers).toEqual([]);
   });
 });

@@ -54,8 +54,10 @@ describe.skipIf(!wasmBuilt)("query_call_graph on a receiver of an imported type 
 
   it.each(CASES)("%s: the call reaches Calculator's method, never OtherCalculator's", async (caller, symbol, own, other, method, ownLine, otherLine) => {
     const callees = await executeQueryCallGraph({ filePath: file(caller), symbolName: symbol, direction: "callees", depth: 1, relationTypes: ["CALLS"] });
-    expect(callees.callees.filter(r => r.targetName === method).map(r => r.targetId)).toEqual([`${file(own)}:${method}:${ownLine}`]);
-    const callers = await executeQueryCallGraph({ filePath: file(other), symbolName: method, startLine: otherLine, direction: "callers", depth: 1 });
+    expect(callees.callees.filter(r => r.targetName === method).map(r => r.targetId)).toEqual([`${file(own)}:${method}:${ownLine + 1}`]);
+    // The fixture lines are 0-based rows; ids and startLine show the 1-based editor line.
+    const callers = await executeQueryCallGraph({ filePath: file(other), symbolName: method, startLine: otherLine + 1, direction: "callers", depth: 1 });
+    expect(callers.symbol?.id).toBe(`${file(other)}:${method}:${otherLine + 1}`);
     expect(callers.callers).toEqual([]);
   });
 
@@ -65,6 +67,6 @@ describe.skipIf(!wasmBuilt)("query_call_graph on a receiver of an imported type 
     rewriteKeepingMtime(service, "export class OtherCalculator { compute(x: number): number { return x * 3; } }\nexport class Calculator { compute(x: number): number { return x * 2; } }\n");
     executeInvalidateFiles({ filePaths: [service] });
     const callees = await executeQueryCallGraph({ filePath: file("ts/method.ts"), symbolName: "methodCall", direction: "callees", depth: 1, relationTypes: ["CALLS"] });
-    expect(callees.callees.filter(r => r.targetName === "compute").map(r => r.targetId)).toEqual([`${service}:compute:1`]);
+    expect(callees.callees.filter(r => r.targetName === "compute").map(r => r.targetId)).toEqual([`${service}:compute:2`]);
   });
 });

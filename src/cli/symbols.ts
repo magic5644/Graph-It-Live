@@ -75,7 +75,7 @@ export function parseSymbolRef(ref: string, workspaceRoot: string): SymbolRef {
   const normalizedFile = path.resolve(filePath);
   if (!isPathWithinRootCanonical(normalizedFile, workspaceRoot)) {
     throw new CliError(
-      `File path "${rawPath}" resolves outside workspace: ${normalizedFile}`,
+      `File path "${rawPath}" resolves outside workspace: pass a file of the workspace.`,
       ExitCode.SECURITY_VIOLATION,
     );
   }

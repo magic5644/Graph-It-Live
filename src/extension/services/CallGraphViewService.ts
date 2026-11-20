@@ -242,6 +242,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   }
   /** Expose the indexer for LM Tools (query_call_graph). Returns null if not yet initialized. */
   public getCallGraphIndexerForLmTools(): CallGraphIndexer | null { return this.indexer; }
+  /** The panel's parser, for the LM flow diagram's lanes (export_architecture_diagram view flow). */
+  public getGraphExtractorForLmTools(workspaceRoot: string): GraphExtractor { return this.ensureExtractor(workspaceRoot); }
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
