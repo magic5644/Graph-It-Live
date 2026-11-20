@@ -51,6 +51,9 @@ export interface ArchitectureExploreOptions {
   targetFile?: string;
 }
 
+/** Paging of a whole-level view: offset, limit and the revision they come from. */
+type PageOptions = Pick<ArchitectureExploreOptions, "offset" | "limit" | "revision">;
+
 export interface GroupDetailOptions {
   offset?: number;
   limit?: number;
@@ -213,7 +216,7 @@ const UNIT_PROVENANCE = {
 };
 
 /** The units, heaviest unit edges first, paged like the summary; counts come from every file pair. */
-export function exploreUnits(units: ArchitectureUnits, options: Pick<ArchitectureExploreOptions, "offset" | "limit" | "revision"> = {}) {
+export function exploreUnits(units: ArchitectureUnits, options: PageOptions = {}) {
   assertRevision(units.context.revision, options.revision);
   const offset = options.offset ?? 0;
   const limit = options.limit ?? DEFAULT_EXPLORE_LIMIT;
@@ -307,7 +310,7 @@ export function exploreUnitEvidence(
 export function exploreMatrix(
   matrix: ArchitectureMatrix,
   context: ArchitectureGraph["context"],
-  options: Pick<ArchitectureExploreOptions, "offset" | "limit" | "revision"> & { units?: boolean } = {},
+  options: PageOptions & { units?: boolean } = {},
 ) {
   assertRevision(context.revision, options.revision);
   assertOffsetInRange(options.offset ?? 0, matrix.cells.length, "matrix cells");
@@ -330,7 +333,7 @@ export function exploreMatrix(
 export function exploreCoupling(
   coupling: ArchitectureCoupling,
   context: ArchitectureGraph["context"],
-  options: Pick<ArchitectureExploreOptions, "offset" | "limit" | "revision"> & { units?: boolean } = {},
+  options: PageOptions & { units?: boolean } = {},
 ) {
   assertRevision(context.revision, options.revision);
   const offset = options.offset ?? 0;
