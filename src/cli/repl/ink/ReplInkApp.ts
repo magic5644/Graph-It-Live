@@ -132,7 +132,7 @@ const SLASH_COMMANDS: SlashCommandEntry[] = [
   { group: 'Workspace', command: '/scan', description: 'Force indexing scan' },
   { group: 'Output', command: '/format', description: 'Set default output format', argsHint: '/format <text|json|toon|markdown|mermaid>' },
   { group: 'Output', command: '/export', description: 'Export graph as standalone HTML (vis.js)', argsHint: '/export [path] [--output <file>|-o <file>]' },
-  { group: 'Output', command: '/diagram', description: 'Write a static architecture diagram (SVG or HTML)', argsHint: '/diagram [dir] [--view units|folder|matrix] [--folder <key>] [--format svg|html] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]' },
+  { group: 'Output', command: '/diagram', description: 'Write a static architecture or flow diagram (SVG, HTML or diagram spec)', argsHint: '/diagram [dir | <file#symbol> --view flow [--maxSteps N] [--startLine N]] [--view units|folder|matrix|flow] [--folder <key>] [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]' },
   { group: 'Output', command: '/wiki', description: 'Generate a markdown wiki from the call graph', argsHint: '/wiki [--output <dir>] [--top N] [--format markdown|json|toon]' },
   { group: 'Session', command: '/help', description: 'Show REPL help' },
   { group: 'Session', command: '/mouse', description: 'Mouse wheel and clicks (off by default)', argsHint: '/mouse on|off' },

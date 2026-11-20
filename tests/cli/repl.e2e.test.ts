@@ -366,6 +366,20 @@ describe('REPL command chaining e2e', () => {
     expect(mocks.diagramRun).toHaveBeenNthCalledWith(3, [path.join('..', 'outside')], runtime, 'text');
   });
 
+  it('reads the /diagram positional after the options, as the command line does', async () => {
+    const runtime = createRuntimeStub();
+    mocks.diagramRun.mockResolvedValue('ok');
+    await typedSession(runtime, '/diagram --view flow src/a.ts#run --maxSteps 3', '/diagram --view matrix src/cli');
+
+    expect(mocks.diagramRun).toHaveBeenNthCalledWith(1, [path.join('src', 'a.ts#run'), '--view', 'flow', '--maxSteps', '3'], runtime, 'text');
+    expect(mocks.diagramRun).toHaveBeenNthCalledWith(2, [path.join('src', 'cli'), '--view', 'matrix'], runtime, 'text');
+  });
+
+  it('refuses an unknown /diagram option before drawing', async () => {
+    await expect(typedSession(createRuntimeStub(), '/diagram --bogus')).rejects.toThrow('--bogus');
+    expect(mocks.diagramRun).not.toHaveBeenCalled();
+  });
+
   it.each([
     ['/diagram --output -', '/diagram writes a file: --output - would print the markup in the terminal.'],
     ['/diagram --format bogus', 'Unknown format "bogus". /diagram writes svg, html or diagram-spec.'],
