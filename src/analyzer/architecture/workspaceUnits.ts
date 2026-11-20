@@ -26,18 +26,13 @@ import {
   type ResolvedElements,
   type WorkspaceArchitectureCheck,
 } from "./architectureRules";
-import { assignUnits, buildArchitectureUnits, type UnitAssignment } from "./architectureUnits";
+import { assignUnits, buildArchitectureUnits, type UnitAssignment, type UnitSource } from "./architectureUnits";
 import { matchesWildcard } from "./unitRoles";
 
 /** Element unit of the files no element selects: never dropped, always warned about. */
 export const UNMATCHED_UNIT = "(unmatched)";
 
-/** What a path-mode build keeps to answer a folder level later. */
-export interface UnitSource {
-  graph: ArchitectureGraph;
-  units: ArchitectureUnits;
-  assignment: UnitAssignment;
-}
+export type { UnitSource } from "./architectureUnits";
 
 export interface WorkspaceUnitsOptions {
   /** Workspace-relative config; false reads none (detected projects only). Default graphit.architecture.json; a missing default file means no config. */

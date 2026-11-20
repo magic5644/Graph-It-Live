@@ -24,7 +24,6 @@ import { hasProjectMarker } from "../utils/workspaceBoundary";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { layerGraph } from "./stronglyConnectedComponents";
 import { fileKind, mavenOwnPart, matchesWildcard, unitRole, type DeclaredRoles, type FileKind, type RootEvidenceCache } from "./unitRoles";
-import type { UnitSource } from "./workspaceUnits";
 
 /** Unit of the files outside every project (or at the root of a workspace without projects). */
 export const ROOT_UNIT = "(root)";
@@ -40,6 +39,13 @@ export interface UnitAssignment {
   kinds?: Map<string, FileKind>;
   /** Units of the files outside every project: one per top-level folder (assignUnits only). */
   outsideProjects?: Set<string>;
+}
+
+/** What a path-mode build keeps to answer a folder level later (workspaceUnits builds it). */
+export interface UnitSource {
+  graph: ArchitectureGraph;
+  units: ArchitectureUnits;
+  assignment: UnitAssignment;
 }
 
 /** Test folders: a project below one is a fixture of its parent, not a unit of its own. */
