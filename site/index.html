@@ -11,7 +11,7 @@
 <meta property="og:title" content="Graph-It-Live — See your codebase as a graph">
 <meta property="og:description" content="Dependency graphs, call graphs, impact analysis and dead-code detection for VS Code, the CLI, and MCP-compatible AI assistants.">
 <meta property="og:url" content="https://magic5644.github.io/Graph-It-Live/">
-<meta property="og:image" content="https://magic5644.github.io/Graph-It-Live/media/architecture-units-overview.png">
+<meta property="og:image" content="https://magic5644.github.io/Graph-It-Live/media/architecture-declared-elements.png">
 <meta name="twitter:card" content="summary_large_image">
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -438,7 +438,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
       <div class="frame">
         <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Architecture view</span></div>
-        <img src="media/architecture-units-overview.png" alt="Architecture view of an npm-workspaces monorepo: units in layers, a cycle between two shared libraries, rule violations in red" loading="lazy">
+        <img src="media/architecture-declared-elements.png" alt="Architecture view of Graph-It-Live itself: its 8 declared elements as units in 5 layers (tooling on top; extension, cli and mcp applications; analyzer and webview; shared at the bottom), all 9 rules passing; the assets unit has a dashed border because its library role is inferred" loading="lazy">
       </div>
     </div>
 

@@ -8,9 +8,9 @@ Graph-It-Live draws the architecture of a workspace from its static imports, che
 - **Who depends on this?** Every package or folder that imports a package, a folder or a file, directly or not.
 - **Does the code follow my architecture?** Every import checked against the rules of `graphit.architecture.json`, locally or in CI.
 
-![Architecture view of an npm-workspaces monorepo: units in layers, a cycle between two shared libraries, rule violations in red](../media/architecture-units-overview.png)
+![Architecture view of Graph-It-Live itself: its 8 declared elements as units in 5 layers (tooling on top; extension, cli and mcp applications; analyzer and webview; shared at the bottom), all 9 rules passing; the assets unit has a dashed border because its library role is inferred](../media/architecture-declared-elements.png)
 
-*Units in layers with their roles, a cycle outlined, and rule violations (test fixture monorepo). Open it with **Switch to Architecture View** in the title bar of the **Dependency Graph** view.*
+*Graph-It-Live's own declared elements as units in layers, with their roles and the rules of its `graphit.architecture.json`. Open it with **Switch to Architecture View** in the title bar of the **Dependency Graph** view.*
 
 ## Concepts
 
@@ -414,9 +414,9 @@ A Vue SFC counts its imports, its `<script src>` and its HTML `<template src>` a
 
 A unit matching several roles takes the first in the table; the other matches stay as evidence. An inferred role has a dashed border, a declared one a solid border; the tooltip lists the evidence, and text and markdown tables show the first one in their **Evidence** column.
 
-![Units legend with role badges; the libraries filter keeps only the five library units](../media/architecture-roles-filter.png)
+![Exported diagram of the workspaces-project test fixture: 7 detected projects in 3 layers, each node naming its role in words (function, library, tooling, unknown), every role inferred so every border is dashed, and the runtime cycle between @ws/types and @ws/core outlined](../media/architecture-diagram-roles.png)
 
-*A dashed border marks an inferred role, a solid one a declared role. Click a role in the legend to keep only its units.*
+*`graph-it diagram` on a test fixture with no `graphit.architecture.json`: every role is inferred, so every border is dashed; a role declared under `roles` gets a solid border. In the view, click a role in the legend to keep only its units.*
 
 ## The config file
 
