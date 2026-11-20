@@ -744,7 +744,7 @@ export const ExploreArchitectureParamsSchema = z.object({
   level: z
     .enum(["groups", "units"])
     .optional()
-    .describe("groups (default): folder or Louvain groups; units: projects (else top-level folders) with their layers, roles and role evidence, unit edges (down, upward, cycle) and cycles, like graph-it architecture --level units"),
+    .describe("groups (default): folder or Louvain groups; units: the declared elements of graphit.architecture.json, else the detected projects (a top-level folder for files outside every project), with their layers, roles and role evidence, unit edges (down, upward, cycle) with their rules, and cycles, like graph-it architecture --level units"),
   folder: z
     .string()
     .min(1)
@@ -756,7 +756,7 @@ export const ExploreArchitectureParamsSchema = z.object({
     .optional()
     .describe("matrix: the dependency structure matrix of the level (units with level units, a folder's groups with folder, else the groups): rows ordered by layer with each cycle's rows together, non-zero cells (row imports column, diagonal = pairs inside) paged by offset/limit, per-row Ce/Ca/instability with their formula, cycles and totals of every cell, like graph-it architecture --matrix"),
   group: GroupRefSchema.optional().describe("Return this group's files and its incoming / outgoing group edges"),
-  from: GroupRefSchema.optional().describe("Source group of the edge whose file pairs to return (requires to); with level units, a unit key such as 'apps/web' or '(root)'"),
+  from: GroupRefSchema.optional().describe("Source group of the edge whose file pairs to return (requires to); with level units, a unit key such as 'apps/web', 'scripts' or a declared element name"),
   to: GroupRefSchema.optional().describe("Target group of the edge whose file pairs to return (requires from); with level units, a unit key"),
   limit: z
     .number()

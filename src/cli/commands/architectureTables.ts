@@ -5,7 +5,9 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import type { ArchitectureMatrix, CommunityGroupAggregation } from "../../shared/architecture-model.js";
+import { unitMatrix } from "../../analyzer/architecture/architectureMatrix.js";
+import { evidenceCell, rulesCell } from "../../mcp/markdownViews.js";
+import type { ArchitectureMatrix, ArchitectureUnit, ArchitectureUnits, CommunityGroupAggregation } from "../../shared/architecture-model.js";
 
 type Cell = string | number | null;
 
@@ -48,32 +50,44 @@ export function renderArchitectureView(view: ArchitectureView, format: "text" | 
     .trimEnd();
 }
 
-interface UnitsLike {
-  units: Array<{ key: string; name?: string; layer: number; role: string; fileCount: number }>;
-  unitEdges: Array<{ from: string; to: string; fileEdgeCount: number; kind: string }>;
-  layerCount: number;
-  cycles: number;
-  upwardEdges: number;
-}
+type UnitsLike = Pick<ArchitectureUnits, "units" | "unitEdges" | "layerCount" | "cycles" | "upwardEdges" | "unitsFrom" | "configFile" | "configWarnings" | "rules">;
 
 export function unitsView(units: UnitsLike): ArchitectureView {
   // The key is what --from/--to/--focus take; the Name column (package, artifact or module name) shows only when one differs (#774).
-  const named = units.units.some((unit) => unit.name !== undefined && unit.name !== unit.key);
-  const unitRow = (unit: UnitsLike["units"][number]): Cell[] =>
-    named ? [unit.key, unit.name ?? unit.key, unit.layer, unit.role, unit.fileCount] : [unit.key, unit.layer, unit.role, unit.fileCount];
+  const named = units.units.some((unit) => unit.name !== unit.key);
+  const ruled = units.rules !== undefined;
+  const unitRules = ruled && units.units.some((unit) => unit.rules !== undefined && unit.rules.length > 0);
+  const unitRow = (unit: ArchitectureUnit): Cell[] => [
+    unit.key, ...(named ? [unit.name] : []), unit.layer, unit.role, evidenceCell(unit), unit.fileCount, ...(unitRules ? [rulesCell(unit.rules)] : []),
+  ];
+  const fromElements = units.unitsFrom === "elements";
+  const between = fromElements ? "declared elements" : "detected projects";
+  const cycles = unitMatrix(units).cycles.map((cycle) => [cycle.members.join(", ")]);
   return {
-    title: "Units",
+    title: fromElements ? `Units: declared elements of ${units.configFile ?? "graphit.architecture.json"}` : "Units: detected projects",
     notes: [
       `${units.units.length} unit(s) in ${units.layerCount} layer(s), 0 = depends on no other unit; ${units.cycles} cycle(s), ${units.upwardEdges} upward edge(s).`,
+      "Evidence: declared (roles in the config), else the first evidence of the inferred role (--format json lists every one).",
       "Next: graph-it architecture --level units --from <unit> --to <unit> lists the file pairs of an edge; add --matrix for the matrix.",
     ],
     tables: [
-      { title: "Units", headers: named ? ["Unit", "Name", "Layer", "Role", "Files"] : ["Unit", "Layer", "Role", "Files"], rows: units.units.map(unitRow) },
+      ...(units.configWarnings === undefined ? [] : [{ title: "Config warnings", headers: ["Warning"], rows: units.configWarnings.map((warning) => [warning]) }]),
+      {
+        title: "Units",
+        headers: ["Unit", ...(named ? ["Name"] : []), "Layer", "Role", "Evidence", "Files", ...(unitRules ? ["Rules"] : [])],
+        rows: units.units.map(unitRow),
+      },
       {
         title: "Unit edges",
-        headers: ["From", "To", "File pairs", "Kind"],
-        rows: units.unitEdges.map((edge) => [edge.from, edge.to, edge.fileEdgeCount, edge.kind]),
+        headers: ["From", "To", "File pairs", "Kind", ...(ruled ? ["Rules"] : [])],
+        rows: units.unitEdges.map((edge) => [edge.from, edge.to, edge.fileEdgeCount, edge.kind, ...(ruled ? [rulesCell(edge.rules)] : [])]),
       },
+      { title: `Cycles between ${between}`, headers: ["Units"], rows: cycles },
+      ...(units.rules === undefined ? [] : [{
+        title: "Rules",
+        headers: ["Rule", "Kind", "Severity", "Violations", "New"],
+        rows: units.rules.map((rule) => [rule.name, rule.kind, rule.severity, rule.violations, rule.newViolations]),
+      }]),
     ],
   };
 }

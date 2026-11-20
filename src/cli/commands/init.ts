@@ -30,8 +30,8 @@ import {
   readWorkspaceFile,
   type ArchitectureCheck,
 } from "../../analyzer/architecture/architectureRules.js";
-import { assignUnits, buildArchitectureUnits, byCodeUnit, directoryFolderKey, folderKeys, type UnitAssignment } from "../../analyzer/architecture/architectureUnits.js";
-import type { UnitSource } from "../../analyzer/architecture/architectureView.js";
+import { buildArchitectureUnits, byCodeUnit, directoryFolderKey, folderKeys, unitFolder, type UnitAssignment } from "../../analyzer/architecture/architectureUnits.js";
+import { workspaceUnits, type UnitSource } from "../../analyzer/architecture/workspaceUnits.js";
 import type { DrawOptions } from "../../analyzer/diagram/architectureDiagram.js";
 import { renderSourceDiagram } from "../../analyzer/diagram/workspaceDiagram.js";
 import { renderHtmlPage } from "../../analyzer/export/HtmlExporter";
@@ -132,7 +132,7 @@ function readFlags(args: string[], format: CliOutputFormat) {
 function resolveFocus(assignment: UnitAssignment, name: string): { key: string; files: Set<string> } {
   let wanted = normalizePath(name);
   while (wanted.length > 1 && wanted.endsWith("/")) wanted = wanted.slice(0, -1);
-  const keysOf = new Map([...assignment.unitOf].map(([file, unit]) => [file, folderKeys(file, unit)]));
+  const keysOf = new Map([...assignment.unitOf].map(([file, unit]) => [file, folderKeys(file, unit, unitFolder(assignment, unit))]));
   const keys = new Set([...keysOf.values()].flat());
   const named = [...assignment.names].filter(([, unitName]) => unitName === wanted).map(([unit]) => unit);
   if (!keys.has(wanted) && named.length > 1) {
@@ -295,13 +295,16 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
       indexedAt: runtime.loadState()?.lastScanTimestamp,
       onProgress,
     }));
-  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
-  const focus = flags.focus === undefined ? undefined : resolveFocus(assignment, flags.focus);
-  const units = buildArchitectureUnits(graph, workspaceRoot, assignment, current.config?.roles);
-  const config = generateArchitectureConfig(units, current.config);
+  // The units of the current config, as graph-it architecture --level units draws them; its warnings are printed.
+  const source = workspaceUnits(graph, workspaceRoot, current.config, current.baseline);
+  const { units, assignment } = source;
+  // The config proposes one element per detected project, the projects the current config keeps included.
+  const detected = source.units.unitsFrom === "manifests" ? units : buildArchitectureUnits(graph, workspaceRoot, source.detected, current.config?.roles);
+  const config = generateArchitectureConfig(detected, current.config);
   const { check } = checkGraphArchitecture(graph, workspaceRoot, config);
   const baseline = acceptAllViolations(check, current.baseline);
   const changes = describeConfigChanges(current, { config, baseline });
+  const focus = flags.focus === undefined ? undefined : resolveFocus(assignment, flags.focus);
 
   const status = await decide(current, changes, flags, io);
   const written = status === "created" || status === "updated"
@@ -331,6 +334,7 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
     reportFiles: [],
     changes,
     acceptedViolations: baseline.length,
+    configWarnings: units.configWarnings ?? [],
     guard: GUARD_SNIPPETS,
     assessment,
     diagrams,

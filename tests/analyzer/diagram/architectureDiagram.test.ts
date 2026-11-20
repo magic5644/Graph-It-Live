@@ -11,6 +11,7 @@ import {
   fitName,
   layoutDiagram,
   drawnKinds,
+  roleTitle,
   legendLayout,
   strokeWidth,
   textWidth,
@@ -99,7 +100,7 @@ function expectSoundGeometry(layout: DiagramLayout): void {
       }
     }
   }
-  expectTextInCanvas(layout, { kinds: drawnKinds(layout.edges, layout.cycles) });
+  expectTextInCanvas(layout, { kinds: drawnKinds(layout.edges, layout.cycles, layout.nodes) });
 }
 
 /** Header lines, notes and legend within the margins. */
@@ -382,6 +383,31 @@ describe("diagram spec", () => {
 });
 
 describe("architecture diagram rendering", () => {
+  it("draws an inferred role with a dashed border and its evidence, a declared one solid, the role always in words (#776)", async () => {
+    const diagram = input([["app", 1, 2], ["lib", 0, 1]], [["app", "lib", 1, "down"]]);
+    diagram.nodes[0] = { ...diagram.nodes[0], role: "application", confidence: "inferred", roleEvidence: ["package.json bin", "imported by `x`"] };
+    diagram.nodes[1] = { ...diagram.nodes[1], role: "library", confidence: "declared" };
+    const layout = await layoutDiagram(diagram);
+    expectSoundGeometry(layout);
+    for (const markup of [renderDiagramSvg(layout), renderDiagramHtml(layout)]) {
+      expect(markup.match(/<rect class="node s-inferred-role"/g)).toHaveLength(1);
+      expect(markup.match(/<rect class="node"/g)).toHaveLength(1);
+      expect(markup).toContain(".s-inferred-role{stroke:var(--line);stroke-dasharray:3 3}");
+      expect(markup).toContain("role application, inferred from: package.json bin; imported by `x`");
+      expect(markup).toContain("role library, declared");
+      expect(markup).toContain(">dashed border: role inferred<");
+      expect(markup).toContain("2 files · layer 1 · application");
+      expect(markup).not.toMatch(/\[[a-z-]+\?\]/);
+    }
+    // Every role declared: no dashed node, no legend entry.
+    const declared = await layoutDiagram({ ...diagram, nodes: diagram.nodes.map((node) => ({ ...node, confidence: "declared" as const, roleEvidence: undefined })) });
+    expect(renderDiagramSvg(declared)).not.toContain("dashed border: role inferred");
+    expect(roleTitle({ role: undefined })).toBeUndefined();
+    expect(roleTitle({ role: "test", confidence: "inferred" })).toBe("role test, inferred from: ");
+    expect(drawnKinds([], [], [{ confidence: "inferred" }])).toEqual(["inferred-role"]);
+    expect(drawnKinds([], [])).toEqual([]);
+  });
+
   it("escapes hostile names and keeps the output free of script and URLs", async () => {
     const hostile = `<script>alert(1)</script>&"'\u0007 https://evil.example/x onload=1`;
     const diagram = input([[hostile, 1, 3], ["lib", 0, 2]], [[hostile, "lib", 2, "down"]]);

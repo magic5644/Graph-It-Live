@@ -66,4 +66,29 @@ describe("markdown views (#769)", () => {
     const diagram = renderToolMarkdown("graphitlive_export_architecture_diagram", { format: "mermaid", markup: "flowchart LR\n  a --> b" });
     expect(diagram).toContain("flowchart LR\n  a --> b");
   });
+
+  it("shows the units' source, config warnings, evidence and rules as the CLI tables do (#776)", () => {
+    const check = { name: "a", kind: "forbid", severity: "error", checkedPairs: 1, violations: 1, newViolations: 1, verdict: "violated" };
+    const text = renderToolMarkdown("graphitlive_explore_architecture", {
+      view: "units",
+      unitsFrom: "elements",
+      configFile: "graphit.architecture.json",
+      configWarnings: ['$.roles["src"]: matches no unit'],
+      units: [
+        { key: "cli", name: "cli", folder: "src/cli", layer: 1, role: "application", confidence: "inferred", evidence: [{ role: "application", detail: "package.json bin" }], fileCount: 3, rules: [check] },
+        { key: "shared", name: "shared", folder: "src/shared", layer: 0, role: "library", confidence: "declared", evidence: [], fileCount: 1 },
+      ],
+      unitEdges: [{ from: "cli", to: "shared", fileEdgeCount: 2, kind: "down", rules: [check], ruleVerdict: "violated" }],
+      rules: [{ name: "a", kind: "forbid", severity: "error", violations: 1, newViolations: 1, elementPairs: [] }],
+    }) ?? "";
+    expect(text).toContain("- Units from: declared elements of graphit.architecture.json");
+    expect(text).toContain('## Config warnings (1)\n\n- $.roles["src"]: matches no unit');
+    expect(text).toContain("| key | name | folder | layer | role | evidence | fileCount | rules |");
+    expect(text).toContain("| cli | cli | src/cli | 1 | application | package.json bin | 3 | a violated |");
+    expect(text).toContain("| shared | shared | src/shared | 0 | library | declared | 1 |");
+    expect(text).toContain("| cli | shared | 2 | down | violated | a violated |");
+    expect(text).toContain("## Rules (1)");
+    expect(renderToolMarkdown("graphitlive_explore_architecture", { unitsFrom: "manifests", units: [] })).toContain("- Units from: detected projects");
+    expect(renderToolMarkdown("graphitlive_explore_architecture", { units: [] })).not.toContain("Units from");
+  });
 });

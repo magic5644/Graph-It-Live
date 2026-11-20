@@ -41,6 +41,8 @@ export interface InitResult {
   /** One line per element, rule or accepted violation the proposal adds, changes or removes. */
   changes: string[];
   acceptedViolations: number;
+  /** Warnings of the proposed config (a `(root)` element of an older init, files no element selects): fix them by hand. */
+  configWarnings?: string[];
   guard: { preCommit: string; ci: string; sarif: string };
   assessment: ArchitectureAssessment;
   diagrams: InitDiagram[];
@@ -314,6 +316,7 @@ export function renderInitText(result: InitResult): string {
   const lines = [
     rulesLine(result, result.configFile),
     ...result.written.map((file) => `  wrote ${file}`),
+    ...(result.configWarnings?.length ? ["Config warnings:", ...result.configWarnings.map((warning) => `  ${warning}`)] : []),
     ...(result.reportFiles.length === 0 ? [] : [`Report: wrote ${result.reportFiles.join(", ")}`]),
     ...(result.reportNotWritten === undefined ? [] : [notWrittenLine(result.reportNotWritten)]),
     "",
@@ -371,6 +374,7 @@ export function renderInitMarkdown(result: InitResult, base?: string): string {
     "",
     rulesLine(result, code(result.configFile)),
     ...result.written.map((file) => `- wrote ${code(file)}`),
+    ...(result.configWarnings?.length ? ["", "Config warnings:", "", ...result.configWarnings.map((warning) => `- ${code(warning)}`)] : []),
   ];
   if (result.reportFiles.length > 0) lines.push("", `Report: wrote ${result.reportFiles.map(code).join(", ")}.`);
   if (result.reportNotWritten !== undefined) lines.push("", notWrittenLine(code(result.reportNotWritten)));

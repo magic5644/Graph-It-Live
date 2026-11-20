@@ -95,7 +95,7 @@ describe("export_architecture_diagram", { timeout: 60_000 }, () => {
   it("returns the units as an inline SVG, the same markup graph-it diagram writes, dated the day of the call", async () => {
     const result = await executeExportArchitectureDiagram({});
     expect(result.markup).toContain("2026-11-06");
-    expect(result).toMatchObject({ format: "svg", counts: expect.stringMatching(/^\d+ units · \d+ layers · 1 cycle · 0 violations$/) });
+    expect(result).toMatchObject({ format: "svg", counts: expect.stringMatching(/^\d+ units · \d+ layers · 0 cycles · 0 violations$/) });
     expect(result).not.toHaveProperty("path");
     expect(result.markup).toMatch(/^<svg /);
     expect(result.markup).not.toContain(root.replaceAll("\\", "/"));
@@ -109,8 +109,9 @@ describe("export_architecture_diagram", { timeout: 60_000 }, () => {
     expect(rules.markup).toMatch(edgeOf("error"));
     expect(rules.markup).toContain("--bg:#0d1117");
     expect(rules.markup).toBe(await runDiagram(["--rules", "--theme", "dark", "--output", "-"], runtime, "svg"));
-    const matrix = await executeExportArchitectureDiagram({ view: "matrix", folder: String.raw`mfe\cart`, diagramFormat: "html" });
-    expect(matrix.markup).toContain("folder mfe/cart");
+    // The units are the declared elements (#776): a folder key is an element unit key.
+    const matrix = await executeExportArchitectureDiagram({ view: "matrix", folder: String.raw`mfe (mfe\cart)`, diagramFormat: "html" });
+    expect(matrix.markup).toContain("folder mfe (mfe/cart)");
     expect(matrix.markup).toContain('class="frame"');
   });
 
