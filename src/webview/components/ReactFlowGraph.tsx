@@ -20,6 +20,7 @@ import {
 } from "../utils/fitViewScheduler";
 import { computeRelatedNodes } from "../utils/graphTraversal";
 import { normalizePath } from "../utils/path";
+import { isExtensionMessageOrigin } from "../utils/messageOrigin";
 import { buildReactFlowGraph, GRAPH_LIMITS } from "./reactflow/buildGraph";
 import { CommunityLegend } from "./reactflow/CommunityLegend";
 import { FrameworkBadges } from './reactflow/LanguageIcon';
@@ -972,6 +973,7 @@ const ReactFlowGraphContent: React.FC<ReactFlowGraphProps> = ({
   // T081: Listen for refreshing and updateGraph messages
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (!isExtensionMessageOrigin(event.origin)) return;
       const message = event.data;
       
       if (message.command === 'refreshing') {

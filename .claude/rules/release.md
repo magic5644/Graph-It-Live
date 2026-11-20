@@ -53,3 +53,4 @@ Before the changelog PR, run every CLI command in every declared format, and the
 - Pick semver from content: feature → minor, fixes only → patch, breaking → major. Milestone name does not decide.
 - Preview body: `node scripts/release-notes.mjs v<version> release-notes.md`.
 - Tag only from `main` after changelog PR merges with CI, Review Gate and SonarCloud green.
+- Before tagging, check the SonarCloud quality gate of `main` itself, not only the PR gates: `https://sonarcloud.io/api/qualitygates/project_status?projectKey=magic5644_Graph-It-Live&branch=main` must return `OK`. A new analyzer rule can raise issues on old lines that fall in the new-code period, so a green PR does not prove it. On `ERROR`, stop and list the failing issues with `api/issues/search?componentKeys=magic5644_Graph-It-Live&branch=main&sinceLeakPeriod=true&resolved=false` (`inNewCodePeriod` is ignored there).

@@ -75,6 +75,7 @@ import { createElk, type ElkRunner } from "./elkWorker";
 import { LoadingState } from "../LoadingState";
 import { rasterizeSvg } from "./rasterizeSvg";
 import { parseColor, type Rgba, themeKindOf } from "./unitColors";
+import { isExtensionMessageOrigin } from "../../utils/messageOrigin";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -1885,8 +1886,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent<ArchitectureExtensionMessage>) => {
-      // Extension messages come from the webview's own vscode-webview:// origin (S2819).
-      if (event.origin && !event.origin.startsWith("vscode-webview://") && event.origin !== "null") return;
+      if (!isExtensionMessageOrigin(event.origin)) return;
       if (event.data?.type) actionsRef.current.receive(event.data);
     };
     window.addEventListener("message", handleMessage);

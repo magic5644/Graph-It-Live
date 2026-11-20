@@ -31,6 +31,7 @@ import { buildCallGraphStylesheet } from "./CytoscapeTheme";
 import { GraphLegend } from "./GraphLegend";
 import { LoadingState } from "../LoadingState";
 import { FrameworkBadges, frameworkName } from "../reactflow/LanguageIcon";
+import { isExtensionMessageOrigin } from "../../utils/messageOrigin";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -423,12 +424,7 @@ export function CytoscapeGraph({ onReady, postMessage }: Readonly<CytoscapeGraph
 
   useEffect(() => {
     function handleMessage(event: MessageEvent<CallGraphExtensionMessage>): void {
-      // VS Code extension messages arrive from the webview's own vscode-webview://
-      // origin. Reject messages from any other origin to satisfy the SonarQube
-      // S2819 rule while remaining functional in the webview sandbox.
-      if (event.origin && !event.origin.startsWith("vscode-webview://") && event.origin !== "null") {
-        return;
-      }
+      if (!isExtensionMessageOrigin(event.origin)) return;
       const msg = event.data;
       if (!msg || typeof msg !== "object" || !("type" in msg)) return;
 

@@ -33,6 +33,7 @@ import ReactFlowGraph from "./components/ReactFlowGraph";
 import SymbolCardView from "./components/SymbolCardView";
 import { mergeGraphDataUnion } from "./utils/graphMerge";
 import { normalizePath } from "./utils/path";
+import { isExtensionMessageOrigin } from "./utils/messageOrigin";
 import {
     applyUpdateGraph,
     isUpdateGraphNavigation,
@@ -609,6 +610,7 @@ const App: React.FC = () => {
 
   React.useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      if (!isExtensionMessageOrigin(event.origin)) return;
       const message = event.data as ExtensionToWebviewMessage;
 
       // Handle messages with 'type' property (legacy)
