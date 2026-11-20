@@ -516,11 +516,12 @@ describe("folder levels", () => {
 
   it("folderLevel answers a unit or folder key in path mode, and refuses an unknown folder or Louvain", async () => {
     const { graph } = await levelsOf(nested);
-    expect(folderLevel(graph, root, "app/core").graph.nodes.map((node) => node.communityKey).sort())
+    const source = workspaceUnits(graph, root);
+    expect(folderLevel(source, "app/core").graph.nodes.map((node) => node.communityKey).sort())
       .toEqual(["app/core", "app/core", "app/core/util", "app/core/util"]);
-    expect(() => folderLevel(graph, root, "nowhere")).toThrow('No file below folder "nowhere"');
-    const louvain = { ...graph, context: { ...graph.context, communityMode: "louvain" as const } };
-    expect(() => folderLevel(louvain, root, "app")).toThrow("communityMode 'path' only");
+    expect(() => folderLevel(source, "nowhere")).toThrow('No file below folder "nowhere"');
+    const louvain = { ...source, graph: { ...graph, context: { ...graph.context, communityMode: "louvain" as const } } };
+    expect(() => folderLevel(louvain, "app")).toThrow("communityMode 'path' only");
   });
 
   it("folderLevel reads a UnitSource: an element unit by its key or its folder (#776)", async () => {

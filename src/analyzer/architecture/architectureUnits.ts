@@ -431,18 +431,11 @@ export function layerGroupsWithinUnits(
  * The level below a unit or folder key (path mode), as `graph-it architecture --folder` and
  * explore_architecture `folder` report it: the files below it, grouped by its sub-folders.
  */
-export function folderLevel(source: UnitSource, folder: string): ReturnType<typeof groupByUnit>;
-/** @deprecated #776 transition for the callers of set B: pass the UnitSource of workspaceUnits. */
-export function folderLevel(graph: ArchitectureGraph, workspaceRoot: string, folder: string): ReturnType<typeof groupByUnit>;
-export function folderLevel(first: UnitSource | ArchitectureGraph, second: string, third?: string) {
-  const legacy = third !== undefined;
-  const graph = legacy ? first as ArchitectureGraph : (first as UnitSource).graph;
+export function folderLevel(source: UnitSource, asked: string): ReturnType<typeof groupByUnit> {
+  const { graph, assignment, units } = source;
   if (graph.context.communityMode !== "path") {
     throw new Error("folder levels exist in communityMode 'path' only: Louvain groups have no folders.");
   }
-  const asked = legacy ? third : second;
-  const assignment = legacy ? assignUnits(second, graph.nodes.map((node) => node.relativePath)) : (first as UnitSource).assignment;
-  const units = legacy ? buildArchitectureUnits(graph, second, assignment) : (first as UnitSource).units;
   // An element unit is named by its key; its folder (src/analyzer) leads to it too.
   const folder = assignment.names.has(asked) ? asked : [...(assignment.folders ?? [])].find(([, unitPath]) => unitPath !== "" && unitPath === asked)?.[0] ?? asked;
   const level = groupByUnit(graph, units, assignment, folder);

@@ -235,14 +235,12 @@ describe("workspaceUnits: revision, files and failures", () => {
     expect(edge(units, "a", "b").ruleVerdict).toBe("accepted");
   });
 
-  it("feeds viewArchitecture: the source is the WorkspaceUnits, legacy declared roles still apply", async () => {
+  it("feeds viewArchitecture: the source is the WorkspaceUnits, else the workspace config", async () => {
     const graph = await graphOf({ "a/x.ts": ["b/y.ts"], "b/y.ts": [] });
     const source = workspaceUnits(graph, root, config({ elements: { a: { path: "a/" }, b: { path: "b/" } } }));
     const view = viewArchitecture(graph, root, 10, source);
     expect(view.source).toBe(source);
     expect(view.units?.unitsFrom).toBe("elements");
-    const legacy = viewArchitecture(graph, root, 10, { b: "library", nothing: undefined });
-    expect(legacy.units?.units.find((entry) => entry.key === "b")).toMatchObject({ role: "library", confidence: "declared" });
     expect(viewArchitecture(graph, root, 10).units?.unitsFrom).toBe("manifests");
   });
 });

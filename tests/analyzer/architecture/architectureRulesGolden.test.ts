@@ -177,11 +177,11 @@ describe("architecture rules golden output: generated workspace", () => {
     expect(rules.rules).toEqual(report.rules);
     expect(rules.unitEdges).toEqual({
       "frontend>backend": ["frontend-not-backend"],
-      "functions/billing>backend": ["functions-only-shared"],
-      "functions/mail>functions/billing": ["functions-only-shared"],
-      "mfe/cart>mfe/checkout": ["mfe-isolated"],
-      "shared/ui>shared/utils": ["no-unit-cycles"],
-      "shared/utils>shared/ui": ["no-unit-cycles"],
+      // Element units (#776): each `functions/*` and `mfe/*` instance; the detected-project cycle of
+      // shared/ui and shared/utils sits inside the one `shared` element, so no element edge carries it.
+      "functions (functions/billing)>backend": ["functions-only-shared"],
+      "functions (functions/mail)>functions (functions/billing)": ["functions-only-shared"],
+      "mfe (mfe/cart)>mfe (mfe/checkout)": ["mfe-isolated"],
     });
 
     for (const rule of report.rules) {
@@ -198,7 +198,7 @@ describe("architecture rules golden output: generated workspace", () => {
     // Inside the frontend unit: its groups' edges carry the rules of their pairs.
     await service.handleWebviewMessage({ command: "architectureMatrix", revision: summary.revision, unit: "frontend" });
     expect(posted.at(-1)).toMatchObject({ type: "architectureMatrix", violations: rules.groupEdges });
-    await service.handleWebviewMessage({ command: "architectureEnterFolder", revision: summary.revision, folder: "functions/billing" });
+    await service.handleWebviewMessage({ command: "architectureEnterFolder", revision: summary.revision, folder: "functions (functions/billing)" });
     const level = posted.at(-1);
     expect(level?.type === "architectureFolderLevel" && level.level.rules?.totals).toEqual(report.totals);
   });

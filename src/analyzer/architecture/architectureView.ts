@@ -8,7 +8,7 @@
  */
 
 import { aggregateCommunityGroups } from "../community/groupAggregation";
-import type { ArchitectureMatrix, ArchitectureOverview, ArchitectureUnits, UnitRole } from "../../shared/architecture-model";
+import type { ArchitectureMatrix, ArchitectureOverview, ArchitectureUnits } from "../../shared/architecture-model";
 import { unitDisplayName } from "../../shared/unitDisplayName";
 import { overviewArchitecture } from "./ArchitectureExplorer";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
@@ -20,7 +20,6 @@ import {
 } from "./architectureUnits";
 import { computeGroupDependents } from "./groupDependents";
 import { stronglyConnectedComponents } from "./stronglyConnectedComponents";
-import type { DeclaredRoles } from "./unitRoles";
 import { workspaceUnits, type UnitSource, type WorkspaceUnits } from "./workspaceUnits";
 
 export type { UnitSource } from "./workspaceUnits";
@@ -153,22 +152,12 @@ export function viewArchitecture(
   graph: ArchitectureGraph,
   workspaceRoot: string,
   maxGroups: number,
-  /** DeclaredRoles: #776 transition for the caller of set C, until it passes loadWorkspaceUnits' result. */
-  source?: WorkspaceUnits | DeclaredRoles,
+  source?: WorkspaceUnits,
 ): ReturnType<typeof viewGroups> & Partial<Pick<ReturnType<typeof viewUnitLevel>, "units">> & { source?: UnitSource } {
   if (graph.context.communityMode !== "path") return viewGroups(graph, maxGroups);
-  let units: WorkspaceUnits;
-  if (isWorkspaceUnits(source)) units = source;
-  else if (source === undefined) units = workspaceUnits(graph, workspaceRoot);
-  else units = workspaceUnits(graph, workspaceRoot, { elements: {}, rules: [], roles: declaredOnly(source) });
+  const units = source ?? workspaceUnits(graph, workspaceRoot);
   return { ...viewUnitLevel(units, maxGroups), source: units };
 }
-
-const declaredOnly = (roles: DeclaredRoles) =>
-  Object.fromEntries(Object.entries(roles).filter((entry): entry is [string, UnitRole] => entry[1] !== undefined));
-
-const isWorkspaceUnits = (source: WorkspaceUnits | DeclaredRoles | undefined): source is WorkspaceUnits =>
-  source !== undefined && typeof source.assignment === "object" && typeof source.units === "object";
 
 /** The level again with a new cap, as the summary was built (Show more groups). */
 export function viewLevel(graph: ArchitectureGraph, source: UnitSource | undefined, maxGroups: number) {

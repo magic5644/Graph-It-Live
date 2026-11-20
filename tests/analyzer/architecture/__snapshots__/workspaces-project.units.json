@@ -286,7 +286,8 @@
       "truncated": true,
       "nextOffset": 2
     },
-    "nextSteps": "Call without level for the folder groups, then group, or from and to, for files and file pairs."
+    "nextSteps": "Call without level for the folder groups, then group, or from and to, for files and file pairs.",
+    "unitsFrom": "manifests"
   },
   "groups": [
     {
