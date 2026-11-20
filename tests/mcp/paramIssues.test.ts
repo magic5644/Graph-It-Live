@@ -7,6 +7,7 @@ const schema = z
     filePath: z.string(),
     format: z.enum(["json", "toon"]).optional(),
     depth: z.number().int().min(1).max(10).optional(),
+    line: z.number().int().min(1, "line is 1-based").optional(),
     budget: z.union([z.literal(0), z.number().int().min(500)]).optional(),
     revision: z.string().regex(/^[0-9a-f]{4}$/).optional(),
     tags: z.array(z.string()).max(2).optional(),
@@ -27,11 +28,12 @@ function error(params: unknown): string {
 
 describe("formatParamIssues (#769)", () => {
   it.each([
-    [{ filePath: "a", fliePath: "b" }, 'Unknown parameter "fliePath". Did you mean "filePath"? Parameters: filePath, format, depth, budget, revision, tags, name, seeds, flag.'],
+    [{ filePath: "a", fliePath: "b" }, 'Unknown parameter "fliePath". Did you mean "filePath"? Parameters: filePath, format, depth, line, budget, revision, tags, name, seeds, flag.'],
     [{}, 'Missing required parameter "filePath" (a string).'],
     [{ filePath: 1 }, '"filePath" must be a string; got 1.'],
     [{ filePath: "a", format: "xml" }, '"format" must be one of json, toon; got "xml".'],
     [{ filePath: "a", depth: 0 }, '"depth" must be >= 1; got 0.'],
+    [{ filePath: "a", line: 0 }, '"line" must be >= 1; got 0. line is 1-based.'],
     [{ filePath: "a", depth: 11 }, '"depth" must be <= 10; got 11.'],
     [{ filePath: "a", depth: 1.5 }, '"depth" must be an integer; got 1.5.'],
     [{ filePath: "a", budget: 100 }, '"budget" must be >= 500; got 100.'],
@@ -49,7 +51,7 @@ describe("formatParamIssues (#769)", () => {
 
   it("joins several issues in one line, without Zod wording", () => {
     const message = error({ depth: 0, extra: true });
-    expect(message).toBe('Missing required parameter "filePath" (a string). "depth" must be >= 1; got 0. Unknown parameter "extra". Parameters: filePath, format, depth, budget, revision, tags, name, seeds, flag.');
+    expect(message).toBe('Missing required parameter "filePath" (a string). "depth" must be >= 1; got 0. Unknown parameter "extra". Parameters: filePath, format, depth, line, budget, revision, tags, name, seeds, flag.');
     expect(message).not.toMatch(/Invalid input|expected .* received/);
   });
 

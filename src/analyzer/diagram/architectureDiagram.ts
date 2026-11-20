@@ -457,16 +457,18 @@ export function capNodes(input: DiagramInput, options: DrawOptions = {}) {
   return { nodes, edges, hidden: input.nodes.length - nodes.length, notes };
 }
 
-/** Which legend items a drawing needs: the styles it draws (dependency always), and the width one for the graph only. */
+/** Which legend items a drawing needs: the styles it draws (dependency unless `dependency: false`), and the width one for the graph only. */
 export interface LegendOptions {
   kinds?: readonly LegendKind[];
   weight?: boolean;
+  /** The flow diagram draws no dependency edge: its lanes replace that item. */
+  dependency?: boolean;
 }
 
 /** Legend samples, left to right: a 24 px line sample, 8 px, the text, 16 px to the next; kinds in the shared LEGEND order. */
-export function legendLayout({ kinds = [], weight = true }: LegendOptions = {}) {
+export function legendLayout({ kinds = [], weight = true, dependency = true }: LegendOptions = {}) {
   let x = 0;
-  const shown = LEGEND_KINDS.filter((kind) => kind === "down" || kinds.includes(kind)).map((kind): { kind: LegendKind | "weight"; text: string } => ({ kind, text: LEGEND[kind].text }));
+  const shown = LEGEND_KINDS.filter((kind) => (dependency && kind === "down") || kinds.includes(kind)).map((kind): { kind: LegendKind | "weight"; text: string } => ({ kind, text: LEGEND[kind].text }));
   const items = [...shown, ...(weight ? [{ kind: "weight" as const, text: "width = file pairs" }] : [])].map((item) => {
     const placed = { ...item, x };
     x += snap(32 + textWidth(item.text, SIZES.caption) + 16);

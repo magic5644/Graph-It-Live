@@ -64,7 +64,7 @@ export interface FlowModelRequest {
   /** Absolute path of the entry symbol's file. */
   filePath: string;
   symbolName: string;
-  /** Declaration line, 0-based like the call graph's `startLine`: selects one of several homonyms. */
+  /** Declaration line, 1-based (the editor line): selects one of several homonyms. */
   startLine?: number;
   maxSteps?: number;
 }
@@ -151,20 +151,21 @@ function findEntry(db: Database, request: FlowModelRequest, rootDir: string): Fl
   const lookup = lookupCallGraphSymbol(db, request);
   if (lookup.symbol) {
     const { id, name, filePath, startLine, lang } = lookup.symbol;
-    return { id, name, path: filePath, startLine, lang: lang as SupportedLang };
+    // The walk reads 0-based rows from the call graph; the lookup speaks editor lines.
+    return { id, name, path: filePath, startLine: startLine - 1, lang: lang as SupportedLang };
   }
   const candidates = lookup.candidates.map(candidateLabel).join(", ");
   if (lookup.reason === "ambiguous") {
     throw new Error(`Symbol '${request.symbolName}' is ambiguous in ${label}: ${candidates}. Pass startLine to select one.`);
   }
   if (lookup.reason === "stale_selector") {
-    throw new Error(`No symbol '${request.symbolName}' starts at startLine ${request.startLine} in ${label}. Candidates: ${candidates}.`);
+    throw new Error(`No symbol '${request.symbolName}' starts at line ${request.startLine} in ${label}. Candidates: ${candidates}. Pass startLine to select one.`);
   }
   const names = closestNames(symbolNamesInFile(db, request.filePath), request.symbolName);
   throw new Error(symbolNotFoundMessage(request.symbolName, label, names));
 }
 
-const candidateLabel = (symbol: CallGraphSymbol) => `${symbol.name} (${symbol.type}, startLine ${symbol.startLine})`;
+const candidateLabel = (symbol: CallGraphSymbol) => `${symbol.name} (${symbol.type}, line ${symbol.startLine})`;
 
 /**
  * Opens steps nearest first (0-1 breadth-first: a callee in the caller's step file folds into that step and is

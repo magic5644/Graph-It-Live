@@ -56,15 +56,16 @@ describe('GraphContextFederator', () => {
     expect(getSpiderIndexState(spider)).toEqual(spiderStateBefore);
     expect(first.nodes).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'file:src/services/UserService.ts', kind: 'file' }),
-      expect.objectContaining({ id: 'symbol:src/services/UserService.ts:UserService:12', kind: 'symbol' }),
-      expect.objectContaining({ id: 'symbol:src/controllers/UserController.ts:UserService:8', kind: 'symbol' }),
-      expect.objectContaining({ id: 'test:tests/services/UserService.test.ts:UserServiceTest:7', kind: 'test' }),
+      // Ids and startLine/endLine show the 1-based editor line (#793).
+      expect.objectContaining({ id: 'symbol:src/services/UserService.ts:UserService:13', kind: 'symbol', startLine: 13, endLine: 15 }),
+      expect.objectContaining({ id: 'symbol:src/controllers/UserController.ts:UserService:9', kind: 'symbol' }),
+      expect.objectContaining({ id: 'test:tests/services/UserService.test.ts:UserServiceTest:8', kind: 'test' }),
     ]));
     expect(first.nodes.filter(node => node.name === 'UserService' && node.kind === 'symbol')).toHaveLength(2);
     expect(first.edges).toEqual(expect.arrayContaining([
       expect.objectContaining({
         source: 'file:src/services/UserService.ts',
-        target: 'symbol:src/services/UserService.ts:UserService:12',
+        target: 'symbol:src/services/UserService.ts:UserService:13',
         relation: 'CONTAINS',
       }),
       expect.objectContaining({
@@ -76,14 +77,14 @@ describe('GraphContextFederator', () => {
         sourceLine: 1,
       }),
       expect.objectContaining({
-        source: 'symbol:src/controllers/UserController.ts:UserService:8',
-        target: 'symbol:src/services/UserService.ts:UserService:12',
+        source: 'symbol:src/controllers/UserController.ts:UserService:9',
+        target: 'symbol:src/services/UserService.ts:UserService:13',
         relation: 'CALLS',
         confidence: 'EXTRACTED',
-        sourceLine: 9,
+        sourceLine: 10,
       }),
       expect.objectContaining({
-        source: 'symbol:src/controllers/UserController.ts:UserService:8',
+        source: 'symbol:src/controllers/UserController.ts:UserService:9',
         target: 'external:unresolvedExternal',
         relation: 'CALLS',
       }),
@@ -93,12 +94,12 @@ describe('GraphContextFederator', () => {
       kind: 'external',
     }));
     expect(first.edges).toContainEqual(expect.objectContaining({
-      source: 'symbol:src/controllers/UserController.ts:UserService:8',
+      source: 'symbol:src/controllers/UserController.ts:UserService:9',
       target: 'external:UserService',
       relation: 'CALLS',
       confidence: 'AMBIGUOUS',
       sourcePath: 'src/controllers/UserController.ts',
-      sourceLine: 11,
+      sourceLine: 12,
     }));
   });
 
@@ -134,12 +135,12 @@ describe('GraphContextFederator', () => {
 
     expect(snapshot.nodes.map(node => node.id)).toEqual([
       'file:src/services/UserService.ts',
-      'symbol:src/services/UserService.ts:UserService:12',
+      'symbol:src/services/UserService.ts:UserService:13',
     ]);
     expect(snapshot.edges).toEqual([
       expect.objectContaining({
         source: 'file:src/services/UserService.ts',
-        target: 'symbol:src/services/UserService.ts:UserService:12',
+        target: 'symbol:src/services/UserService.ts:UserService:13',
         relation: 'CONTAINS',
       }),
     ]);

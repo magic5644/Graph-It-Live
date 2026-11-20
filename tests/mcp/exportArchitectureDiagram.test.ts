@@ -1,13 +1,14 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { diagramLevel } from "@/analyzer/diagram/diagramStyle";
+import { defaultDiagramFile, diagramLevel } from "@/analyzer/diagram/diagramStyle";
 import { run as runDiagram } from "@/cli/commands/diagram";
 import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
 import { executeExportArchitectureDiagram, INLINE_DIAGRAM_MAX_CHARS } from "@/mcp/tools/architecture";
 import { ExportArchitectureDiagramParamsSchema } from "@/mcp/types";
 import { startRulesWorker } from "../analyzer/architecture/rulesWorkspace";
+import { indexWorkspace, wasmBuilt } from "./tools/callGraphWorkspace";
 
 // Stands in for a diagram over the inline cap: no fixture is large enough within MAX_DIAGRAM_NODES.
 const oversized = vi.hoisted(() => ({ markup: undefined as string | undefined }));
@@ -30,6 +31,13 @@ describe("diagramLevel", () => {
     expect(diagramLevel("matrix", "apps/web")).toEqual({ view: "matrix", folder: "apps/web" });
     expect(diagramLevel("matrix", undefined)).toEqual({ view: "matrix", folder: undefined });
   });
+
+  it("names the default file after the view: flow.<format> for a flow, architecture.<format> otherwise", () => {
+    expect(defaultDiagramFile("svg")).toBe("architecture.svg");
+    expect(defaultDiagramFile("diagram-spec", "matrix")).toBe("architecture.diagram-spec.json");
+    expect(defaultDiagramFile("html", "flow")).toBe("flow.html");
+    expect(defaultDiagramFile("diagram-spec", "flow")).toBe("flow.diagram-spec.json");
+  });
 });
 
 describe("export_architecture_diagram schema", () => {
@@ -41,6 +49,8 @@ describe("export_architecture_diagram schema", () => {
     [{ view: "matrix" }],
     [{ view: "matrix", folder: "mfe/cart", theme: "dark" }],
     [{ rules: true, config: "rules/a.json", baseline: "rules/b.json", output: "docs/a.svg" }],
+    [{ view: "flow", filePath: "src/a.ts", symbolName: "run" }],
+    [{ view: "flow", filePath: "/repo/src/a.ts", symbolName: "run", startLine: 1, maxSteps: 12, diagramFormat: "html", output: "docs/flow.html" }],
   ])("accepts %j", (params) => {
     expect(ExportArchitectureDiagramParamsSchema.safeParse(params).success).toBe(true);
   });
@@ -62,6 +72,18 @@ describe("export_architecture_diagram schema", () => {
     [{ diagramFormat: "html", output: "out/x.svg" }, "output must end with .html for diagramFormat html"],
     [{ diagramFormat: "diagram-spec", output: "out/x.svg" }, "output must end with .json for diagramFormat diagram-spec"],
     [{ unknown: true }, "unknown"],
+    [{ view: "flow" }, "view flow draws one symbol's flow: pass filePath."],
+    [{ view: "flow", filePath: "src/a.ts" }, "view flow draws one symbol's flow: pass symbolName."],
+    [{ view: "flow", filePath: "src/a.ts", symbolName: "run", folder: "src" }, "folder applies to view units, folder or matrix, not flow."],
+    [{ view: "flow", filePath: "src/a.ts", symbolName: "run", rules: true, config: "c.json" }, "config applies to view units, folder or matrix, not flow."],
+    [{ view: "flow", filePath: "src/a.ts", symbolName: "run", baseline: "b.json" }, "baseline applies to view units, folder or matrix, not flow."],
+    [{ view: "flow", filePath: "src/a.ts", symbolName: "run", maxSteps: 13 }, "maxSteps"],
+    [{ view: "flow", filePath: "src/a.ts", symbolName: "run", maxSteps: 0 }, "maxSteps"],
+    [{ view: "flow", filePath: "src/a.ts", symbolName: "run", startLine: 0 }, "startLine is 1-based"],
+    [{ view: "flow", filePath: "a\0b", symbolName: "run" }, "null bytes"],
+    [{ filePath: "src/a.ts", symbolName: "run" }, "filePath applies to view flow only."],
+    [{ view: "matrix", startLine: 3 }, "startLine applies to view flow only."],
+    [{ maxSteps: 3 }, "maxSteps applies to view flow only."],
   ])("refuses %j", (params, message) => {
     const result = ExportArchitectureDiagramParamsSchema.safeParse(params);
     expect(result.success).toBe(false);
@@ -178,5 +200,87 @@ describe("export_architecture_diagram", { timeout: 60_000 }, () => {
   it("refuses rules files outside the workspace and an unknown folder", async () => {
     await expect(executeExportArchitectureDiagram({ rules: true, config: "../rules.json" })).rejects.toThrow("outside workspace");
     await expect(executeExportArchitectureDiagram({ folder: "nowhere" })).rejects.toThrow('No file below folder "nowhere"');
+  });
+});
+
+// #793: the flow of one entry symbol, from a real call graph index.
+describe.skipIf(!wasmBuilt)("export_architecture_diagram view flow", { timeout: 60_000 }, () => {
+  let root: string;
+  let runtime: CliRuntime;
+  const flow = { view: "flow" as const, filePath: "src/app.ts", symbolName: "run" };
+
+  beforeAll(async () => {
+    ({ tmpDir: root, runtime } = await indexWorkspace("export-flow-", {
+      "app.ts": [
+        'import { load } from "./load";',
+        'import { save } from "./save";',
+        'import { report } from "./report";',
+        'import { fail } from "./fail";',
+        "/** Runs the job. */",
+        "export function run(input: string) {",
+        "  const data = load(input);",
+        "  if (data.length === 0) {",
+        "    report(\"empty\");",
+        "    return;",
+        "  }",
+        "  try {",
+        "    save(data);",
+        "  } catch (error) {",
+        "    fail(String(error));",
+        "  }",
+        "}",
+        "",
+      ].join("\n"),
+      "load.ts": "export function load(input: string) { return input.split(','); }\n",
+      "save.ts": "export function save(data: string[]) { return data.length; }\n",
+      "report.ts": "export function report(text: string) { return text; }\n",
+      "fail.ts": "export function fail(text: string) { return text; }\n",
+      "twins.ts": "export class A { go() { return 1; } }\nexport class B { go() { return 2; } }\n",
+    }));
+  }, 120_000);
+
+  afterAll(async () => {
+    await runtime.dispose();
+    workerState.reset();
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("draws the same SVG as graph-it diagram --view flow, its lanes from the call sites", async () => {
+    const result = await executeExportArchitectureDiagram(flow);
+    expect(result).toMatchObject({ format: "svg", counts: "5 steps · 4 calls · 0 references" });
+    expect(result.markup).toContain("<title id=\"diagram-title\">Flow · run</title>");
+    expect(result.markup).toMatch(/class="edge s-alternative"/);
+    expect(result.markup).toMatch(/class="edge s-error-path"/);
+    expect(result.markup).not.toContain(root.replaceAll("\\", "/"));
+    expect(result.markup).toBe(await runDiagram(["src/app.ts#run", "--view", "flow", "--output", "-"], runtime, "svg"));
+  });
+
+  it("draws the HTML page and the flow spec as the CLI does, and writes flow.<format> past the inline cap or to output", async () => {
+    const html = await executeExportArchitectureDiagram({ ...flow, diagramFormat: "html" });
+    expect(html.markup).toBe(await runDiagram(["src/app.ts#run", "--view", "flow", "--output", "-"], runtime, "html"));
+    const spec = await executeExportArchitectureDiagram({ ...flow, diagramFormat: "diagram-spec", maxSteps: 2 });
+    expect(JSON.parse(spec.markup!)).toMatchObject({ kind: "flow", workspace: path.basename(root), entry: "src/app.ts#run", maxSteps: 2, omittedSteps: 3 });
+    expect(spec.markup).toBe(await runDiagram(["src/app.ts#run", "--view", "flow", "--maxSteps", "2", "--output", "-"], runtime, "diagram-spec"));
+    expect(await executeExportArchitectureDiagram({ ...flow, output: "docs/run.svg" })).toMatchObject({ path: "docs/run.svg" });
+    expect(await runDiagram(["src/app.ts#run", "--view", "flow"], runtime, "svg")).toBe("Diagram written to flow.svg: 5 steps · 4 calls · 0 references.");
+    expect(fs.readFileSync(path.join(root, "flow.svg"), "utf8")).toBe((await executeExportArchitectureDiagram(flow)).markup);
+  });
+
+  it("selects a homonym by its 1-based startLine and names the candidates of an ambiguous or unknown symbol", async () => {
+    const twins = { view: "flow" as const, filePath: path.join(root, "src", "twins.ts"), symbolName: "go" };
+    await expect(executeExportArchitectureDiagram(twins)).rejects.toThrow("Symbol 'go' is ambiguous in src/twins.ts: go (method, line 1), go (method, line 2). Pass startLine to select one.");
+    expect((await executeExportArchitectureDiagram({ ...twins, startLine: 2, diagramFormat: "diagram-spec" })).markup).toContain('"line": 2');
+    await expect(executeExportArchitectureDiagram({ ...twins, startLine: 3 })).rejects.toThrow("No symbol 'go' starts at line 3 in src/twins.ts.");
+    await expect(executeExportArchitectureDiagram({ ...flow, symbolName: "rnu" })).rejects.toThrow("Symbol 'rnu' not found in src/app.ts. Did you mean: run?");
+    await expect(executeExportArchitectureDiagram({ ...flow, filePath: "src/missing.ts" })).rejects.toThrow("File 'src/missing.ts' is not in the call graph index.");
+    await expect(executeExportArchitectureDiagram({ ...flow, filePath: "../outside.ts" })).rejects.toThrow("outside workspace");
+  });
+
+  it("refuses a flow without its symbol or without a call graph source", async () => {
+    const { exportArchitectureDiagram } = await import("@/mcp/tools/architecture");
+    const analyze = vi.fn();
+    await expect(exportArchitectureDiagram(root, analyze, { view: "flow", filePath: "src/app.ts" })).rejects.toThrow("pass filePath and symbolName");
+    await expect(exportArchitectureDiagram(root, analyze, flow)).rejects.toThrow("view flow needs the call graph index");
+    expect(analyze).not.toHaveBeenCalled();
   });
 });

@@ -4,6 +4,9 @@
  * Node IDs embed the declaration line, so they are only valid for the current
  * graph revision. A selector (`symbolId` or `startLine`) that no longer matches
  * is reported as stale; it is never redirected to a same-name homonym.
+ *
+ * Lines are 1-based (editor lines) on both sides; the nodes table stores them
+ * 0-based, so this lookup converts at the boundary.
  */
 
 import type { Database } from "sql.js";
@@ -15,7 +18,9 @@ export interface CallGraphSymbol {
   type: string;
   lang: string;
   filePath: string;
+  /** 1-based declaration line */
   startLine: number;
+  /** 1-based last line */
   endLine: number;
   isExported: boolean;
 }
@@ -25,7 +30,7 @@ export interface CallGraphSymbolSelector {
   symbolName: string;
   /** Exact node id from a previous result, valid for the current graph revision */
   symbolId?: string;
-  /** Declaration line of the symbol, 0-based like `startLine` in results */
+  /** Declaration line of the symbol, 1-based like `startLine` in results */
   startLine?: number;
 }
 
@@ -56,8 +61,8 @@ function queryCandidates(
     type: row[2] as string,
     lang: row[3] as string,
     filePath: row[4] as string,
-    startLine: row[5] as number,
-    endLine: row[6] as number,
+    startLine: (row[5] as number) + 1,
+    endLine: (row[6] as number) + 1,
     isExported: (row[7] as number) === 1,
   }));
 }
@@ -74,7 +79,7 @@ function exactClause(selector: CallGraphSymbolSelector): {
   }
   if (selector.startLine !== undefined) {
     clause.push(" AND start_line = ?");
-    params.push(selector.startLine);
+    params.push(selector.startLine - 1);
   }
   return { clause: clause.join(""), params };
 }

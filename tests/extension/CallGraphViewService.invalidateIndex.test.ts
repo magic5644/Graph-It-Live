@@ -165,3 +165,13 @@ describe("CallGraphViewService.invalidateIndex (#432)", () => {
     expect(indexer.dispose).not.toHaveBeenCalled();
   });
 });
+
+describe("CallGraphViewService LM tool sources (#793)", () => {
+  it("lends the LM flow diagram its index and one parser, reused across calls", () => {
+    const { service, indexer } = createService();
+    expect(service.getCallGraphIndexerForLmTools()).toBe(indexer);
+    const extractor = service.getGraphExtractorForLmTools("/ws");
+    expect(extractor).toBeDefined();
+    expect(service.getGraphExtractorForLmTools("/ws")).toBe(extractor);
+  });
+});

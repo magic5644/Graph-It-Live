@@ -37,18 +37,26 @@ export const SIZES = {
 /** ELK padding of a cycle block, on the grid; its top leaves room for the block's title. */
 export const CYCLE_PADDING = "[top=28,left=12,bottom=12,right=12]";
 
+/** Most steps a flow diagram draws: past it the boxes no longer fit a screen (#793). */
+export const MAX_FLOW_STEPS = 12;
+
 /** The diagram choices of the CLI, MCP and LM tool; kept here, free of elkjs, for the MCP schemas. */
-export const DIAGRAM_VIEWS = ["units", "folder", "matrix"] as const;
+/** `flow`: the call flow of one entry symbol (flowDiagram.ts); the others draw one architecture level. */
+export const DIAGRAM_VIEWS = ["units", "folder", "matrix", "flow"] as const;
 /** `diagram-spec`: the level's data as JSON (diagramSpec.ts), for an agent diagram skill. */
 export const DIAGRAM_FORMATS = ["svg", "html", "diagram-spec"] as const;
 
 /** The file a diagram goes to when none is named. */
-export const defaultDiagramFile = (format: (typeof DIAGRAM_FORMATS)[number]) =>
-  format === "diagram-spec" ? "architecture.diagram-spec.json" : `architecture.${format}`;
+export function defaultDiagramFile(format: (typeof DIAGRAM_FORMATS)[number], view?: DiagramRequestView) {
+  const name = view === "flow" ? "flow" : "architecture";
+  return format === "diagram-spec" ? `${name}.diagram-spec.json` : `${name}.${format}`;
+}
 export const DIAGRAM_THEMES = ["light", "dark"] as const;
 
 export type DiagramTheme = (typeof DIAGRAM_THEMES)[number];
-export type DiagramView = (typeof DIAGRAM_VIEWS)[number];
+export type DiagramRequestView = (typeof DIAGRAM_VIEWS)[number];
+/** The architecture levels: every view but flow. */
+export type DiagramView = Exclude<DiagramRequestView, "flow">;
 
 /** The level a request names: a folder alone means its groups, and keys use "/" on every OS (a Windows user may type app\core). */
 export function diagramLevel(view: DiagramView | undefined, folder: string | undefined) {
@@ -108,6 +116,12 @@ export const LEGEND = {
   dead: { colour: "muted", dash: "4 3", text: "dead file" },
   // A node border, never an edge: a unit whose role no config declares (#776).
   "inferred-role": { colour: "line", dash: "3 3", text: "dashed border: role inferred" },
+  // The flow diagram (#793): a node border, then its call lanes and the references.
+  entry: { colour: "line", text: "thick border: entry" },
+  main: { colour: "line", text: "main lane" },
+  alternative: { colour: "line", dash: "6 3", text: "alternative lane" },
+  "error-path": { colour: "error", text: "error lane" },
+  reference: { colour: "line", dash: "1 3", text: "reference" },
 } as const satisfies Record<string, { colour: keyof Palette; dash?: string; text: string }>;
 
 export type LegendKind = keyof typeof LEGEND;

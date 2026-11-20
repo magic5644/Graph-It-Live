@@ -6,8 +6,9 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { drawnKinds, edgeLegendKind, legendLayout, legendNotes, nodeTitle, roleTitle, sanitizeText, type DiagramLayout, type LegendOptions, type PlacedEdge } from "./architectureDiagram";
+import { drawnKinds, edgeLegendKind, legendLayout, legendNotes, nodeTitle, roleTitle, sanitizeText, type DiagramLayout, type DiagramText, type LegendOptions, type PlacedEdge } from "./architectureDiagram";
 import type { MatrixLayout } from "./diagramMatrix";
+import type { FlowLayout, Point } from "./flowDiagram";
 import { edgeStyle, FONT_MONO, LEGEND, LEGEND_KINDS, legendDash, PALETTES, SIZES, type DiagramTheme, type LegendKind, type Palette } from "./diagramStyle";
 
 const ENTITIES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -42,6 +43,8 @@ const CLASSES = [
   `.cycle{fill:none;stroke-width:${SIZES.hairline}px}.cut{fill:none;stroke-width:2px}`,
   // A halo keeps the title readable where an edge crosses it.
   `.cycle-title{fill:var(--cycle);font-size:${SIZES.meta}px;paint-order:stroke;stroke:var(--bg);stroke-width:3px}`,
+  `.edge-label{fill:var(--muted);font-size:${SIZES.meta}px;paint-order:stroke;stroke:var(--bg);stroke-width:3px}`,
+  ".entry{stroke-width:2px}",
 ].join("");
 
 const markers = LEGEND_KINDS.map((kind) =>
@@ -51,23 +54,29 @@ const markers = LEGEND_KINDS.map((kind) =>
 const text = (x: number, y: number, className: string, content: string) =>
   `<text class="${className}" x="${x}" y="${y}">${escapeXml(content)}</text>`;
 
+/** One edge line in `kind`'s style, its arrow at the last point. */
+function pathMarkup(kind: LegendKind, points: readonly Point[], stroke: number, title: string): string {
+  const path = points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x} ${point.y}`).join("");
+  return `<path class="edge ${styleClass(kind)}" d="${path}" stroke-width="${stroke}" marker-end="url(#arrow-${kind})"><title>${escapeXml(title)}</title></path>`;
+}
+
 /** `name`: the label of a node key, as the nodes show it. */
 function edgeMarkup(edge: PlacedEdge, name: (key: string) => string): string {
-  const kind = edgeLegendKind(edge);
-  const path = edge.points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x} ${point.y}`).join("");
   const rules = edge.rules.length > 0 ? `, breaks ${edge.rules.join(", ")}` : "";
   const typeOnly = edge.typeOnlyEdgeCount ? `, ${edge.typeOnlyEdgeCount} type-only` : "";
   const title = `${name(edge.from)} → ${name(edge.to)}: ${edge.fileEdgeCount} file pairs (${edge.kind === "cycle" ? LEGEND[edgeStyle("cycle", edge.cycleKind)].text : edge.kind}${typeOnly}${rules})`;
-  return `<path class="edge ${styleClass(kind)}" d="${path}" stroke-width="${edge.stroke}" marker-end="url(#arrow-${kind})"><title>${escapeXml(title)}</title></path>`;
+  return pathMarkup(edgeLegendKind(edge), edge.points, edge.stroke, title);
 }
 
-function legendMarkup(layout: DiagramLayout | MatrixLayout, options: LegendOptions): string {
+const SAMPLE_WIDTH: Partial<Record<LegendKind | "weight", number>> = { weight: 3, cut: 3, entry: 2 };
+
+function legendMarkup(layout: { height: number; text: DiagramText }, options: LegendOptions): string {
   const { items } = legendLayout(options);
   const y = layout.height - SIZES.margin - 12;
   const samples = items.map(({ kind, text: label, x }) => {
     const left = SIZES.margin + x;
     const stroke = kind === "weight" ? "down" : kind;
-    const width = kind === "weight" || kind === "cut" ? 3 : SIZES.hairline;
+    const width = SAMPLE_WIDTH[kind] ?? SIZES.hairline;
     return `<path class="edge ${styleClass(stroke)}" d="M${left} ${y - 4}L${left + 24} ${y - 4}" stroke-width="${width}"/>${text(left + 32, y, "caption", label)}`;
   });
   const notes = legendNotes(layout.text);
@@ -111,7 +120,30 @@ function matrixMarkup(layout: MatrixLayout): string[] {
   ];
 }
 
-function svgMarkup(layout: DiagramLayout | MatrixLayout, style: string): string {
+/** The flow: lane names, edges, their labels, then the step boxes on top. */
+function flowMarkup(layout: FlowLayout): string[] {
+  const pad = SIZES.nodePaddingX;
+  const nodes = layout.nodes.map((node) => {
+    const lines = [node.text, ...(node.subtitle === undefined ? [] : [node.subtitle]), node.meta];
+    return `<g><title>${escapeXml(node.title)}</title>` +
+      `<rect class="node${node.entry ? " entry" : ""}" x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${SIZES.radius}"/>` +
+      lines.map((line, index) => text(node.x + pad, node.y + 18 + 16 * index, index === 0 ? "label" : "meta", line)).join("") + "</g>";
+  });
+  return [
+    ...layout.lanes.map((lane) => text(lane.x, lane.y, "meta", lane.text)),
+    ...layout.edges.map((edge) => pathMarkup(edge.kind, edge.points, SIZES.hairline, edge.title)),
+    ...layout.edges.map(({ label }) => text(label.x, label.y, "edge-label", label.text)),
+    ...nodes,
+    legendMarkup(layout, layout.legend),
+  ];
+}
+
+function bodyMarkup(layout: DiagramLayout | MatrixLayout | FlowLayout): string[] {
+  if ("cells" in layout) return matrixMarkup(layout);
+  return "lanes" in layout ? flowMarkup(layout) : graphMarkup(layout);
+}
+
+function svgMarkup(layout: DiagramLayout | MatrixLayout | FlowLayout, style: string): string {
   const { width, height, text: lines } = layout;
   const top = SIZES.margin;
   return [
@@ -124,18 +156,18 @@ function svgMarkup(layout: DiagramLayout | MatrixLayout, style: string): string 
     text(SIZES.margin, top + 16, "title", lines.title),
     text(SIZES.margin, top + 36, "caption", lines.caption),
     text(SIZES.margin, top + 54, "caption", lines.counts),
-    ...("cells" in layout ? matrixMarkup(layout) : graphMarkup(layout)),
+    ...bodyMarkup(layout),
     "</svg>",
   ].join("\n");
 }
 
 /** A bare SVG in one theme: what a README, a wiki or a slide embeds. */
-export function renderDiagramSvg(layout: DiagramLayout | MatrixLayout, theme: DiagramTheme = "light"): string {
+export function renderDiagramSvg(layout: DiagramLayout | MatrixLayout | FlowLayout, theme: DiagramTheme = "light"): string {
   return `${svgMarkup(layout, variables("svg", PALETTES[theme]) + CLASSES)}\n`;
 }
 
 /** One self-contained HTML page, light or dark with the reader's `prefers-color-scheme`; its CSP allows inline styles only. */
-export function renderDiagramHtml(layout: DiagramLayout | MatrixLayout): string {
+export function renderDiagramHtml(layout: DiagramLayout | MatrixLayout | FlowLayout): string {
   const style = [
     variables(":root", PALETTES.light),
     `@media (prefers-color-scheme: dark){${variables(":root", PALETTES.dark)}}`,

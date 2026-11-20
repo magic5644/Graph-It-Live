@@ -36,13 +36,13 @@ function corpus(): Record<string, string> {
 /** Every answer as `query: fact` lines, with 1-based lines and workspace-relative paths. */
 async function answers(root: string, callGraph: (filePath: string, symbolName: string) => Promise<CallGraphAnswer>): Promise<string[]> {
   const rel = (file: string) => (path.isAbsolute(file) ? path.relative(root, file) : file).replaceAll("\\", "/");
-  const edge = (e: CallEdge) => `${rel(e.sourceFile)}#${e.sourceName} -${e.relation}@${e.sourceLine + 1}-> ${rel(e.targetFile)}#${e.targetName}`;
+  const edge = (e: CallEdge) => `${rel(e.sourceFile)}#${e.sourceName} -${e.relation}@${e.sourceLine}-> ${rel(e.targetFile)}#${e.targetName}`;
   const lines: string[] = [];
   for (const key of QUERIES) {
     const [file, symbolName] = key.split("#");
     // One query after the other: the CLI spawns one process per query.
     const { symbol, reason, callers, callees } = await callGraph(path.join(root, "src", file), symbolName); // NOSONAR S9382: sequential CLI processes
-    lines.push(`${key} symbol: ${symbol ? `${rel(symbol.filePath)}#${symbol.name}@${symbol.startLine + 1}-${symbol.endLine + 1}` : reason}`,
+    lines.push(`${key} symbol: ${symbol ? `${rel(symbol.filePath)}#${symbol.name}@${symbol.startLine}-${symbol.endLine}` : reason}`,
       ...callers.map((e) => `${key} caller: ${edge(e)}`), ...callees.map((e) => `${key} callee: ${edge(e)}`));
   }
   return lines.sort();

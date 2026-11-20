@@ -178,6 +178,9 @@ function toRelativePath(absolutePath: string, workspaceRoot: string): string {
   return rel.replaceAll('\\', '/');
 }
 
+const CALL_GRAPH_UNAVAILABLE =
+  'Call graph index not available. Open the Call Graph panel (graph-it-live.showCallGraph) first to build the index.';
+
 function stripFilePrefix(symbolId: string): string {
   const idx = symbolId.lastIndexOf(':');
   return idx >= 0 ? symbolId.slice(idx + 1) : symbolId;
@@ -713,7 +716,7 @@ export class LmToolsService {
         callerSymbolId,
         callerFilePath: edge.sourceFile,
         callerRelativePath: rootDir ? toRelativePath(edge.sourceFile, rootDir) : edge.sourceFile,
-        line: edge.sourceLine,
+        line: edge.sourceLine + 1, // the call graph stores 0-based lines
         isTypeOnly: edge.relation === 'USES',
         relation: edge.relation,
       });
@@ -1563,9 +1566,7 @@ export class LmToolsService {
           const callGraphService = this.provider.getCallGraphViewServiceForLmTools();
           const indexer = callGraphService?.getCallGraphIndexerForLmTools();
           if (!indexer) {
-            return this.errorResult(
-              'Call graph index not available. Open the Call Graph panel (graph-it-live.showCallGraph) first to build the index.',
-            );
+            return this.errorResult(CALL_GRAPH_UNAVAILABLE);
           }
           const filePath = this.resolveWorkspacePath(options.input.filePath);
           try {
@@ -1701,7 +1702,12 @@ export class LmToolsService {
           try {
             const params = ExportArchitectureDiagramParamsSchema.parse(withoutResponseFormat(options.input));
             const { exportArchitectureDiagram } = await import('../../mcp/tools/architecture.js');
-            const result = await exportArchitectureDiagram(rootDir, (filePath) => spider.analyzeFromIndex(filePath), params, abort.signal);
+            const result = await exportArchitectureDiagram(rootDir, (filePath) => spider.analyzeFromIndex(filePath), params, abort.signal, async () => {
+              const callGraphService = this.provider.getCallGraphViewServiceForLmTools();
+              const indexer = callGraphService?.getCallGraphIndexerForLmTools();
+              if (!callGraphService || !indexer) throw new Error(CALL_GRAPH_UNAVAILABLE);
+              return { db: indexer.getDb(), extractor: callGraphService.getGraphExtractorForLmTools(rootDir) };
+            });
             return new vscode.LanguageModelToolResult([
               new vscode.LanguageModelTextPart(JSON.stringify(result)),
             ]);
@@ -1756,9 +1762,7 @@ export class LmToolsService {
           const indexer = this.provider.getCallGraphViewServiceForLmTools()?.getCallGraphIndexerForLmTools();
           const rootDir = this.getWorkspaceRoot();
           if (!indexer || !rootDir) {
-            return this.errorResult(
-              'Call graph index not available. Open the Call Graph panel (graph-it-live.showCallGraph) first to build the index.',
-            );
+            return this.errorResult(CALL_GRAPH_UNAVAILABLE);
           }
           try {
             const params = QueryNaturalLanguageParamsSchema.parse(withoutResponseFormat(options.input));

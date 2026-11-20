@@ -22,6 +22,7 @@ export interface QueryResultNode {
   name: string;
   type: string;
   path: string;
+  /** 1-based declaration line */
   startLine?: number;
   relevanceScore: number;
 }

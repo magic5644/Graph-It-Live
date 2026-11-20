@@ -36,7 +36,7 @@ describe.skipIf(!wasmBuilt)("React resolution through the MCP tools (#575)", { t
     const perSource = await Promise.all(sources().map(async (key) => {
       const [file, symbolName] = split(key);
       const { callees } = await executeQueryCallGraph({ filePath: abs(file), symbolName, direction: "callees", depth: 1 });
-      return callees.map((e) => `${rel(e.sourceFile)}#${e.sourceName} -${e.relation}@${e.sourceLine + 1}-> ${rel(e.targetFile)}#${e.targetName}`);
+      return callees.map((e) => `${rel(e.sourceFile)}#${e.sourceName} -${e.relation}@${e.sourceLine}-> ${rel(e.targetFile)}#${e.targetName}`);
     }));
     return perSource.flat().sort();
   }

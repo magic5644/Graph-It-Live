@@ -65,7 +65,7 @@ const INVALID_VALUE: Record<string, { args: string[]; message: string }> = {
   architecture: { args: ["--level", "foo"], message: '--level must be groups or units, got "foo"' },
   "check-architecture": { args: ["--config"], message: "--config needs a value" },
   init: { args: ["--focus"], message: "--focus needs a value" },
-  diagram: { args: ["--view", "nope"], message: '--view must be units or folder or matrix, got "nope"' },
+  diagram: { args: ["--view", "nope"], message: '--view must be units or folder or matrix or flow, got "nope"' },
   check: { args: ["--minConfidence", "x"], message: "--minConfidence" },
   "review-pr": { args: ["--base", "HEAD", "--depth", "99"], message: '--depth must be an integer between 1 and 10, got "99"' },
   serve: { args: ["--format"], message: "--format needs a value" },
@@ -235,6 +235,50 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     const positional = cli(["diagram", "--format", "svg", "--output", "-", "src"]);
     expect(positional.status, positional.stderr).toBe(0);
     expect(positional.stdout).toContain("folder src");
+  });
+
+  // #793: the flow of one entry symbol, in each format, and every way to ask for it wrongly.
+  it("diagram --view flow writes svg, html and diagram-spec, and refuses each malformed request", () => {
+    const flow = ["diagram", "--view", "flow", "src/a.ts#run", "--output", "-"];
+    for (const format of COMMAND_SPECS.diagram.formats) {
+      const result = cli([...flow, "--format", format]);
+      expect(result.status, result.stderr).toBe(0);
+      expectView("diagram", format, result.stdout);
+      expect(result.stdout).not.toContain(root);
+    }
+    expect(JSON.parse(cli([...flow, "--format", "diagram-spec"]).stdout)).toMatchObject({ kind: "flow", entry: "src/a.ts#run" });
+    const written = cli(["diagram", "--view", "flow", "src/a.ts#run", "--format", "svg"]);
+    expect(written.stdout).toBe("Diagram written to flow.svg: 3 steps · 2 calls · 0 references.\n");
+    fs.rmSync(path.join(root, "flow.svg"));
+    const rows: [string[], number, string][] = [
+      [["--view", "flow"], 1, "--view flow draws one symbol's flow: pass <file#symbol>"],
+      [["--view", "flow", "src/a.ts"], 1, "--view flow draws one symbol's flow: pass <file#symbol>"],
+      [["src/a.ts#run"], 1, "a file#symbol positional needs --view flow: src/a.ts#run"],
+      [["--view", "units", "src/a.ts#run"], 1, "a file#symbol positional needs --view flow"],
+      [["--view", "flow", "src/a.ts#rnu"], 1, "Symbol 'rnu' not found in src/a.ts. Did you mean: run?"],
+      [["--view", "flow", "src/c.ts#run"], 1, "File not found: src/c.ts."],
+      [["--view", "flow", "../x.ts#run"], 5, "resolves outside workspace"],
+      [["--view", "flow", "src/a.ts#run", "--maxSteps", "0"], 1, '--maxSteps must be an integer between 1 and 12, got "0"'],
+      [["--view", "flow", "src/a.ts#run", "--maxSteps", "abc"], 1, '--maxSteps must be an integer between 1 and 12, got "abc"'],
+      [["--view", "flow", "src/a.ts#run", "--maxSteps", "13"], 1, '--maxSteps must be an integer between 1 and 12, got "13"'],
+      [["--view", "flow", "src/a.ts#run", "--startLine", "0"], 1, '--startLine must be an integer >= 1, got "0"'],
+      [["--view", "flow", "src/a.ts#run", "--startLine", "9"], 1, "No symbol 'run' starts at line 9 in src/a.ts. Candidates: run (function, line 2)."],
+      [["--view", "flow", "src/a.ts#run", "--folder", "src"], 1, "--folder applies to --view units, folder or matrix, not flow"],
+      [["--view", "flow", "src/a.ts#run", "--rules"], 1, "--rules applies to --view units, folder or matrix, not flow"],
+      [["--view", "flow", "src/a.ts#run", "--config", "c.json"], 1, "--config applies to --view units, folder or matrix, not flow"],
+      [["--view", "flow", "src/a.ts#run", "--baseline"], 1, "--baseline applies to --view units, folder or matrix, not flow"],
+      [["--maxSteps", "3"], 1, "--maxSteps applies to --view flow"],
+      [["--startLine", "3"], 1, "--startLine applies to --view flow"],
+      [["--view", "flow", "src/a.ts#run", "--format", "csv"], 4, "graph-it diagram does not write --format csv"],
+      [["--view", "flow", "src/a.ts#run", "--output", "../x.svg"], 5, "Refusing to write ../x.svg"],
+      [["--view", "flow", "src/a.ts#run", "--theme", "dark", "--format", "html"], 1, "--theme sets the colours of --format svg"],
+    ];
+    for (const [args, status, message] of rows) {
+      const result = cli(["diagram", ...args]);
+      expect(result.status, args.join(" ")).toBe(status);
+      expect(result.stdout, args.join(" ")).toBe("");
+      expect(result.stderr, args.join(" ")).toContain(message);
+    }
   });
 
   // #774: a generated file not built yet is reported by every command that lists dead files, with the same facts.

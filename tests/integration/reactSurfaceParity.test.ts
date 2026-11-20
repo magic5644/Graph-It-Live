@@ -72,7 +72,7 @@ const inSequence = <T, R>(items: T[], fn: (item: T) => Promise<R>): Promise<R[]>
 /** Every answer of a surface as `query: fact` lines, with 1-based lines and workspace-relative paths. */
 async function answers(surface: Surface, relationTypes?: string[]): Promise<string[]> {
   const rel = (file: string) => relativeTo(surface.root, file);
-  const edge = (e: CallEdge) => `${rel(e.sourceFile)}#${e.sourceName} -${e.relation}@${e.sourceLine + 1}-> ${rel(e.targetFile)}#${e.targetName}`;
+  const edge = (e: CallEdge) => `${rel(e.sourceFile)}#${e.sourceName} -${e.relation}@${e.sourceLine}-> ${rel(e.targetFile)}#${e.targetName}`;
   const split = (key: string) => key.split("#") as [string, string];
   const graphs = await inSequence(SYMBOLS, async (key) => {
     const [file, symbolName] = split(key);
@@ -84,7 +84,7 @@ async function answers(surface: Surface, relationTypes?: string[]): Promise<stri
     const graph = answer;
     const { symbol } = graph;
     return [
-      `${key} symbol: ${symbol ? `${rel(symbol.filePath)}#${symbol.name}@${symbol.startLine + 1}-${symbol.endLine + 1}` : graph.reason}`,
+      `${key} symbol: ${symbol ? `${rel(symbol.filePath)}#${symbol.name}@${symbol.startLine}-${symbol.endLine}` : graph.reason}`,
       ...graph.callers.map((e) => `${key} caller: ${edge(e)}`),
       ...graph.callees.map((e) => `${key} callee: ${edge(e)}`),
     ];
@@ -195,7 +195,7 @@ describe.skipIf(!wasmBuilt || !fs.existsSync(DIST_ENTRY))("React corpus parity a
     const impact = await invoke<{ impactedItems: Array<{ relativePath: string; symbolId: string; relation?: string; usageType: string }> }>(
       "graph-it-live_get_impact_analysis", { filePath, symbolName: "Card" });
 
-    expect(callers.callers.map((c) => `${c.callerSymbolId.split(":").pop()}:${c.relation}@${c.line + 1}`).sort()).toEqual([
+    expect(callers.callers.map((c) => `${c.callerSymbolId.split(":").pop()}:${c.relation}@${c.line}`).sort()).toEqual([
       "Fancy:REFERENCES@3",
       "Old:REFERENCES@2",
       "Page:REFERENCES@14",

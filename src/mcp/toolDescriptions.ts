@@ -303,7 +303,7 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
       "WHY: built from tree-sitter AST analysis, so it holds real call edges (CALLS, INHERITS, IMPLEMENTS) and runtime references (REFERENCES) rather than import edges. Type-only references (USES) are added with includeTypeOnly.",
       REACT_BASELINE,
       "RETURNS: the matched symbol, its callers and callees with file and call-site line, relation type, and a cyclic flag per edge. Defaults: direction=both, depth=2. A symbol missing from the file is an error naming the closest ones.",
-      "SELECTING: two same-name methods in one file return reason=ambiguous with candidates; pass one candidate's symbolId or startLine to select it exactly. A stale selector returns reason=stale_selector (ids embed the line and change after edits); 'Class.method' names are not supported.",
+      "SELECTING: two same-name methods in one file return reason=ambiguous with candidates; pass one candidate's symbolId or startLine to select it exactly. Every line (startLine, endLine, sourceLine) is 1-based, the editor line. A stale selector returns reason=stale_selector (ids embed the line and change after edits; treat them as opaque); 'Class.method' names are not supported.",
       "NOT THIS TOOL: for every file that imports a file, use graphitlive_find_referencing_files.",
       {
         mcp: `LIMITS: the first call indexes the workspace (3-8s); later queries are fast. Output capped by tokenBudget (default 4000, 0 = no limit); a cut sets truncated=true, omitted counts and nextOffset - pass it as offset to read the rest.`,
@@ -374,12 +374,13 @@ const TOOL_DESCRIPTIONS: Record<DescribedToolName, ToolDescription> = {
   },
   export_architecture_diagram: {
     summary:
-      "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix) as SVG or self-contained HTML, or returns its data as a diagram spec.",
+      "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix), or the call flow of one entry symbol, as SVG or self-contained HTML, or returns its data as a diagram spec.",
     lines: [
       `WHEN: "draw the architecture", "give me a diagram for the README / the PR / the design doc", or to share as a picture the structure that graph-it architecture reports as data. For a polished or branded diagram drawn by a diagram skill, use diagramFormat 'diagram-spec' and draw only the nodes and edges it lists.`,
       "WHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.",
       "RETURNS: format, counts (one line, e.g. '7 units · 3 layers · 1 cycle · 0 violations', covering the whole level), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>, architecture.diagram-spec.json for a spec) with its size in characters. A diagram-spec is JSON (schemas/diagram-spec.schema.json): every node with label, layer, file count and role, layers, weighted edges with kind and broken rules, cycles, violations and the caption lines.",
       "LIMITS: import relations only (static analysis); at most 60 nodes drawn (a spec lists them all), the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.",
+      "FLOW: view 'flow' with filePath (workspace-relative or absolute, inside the workspace) and symbolName draws the call flow of that entry symbol from the call graph index: one column per step in call order (a step is one file's symbols), rows for the main, alternative and error lanes read from the call sites (TypeScript, JavaScript, Python; other languages put every step on main). startLine (1-based, the editor line) selects one of several same-name symbols; maxSteps caps the steps (1 to 12, default 8) and a note counts the callees left out. Default file flow.<diagramFormat> (flow.diagram-spec.json for a spec, kind 'flow'). An unknown, ambiguous or unindexed symbol is an error naming the candidates; folder, rules, config and baseline do not apply to a flow.",
     ],
   },
   get_session_stats: {

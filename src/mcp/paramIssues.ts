@@ -101,7 +101,14 @@ function issueMessage(issue: Issue, known: readonly string[]): string {
   const received = sized ? `${input.length} items` : shown(input);
   const got = input === undefined ? "" : `; got ${received}`;
   const subject = name === "" ? "Parameters" : JSON.stringify(name);
-  return `${subject} must be ${expected}${got}.`;
+  return `${subject} must be ${expected}${got}.${schemaMessage(issue)}`;
+}
+
+/** A message written in the schema, not Zod's default: it says what the bound alone cannot (`1-based`). */
+function schemaMessage(issue: Issue): string {
+  const generic = z.config().localeError?.(issue as Parameters<NonNullable<z.core.$ZodConfig["localeError"]>>[0]);
+  const text = typeof generic === "string" ? generic : generic?.message;
+  return issue.message === text ? "" : ` ${issue.message}.`;
 }
 
 /** Top-level parameter names a schema accepts, in declaration order. */

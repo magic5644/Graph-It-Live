@@ -9,13 +9,13 @@ export type SymbolNodeType =
 export interface WikiSymbol {
   name: string;
   type: SymbolNodeType;
-  declarationLine: number; // = start_line from nodes table
+  declarationLine: number; // 1-based: nodes.start_line + 1
 }
 
 export interface WikiLink {
   name: string;
   filePath: string; // absolute normalized — internal use only, never emitted in markdown
-  callSiteLine: number; // = source_line from edges table
+  callSiteLine: number; // 1-based: edges.source_line + 1
 }
 
 export interface MermaidDiagram {

@@ -7,6 +7,7 @@
 
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
+import type { Database } from "sql.js";
 import { exploreArchitecture, exploreArchitectureCheck, exploreCoupling, exploreMatrix, exploreUnitEvidence, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile } from "../../analyzer/architecture/ArchitectureGraphBuilder";
 import { architectureCoupling } from "../../analyzer/architecture/architectureCoupling";
@@ -15,10 +16,12 @@ import { checkWorkspaceArchitecture } from "../../analyzer/architecture/architec
 import { folderLevel } from "../../analyzer/architecture/architectureUnits";
 import { loadWorkspaceUnits } from "../../analyzer/architecture/workspaceUnits";
 import { defaultDiagramFile, diagramLevel } from "../../analyzer/diagram/diagramStyle";
-import { renderWorkspaceDiagram } from "../../analyzer/diagram/workspaceDiagram";
+import type { FlowModelSources } from "../../analyzer/diagram/flowModel";
+import { renderFlowDiagram, renderWorkspaceDiagram } from "../../analyzer/diagram/workspaceDiagram";
 import { getRelativePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { workerState } from "../shared/state";
+import { ensureCallGraphReady } from "./callgraph";
 import type { CheckArchitectureParams, ExploreArchitectureParams, ExportArchitectureDiagramParams } from "../types";
 
 /**
@@ -80,37 +83,74 @@ export async function executeCheckArchitecture(params: CheckArchitectureParams, 
 /** Markup returned inline up to this many characters (about 15k tokens); a larger diagram is written to a file. */
 export const INLINE_DIAGRAM_MAX_CHARS = 60_000;
 
+/** What a flow diagram reads: the call graph index and a parser of the steps' files. */
+export interface FlowSources {
+  db: Database;
+  extractor: FlowModelSources["extractor"];
+}
+
 /**
- * The static architecture diagram, inline when it fits the cap and no output is asked for, else
- * written under the workspace and returned as a workspace-relative path. Shared by the MCP tool
- * and its VS Code language model tool.
+ * The static architecture diagram (or with view flow, one entry symbol's flow), inline when it fits
+ * the cap and no output is asked for, else written under the workspace and returned as a
+ * workspace-relative path. Shared by the MCP tool, the CLI and the VS Code language model tool;
+ * `flow` opens the call graph only when view flow asks for it.
  */
 export async function exportArchitectureDiagram(
   rootDir: string,
   analyze: AnalyzeFile,
   params: ExportArchitectureDiagramParams,
   signal?: AbortSignal,
+  flow?: () => Promise<FlowSources>,
 ) {
   const format = params.diagramFormat ?? "svg";
   // Refused before any work (CWE-22): the output stays in the workspace, as the rules files do.
   // The raw value, so a refusal names the given path and not the workspace's absolute location.
   const target = params.output === undefined ? undefined : validateWorkspacePath(params.output, rootDir);
-  const { markup, counts } = await renderWorkspaceDiagram(rootDir, analyze, {
+  const { markup, counts } = await renderDiagram(rootDir, analyze, params, signal, flow);
+  if (target === undefined && markup.length <= INLINE_DIAGRAM_MAX_CHARS) return { format, counts, markup };
+
+  // Validated too: a symbolic link at the default name must not lead outside the workspace.
+  const file = target ?? validateWorkspacePath(defaultDiagramFile(format, params.view), rootDir);
+  await fs.promises.mkdir(nodePath.dirname(file), { recursive: true });
+  await fs.promises.writeFile(file, markup);
+  return { format, counts, path: getRelativePath(file, rootDir), characters: markup.length };
+}
+
+async function renderDiagram(
+  rootDir: string,
+  analyze: AnalyzeFile,
+  params: ExportArchitectureDiagramParams,
+  signal?: AbortSignal,
+  flow?: () => Promise<FlowSources>,
+) {
+  const format = params.diagramFormat ?? "svg";
+  const theme = params.theme ?? "light";
+  if (params.view === "flow") {
+    const { filePath, symbolName, startLine, maxSteps } = params;
+    if (filePath === undefined || symbolName === undefined) throw new Error("view flow draws one symbol's flow: pass filePath and symbolName");
+    if (flow === undefined) throw new Error("view flow needs the call graph index");
+    // Resolved against the workspace and refused outside it (CWE-22), whichever surface called.
+    const request = { filePath: validateWorkspacePath(filePath, rootDir), symbolName, startLine, maxSteps };
+    const { db, extractor } = await flow();
+    return renderFlowDiagram(db, { rootDir, extractor }, request, { format, theme });
+  }
+  return renderWorkspaceDiagram(rootDir, analyze, {
     ...diagramLevel(params.view, params.folder),
     format,
-    theme: params.theme ?? "light",
+    theme,
     rules: params.rules ? { config: params.config, baseline: params.baseline } : undefined,
     // The analyses are current at the call (the watchers keep them so): date the diagram today.
     indexedAt: new Date().toISOString(),
     signal,
   });
-  if (target === undefined && markup.length <= INLINE_DIAGRAM_MAX_CHARS) return { format, counts, markup };
+}
 
-  // Validated too: a symbolic link at the default name must not lead outside the workspace.
-  const file = target ?? validateWorkspacePath(defaultDiagramFile(format), rootDir);
-  await fs.promises.mkdir(nodePath.dirname(file), { recursive: true });
-  await fs.promises.writeFile(file, markup);
-  return { format, counts, path: getRelativePath(file, rootDir), characters: markup.length };
+/** The call graph of the MCP worker or the CLI, indexed on first use (restored from the cache when warm). */
+export async function workerFlowSources(): Promise<FlowSources> {
+  await ensureCallGraphReady();
+  const { callGraphIndexer, graphExtractor } = workerState;
+  if (!callGraphIndexer || !graphExtractor) throw new Error("Call graph indexer not initialized");
+  return { db: callGraphIndexer.getDb(), extractor: graphExtractor };
 }
 
 export function executeExportArchitectureDiagram(params: ExportArchitectureDiagramParams, signal?: AbortSignal) {
@@ -119,5 +159,6 @@ export function executeExportArchitectureDiagram(params: ExportArchitectureDiagr
     (filePath) => workerState.getSpider().analyzeFromIndex(filePath),
     params,
     signal,
+    workerFlowSources,
   );
 }
