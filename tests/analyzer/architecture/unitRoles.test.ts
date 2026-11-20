@@ -376,6 +376,9 @@ describe("unit roles from manifests (#776)", () => {
     write("package.json", pkg("app", {}, { bin: "cli.js" }));
     const inherited = inferUnitRole(root, { folder: "src", files: ["src/a.ts"], importers: [] });
     expect(inherited).toEqual({ role: "application", confidence: "inferred", evidence: [{ role: "application", detail: "`bin` in `package.json` (workspace root manifest)" }] });
+    // A folder product code imports is not the root's executable: no inherited application.
+    expect(inferUnitRole(root, { folder: "media", files: ["media/a.css"], importers: ["webview"] }).evidence)
+      .toEqual([{ role: "library", detail: "imported by `webview`" }]);
     expect(inferUnitRole(root, { folder: "scripts", files: ["scripts/a.ts"], kinds: ["tooling"], importers: [] }).evidence)
       .toEqual([{ role: "tooling", detail: "only tests, fixtures or tooling (0 test, 0 fixture, 1 tooling file)" }]);
     expect(inferUnitRole(root, { folder: "e2e-suite", name: "e2e-suite", files: ["e2e-suite/a.ts"], importers: [] }).role).toBe("application");

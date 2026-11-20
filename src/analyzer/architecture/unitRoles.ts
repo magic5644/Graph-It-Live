@@ -357,8 +357,9 @@ const rolePriority = (entry: UnitRoleEvidence) => UNIT_ROLES.indexOf(entry.role)
 function collectEvidence(workspaceRoot: string, input: UnitRoleInput, cache: RootEvidenceCache): UnitRoleEvidence[] {
   const read = input.manifest !== false;
   const direct = read ? manifestEvidence(workspaceRoot, input.folder) : [];
-  const inherited = read ? inheritedEvidence(workspaceRoot, input.folder, cache) : [];
   const importers = input.importers.map((name) => `\`${name}\``).join(", ");
+  // The root `bin` or editor `main` names one executable: a folder product code imports is not it.
+  const inherited = (read ? inheritedEvidence(workspaceRoot, input.folder, cache) : []).filter((entry) => !importers || entry.role !== "application");
   const imported: UnitRoleEvidence[] = importers ? [{ role: "library", detail: `imported by ${importers}` }] : [];
   const kinds = input.kinds ?? input.files.map((file) => fileKind(file, input.folder));
   const testLike = [fileKindEvidence(kinds), testNameEvidence(input.name, input.folder)].filter((entry) => entry !== undefined);
