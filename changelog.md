@@ -17,6 +17,10 @@
 - **VS Code: whole-number settings are typed `integer`** (#770): `maxDepth`, `indexingStartDelay`, `indexingConcurrency`, `unusedAnalysisConcurrency`, `unusedAnalysisMaxEdges` (now at most 100000), `maxUnusedAnalysisCacheSize`, `maxCacheSize` and `maxSymbolCacheSize` refuse `2.5` in the Settings editor.
 - **VS Code: item commands leave the Command Palette** (#770): **Open File**, **Copy Message**, **Open Call Graph** and **Open Cycle in Graph** of the Branch status view, and the review-link command, need the item they are run on.
 
+### Changed — breaking
+
+- **Architecture units come from the declared elements** (#776). The units view (`graph-it architecture --level units`, `explore_architecture` `level: "units"`, `graph-it diagram`, `export_architecture_diagram`, the `init` report and the VS Code Architecture view) now draws the elements of graphit.architecture.json when it declares any. Without a config, files outside every project form one unit per top-level folder; `(root)` keeps only the root files. Fixture projects under a test folder fold into their parent. The `tooling` role splits into `test`, `fixture` and `tooling`, and the new `application` role is added. Configs that name `(root)` or select `role: "tooling"` get a config warning. JSON field names are unchanged; unit keys and `role` values change. New fields: `unitsFrom`, `configFile`, `baselineFile`, `configWarnings`, `rules` on the units, `folder` and `rules` on each unit, `rules` and `ruleVerdict` on each unit edge. Text and markdown tables gain an Evidence column and say whether the cycles are between declared elements or detected projects. Diagrams draw an inferred role with a dashed border and the evidence in the node tooltip, the role in words on each node; no `?` remains.
+
 ### Changed
 
 - **Readable parameter errors** (#769): one line naming the parameter, what it accepts and what was received, shared by the MCP server, its worker, `graph-it tool` and the language model tools. No raw Zod issue list, internal code (`FILE_NOT_FOUND:`, `INVALID_SCOPE_PATH:`) or CLI flag name in MCP messages; paths in messages are workspace-relative.

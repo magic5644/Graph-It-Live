@@ -158,7 +158,7 @@ A chain stops at its first unproven link and after 8 calls. An unannotated retur
 
 ### Architecture view
 
-The Architecture view draws the whole workspace as **units** (projects: folders holding a `package.json`, `pyproject.toml`, `go.mod` or other project manifest, else top-level folders) in layers, with the import edges between them, their roles and their cycles. It answers three questions: what are my layers, who depends on this, and does the code follow my rules. The [architecture guide](docs/architecture.md) defines every term, explains the marks of each view and how to fix what they raise: cycles, rule violations, unmatched files.
+The Architecture view draws the whole workspace as **units** (the elements declared in `graphit.architecture.json`, else the projects: folders holding a `package.json`, `pyproject.toml`, `go.mod` or other project manifest, else top-level folders) in layers, with the import edges between them, their roles (`application`, `function`, `micro-frontend`, `frontend`, `service`, `library`, `test`, `fixture`, `tooling`, `unknown`) and their cycles. It answers three questions: what are my layers, who depends on this, and does the code follow my rules. The [architecture guide](docs/architecture.md) defines every term, explains the marks of each view and how to fix what they raise: cycles, rule violations, unmatched files.
 
 <div align="center">
 <img src="media/architecture-units-overview.png" alt="Architecture view of an npm-workspaces monorepo: units in layers, a cycle between two shared libraries, rule violations in red" width="800"/>
@@ -180,7 +180,7 @@ The CLI (`graph-it architecture --level units`) and the MCP tool `explore_archit
 <img src="media/architecture-roles-filter.png" alt="Units legend with role badges; the libraries filter keeps only the five library units" width="800"/>
 </div>
 
-*Role badges: `[library?]` inferred, `[library]` declared. Click a role in the units legend to filter.*
+*Role badges such as `[library]`: a dashed border marks an inferred role (hover for its evidence), a solid one a declared role. Click a role in the units legend to filter.*
 
 <div align="center">
 <img src="media/architecture-navigate-groups.gif" alt="Navigating Graph-It-Live's architecture: enter src, then analyzer, Fit the whole level, go back with the breadcrumb" width="800"/>
