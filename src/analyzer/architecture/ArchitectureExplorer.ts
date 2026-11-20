@@ -7,6 +7,7 @@
 import { aggregateCommunityGroups } from "../community/groupAggregation";
 import { assertOffsetInRange } from "../../shared/paging";
 import type {
+  ArchitectureCoupling,
   ArchitectureGroupDetail,
   ArchitectureMatrix,
   ArchitectureOverview,
@@ -319,6 +320,42 @@ export function exploreMatrix(
     cells: items,
     page: pageInfo,
     nextSteps: "Pass from and to (two rows' ids, or unit keys with level units) for the file pairs behind a cell.",
+  };
+}
+
+/**
+ * The most coupled pairs and the bridging files of a level, both lists paged together like the
+ * summary; totals count every item before the page.
+ */
+export function exploreCoupling(
+  coupling: ArchitectureCoupling,
+  context: ArchitectureGraph["context"],
+  options: Pick<ArchitectureExploreOptions, "offset" | "limit" | "revision"> & { units?: boolean } = {},
+) {
+  assertRevision(context.revision, options.revision);
+  const offset = options.offset ?? 0;
+  const limit = options.limit ?? DEFAULT_EXPLORE_LIMIT;
+  const pairs = page(coupling.coupledPairs, offset, limit);
+  const files = page(coupling.bridgingFiles, offset, limit);
+  assertOffsetInRange(offset, Math.max(pairs.total, files.total), "coupled pairs and bridging files");
+  const truncated = pairs.truncated || files.truncated;
+  return {
+    view: "coupling" as const,
+    context,
+    provenance: options.units ? UNIT_PROVENANCE : PROVENANCE,
+    formulas: coupling.formulas,
+    coupledPairs: pairs.items,
+    bridgingFiles: files.items,
+    page: {
+      offset,
+      limit,
+      totalCoupledPairs: pairs.total,
+      totalBridgingFiles: files.total,
+      truncated,
+      nextOffset: truncated ? offset + limit : undefined,
+    },
+    nextSteps: "Pass from and to (a and b of a pair, either order; unit keys with level units) for every file pair of an edge, " +
+      "then graphitlive_find_referencing_files or graphitlive_query_call_graph (direction callers, depth 1) on a bridging file's symbols.",
   };
 }
 

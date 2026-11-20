@@ -39,6 +39,7 @@ export const COMMAND_SPECS: Readonly<Record<string, CommandSpec>> = {
     options: {
       "--maxFiles": "value", "--communities": "value", "--groups": "flag", "--level": "value",
       "--folder": "value", "--from": "value", "--to": "value", "--matrix": "flag",
+      "--coupling": "flag",
     },
     maxPositionals: 0,
   },

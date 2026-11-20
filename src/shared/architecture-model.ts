@@ -243,6 +243,52 @@ export interface ArchitectureMatrix<Id extends number | string = number | string
 }
 
 // ---------------------------------------------------------------------------
+// Coupling: most coupled pairs and bridging files (#342)
+// ---------------------------------------------------------------------------
+
+export const COUPLING_FORMULAS = {
+  coupledPair: "Pair weight fileEdgeCount = aToB + bToA, the distinct file pairs between the two rows in both directions; mutual when both are above 0.",
+  bridgingFile: "A file bridges when its import pairs (imports or importedBy) cross into 2 or more rows other than its own; groupCount = those rows, fileEdgeCount = their pairs.",
+  evidence: "The first file pairs (source, target) by path, at most 3 per item; the counts cover every pair.",
+};
+
+export interface FilePair {
+  source: string;
+  target: string;
+}
+
+/** Two rows of the level coupled by file pairs, `a` before `b` in the matrix order. */
+export interface CoupledPair<Id> {
+  a: Id;
+  b: Id;
+  aLabel: string;
+  bLabel: string;
+  aToB: number;
+  bToA: number;
+  fileEdgeCount: number;
+  mutual: boolean;
+  evidence: FilePair[];
+}
+
+export interface BridgingFile<Id> {
+  file: string;
+  group: Id;
+  groupLabel: string;
+  groupCount: number;
+  fileEdgeCount: number;
+  /** One entry per other row the file touches, in the matrix order. */
+  links: { group: Id; label: string; imports: number; importedBy: number; evidence: FilePair[] }[];
+}
+
+export interface ArchitectureCoupling<Id extends number | string = number | string> {
+  /** Heaviest first; every pair of rows joined by at least one file pair. */
+  coupledPairs: CoupledPair<Id>[];
+  /** Most rows touched first, then most pairs, then by path. */
+  bridgingFiles: BridgingFile<Id>[];
+  formulas: typeof COUPLING_FORMULAS;
+}
+
+// ---------------------------------------------------------------------------
 // Declared rules (graphit.architecture.json)
 // ---------------------------------------------------------------------------
 

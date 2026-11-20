@@ -100,9 +100,45 @@ describe.each(fixtures)("architecture matrix golden output: %s", (fixture) => {
       .toMatchFileSnapshot(`__snapshots__/${fixture}.${communityMode}.matrix.json`);
   });
 
-  it("rejects --matrix with --from and csv without --matrix", async () => {
+  const unitFolder = fixture === "sample-project" ? "src" : "complex-cycle";
+  // #342: the coupled pairs fold the matrix's off-diagonal cells two by two, at every level.
+  it.each([
+    { name: "groups (path)", cli: ["--communities", "path"], mcp: { communityMode: "path" as const } },
+    { name: "groups (louvain)", cli: ["--communities", "louvain"], mcp: { communityMode: "louvain" as const } },
+    { name: "units", cli: ["--level", "units"], mcp: { level: "units" as const } },
+    { name: "folder", cli: ["--folder", unitFolder], mcp: { folder: unitFolder } },
+  ])("reports the same coupling on the CLI and explore_architecture, from the matrix cells: $name", async (level) => {
+    const cli = JSON.parse(await runArchitectureCli(["--coupling", ...level.cli], runtime as never, "json"));
+    const matrix: CliMatrix = JSON.parse(await runArchitectureCli(["--matrix", ...level.cli], runtime as never, "json"));
+    const mcp = await executeExploreArchitecture({ ...level.mcp, view: "coupling", limit: 500 });
+    for (const field of ["coupledPairs", "bridgingFiles", "formulas", "context"] as const) expect(mcp[field], field).toEqual(cli[field]);
+    expect(mcp.page).toMatchObject({ totalCoupledPairs: cli.coupledPairs.length, totalBridgingFiles: cli.bridgingFiles.length, truncated: false });
+
+    const cell = new Map(matrix.cells.map((entry) => [`${matrix.rows[entry.row].id}>${matrix.rows[entry.column].id}`, entry.fileEdgeCount]));
+    const offDiagonal = matrix.cells.filter((entry) => entry.row !== entry.column).length;
+    const pairs: { a: string; b: string; aToB: number; bToA: number; mutual: boolean }[] = cli.coupledPairs;
+    expect(pairs.reduce((total, pair) => total + Number(pair.aToB > 0) + Number(pair.bToA > 0), 0)).toBe(offDiagonal);
+    for (const pair of pairs) {
+      expect(pair.aToB).toBe(cell.get(`${pair.a}>${pair.b}`) ?? 0);
+      expect(pair.bToA).toBe(cell.get(`${pair.b}>${pair.a}`) ?? 0);
+      // A mutual pair is a two-row cycle: both rows sit in one matrix cycle.
+      const cycleOf = (id: string) => (matrix.rows.find((row) => row.id === id) as { cycle?: number }).cycle;
+      if (pair.mutual) {
+        expect(cycleOf(pair.a)).toBeDefined();
+        expect(cycleOf(pair.a)).toBe(cycleOf(pair.b));
+      }
+    }
+    expect(await runArchitectureCli(["--coupling", ...level.cli], runtime as never, "text")).toMatch(/^Coupling \((groups|units|src|complex-cycle)\)\n/);
+  });
+
+  it("rejects --matrix or --coupling with --from, both together, and csv without --matrix", async () => {
     await expect(runArchitectureCli(["--level", "units", "--matrix", "--from", "a", "--to", "b"], runtime as never, "json"))
-      .rejects.toThrow("--matrix lists every cell");
+      .rejects.toThrow("--matrix covers the whole level: drop --from and --to");
+    await expect(runArchitectureCli(["--level", "units", "--coupling", "--from", "a", "--to", "b"], runtime as never, "json"))
+      .rejects.toThrow("--coupling covers the whole level: drop --from and --to");
+    await expect(runArchitectureCli(["--matrix", "--coupling"], runtime as never, "json")).rejects.toThrow("two views of the level: pass one");
     await expect(runArchitectureCli(["--groups"], runtime as never, "csv")).rejects.toThrow('Format "csv" is only produced');
+    await expect(runArchitectureCli(["--coupling"], runtime as never, "csv")).rejects.toThrow('Format "csv" is only produced');
+    await expect(runArchitectureCli(["--coupling"], runtime as never, "mermaid")).rejects.toThrow("--coupling, --level units");
   });
 });

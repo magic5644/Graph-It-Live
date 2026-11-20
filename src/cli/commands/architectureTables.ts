@@ -1,13 +1,13 @@
 /**
- * Text and markdown views of `graph-it architecture --level units | --folder | --from/--to | --matrix`:
+ * Text and markdown views of `graph-it architecture --level units | --folder | --from/--to | --matrix | --coupling`:
  * the tables a human reads, where json/toon carry the full data.
  *
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
 import { unitMatrix } from "../../analyzer/architecture/architectureMatrix.js";
-import { evidenceCell, rulesCell } from "../../mcp/markdownViews.js";
-import type { ArchitectureMatrix, ArchitectureUnit, ArchitectureUnits, CommunityGroupAggregation } from "../../shared/architecture-model.js";
+import { evidenceCell, linksCell, pairsCell, rulesCell } from "../../mcp/markdownViews.js";
+import type { ArchitectureCoupling, ArchitectureMatrix, ArchitectureUnit, ArchitectureUnits, CommunityGroupAggregation } from "../../shared/architecture-model.js";
 
 type Cell = string | number | null;
 
@@ -149,6 +149,42 @@ export function matrixView(level: string, matrix: ArchitectureMatrix): Architect
         title: "Cells",
         headers: ["Row", "Column", "File pairs", "Upward"],
         rows: cells.map((cell) => [label(cell.row), label(cell.column), cell.fileEdgeCount, cell.upward ? "yes" : ""]),
+      },
+    ],
+  };
+}
+
+/** Rows per coupling table in text and markdown: the heaviest first, json and toon list every one. */
+export const COUPLING_ROWS = 50;
+
+export function couplingView(level: string, coupling: ArchitectureCoupling): ArchitectureView {
+  const { coupledPairs, bridgingFiles, formulas } = coupling;
+  const cut = coupledPairs.length > COUPLING_ROWS || bridgingFiles.length > COUPLING_ROWS;
+  const shown = (total: number) => Math.min(total, COUPLING_ROWS);
+  const next = level === "units"
+    ? "Next: graph-it architecture --level units --from <a> --to <b> lists every file pair of one direction."
+    : "Next: --format json lists up to 3 evidence pairs per item; the MCP tool explore_architecture with from and to lists every file pair of an edge.";
+  return {
+    title: `Coupling (${level})`,
+    notes: [
+      `${coupledPairs.length} coupled pair(s), ${bridgingFiles.length} bridging file(s).`,
+      ...(cut
+        ? [`Showing the first ${shown(coupledPairs.length)} pair(s) and ${shown(bridgingFiles.length)} file(s); --format json or toon lists them all.`]
+        : []),
+      formulas.coupledPair,
+      formulas.bridgingFile,
+      next,
+    ],
+    tables: [
+      {
+        title: "Most coupled pairs",
+        headers: ["A", "B", "A → B", "B → A", "File pairs", "Mutual", "Evidence"],
+        rows: coupledPairs.slice(0, COUPLING_ROWS).map((pair) => [pair.aLabel, pair.bLabel, pair.aToB, pair.bToA, pair.fileEdgeCount, pair.mutual ? "yes" : "", pairsCell(pair.evidence)]),
+      },
+      {
+        title: "Bridging files",
+        headers: ["File", "Group", "Groups", "File pairs", "Links"],
+        rows: bridgingFiles.slice(0, COUPLING_ROWS).map((file) => [file.file, file.groupLabel, file.groupCount, file.fileEdgeCount, linksCell(file.links)]),
       },
     ],
   };
