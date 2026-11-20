@@ -54,7 +54,8 @@ const VITE_HINT = "start or build the Vite app once to generate it";
  * `useX: typeof import('./src/x')['useX']`, `useX: typeof import('./src/x').useX` (unplugin-auto-import 19+),
  * `'Foo': LazyComponent<typeof import("../c/Foo.vue")['default']>`.
  */
-const TYPEOF_IMPORT = /([A-Za-z_$][\w$]*)['"]?\??:\s*(?:[\w$.]+<)?typeof import\(['"]([^'"]+)['"]\)(?:\.|\[['"])([\w$]+)/g;
+// Anchored and applied to one entry at a time (split on newlines, `;` and braces), so it runs in linear time.
+const TYPEOF_IMPORT = /^\s*(?:(?:const|readonly)\s+)?['"]?([A-Za-z_$][\w$]*)['"]?\??:\s*(?:[\w$.]+<)?typeof import\(['"]([^'"]+)['"]\)(?:\.|\[['"])([\w$]+)/;
 /** `export { useX, default as useY } from '../composables/x'` (Nuxt); `export type { … }` binds no value. */
 const EXPORT_FROM = /export \{([^}]*)\} from ['"]([^'"]+)['"]/g;
 /** `dts: 'src/auto-imports.d.ts'` in a Vite config. */
@@ -71,10 +72,13 @@ export function readDeclarations(content: string, from: string, names: Map<strin
     const relative = path.isAbsolute(specifier) ? `./${normalizePath(path.relative(path.dirname(from), specifier))}` : specifier;
     names.set(local, { from, specifier: relative, imported });
   };
-  for (const [, local, specifier, member] of content.matchAll(TYPEOF_IMPORT)) add(local, specifier, member);
+  for (const entry of content.split(/[\n;{}]/)) {
+    const match = TYPEOF_IMPORT.exec(entry);
+    if (match) add(match[1], match[2], match[3]);
+  }
   for (const [, list, specifier] of content.matchAll(EXPORT_FROM)) {
     for (const item of list.split(",")) {
-      const [imported, local = imported] = item.trim().split(/\s+as\s+/);
+      const [imported, local = imported] = item.trim().replaceAll(/\s+/g, " ").split(" as ");
       if (imported) add(local, specifier, imported);
     }
   }
@@ -177,7 +181,7 @@ export class AutoImports {
     const hash = createHash("sha256");
     const sources: string[] = [];
     const missing: MissingAutoImports[] = [];
-    for (const relative of [...new Set([...DECLARATION_FILES, ...configured])]) {
+    for (const relative of new Set([...DECLARATION_FILES, ...configured])) {
       const file = path.join(root, relative);
       // A config's `dts` may point anywhere: only a file of the workspace is read (CWE-22).
       const inside = isPathWithinRootCanonical(file, this.workspaceRoot);

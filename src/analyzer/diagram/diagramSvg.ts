@@ -138,12 +138,15 @@ function flowMarkup(layout: FlowLayout): string[] {
   ];
 }
 
-function bodyMarkup(layout: DiagramLayout | MatrixLayout | FlowLayout): string[] {
+
+/** Every layout the SVG and HTML renderers draw. */
+type AnyLayout = DiagramLayout | MatrixLayout | FlowLayout;
+function bodyMarkup(layout: AnyLayout): string[] {
   if ("cells" in layout) return matrixMarkup(layout);
   return "lanes" in layout ? flowMarkup(layout) : graphMarkup(layout);
 }
 
-function svgMarkup(layout: DiagramLayout | MatrixLayout | FlowLayout, style: string): string {
+function svgMarkup(layout: AnyLayout, style: string): string {
   const { width, height, text: lines } = layout;
   const top = SIZES.margin;
   return [
@@ -162,12 +165,12 @@ function svgMarkup(layout: DiagramLayout | MatrixLayout | FlowLayout, style: str
 }
 
 /** A bare SVG in one theme: what a README, a wiki or a slide embeds. */
-export function renderDiagramSvg(layout: DiagramLayout | MatrixLayout | FlowLayout, theme: DiagramTheme = "light"): string {
+export function renderDiagramSvg(layout: AnyLayout, theme: DiagramTheme = "light"): string {
   return `${svgMarkup(layout, variables("svg", PALETTES[theme]) + CLASSES)}\n`;
 }
 
 /** One self-contained HTML page, light or dark with the reader's `prefers-color-scheme`; its CSP allows inline styles only. */
-export function renderDiagramHtml(layout: DiagramLayout | MatrixLayout | FlowLayout): string {
+export function renderDiagramHtml(layout: AnyLayout): string {
   const style = [
     variables(":root", PALETTES.light),
     `@media (prefers-color-scheme: dark){${variables(":root", PALETTES.dark)}}`,
