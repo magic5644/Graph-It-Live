@@ -10,8 +10,9 @@ import * as nodePath from "node:path";
 import { exploreArchitecture, exploreArchitectureCheck, exploreMatrix, exploreUnitEvidence, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile } from "../../analyzer/architecture/ArchitectureGraphBuilder";
 import { groupMatrix, unitMatrix } from "../../analyzer/architecture/architectureMatrix";
-import { checkWorkspaceArchitecture, loadDeclaredRoles } from "../../analyzer/architecture/architectureRules";
-import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits";
+import { checkWorkspaceArchitecture } from "../../analyzer/architecture/architectureRules";
+import { folderLevel } from "../../analyzer/architecture/architectureUnits";
+import { loadWorkspaceUnits } from "../../analyzer/architecture/workspaceUnits";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation";
 import { defaultDiagramFile, diagramLevel } from "../../analyzer/diagram/diagramStyle";
 import { renderWorkspaceDiagram } from "../../analyzer/diagram/workspaceDiagram";
@@ -36,16 +37,19 @@ export async function executeExploreArchitecture(
     (filePath) => workerState.getSpider().analyzeFromIndex(filePath),
     { maxFiles: params.maxFiles, communityMode: params.communityMode, signal },
   );
+  const { rootDir } = workerState.getConfig();
   if (params.level === "units") {
-    const { rootDir } = workerState.getConfig();
-    const assignment = assignUnits(rootDir, graph.nodes.map((node) => node.relativePath));
-    const units = buildArchitectureUnits(graph, rootDir, assignment, await loadDeclaredRoles(rootDir));
+    const { units, assignment } = await loadWorkspaceUnits(graph, rootDir);
     if (params.view === "matrix") return exploreMatrix(unitMatrix(units), units.context, { ...params, units: true });
-    if (params.from === undefined || params.to === undefined) return exploreUnits(units, params);
-    return exploreUnitEvidence(graph, units, assignment.unitOf, { ...params, from: String(params.from), to: String(params.to) });
+    if (params.from !== undefined && params.to !== undefined) {
+      return exploreUnitEvidence(graph, units, assignment.unitOf, { ...params, from: String(params.from), to: String(params.to) });
+    }
+    // Where the units come from and the config's verdicts, as graph-it architecture --level units --format json reports them.
+    const { unitsFrom, configFile, baselineFile, configWarnings, rules } = units;
+    return { ...exploreUnits(units, params), unitsFrom, configFile, baselineFile, configWarnings, rules };
   }
   if (params.folder !== undefined) {
-    const { graph: level, nestedGroups } = folderLevel(graph, workerState.getConfig().rootDir, params.folder);
+    const { graph: level, nestedGroups } = folderLevel(await loadWorkspaceUnits(graph, rootDir), params.folder);
     if (params.view === "matrix") {
       return { folder: params.folder, nestedGroups, ...exploreMatrix(groupMatrix(aggregateCommunityGroups(level.graphData)), level.context, params) };
     }

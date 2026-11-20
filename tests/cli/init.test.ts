@@ -216,7 +216,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     expect(read(`${dir}/matrix.svg`)).toContain("row imports column: N file pairs");
     // units.svg: every unit kept, the shared-ui / shared-utils cycle drawn by its cut only.
     const units = read(`${dir}/units.svg`);
-    expect(units.match(/<rect class="node"/g)).toHaveLength(9);
+    expect(units.match(/<rect class="node[ "]/g)).toHaveLength(9);
     expect(units).toContain("2 units form 1 cycle, drawn by the 1 edge that breaks it (1 file pair); 1 other edge inside them not drawn");
     const report = read(`${dir}/report.md`);
     expect(report).toContain("([diagram](units.svg))");
@@ -225,12 +225,13 @@ describe("graph-it init", { timeout: 60_000 }, () => {
     // The page: one group per unit, the units of the report, its findings, and no absolute path.
     const page = read(`${dir}/index.html`);
     const groups = JSON.parse(page.split("const groupsData = ")[1].split(";\n")[0]) as { key: string; label: string; fileCount: number }[];
-    expect(groups.map((group) => group.key)).toEqual(expect.arrayContaining(["backend", "frontend", "shared/ui", "shared/utils", "(root)"]));
+    expect(groups.map((group) => group.key)).toEqual(expect.arrayContaining(["backend", "frontend", "shared/ui", "shared/utils", "scripts"]));
     // Shown by the unit's display name, as units.svg and report.md show it (#774).
-    expect(groups.map((group) => group.label)).toEqual(expect.arrayContaining(["@acme/backend", "@acme/frontend", "@acme/shared-ui", "@acme/shared-utils", "(root)"]));
+    expect(groups.map((group) => group.label)).toEqual(expect.arrayContaining(["@acme/backend", "@acme/frontend", "@acme/shared-ui", "@acme/shared-utils", "scripts"]));
     expect(groups).toHaveLength(result.assessment.totals.units);
     expect(groups.reduce((sum, group) => sum + group.fileCount, 0)).toBe(result.assessment.totals.files);
-    expect(page).toContain(`"title":"Dead files: 2 files in 1 unit"`);
+    // scripts/seed.ts in the unit scripts; backend/src/gone.ts, gone since the scan, in no unit of the graph (#776 root split).
+    expect(page).toContain(`"title":"Dead files: 2 files in 2 units"`);
     expect(page).not.toContain(root);
     // On stdout the links are workspace-relative.
     expect(await run(["--dry-run"], runtime, "markdown", offline)).toContain("# Architecture report (graph-it init)");
@@ -322,11 +323,11 @@ describe("graph-it init", { timeout: 60_000 }, () => {
       const whole = await init(["--dry-run"]);
       const result = await init(["--dry-run", "--focus", "backend"]);
       expect(result.focus).toBe("backend");
-      // backend/src/{api,db}.ts; neighbours: functions/billing, frontend, (root) scripts, shared/utils.
+      // backend/src/{api,db}.ts; neighbours: functions/billing, frontend, scripts, shared/utils.
       expect(result.assessment.totals).toMatchObject({ files: 2, units: 5, unitEdges: 4, unitCycles: 0, unusedExports: 1, unusedExportsMedium: 2, unusedExportsLow: 0, deadFiles: 1 });
       expect(result.assessment.quickWins.map((win) => win.kind)).not.toContain("cycle-break");
       expect(result.assessment.quickWins.every((win) => win.units.includes("backend"))).toBe(true);
-      const neighbours = ["backend", "functions/billing", "frontend", "(root)", "shared/utils"];
+      const neighbours = ["backend", "functions/billing", "frontend", "scripts", "shared/utils"];
       expect(result.assessment.matrixFindings.flatMap((finding) => finding.rows).every((row) => neighbours.includes(row))).toBe(true);
       // The rules files still cover the whole workspace.
       expect(result.changes).toEqual(whole.changes);
@@ -353,7 +354,7 @@ describe("graph-it init", { timeout: 60_000 }, () => {
       const result = await init(["--focus", "backend", "--output", "report"]);
       const folders = result.diagrams.filter((diagram) => diagram.view === "folder").map((diagram) => diagram.file);
       expect(folders[0]).toBe("report/folder-1-backend.svg");
-      expect(read("report/units.svg").match(/<rect class="node"/g)).toHaveLength(5);
+      expect(read("report/units.svg").match(/<rect class="node[ "]/g)).toHaveLength(5);
       expect(read("report/report.md")).toContain("- Focus: backend and its direct neighbours only");
       const page = read("report/index.html");
       expect(page).toContain("scope: backend and its direct neighbours");

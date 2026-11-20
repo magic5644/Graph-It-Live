@@ -9,7 +9,7 @@
  */
 
 import ELK, { type ElkExtendedEdge, type ElkNode } from "elkjs/lib/elk.bundled.js";
-import type { ArchitectureUnitEdgeKind, UnitCycleKind, UnitRole } from "../../shared/architecture-model";
+import type { ArchitectureUnit, ArchitectureUnitEdgeKind, UnitCycleKind, UnitRole, UnitRoleInfo } from "../../shared/architecture-model";
 import { ELK_LAYERED_OPTIONS, layerPartition } from "../../shared/elkLayered";
 import { normalizePath } from "../../shared/path";
 import { unitDisplayName } from "../../shared/unitDisplayName";
@@ -19,6 +19,7 @@ import { rulesByEdge, type ArchitectureViolation } from "../architecture/archite
 import { byCodeUnit, countPair, cycleKind, type UnitPair } from "../architecture/architectureUnits";
 import { viewUnitLevel, type UnitSource } from "../architecture/architectureView";
 import { stronglyConnectedComponents } from "../architecture/stronglyConnectedComponents";
+import { closestNames } from "../utils/SymbolLookup";
 import { CYCLE_PADDING, edgeStyle, LEGEND, LEGEND_KINDS, SIZES, snap, type LegendKind } from "./diagramStyle";
 
 /** Nodes drawn at most: the largest are kept, a note counts the others. */
@@ -34,6 +35,10 @@ export interface DiagramNode {
   internalEdgeCount?: number;
   /** Units level only: the unit's role, declared or inferred. */
   role?: UnitRole;
+  /** Units level only: an inferred role is drawn with a dashed border. */
+  confidence?: UnitRoleInfo["confidence"];
+  /** Units level only: the evidence of an inferred role, for the node's tooltip. */
+  roleEvidence?: string[];
 }
 
 export interface DiagramEdge {
@@ -187,6 +192,20 @@ export interface DiagramInputOptions {
   minImports?: number;
 }
 
+/** A unit as a node: its role, and for an inferred role the evidence the tooltip lists. */
+function unitNode(unit: ArchitectureUnit): DiagramNode {
+  const { key, layer, fileCount, internalEdgeCount, role, confidence } = unit;
+  const inferred = confidence === "inferred" ? { roleEvidence: unit.evidence.map((entry) => entry.detail) } : {};
+  return { key, label: unitDisplayName(unit), layer, fileCount, internalEdgeCount, role, confidence, ...inferred };
+}
+
+/** What a node's tooltip says of its role: declared, or inferred with its evidence. */
+export function roleTitle({ role, confidence, roleEvidence = [] }: Pick<DiagramNode, "role" | "confidence" | "roleEvidence">): string | undefined {
+  if (role === undefined) return undefined;
+  // One line: the SVG text sanitizer replaces line breaks.
+  return confidence === "inferred" ? `role ${role}, inferred from: ${roleEvidence.join("; ")}` : `role ${role}, declared`;
+}
+
 function levelInput(source: UnitSource, workspaceRoot: string, { folder, violations = [], role }: DiagramInputOptions): DiagramInput {
   const workspace = workspaceName(workspaceRoot);
   const date = source.graph.context.indexedAt?.slice(0, 10);
@@ -202,7 +221,7 @@ function levelInput(source: UnitSource, workspaceRoot: string, { folder, violati
     return {
       workspace, scope: "units", noun: "units", revision: context.revision, date, violations: count, acceptedViolations: accepted,
       ...(role === undefined ? {} : { filters: [`role ${role}`] }),
-      nodes: units.map((unit) => ({ key: unit.key, label: unitDisplayName(unit), layer: unit.layer, fileCount: unit.fileCount, internalEdgeCount: unit.internalEdgeCount, role: unit.role })),
+      nodes: units.map(unitNode),
       edges: unitEdges
         .filter(({ from, to }) => kept.has(from) && kept.has(to))
         .map(({ from, to, fileEdgeCount, kind, cycleKind: runs, typeOnlyEdgeCount }) => ({
@@ -213,9 +232,15 @@ function levelInput(source: UnitSource, workspaceRoot: string, { folder, violati
         })),
     };
   }
-  const level = viewUnitLevel(source, Number.POSITIVE_INFINITY, folder);
+  // As folderLevel: an element unit is named by its key, its folder (mfe/cart) leads to it too.
+  const unitKey = source.assignment.names.has(folder) ? folder : [...source.assignment.folders].find(([, unitPath]) => unitPath !== "" && unitPath === folder)?.[0];
+  const level = viewUnitLevel(source, Number.POSITIVE_INFINITY, unitKey ?? folder);
   if (level.groups.length === 0) {
-    throw new Error(`No file below folder "${folder}". Pass a unit key or a folder key of the workspace.`);
+    // The units below that folder path first (an element instance "mfe (mfe/cart)" for mfe/cart), else the closest keys.
+    const below = source.units.units.filter((unit) => unit.folder === folder || unit.folder.startsWith(`${folder}/`)).map((unit) => unit.key);
+    const close = below.length > 0 ? below.slice(0, 3) : closestNames(source.units.units.map((unit) => unit.key), folder);
+    const hint = close.length > 0 ? ` Did you mean: ${close.join(", ")}?` : "";
+    throw new Error(`No file below folder "${folder}".${hint} Pass a unit key or a folder key of the workspace.`);
   }
   const keys = new Map(level.groups.map((group) => [group.id, group.key]));
   const groupOf = new Map(level.graph.nodes.map((node) => [node.relativePath, node.communityKey]));
@@ -454,9 +479,12 @@ export function legendLayout({ kinds = [], weight = true }: LegendOptions = {}) 
 export const edgeLegendKind = (edge: Pick<DiagramEdge, "kind" | "cycleKind" | "rules" | "accepted">): LegendKind =>
   edgeStyle(edge.kind, edge.cycleKind, { broken: edge.rules.length > 0, accepted: edge.accepted });
 
-/** The styles a drawing uses: its edges' and its cycle blocks'. */
-export const drawnKinds = (edges: readonly DiagramEdge[], cycles: readonly { kind: UnitCycleKind }[]): LegendKind[] =>
-  [...edges.map(edgeLegendKind), ...cycles.map((cycle) => edgeStyle("cycle", cycle.kind))];
+/** The styles a drawing uses: its edges', its cycle blocks' and the dashed border of its inferred roles. */
+export const drawnKinds = (edges: readonly DiagramEdge[], cycles: readonly { kind: UnitCycleKind }[], nodes: readonly Pick<DiagramNode, "confidence">[] = []): LegendKind[] => [
+  ...edges.map(edgeLegendKind),
+  ...cycles.map((cycle) => edgeStyle("cycle", cycle.kind)),
+  ...(nodes.some((node) => node.confidence === "inferred") ? ["inferred-role" as const] : []),
+];
 
 const plural = (count: number, noun: string) => `${count} ${count === 1 ? noun.replace(/s$/, "") : noun}`;
 
@@ -532,7 +560,8 @@ export async function layoutDiagram(input: DiagramInput, options: DrawOptions = 
   const sized = nodes.map((node) => {
     const text = fitName(node.label);
     const layer = oneLayer ? "" : " · layer " + node.layer;
-    const meta = `${node.fileCount} ${node.fileCount === 1 ? "file" : "files"}${layer}`;
+    // The role in words: the dashed border only says it is inferred, a colour never names it.
+    const meta = `${node.fileCount} ${node.fileCount === 1 ? "file" : "files"}${layer}${node.role === undefined ? "" : " · " + node.role}`;
     const width = snap(Math.max(SIZES.minNodeWidth, textWidth(text, SIZES.label) + 2 * SIZES.nodePaddingX, textWidth(meta, SIZES.meta) + 2 * SIZES.nodePaddingX));
     return { ...node, text, meta, width, height: SIZES.nodeHeight };
   });
@@ -567,7 +596,7 @@ export async function layoutDiagram(input: DiagramInput, options: DrawOptions = 
   return {
     input,
     text,
-    width: snap(SIZES.margin * 2 + Math.max(result.width ?? 0, textBound(text, { kinds: drawnKinds(edges, cycleBoxes) }))),
+    width: snap(SIZES.margin * 2 + Math.max(result.width ?? 0, textBound(text, { kinds: drawnKinds(edges, cycleBoxes, nodes) }))),
     height: snap(header + (result.height ?? 0) + SIZES.margin + legendHeight(text)),
     top: header,
     nodes: sized.map((node) => ({ ...node, ...at(placed.get(id.get(node.key)!)), width: node.width, height: node.height })),

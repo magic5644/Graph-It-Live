@@ -7,9 +7,9 @@
  */
 
 import { buildArchitectureGraph, type AnalyzeFile } from "../architecture/ArchitectureGraphBuilder";
-import { checkWorkspaceArchitecture, loadDeclaredRoles, type ArchitectureRulesFileNames } from "../architecture/architectureRules";
-import { assignUnits, buildArchitectureUnits, directoryFolderKey } from "../architecture/architectureUnits";
-import type { UnitSource } from "../architecture/architectureView";
+import { ARCHITECTURE_CONFIG_FILE, type ArchitectureRulesFileNames } from "../architecture/architectureRules";
+import { directoryFolderKey } from "../architecture/architectureUnits";
+import { loadWorkspaceUnits, type UnitSource } from "../architecture/workspaceUnits";
 import { architectureDiagramInput, layoutDiagram, type DiagramInputOptions, type DrawOptions } from "./architectureDiagram";
 import { layoutMatrix } from "./diagramMatrix";
 import type { DIAGRAM_FORMATS, DiagramTheme, DiagramView } from "./diagramStyle";
@@ -38,10 +38,11 @@ export async function renderWorkspaceDiagram(workspaceRoot: string, analyze: Ana
     indexedAt: options.indexedAt,
     signal: options.signal,
   });
-  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
-  const source = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment, await loadDeclaredRoles(workspaceRoot)), assignment };
-  const violations = options.rules ? (await checkWorkspaceArchitecture(graph, workspaceRoot, options.rules)).violations : [];
-  const folder = options.directory === undefined ? options.folder : directoryFolderKey(assignment, options.directory);
+  // The overlay names its config, so a missing one is an error; else the units read the default config when there is one.
+  const files = options.rules === undefined ? {} : { config: options.rules.config ?? ARCHITECTURE_CONFIG_FILE, baseline: options.rules.baseline };
+  const source = await loadWorkspaceUnits(graph, workspaceRoot, files);
+  const violations = options.rules === undefined ? [] : source.check?.violations ?? [];
+  const folder = options.directory === undefined ? options.folder : directoryFolderKey(source.assignment, options.directory);
   return renderSourceDiagram(source, workspaceRoot, { ...options, folder, violations });
 }
 

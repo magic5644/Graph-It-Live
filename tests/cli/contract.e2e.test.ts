@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { COMMAND_NAMES, COMMAND_SPECS } from "../../src/cli/commandSpec";
 import { getCommandHelp } from "../../src/cli/commandHelp";
 import type { CliOutputFormat } from "../../src/cli/formatter";
+import { elementsWorkspace, rootWorkspace } from "./architectureUnitsFixture";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const DIST_ENTRY = path.join(REPO_ROOT, "dist/graph-it.js");
@@ -269,6 +270,92 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     const both = cli(["architecture", "--groups", "--level", "units"]);
     expect(both.status).toBe(1);
     expect(both.stderr).toContain("--groups is the folder groups of the workspace");
+  });
+});
+
+// ADR-776 contract rows: units from declared elements, (root) warnings, refused config, element vs project cycles.
+describe.skipIf(!distExists)("CLI units contract (#776, E2E)", { timeout: TIMEOUT_MS }, () => {
+  const roots: string[] = [];
+  const run = (root: string, ...args: string[]) => spawnSync(process.execPath, [DIST_ENTRY, ...args], { cwd: root, encoding: "utf-8" });
+  const workspace = (root: string) => (roots.push(root), root);
+  let elements = "";
+
+  beforeAll(() => {
+    elements = workspace(elementsWorkspace());
+  }, TIMEOUT_MS);
+
+  afterAll(() => {
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  });
+
+  it("draws the declared elements, their rules and the cycle between elements; the review sees no detected-project cycle", () => {
+    const text = run(elements, "architecture", "--level", "units");
+    expect(text.status, text.stderr).toBe(0);
+    expect(text.stdout).toMatch(/^Units: declared elements of graphit.architecture.json\n/);
+    expect(text.stdout).toContain("Cycles between declared elements:\n  Units\n  alpha, beta");
+    expect(text.stdout).toContain("Rules:\n  Rule            Kind    Severity  Violations  New\n  alpha-not-beta  forbid  warning   1           1");
+    expect(text.stdout).toContain("alpha  beta   1           cycle  alpha-not-beta violated");
+    expect(text.stdout).not.toMatch(/\[[a-z-]+\?\]/);
+    const json = JSON.parse(run(elements, "architecture", "--level", "units", "--format", "json").stdout);
+    expect(json).toMatchObject({ unitsFrom: "elements", configFile: "graphit.architecture.json", configWarnings: [] });
+    expect(json.units.map((unit: { key: string }) => unit.key).sort()).toEqual(["alpha", "beta", "pkgs"]);
+    expect(json.unitEdges.find((edge: { from: string }) => edge.from === "alpha")).toMatchObject({ to: "beta", ruleVerdict: "violated" });
+    const review = run(elements, "review-pr", "--base", "HEAD~2", "--head", "HEAD~1", "--format", "markdown");
+    expect(review.status, review.stderr).toBe(0);
+    expect(review.stdout).toContain("Detected-project cycles: 0 new");
+  });
+
+  it("draws no cycle for two detected projects inside one element; the review names them", () => {
+    const json = JSON.parse(run(elements, "architecture", "--level", "units", "--format", "json").stdout);
+    expect(json.unitEdges.some((edge: { from: string; to: string }) => edge.from === "pkgs" || edge.to === "pkgs")).toBe(false);
+    const review = run(elements, "review-pr", "--base", "HEAD~1", "--head", "HEAD", "--format", "markdown");
+    expect(review.status, review.stderr).toBe(0);
+    expect(review.stdout).toContain("cycle between detected projects packages/p, packages/q");
+  });
+
+  it("refuses an unknown unit with the element names closest to it", () => {
+    const result = run(elements, "architecture", "--level", "units", "--from", "alpah", "--to", "beta");
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('Unknown unit "alpah". Did you mean: alpha?');
+  });
+
+  it('warns that roles["(root)"] now holds the root files only, naming the new units', () => {
+    const root = workspace(rootWorkspace({ elements: {}, rules: [], roles: { "(root)": "tooling" } }));
+    const text = run(root, "architecture", "--level", "units");
+    expect(text.status, text.stderr).toBe(0);
+    const warning = '$.roles["(root)"]: "(root)" now holds only the 1 file at the workspace root; files outside every project moved to the units scripts, tools: name those instead';
+    expect(text.stdout).toContain(`Config warnings:\n  Warning\n  ${warning}`);
+    expect(text.stdout).toMatch(/^Units: detected projects\n/);
+    expect(JSON.parse(run(root, "architecture", "--level", "units", "--format", "json").stdout).configWarnings).toEqual([warning]);
+  });
+
+  it("fails on a refused config with one line naming the file and the JSON path", () => {
+    const root = workspace(rootWorkspace({ elements: {}, rules: [], roles: { x: "nope" } }));
+    const result = run(root, "architecture", "--level", "units");
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    const errors = result.stderr.split("\n").filter((line) => line.startsWith("Error:"));
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatch(/^Error: graphit.architecture.json: \$\.roles\.x: /);
+    expect(result.stderr).not.toMatch(/\n\s+at /);
+  });
+
+  it("draws the files no element selects as one (unmatched) unit with a warning, never an empty table", () => {
+    const root = workspace(rootWorkspace({ elements: { only: { path: "nowhere/" } }, rules: [] }));
+    const text = run(root, "architecture", "--level", "units");
+    expect(text.status, text.stderr).toBe(0);
+    expect(text.stdout).toContain('$.elements: 3 files match no element; drawn in unit "(unmatched)"');
+    expect(text.stdout).toMatch(/\n  \(unmatched\)\s+0\s+\w+\s+.+\s+3\n/);
+  });
+
+  it("init --dry-run prints the warning of an older (root) element and writes nothing", () => {
+    const root = workspace(rootWorkspace({ elements: { root: { unit: "(root)" } }, rules: [] }));
+    const before = fs.readFileSync(path.join(root, "graphit.architecture.json"), "utf8");
+    const result = run(root, "init", "--dry-run");
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout).toContain('Config warnings:\n  $.elements.root.unit: "(root)" now holds only the 1 file at the workspace root; files outside every project moved to the units scripts, tools: name those instead');
+    expect(fs.readFileSync(path.join(root, "graphit.architecture.json"), "utf8")).toBe(before);
+    expect(fs.existsSync(path.join(root, "graphit.architecture.baseline.json"))).toBe(false);
   });
 });
 

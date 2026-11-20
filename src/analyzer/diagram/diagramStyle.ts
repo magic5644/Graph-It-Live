@@ -106,6 +106,8 @@ export const LEGEND = {
   error: { colour: "error", text: "breaks a rule" },
   accepted: { colour: "error", dash: "4 3", text: "accepted in baseline" },
   dead: { colour: "muted", dash: "4 3", text: "dead file" },
+  // A node border, never an edge: a unit whose role no config declares (#776).
+  "inferred-role": { colour: "line", dash: "3 3", text: "dashed border: role inferred" },
 } as const satisfies Record<string, { colour: keyof Palette; dash?: string; text: string }>;
 
 export type LegendKind = keyof typeof LEGEND;

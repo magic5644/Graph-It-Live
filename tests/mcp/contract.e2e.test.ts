@@ -12,6 +12,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { closeSession, startMcpSession, type ToolResult } from "../../scripts/mcpSession.mts";
+import { elementsWorkspace, rootWorkspace } from "../cli/architectureUnitsFixture";
 
 const REPO_ROOT = path.resolve(__dirname, "../..");
 const DIST_ENTRY = path.join(REPO_ROOT, "dist/graph-it.js");
@@ -27,6 +28,9 @@ interface ListedTool {
 }
 
 let root = "";
+const contractRoot = (workspace: string) => {
+  root = workspace;
+};
 
 /** One valid call per tool, on the fixture below. */
 const VALID: Record<string, () => Args> = {
@@ -238,3 +242,76 @@ describe.skipIf(!distExists)("MCP user contract (E2E)", { timeout: TIMEOUT_MS },
     }
   });
 });
+
+// ADR-776 contract rows, as the CLI ones: units from declared elements, warnings, refused config, two kinds of cycle.
+describe.skipIf(!distExists)("MCP units contract (#776, E2E)", { timeout: TIMEOUT_MS }, () => {
+  let session: Awaited<ReturnType<typeof startMcpSession>>;
+  const roots: string[] = [];
+  const call = (tool: string, args: Args) => session.callTool(`graphitlive_${tool}`, args);
+  const data = async (tool: string, args: Args) => {
+    const result = await call(tool, { ...args, response_format: "json" });
+    expect(result.isError, result.content[0].text).toBeFalsy();
+    return JSON.parse(result.content[0].text).data;
+  };
+  /** Moves the session to a new workspace of the fixture. */
+  const open = async (root: string) => {
+    roots.push(root);
+    expect((await call("set_workspace", { workspacePath: root })).isError).toBeFalsy();
+    // expectReadableError checks the module's root never leaks into an error.
+    contractRoot(root);
+    return root;
+  };
+
+  beforeAll(async () => {
+    const elements = elementsWorkspace();
+    roots.push(elements);
+    contractRoot(elements);
+    session = await startMcpSession(DIST_ENTRY, elements, elements);
+  }, TIMEOUT_MS);
+
+  afterAll(async () => {
+    if (session) await closeSession(session.child);
+    for (const root of roots) fs.rmSync(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  });
+
+  it("returns the declared elements, edges with their rules and the element cycle; review_pr sees the detected-project cycles only", async () => {
+    const units = await data("explore_architecture", { level: "units" });
+    expect(units).toMatchObject({ unitsFrom: "elements", configFile: "graphit.architecture.json", configWarnings: [], cycles: 1 });
+    expect(units.units.map((unit: { key: string }) => unit.key).sort()).toEqual(["alpha", "beta", "pkgs"]);
+    const edge = units.unitEdges.find((candidate: { from: string }) => candidate.from === "alpha");
+    expect(edge).toMatchObject({ to: "beta", kind: "cycle", ruleVerdict: "violated", rules: [{ name: "alpha-not-beta", verdict: "violated" }] });
+    expect(units.rules.map((rule: { name: string }) => rule.name)).toEqual(["alpha-not-beta"]);
+    const markdown = (await call("explore_architecture", { level: "units", response_format: "markdown" })).content[0].text;
+    expect(markdown).toContain("- Units from: declared elements of graphit.architecture.json");
+
+    const elementCycle = await data("review_pr", { baseRef: "HEAD~2", headRef: "HEAD~1" });
+    expect(elementCycle.architecture.unitCycles.newViolations).toEqual([]);
+    const projectCycle = await data("review_pr", { baseRef: "HEAD~1", headRef: "HEAD" });
+    expect(projectCycle.architecture.unitCycles.newViolations.map((pair: { from: string; to: string }) => [pair.from, pair.to]))
+      .toEqual(expect.arrayContaining([["packages/p", "packages/q"]]));
+  });
+
+  it("refuses an unknown unit with the element names closest to it", async () => {
+    expectReadableError(await call("explore_architecture", { level: "units", from: "alpah", to: "beta" }), 'Unknown unit "alpah". Did you mean: alpha?');
+  });
+
+  it('warns that roles["(root)"] holds the root files only, in configWarnings', async () => {
+    await open(rootWorkspace({ elements: {}, rules: [], roles: { "(root)": "tooling" } }));
+    const units = await data("explore_architecture", { level: "units" });
+    expect(units.unitsFrom).toBe("manifests");
+    expect(units.configWarnings[0]).toBe('$.roles["(root)"]: "(root)" now holds only the 1 file at the workspace root; files outside every project moved to the units scripts, tools: name those instead');
+  });
+
+  it("fails on a refused config with the CLI's one line", async () => {
+    await open(rootWorkspace({ elements: {}, rules: [], roles: { x: "nope" } }));
+    expectReadableError(await call("explore_architecture", { level: "units" }), "graphit.architecture.json: $.roles.x: ");
+  });
+
+  it("returns one (unmatched) unit with a warning when no element selects a file", async () => {
+    await open(rootWorkspace({ elements: { only: { path: "nowhere/" } }, rules: [] }));
+    const units = await data("explore_architecture", { level: "units" });
+    expect(units.units.map((unit: { key: string; fileCount: number }) => [unit.key, unit.fileCount])).toEqual([["(unmatched)", 3]]);
+    expect(units.configWarnings).toContain('$.elements: 3 files match no element; drawn in unit "(unmatched)"');
+  });
+});
+

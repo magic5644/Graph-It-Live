@@ -6,7 +6,7 @@
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
 
-import { drawnKinds, edgeLegendKind, legendLayout, legendNotes, nodeTitle, sanitizeText, type DiagramLayout, type LegendOptions, type PlacedEdge } from "./architectureDiagram";
+import { drawnKinds, edgeLegendKind, legendLayout, legendNotes, nodeTitle, roleTitle, sanitizeText, type DiagramLayout, type LegendOptions, type PlacedEdge } from "./architectureDiagram";
 import type { MatrixLayout } from "./diagramMatrix";
 import { edgeStyle, FONT_MONO, LEGEND, LEGEND_KINDS, legendDash, PALETTES, SIZES, type DiagramTheme, type LegendKind, type Palette } from "./diagramStyle";
 
@@ -86,10 +86,10 @@ function graphMarkup(layout: DiagramLayout): string[] {
   const labels = new Map(layout.nodes.map((node) => [node.key, node.label]));
   const name = (key: string) => labels.get(key) ?? key;
   const nodes = layout.nodes.map((node) =>
-    `<g><title>${escapeXml(nodeTitle(node) + ": " + node.meta)}</title>` +
-    `<rect class="node" x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${SIZES.radius}"/>` +
+    `<g><title>${escapeXml([nodeTitle(node) + ": " + node.meta, roleTitle(node)].filter(Boolean).join("; "))}</title>` +
+    `<rect class="node${node.confidence === "inferred" ? " " + styleClass("inferred-role") : ""}" x="${node.x}" y="${node.y}" width="${node.width}" height="${node.height}" rx="${SIZES.radius}"/>` +
     `${text(node.x + pad, node.y + 18, "label", node.text)}${text(node.x + pad, node.y + 34, "meta", node.meta)}</g>`);
-  return [...cycles, ...layout.edges.map((edge) => edgeMarkup(edge, name)), ...nodes, legendMarkup(layout, { kinds: drawnKinds(layout.edges, layout.cycles) })];
+  return [...cycles, ...layout.edges.map((edge) => edgeMarkup(edge, name)), ...nodes, legendMarkup(layout, { kinds: drawnKinds(layout.edges, layout.cycles, layout.nodes) })];
 }
 
 /** The matrix: column numbers, numbered row labels, the frame, the cells, cycle outlines on top. */

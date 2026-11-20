@@ -65,9 +65,11 @@
           "fileCount": { "$ref": "#/$defs/count" },
           "internalEdgeCount": { "$ref": "#/$defs/count", "description": "Import file pairs inside the node" },
           "role": {
-            "enum": ["function", "micro-frontend", "frontend", "service", "library", "tooling", "unknown"],
+            "enum": ["application", "function", "micro-frontend", "frontend", "service", "library", "test", "fixture", "tooling", "unknown"],
             "description": "Units level only: declared in graphit.architecture.json, else inferred"
-          }
+          },
+          "confidence": { "enum": ["declared", "inferred"], "description": "Units level only: draw an inferred role with a dashed border" },
+          "roleEvidence": { "type": "array", "items": { "type": "string" }, "description": "Units level only, inferred roles: the evidence of the role" }
         }
       }
     },

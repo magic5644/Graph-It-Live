@@ -89,7 +89,7 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
   });
 
   it("writes the HTML page to architecture.html at the workspace root, creating folders for --output", async () => {
-    expect(await run([], runtime, "text")).toMatch(/^Diagram written to architecture\.html: \d+ units · \d+ layers · 1 cycle · 0 violations\.$/);
+    expect(await run([], runtime, "text")).toMatch(/^Diagram written to architecture\.html: \d+ units · \d+ layers · 0 cycles · 0 violations\.$/);
     const html = fs.readFileSync(path.join(root, "architecture.html"), "utf8");
     expect(html).toMatch(/^<!doctype html>/);
     expect(html).not.toContain(root.replaceAll("\\", "/"));
@@ -102,7 +102,8 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
     expect(svg).toMatch(/^<svg /);
     expect(svg).toContain("--bg:#0d1117");
     expect(svg).toMatch(edgeOf("error"));
-    expect(svg).toContain("broken rules: frontend-not-backend, functions-only-shared, mfe-isolated, no-unit-cycles");
+    // The units are the declared elements: the shared-utils ⇄ shared-ui cycle sits inside `shared`, on no edge (#776).
+    expect(svg).toContain("broken rules: frontend-not-backend, functions-only-shared, mfe-isolated<");
     expect(svg).not.toContain("accepted in baseline");
 
     await expect(run(["--rules", "--baseline", "--output", "-"], runtime, "svg")).rejects.toThrow("Baseline graphit.architecture.baseline.json not found");
@@ -121,10 +122,12 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
     const units = JSON.parse(fs.readFileSync(path.join(root, "architecture.diagram-spec.json"), "utf8"));
     expect(units).toMatchObject({ version: 1, level: "units", violations: { count: 0, rules: [] } });
     const spec = JSON.parse(await run(["--rules", "--output", "-"], runtime, "diagram-spec"));
-    expect(spec.violations.rules).toEqual(["frontend-not-backend", "functions-only-shared", "mfe-isolated", "no-unit-cycles"]);
+    expect(spec.violations.rules).toEqual(["frontend-not-backend", "functions-only-shared", "mfe-isolated"]);
     expect(spec.nodes).toEqual(units.nodes);
-    const folder = JSON.parse(await run(["--folder", "mfe/cart", "--output", "-"], runtime, "diagram-spec"));
-    expect(folder).toMatchObject({ level: "groups", scope: "mfe/cart" });
+    // --folder takes a unit key: an element instance is named "element (instance)" (#776).
+    const folder = JSON.parse(await run(["--folder", "mfe (mfe/cart)", "--output", "-"], runtime, "diagram-spec"));
+    expect(folder).toMatchObject({ level: "groups", scope: "mfe (mfe/cart)" });
+    await expect(run(["--folder", "mfe/cart", "--output", "-"], runtime, "diagram-spec")).rejects.toThrow('No file below folder "mfe/cart". Did you mean: mfe (mfe/cart)');
     for (const leak of [root.replaceAll("\\", "/"), root, JSON.stringify(root).slice(1, -1)]) expect(JSON.stringify([units, folder])).not.toContain(leak);
   });
 
@@ -152,11 +155,12 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
 
   it("draws the level of a directory: a unit root, an umbrella folder of it, a folder of the root unit", async () => {
     const spec = async (...args: string[]) => JSON.parse(await run([...args, "--output", "-"], runtime, "diagram-spec"));
-    expect(await spec("mfe/cart")).toMatchObject({ level: "groups", scope: "mfe/cart" });
-    expect(await spec(String.raw`mfe\cart\src`)).toMatchObject({ level: "groups", scope: "mfe/cart" });
-    expect(await spec("scripts")).toMatchObject({ level: "groups", scope: "(root)/scripts" });
+    // The directory of an element instance draws that unit (#776).
+    expect(await spec("mfe/cart")).toMatchObject({ level: "groups", scope: "mfe (mfe/cart)" });
+    expect(await spec(String.raw`mfe\cart\src`)).toMatchObject({ level: "groups", scope: "mfe (mfe/cart)" });
+    expect(await spec("scripts")).toMatchObject({ level: "groups", scope: "(unmatched)/scripts" });
     expect(await spec(".")).toMatchObject({ level: "units" });
-    expect(await run(["mfe/cart", "--view", "matrix", "--output", "-"], runtime, "html")).toContain("folder mfe/cart");
+    expect(await run(["mfe/cart", "--view", "matrix", "--output", "-"], runtime, "html")).toContain("folder mfe (mfe/cart)");
   });
 
   it("refuses a directory spanning several units or without indexed files", async () => {
@@ -171,8 +175,8 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
     expect(matrix).toContain('class="frame"');
     expect(matrix).toContain('class="cell s-error"');
     expect(matrix).not.toContain("width = file pairs");
-    const folder = await run(["--view", "matrix", "--folder", "mfe/cart", "--output", "-"], runtime, "html");
-    expect(folder).toContain("folder mfe/cart");
+    const folder = await run(["--view", "matrix", "--folder", "mfe (mfe/cart)", "--output", "-"], runtime, "html");
+    expect(folder).toContain("folder mfe (mfe/cart)");
   });
 
   it.each([

@@ -19,7 +19,7 @@ export interface HtmlExportContext {
 }
 
 /** A file pair the overlay draws, in the shared legend's style (diagramStyle edgeStyle): a violation wins over a cycle or upward. */
-export type HtmlEdgeKind = Exclude<LegendKind, 'down' | 'cut' | 'dead'>;
+export type HtmlEdgeKind = Exclude<LegendKind, 'down' | 'cut' | 'dead' | 'inferred-role'>;
 
 /** The overlay's kinds, strongest first: an edge of several file pairs takes the first one it holds. */
 const OVERLAY_KINDS: readonly HtmlEdgeKind[] = ['error', 'accepted', 'cycle', 'lazy', 'type-only', 'upward'];

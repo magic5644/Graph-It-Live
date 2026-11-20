@@ -6,7 +6,42 @@
  * CRITICAL ARCHITECTURE RULE: no vscode import.
  */
 
+import type { ArchitectureUnit, UnitRuleCheck } from "../shared/architecture-model";
+
 type Data = Record<string, unknown>;
+
+/** Widest Evidence cell; a longer evidence ends with "…" (json and toon carry it whole). */
+export const EVIDENCE_CELLS = 60;
+
+/** A unit's Evidence cell: `declared`, or the first evidence of its inferred role cut to EVIDENCE_CELLS (#776). */
+export function evidenceCell(unit: Pick<ArchitectureUnit, "role" | "confidence" | "evidence">): string {
+  if (unit.confidence === "declared") return "declared";
+  const detail = (unit.evidence.find((entry) => entry.role === unit.role) ?? unit.evidence[0])?.detail ?? "";
+  const chars = Array.from(detail);
+  return chars.length <= EVIDENCE_CELLS ? detail : `${chars.slice(0, EVIDENCE_CELLS - 1).join("")}…`;
+}
+
+/** The rules of a unit or a unit edge with their verdicts, by config order: "a pass, b violated". */
+export const rulesCell = (rules: readonly UnitRuleCheck[] | undefined): string => (rules ?? []).map((rule) => `${rule.name} ${rule.verdict}`).join(", ");
+
+/** The units of explore_architecture level units as rows: the Evidence and Rules cells the CLI shows. */
+function unitRows(units: unknown): Row[] {
+  return rows(units).map((unit) => {
+    const { key, name, folder, layer, role, fileCount, rules } = unit;
+    const evidence = Array.isArray(unit.evidence) ? evidenceCell(unit as unknown as ArchitectureUnit) : undefined;
+    return { key, name, folder, layer, role, evidence, fileCount, ...(Array.isArray(rules) ? { rules: rulesCell(rules as UnitRuleCheck[]) } : {}) };
+  });
+}
+
+/** Where the units come from, in the CLI's words; undefined outside level units. */
+function unitsFrom(data: Data): string | undefined {
+  if (data.unitsFrom === "elements") return `declared elements of ${text(data.configFile)}`;
+  return data.unitsFrom === "manifests" ? "detected projects" : undefined;
+}
+
+function unitEdgeRows(edges: unknown): Row[] {
+  return rows(edges).map(({ rules, ...edge }) => ({ ...edge, ...(Array.isArray(rules) ? { rules: rulesCell(rules as UnitRuleCheck[]) } : {}) }));
+}
 type Row = Record<string, unknown>;
 
 /** One line of text: newlines and other control characters would end a list item or a table row. */
@@ -299,8 +334,11 @@ const VIEWS: Record<string, View> = {
     `# Architecture: ${markdownText(text(d.view))}`,
     "",
     ...bullets(Object.entries((d.totals ?? {}) as Data)),
-    ...table("Units", d.units, ["key", "label", "layer", "fileCount", "roles"]),
-    ...table("Unit edges", d.unitEdges, ["from", "to", "fileEdgeCount", "direction"]),
+    ...bullets([["Units from", unitsFrom(d)]]),
+    ...list("Config warnings", d.configWarnings),
+    ...table("Units", unitRows(d.units), ["key", "name", "folder", "layer", "role", "evidence", "fileCount", "rules"]),
+    ...table("Unit edges", unitEdgeRows(d.unitEdges), ["from", "to", "fileEdgeCount", "kind", "cycleKind", "ruleVerdict", "rules"]),
+    ...table("Rules", d.rules, ["name", "kind", "severity", "violations", "newViolations"]),
     ...table("Groups", d.groups, ["id", "key", "label", "fileCount", "internalEdgeCount"]),
     ...table("Group edges", d.groupEdges, ["fromLabel", "toLabel", "fileEdgeCount"]),
     ...table("Incoming", d.incoming, ["fromLabel", "toLabel", "fileEdgeCount"]),

@@ -10,8 +10,8 @@
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
 import { exploreMatrix, exploreUnitEvidence } from "../../analyzer/architecture/ArchitectureExplorer.js";
 import { groupMatrix, matrixToCsv, unitMatrix } from "../../analyzer/architecture/architectureMatrix.js";
-import { loadDeclaredRoles } from "../../analyzer/architecture/architectureRules.js";
-import { assignUnits, buildArchitectureUnits, folderLevel } from "../../analyzer/architecture/architectureUnits.js";
+import { folderLevel } from "../../analyzer/architecture/architectureUnits.js";
+import { loadWorkspaceUnits } from "../../analyzer/architecture/workspaceUnits.js";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation.js";
 import type { ArchitectureMatrix } from "../../shared/architecture-model.js";
 import { CliError, ExitCode } from "../errors";
@@ -124,8 +124,7 @@ export async function run(
   if (level === "units") {
     // Units replace the file graph: the units, layers and unit edges the view draws.
     const { nodes: _nodes, edges: _edges, ...files } = architecture;
-    const assignment = assignUnits(runtime.workspaceRoot, nodes.map((node) => node.relativePath));
-    const units = buildArchitectureUnits(graph, runtime.workspaceRoot, assignment, await loadDeclaredRoles(runtime.workspaceRoot));
+    const { units, assignment } = await loadWorkspaceUnits(graph, runtime.workspaceRoot);
     if (matrix) return formatMatrix(files, unitMatrix(units), units.context, format, { level });
     if (from !== undefined && to !== undefined) {
       // Every file pair of the unit edge: the CLI does not page.
@@ -137,7 +136,7 @@ export async function run(
 
   if (folder !== undefined) {
     // The level the view draws below this unit or folder: its sub-folders, then its own files.
-    const { graph: folderGraph, nestedGroups } = folderLevel(graph, runtime.workspaceRoot, folder);
+    const { graph: folderGraph, nestedGroups } = folderLevel(await loadWorkspaceUnits(graph, runtime.workspaceRoot), folder);
     const { nodes: _nodes, edges: _edges, ...files } = architecture;
     if (matrix) {
       return formatMatrix(files, groupMatrix(aggregateCommunityGroups(folderGraph.graphData)), folderGraph.context, format, { folder, nestedGroups });
