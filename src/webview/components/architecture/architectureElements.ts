@@ -799,27 +799,36 @@ const FIT_PADDING = 30;
  */
 export function fitReadable(cy: Core, whole = false, overlay?: { right: number; bottom: number }): boolean {
   cy.fit(undefined, FIT_PADDING);
-  if (!whole && cy.zoom() < MIN_READABLE_ZOOM) {
+  const clamped = !whole && cy.zoom() < MIN_READABLE_ZOOM;
+  if (clamped) {
     const box = cy.elements().boundingBox();
     cy.zoom(MIN_READABLE_ZOOM);
     // Rendered = model × zoom + pan: put the box's top centre at the top centre of the view.
     cy.pan({ x: cy.width() / 2 - ((box.x1 + box.x2) / 2) * MIN_READABLE_ZOOM, y: FIT_PADDING - box.y1 * MIN_READABLE_ZOOM });
   }
-  return overlay === undefined || clearOverlay(cy, whole, overlay);
+  return overlay === undefined || clearOverlay(cy, whole, overlay, clamped);
 }
 
 /**
  * Moves the graph below an overlay at the view's top left (the legend), zooming out only as far as the
- * height left needs. False, viewport untouched: the graph fits below it only under the readable zoom.
+ * height left needs. False, viewport untouched: the graph fits the view whole at a readable zoom, but
+ * below the overlay only under it.
  */
-function clearOverlay(cy: Core, whole: boolean, overlay: { right: number; bottom: number }): boolean {
+function clearOverlay(cy: Core, whole: boolean, overlay: { right: number; bottom: number }, clamped: boolean): boolean {
   const box = cy.elements().boundingBox();
   const { x, y } = cy.pan();
   if (box.x1 * cy.zoom() + x >= overlay.right || box.y1 * cy.zoom() + y >= overlay.bottom) return true;
   const room = cy.height() - overlay.bottom - FIT_PADDING;
   if (room <= 0) return false;
   const zoom = box.h > 0 ? Math.min(cy.zoom(), room / box.h) : cy.zoom();
-  if (!whole && zoom < Math.min(cy.zoom(), MIN_READABLE_ZOOM)) return false;
+  if (!whole && zoom < Math.min(cy.zoom(), MIN_READABLE_ZOOM)) {
+    // Larger than the view at the readable zoom even without the overlay: it is panned anyway, so it starts below it.
+    if (clamped) {
+      cy.pan({ x, y: overlay.bottom - box.y1 * cy.zoom() });
+      return true;
+    }
+    return false;
+  }
   cy.zoom(zoom);
   cy.pan({ x: cy.width() / 2 - ((box.x1 + box.x2) / 2) * zoom, y: overlay.bottom - box.y1 * zoom });
   return true;

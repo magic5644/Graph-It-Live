@@ -418,6 +418,18 @@ describe("fitReadable on a large graph", () => {
     expect(fitReadable(cy, true, { right: 500, bottom: 590 })).toBe(false);
   });
 
+  it.each([["taller", { x: 0, y: 3000 }], ["wider", { x: 6000, y: 100 }]])("starts a graph %s than the view below the legend, at the readable zoom, without folding it", (_label, far) => {
+    const cy = cytoscape({ headless: true, elements: [{ group: "nodes", data: { id: "a" } }, { group: "nodes", data: { id: "b" } }] });
+    cy.getElementById("b").position(far);
+    vi.spyOn(cy, "width").mockReturnValue(800);
+    vi.spyOn(cy, "height").mockReturnValue(600);
+    // The readable fit of a tall graph: readable zoom, its top at the padding, the rest reached by panning.
+    vi.spyOn(cy, "fit").mockImplementation(() => cy.zoom(0.05));
+    expect(fitReadable(cy, false, { right: 500, bottom: 300 })).toBe(true);
+    expect(cy.zoom()).toBeCloseTo(MIN_READABLE_ZOOM);
+    expect(cy.elements().renderedBoundingBox().y1).toBeCloseTo(300, 0);
+  });
+
   it("keeps the whole graph in view below the readable zoom when asked (the Fit button)", () => {
     const cy = cytoscape({ headless: true, elements: [{ group: "nodes", data: { id: "n" } }] });
     vi.spyOn(cy, "fit").mockImplementation(() => cy.zoom(0.05));
