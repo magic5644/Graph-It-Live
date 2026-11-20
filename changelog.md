@@ -5,6 +5,9 @@
 ### Added
 - **Most coupled pairs and bridging files** (#342): `graph-it architecture --coupling` and `explore_architecture` with `view: "coupling"` list, for the groups, a folder level (`--folder`) or the units (`--level units`), the pairs of rows coupled by file pairs (`aToB`, `bToA`, `mutual`, heaviest first) and the files whose imports cross into 2 or more other rows, each with up to 3 evidence file pairs and the formulas. Counts are the matrix cells folded two by two; no extraction score. Group cycles and Ca/Ce/instability stay in `--matrix` / `view: "matrix"`.
 
+### Fixed
+- **`(root)` warning cleared once the moved units are named** (#790): since v1.25.5, a `graphit.architecture.json` naming `(root)` warns that the files outside every project moved to per-folder units. The warning stayed after those units were named in the same element `unit` selector (or matched by a wildcard or the element's `role`), or by other `roles` keys. It now lists only the moved units the selector does not cover, and disappears when it covers them all.
+
 ## v1.25.6
 
 Patch release that brings the SonarCloud quality gate of `main` back to green.
