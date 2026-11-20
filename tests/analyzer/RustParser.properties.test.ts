@@ -1043,8 +1043,9 @@ describe('RustParser Property-Based Tests', { timeout: 30_000 }, () => {
               expect(resolvedPath).not.toBeNull();
               if (resolvedPath) {
                 const normalizedPath = normalizePath(resolvedPath);
-                expect(normalizedPath.endsWith(`${moduleName}.rs`)).toBe(true);
-                expect(normalizedPath.endsWith('mod.rs')).toBe(false);
+                // Whole path segments: a module named `mod` or `xmod` ends in "mod.rs" too.
+                expect(normalizedPath.endsWith(`/${moduleName}.rs`)).toBe(true);
+                expect(normalizedPath.endsWith(`/${moduleName}/mod.rs`)).toBe(false);
               }
             } finally {
               // Clean up
