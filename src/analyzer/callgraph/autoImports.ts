@@ -55,7 +55,8 @@ const VITE_HINT = "start or build the Vite app once to generate it";
  * `'Foo': LazyComponent<typeof import("../c/Foo.vue")['default']>`.
  */
 // Anchored and applied to one entry at a time (split on newlines, `;` and braces), so it runs in linear time.
-const TYPEOF_IMPORT = /^\s*(?:(?:const|readonly)\s+)?['"]?([A-Za-z_$][\w$]*)['"]?\??:\s*(?:[\w$.]+<)?typeof import\(['"]([^'"]+)['"]\)(?:\.|\[['"])([\w$]+)/;
+const DECLARED_NAME = /^\s*(?:(?:const|readonly)\s+)?['"]?([A-Za-z_$][\w$]*)['"]?\??:/;
+const TYPEOF_IMPORT = /typeof import\(['"]([^'"]+)['"]\)(?:\.|\[['"])([\w$]+)/;
 /** `export { useX, default as useY } from '../composables/x'` (Nuxt); `export type { … }` binds no value. */
 const EXPORT_FROM = /export \{([^}]*)\} from ['"]([^'"]+)['"]/g;
 /** `dts: 'src/auto-imports.d.ts'` in a Vite config. */
@@ -73,8 +74,9 @@ export function readDeclarations(content: string, from: string, names: Map<strin
     names.set(local, { from, specifier: relative, imported });
   };
   for (const entry of content.split(/[\n;{}]/)) {
-    const match = TYPEOF_IMPORT.exec(entry);
-    if (match) add(match[1], match[2], match[3]);
+    const name = DECLARED_NAME.exec(entry);
+    const target = name && TYPEOF_IMPORT.exec(entry.slice(name[0].length));
+    if (name && target) add(name[1], target[1], target[2]);
   }
   for (const [, list, specifier] of content.matchAll(EXPORT_FROM)) {
     for (const item of list.split(",")) {
