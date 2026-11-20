@@ -179,8 +179,10 @@ CREATE TABLE IF NOT EXISTS metadata (
  * v19: a Vue SFC has a component node at its `<template>`, with template REFERENCES/CALLS edges; compiler macros
  *      are no call targets; `defineAsyncComponent(() => import('./literal'))` resolves like `lazy()` (#645).
  * v20: the Vue SFC component node carries `framework = 'vue'`; an HTML `<template src>` inside the workspace is read (#646).
+ * v21: in a TS/JS ES module an unimported bare name (`new Error()`, `extends Error`, `: Promise<T>`) links nowhere
+ *      but to a same-file declaration; a bare name never resolves to a Vue SFC component node.
  */
-const CURRENT_SCHEMA_VERSION = 20;
+const CURRENT_SCHEMA_VERSION = 21;
 
 /**
  * Optional FTS5 schema for fast symbol name search.
@@ -515,6 +517,8 @@ export class CallGraphIndexer {
       WHERE name IN (
         SELECT DISTINCT SUBSTR(target_id, 12) FROM edges WHERE target_id LIKE '@@external:%'
       )
+      -- A Vue SFC component node is named after its file: only an import or a template reaches it, never a bare name.
+      AND (framework IS NULL OR framework != 'vue')
       ORDER BY id ASC
     `);
 

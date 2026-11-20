@@ -63,6 +63,10 @@ describe("parseSymbolRef", () => {
     expect(() => parseSymbolRef("../outside.ts#run", ROOT)).toThrow('File path "../outside.ts" resolves outside workspace: pass a file of the workspace.');
   });
 
+  it("echoes no control character of the argument", () => {
+    expect(() => parseSymbolRef("../out\u0001side.ts#run", ROOT)).toThrow('File path "../out�side.ts" resolves outside workspace');
+  });
+
   it("throws SECURITY_VIOLATION for path traversal", () => {
     try {
       parseSymbolRef("../../etc/passwd#x", ROOT);
