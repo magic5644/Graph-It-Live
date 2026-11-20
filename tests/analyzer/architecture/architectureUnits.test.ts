@@ -165,7 +165,7 @@ describe("assignUnits", () => {
 
 describe("assignUnits edge cases", () => {
   it("returns nothing for no file", () => {
-    expect(assignUnits(root, [])).toEqual({ unitOf: new Map(), names: new Map() });
+    expect(assignUnits(root, [])).toEqual({ unitOf: new Map(), names: new Map(), folders: new Map() });
   });
 
   it("accepts Windows separators and keys files by normalized path", () => {

@@ -20,6 +20,7 @@
       {
         "key": "apps/web",
         "name": "@ws/web",
+        "folder": "apps/web",
         "fileCount": 2,
         "internalEdgeCount": 1,
         "layer": 2,
@@ -30,6 +31,7 @@
       {
         "key": "(root)",
         "name": "(root)",
+        "folder": "",
         "fileCount": 1,
         "internalEdgeCount": 0,
         "layer": 2,
@@ -45,6 +47,7 @@
       {
         "key": "functions/notify",
         "name": "@ws/notify",
+        "folder": "functions/notify",
         "fileCount": 1,
         "internalEdgeCount": 0,
         "layer": 1,
@@ -60,6 +63,7 @@
       {
         "key": "packages/ui",
         "name": "@ws/ui",
+        "folder": "packages/ui",
         "fileCount": 1,
         "internalEdgeCount": 0,
         "layer": 1,
@@ -75,6 +79,7 @@
       {
         "key": "tools/legacy",
         "name": "legacy-tool",
+        "folder": "tools/legacy",
         "fileCount": 1,
         "internalEdgeCount": 0,
         "layer": 1,
@@ -90,6 +95,7 @@
       {
         "key": "packages/core",
         "name": "@ws/core",
+        "folder": "packages/core",
         "fileCount": 1,
         "internalEdgeCount": 0,
         "layer": 0,
@@ -105,6 +111,7 @@
       {
         "key": "packages/types",
         "name": "@ws/types",
+        "folder": "packages/types",
         "fileCount": 1,
         "internalEdgeCount": 0,
         "layer": 0,
@@ -184,7 +191,8 @@
       "fileEdges": 10,
       "intraUnitEdges": 1,
       "interUnitEdges": 9
-    }
+    },
+    "unitsFrom": "manifests"
   },
   "firstPage": {
     "view": "units",
@@ -221,6 +229,7 @@
       {
         "key": "apps/web",
         "name": "@ws/web",
+        "folder": "apps/web",
         "fileCount": 2,
         "internalEdgeCount": 1,
         "layer": 2,
@@ -231,6 +240,7 @@
       {
         "key": "(root)",
         "name": "(root)",
+        "folder": "",
         "fileCount": 1,
         "internalEdgeCount": 0,
         "layer": 2,

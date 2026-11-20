@@ -19,18 +19,13 @@ import {
   buildArchitectureUnits,
   groupByUnit,
   layerGroupsWithinUnits,
-  type UnitAssignment,
 } from "./architectureUnits";
 import { computeGroupDependents } from "./groupDependents";
 import { stronglyConnectedComponents } from "./stronglyConnectedComponents";
 import type { DeclaredRoles } from "./unitRoles";
+import type { UnitSource, WorkspaceUnits } from "./workspaceUnits";
 
-/** What a path-mode build keeps to answer a folder level later. */
-export interface UnitSource {
-  graph: ArchitectureGraph;
-  units: ArchitectureUnits;
-  assignment: UnitAssignment;
-}
+export type { UnitSource } from "./workspaceUnits";
 
 /** A group the cap leaves out: named for the find only. */
 export interface HiddenGroup {
@@ -156,13 +151,22 @@ export function viewGroups(graph: ArchitectureGraph, maxGroups: number) {
 }
 
 /** The summary level of a build: the units and their groups in path mode (with what a folder level needs later), else the Louvain groups. */
-export function viewArchitecture(graph: ArchitectureGraph, workspaceRoot: string, maxGroups: number, declaredRoles?: DeclaredRoles):
-  ReturnType<typeof viewGroups> & Partial<Pick<ReturnType<typeof viewUnitLevel>, "units">> & { source?: UnitSource } {
+export function viewArchitecture(
+  graph: ArchitectureGraph,
+  workspaceRoot: string,
+  maxGroups: number,
+  /** DeclaredRoles: #776 transition for the caller of set C, until it passes loadWorkspaceUnits' result. */
+  source?: WorkspaceUnits | DeclaredRoles,
+): ReturnType<typeof viewGroups> & Partial<Pick<ReturnType<typeof viewUnitLevel>, "units">> & { source?: UnitSource } {
   if (graph.context.communityMode !== "path") return viewGroups(graph, maxGroups);
+  if (isWorkspaceUnits(source)) return { ...viewUnitLevel(source, maxGroups), source };
   const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
-  const source = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment, declaredRoles), assignment };
-  return { ...viewUnitLevel(source, maxGroups), source };
+  const built = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment, source), assignment };
+  return { ...viewUnitLevel(built, maxGroups), source: built };
 }
+
+const isWorkspaceUnits = (source: WorkspaceUnits | DeclaredRoles | undefined): source is WorkspaceUnits =>
+  source !== undefined && typeof source.assignment === "object" && typeof source.units === "object";
 
 /** The level again with a new cap, as the summary was built (Show more groups). */
 export function viewLevel(graph: ArchitectureGraph, source: UnitSource | undefined, maxGroups: number) {
