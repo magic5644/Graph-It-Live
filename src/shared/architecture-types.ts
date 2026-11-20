@@ -349,6 +349,10 @@ export interface ArchitectureRenderedCommand {
     minLabelContrast?: number;
     /** Drawn upward and cycle edges showing their count without a hover. */
     labelledRedEdges?: number;
+    /** Units drawn with a dashed border: their role is inferred, not declared. */
+    inferredRoleBorders?: number;
+    /** Drawn unit edges carrying the declared rules that check them. */
+    ruledEdges?: number;
   };
   /** Drawn edges breaking a declared rule. */
   violationEdges?: number;
@@ -356,6 +360,13 @@ export interface ArchitectureRenderedCommand {
   rules?: string[];
   /** The role legend as drawn: `role=count` per role, `*` after the filtered one. */
   roles?: string[];
+  /** The legend's role lines as drawn (the dashed-border entry among them). */
+  legendNotes?: string[];
+  /** Where the units come from, as the header says it (declared elements, detected projects, refused config). */
+  unitsHeader?: string;
+  /** The Rules panel's error and config warnings, as drawn. */
+  rulesError?: string;
+  configWarnings?: string[];
   /** Height of everything above the canvas (header, controls, breadcrumb), and of the whole view. */
   headerHeightPx?: number;
   viewHeightPx?: number;

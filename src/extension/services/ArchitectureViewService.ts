@@ -3,13 +3,7 @@ import * as path from "node:path";
 import { exploreArchitecture, exploreArchitectureCheck, exploreUnitEvidence, groupDetail } from "@/analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile, type ArchitectureGraph } from "@/analyzer/architecture/ArchitectureGraphBuilder";
 import { matrixDigest } from "@/analyzer/architecture/architectureMatrix";
-import {
-  ARCHITECTURE_BASELINE_FILE,
-  ARCHITECTURE_CONFIG_FILE,
-  checkWorkspaceArchitecture,
-  loadDeclaredRoles,
-  type WorkspaceArchitectureCheck,
-} from "@/analyzer/architecture/architectureRules";
+import { ARCHITECTURE_BASELINE_FILE, ARCHITECTURE_CONFIG_FILE, type WorkspaceArchitectureCheck } from "@/analyzer/architecture/architectureRules";
 import {
   findHiddenGroups,
   levelMatrix,
@@ -21,6 +15,7 @@ import {
   type HiddenGroup,
   type UnitSource,
 } from "@/analyzer/architecture/architectureView";
+import { loadWorkspaceUnits, type WorkspaceUnits } from "@/analyzer/architecture/workspaceUnits";
 import { diagramLevel, type DiagramTheme } from "@/analyzer/diagram/diagramStyle";
 import { renderSourceDiagram } from "@/analyzer/diagram/workspaceDiagram";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
@@ -196,14 +191,20 @@ function exportControl(control: ExportControl | undefined): ArchitectureControls
 }
 
 /** The rules check of a build: none without a config at the root, or why the config was refused. */
-type RulesState = { check: WorkspaceArchitectureCheck } | { configFile: string; error: string } | undefined;
+type RulesState = { check: WorkspaceArchitectureCheck; configWarnings: string[] } | { configFile: string; error: string } | undefined;
 
-async function checkRules(graph: ArchitectureGraph, workspaceRoot: string): Promise<RulesState> {
-  if (!fs.existsSync(path.join(workspaceRoot, ARCHITECTURE_CONFIG_FILE))) return undefined;
+/**
+ * The units of a build (declared elements, else detected projects) and its rules check. A refused
+ * config is never silent: the Rules panel shows why, and the units are the detected projects.
+ */
+async function loadUnits(graph: ArchitectureGraph, workspaceRoot: string): Promise<{ source: WorkspaceUnits; rules: RulesState }> {
   try {
-    return { check: await checkWorkspaceArchitecture(graph, workspaceRoot) };
+    const source = await loadWorkspaceUnits(graph, workspaceRoot);
+    const { check } = source;
+    return { source, rules: check && { check, configWarnings: source.units.configWarnings ?? check.configWarnings } };
   } catch (error) {
-    return { configFile: ARCHITECTURE_CONFIG_FILE, error: maskWorkspaceRoot(error instanceof Error ? error.message : String(error), workspaceRoot) };
+    const rules = { configFile: ARCHITECTURE_CONFIG_FILE, error: maskWorkspaceRoot(error instanceof Error ? error.message : String(error), workspaceRoot) };
+    return { source: await loadWorkspaceUnits(graph, workspaceRoot, { config: false }), rules };
   }
 }
 
@@ -211,14 +212,14 @@ async function checkRules(graph: ArchitectureGraph, workspaceRoot: string): Prom
 function rulesView(rules: RulesState, graph: ArchitectureGraph, unitOf?: ReadonlyMap<string, string>): { rules?: ArchitectureRulesView } {
   if (!rules) return {};
   if ("error" in rules) return { rules: { ...rules, rules: [], configWarnings: [], unitEdges: {}, groupEdges: {} } };
-  const { check } = rules;
+  const { check, configWarnings } = rules;
   return {
     rules: {
       configFile: check.configFile,
       revision: check.context.revision,
       totals: check.totals,
       rules: check.rules,
-      configWarnings: check.configWarnings,
+      configWarnings,
       ...levelViolations(check.violations, graph, unitOf),
     },
   };
@@ -707,11 +708,9 @@ export class ArchitectureViewService {
         });
         return;
       }
-      const rules = await checkRules(graph, this.options.workspaceRoot);
-      // A refused config is reported by the rules panel: the roles are then only inferred.
-      const declaredRoles = await loadDeclaredRoles(this.options.workspaceRoot).catch(() => undefined);
+      const { source: units, rules } = await loadUnits(graph, this.options.workspaceRoot);
       signal.throwIfAborted();
-      const { graph: viewGraph, source, hidden, ...overview } = viewArchitecture(graph, this.options.workspaceRoot, this.maxGroups, declaredRoles);
+      const { graph: viewGraph, source, hidden, ...overview } = viewArchitecture(graph, this.options.workspaceRoot, this.maxGroups, units);
       const files = new Set(viewGraph.nodes.map(node => node.relativePath));
       const { files: changed, any } = this.changedDuringBuild;
       this.summary = {

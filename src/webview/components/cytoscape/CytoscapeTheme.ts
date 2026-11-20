@@ -471,6 +471,8 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors, kin
     },
     // A unit's colour, kept by its folder groups once entered; the light fill keeps labels readable.
     unitStyle(kind, colors),
+    // A role inferred from evidence, not declared: the dash pattern tells it apart, never the colour alone.
+    { selector: "node[?inferredRole]", style: { "border-style": "dashed", "border-width": 3 } },
     {
       selector: "node[?unassigned]",
       style: { "border-style": "dashed", "border-color": colors.border },
@@ -554,6 +556,8 @@ export function buildArchitectureStylesheet(colors: ArchitectureThemeColors, kin
     { selector: 'edge[kind = "down"][?typeOnly]', style: { "line-style": "dotted" } },
     // Breaks a declared architecture rule: red and dashed, apart from the upward and cycle edges.
     { selector: "edge[?violation]", style: { "line-color": colors.error, "target-arrow-color": colors.error, "line-style": "dashed" } },
+    // A new violation of a declared rule on a unit edge names the rule in words.
+    { selector: "edge[?violation][ruleLabel]", style: { label: "data(ruleLabel)" } },
     // Unrelated to the dependents: dimmed less than a hover fade, which still applies over it.
     { selector: ".dependents-dimmed", style: { opacity: 0.35 } },
     { selector: ".faded", style: { opacity: 0.15 } },

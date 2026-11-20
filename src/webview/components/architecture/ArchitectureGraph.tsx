@@ -135,6 +135,8 @@ export interface ViewChrome {
   headerRows: string[];
 }
 
+const textsOf = (selector: string) => Array.from(document.querySelectorAll(selector), (element) => element.textContent ?? "");
+
 /** What a render drew (E2E observability); the units level adds its own measures. */
 function renderedReport(
   cy: cytoscape.Core,
@@ -174,6 +176,10 @@ function renderedReport(
     // The role legend as the DOM shows it: `role=count`, `*` after the filtered role.
     roles: Array.from(document.querySelectorAll<HTMLButtonElement>('[aria-label="Unit roles"] button[data-role]'),
       (button) => `${button.dataset.role}=${button.dataset.count}${button.getAttribute("aria-pressed") === "true" ? "*" : ""}`),
+    legendNotes: textsOf('[aria-label="Legend notes"] li'),
+    unitsHeader: document.querySelector("[data-units-header]")?.textContent ?? undefined,
+    rulesError: document.querySelector("[data-rules-error]")?.textContent ?? undefined,
+    configWarnings: textsOf("[data-config-warning]"),
   };
 }
 
@@ -404,7 +410,7 @@ function RoleLegend({ roleCounts, roleFilter, onRole }: Readonly<{
   return (
     <div
       style={{ display: "flex", flexWrap: "wrap", gap: "2px 8px", alignItems: "baseline" }}
-      title="[role?] inferred from manifests and files (hover a unit for its evidence), [role] declared in graphit.architecture.json"
+      title="Roles declared in graphit.architecture.json, else inferred from manifests and files (dashed border; hover a unit for its evidence)"
     >
       <ul aria-label="Unit roles" style={{ display: "contents" }}>
         {Object.entries(roleCounts).map(([role, count]) => (
@@ -434,20 +440,33 @@ const linkStyle: React.CSSProperties = {
   padding: 0, border: "none", background: "none", font: "inherit", color: "var(--vscode-textLink-foreground)", cursor: "pointer",
 };
 
+const DETECTED_TITLE = "Projects (folders holding a package.json, pyproject.toml, go.mod or other project manifest), else top-level folders";
+
+/** Where the units come from, in words: the declared elements, else the detected projects, and why when the config was refused. */
+function UnitsSource({ summary }: Readonly<{ summary: ArchitectureSummaryMessage }>) {
+  const level = summary.units!;
+  if (level.unitsFrom === "elements") {
+    return <span data-units-header title={`The elements declared in ${level.configFile ?? "graphit.architecture.json"}`}>{plural(level.units.length, "declared element")}</span>;
+  }
+  const refused = summary.rules?.error === undefined ? "" : ` (${summary.rules.configFile} refused)`;
+  return <span data-units-header title={DETECTED_TITLE} style={{ color: refused ? RED : undefined }}>{plural(level.units.length, "detected project")}{refused}</span>;
+}
+
 /** Units level, on the title's line: units, layers, upward edges, cycles (a click shows the first) and hidden edges. */
 function UnitsSummary({ summary, minImports, onCycle }: Readonly<UnitsSummaryProps>) {
   const level = summary.units;
   if (!level) return null;
   const hidden = hiddenUnitEdgeCount(level, minImports, summary.rules);
+  const cycles = `${plural(level.cycles, "cycle")}${level.unitsFrom === "elements" ? " between declared elements" : ""}`;
   return (
     <span>
-      <span title="Projects (folders holding a package.json, pyproject.toml, go.mod or other project manifest), else top-level folders">{plural(level.units.length, "unit")}</span>
+      <UnitsSource summary={summary} />
         {" · "}{plural(level.layerCount, "layer")}{" · "}
         <span style={{ color: level.upwardEdges > 0 ? RED : undefined }} title="Unit edges to a unit on the same or a higher layer">{level.upwardEdges} upward</span>
         {" · "}
         {level.cycles > 0
-          ? <button type="button" data-cycle-count onClick={onCycle} style={{ ...linkStyle, color: RED }} title="Show the cycle block">{plural(level.cycles, "cycle")}</button>
-          : plural(level.cycles, "cycle")}
+          ? <button type="button" data-cycle-count onClick={onCycle} style={{ ...linkStyle, color: RED }} title="Show the cycle block">{cycles}</button>
+          : cycles}
       {hidden > 0 && <span title="Set Min. imports to show the edges by weight"> · {hidden} weaker {hidden === 1 ? "edge" : "edges"} hidden</span>}
     </span>
   );
@@ -473,6 +492,10 @@ function UnitLegend({ summary, onUnit, legendRef, roleFilter, onRole }: Readonly
       <summary style={{ cursor: "pointer" }}>Legend ({plural(units.length, "unit")})</summary>
       {/* The role filter lives with the colours and roles it filters: the header stays one row on a narrow view. */}
       {summary.units && <RoleLegend roleCounts={summary.units.roleCounts} roleFilter={roleFilter} onRole={onRole} />}
+      <ul aria-label="Legend notes" style={{ listStyle: "none", padding: 0, margin: "2px 0", color: "var(--vscode-descriptionForeground)" }}>
+        <li>Dashed border: role inferred (hover for the evidence)</li>
+        {summary.units?.rules && <li>Red dashed edge, &quot;breaks rule&quot;: new violation of a declared rule (hover an edge for its rules)</li>}
+      </ul>
       <ul aria-label="Units" style={{ listStyle: "none", padding: 0, margin: "2px 0" }}>
         {units.map((unit, index) => (
           <li key={unit.key}>
@@ -543,17 +566,18 @@ const SEVERITY_COLOR = { error: "var(--vscode-errorForeground)", warning: "var(-
  */
 function RulesPanel({ rules, onRule }: Readonly<{ rules: ArchitectureRulesView; onRule: (rule: ArchitectureRuleSummary) => void }>) {
   if (rules.error) {
-    return <output style={{ ...bannerStyle, display: "block", color: "var(--vscode-errorForeground)" }}>Architecture rules not checked: {rules.error}</output>;
+    return <output data-rules-error style={{ ...bannerStyle, display: "block", color: "var(--vscode-errorForeground)" }}>Architecture rules not checked: {rules.error}</output>;
   }
   const totals = rules.totals!;
   const failing = totals.errors > 0;
   return (
-    <details open={totals.violations > 0}>
+    <details open={totals.violations > 0 || rules.configWarnings.length > 0}>
       <summary style={{ cursor: "pointer", color: failing ? "var(--vscode-errorForeground)" : undefined }}>
         {totals.violations > 0
           ? `${plural(totals.violations, "violation")} of ${plural(totals.brokenRules, "rule")} (${totals.newViolations} new)`
           : `All ${plural(totals.rules, "rule")} pass`} · {rules.configFile}
         {totals.unmatchedFiles > 0 && <span title="Files no element of the config selects: no rule checks them."> · {plural(totals.unmatchedFiles, "file")} in no element</span>}
+        {rules.configWarnings.length > 0 && <span style={{ color: "var(--vscode-editorWarning-foreground)" }}> · {plural(rules.configWarnings.length, "config warning")}</span>}
       </summary>
       <ul aria-label="Architecture rules" style={{ listStyle: "none", padding: 0, margin: "2px 0", maxHeight: 96, overflow: "auto" }}>
         {rules.rules.map((rule) => (
@@ -574,7 +598,7 @@ function RulesPanel({ rules, onRule }: Readonly<{ rules: ArchitectureRulesView; 
           </li>
         ))}
       </ul>
-      {rules.configWarnings.map((warning) => <div key={warning} style={{ color: "var(--vscode-editorWarning-foreground)" }}>{warning}</div>)}
+      {rules.configWarnings.map((warning) => <div key={warning} data-config-warning style={{ color: "var(--vscode-editorWarning-foreground)" }}>{warning}</div>)}
     </details>
   );
 }

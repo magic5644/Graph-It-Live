@@ -1003,11 +1003,11 @@ describe("ArchitectureGraph", () => {
       units: {
         units: [
           {
-            key: "apps/web", name: "@ws/web", fileCount: 5, internalEdgeCount: 1, layer: 1,
+            key: "apps/web", name: "@ws/web", folder: "apps/web", fileCount: 5, internalEdgeCount: 1, layer: 1,
             role: "frontend", confidence: "inferred", evidence: [{ role: "frontend", detail: "`react` in dependencies" }],
           },
           {
-            key: "packages/core", name: "@ws/core", fileCount: 4, internalEdgeCount: 0, layer: 1,
+            key: "packages/core", name: "@ws/core", folder: "packages/core", fileCount: 4, internalEdgeCount: 0, layer: 1,
             role: "library", confidence: "declared", evidence: [{ role: "library", detail: 'declared by roles["@ws/core"] in graphit.architecture.json' }],
           },
         ],
@@ -1015,6 +1015,7 @@ describe("ArchitectureGraph", () => {
           { from: "apps/web", to: "packages/core", fileEdgeCount: 3, kind: "cycle" },
           { from: "packages/core", to: "apps/web", fileEdgeCount: 1, kind: "cycle" },
         ],
+        unitsFrom: "manifests",
         upwardEdges: 0,
         cycles: 1,
         layerCount: 1,
@@ -1148,12 +1149,41 @@ describe("ArchitectureGraph", () => {
       // The routes ELK returned are drawn once the positions settle.
       expect(elk.applyRoutes).toHaveBeenLastCalledWith(cy.instance, expect.anything(), expect.objectContaining({ size: 1 }));
       expect(screen.getByText(/Units in layers/)).toBeTruthy();
-      expect(screen.getByText(/^2 units$/)).toBeTruthy();
-      expect(screen.getByText(/0 upward/).parentElement?.textContent).toBe("2 units · 1 layer · 0 upward · 1 cycle");
-      expect(screen.getByRole("list", { name: "Units" }).textContent).toBe("@ws/web [frontend?]@ws/core [library]");
+      expect(screen.getByText(/^2 detected projects$/)).toBeTruthy();
+      expect(screen.getByText(/0 upward/).parentElement?.textContent).toBe("2 detected projects · 1 layer · 0 upward · 1 cycle");
+      expect(screen.getByRole("list", { name: "Units" }).textContent).toBe("@ws/web [frontend]@ws/core [library]");
+      expect(screen.getByRole("list", { name: "Legend notes" }).textContent).toBe("Dashed border: role inferred (hover for the evidence)");
       expect(cy.state.nodes.map(node => node.data("key"))).toEqual(["units:apps/web", "units:packages/core"]);
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
         renderedGroups: 2, renderedGroupEdges: 2, unit: undefined, unitLevel: expect.objectContaining({ redEdges: 1 }),
+        unitsHeader: "2 detected projects", legendNotes: ["Dashed border: role inferred (hover for the evidence)"], rulesError: undefined, configWarnings: [],
+      }));
+    });
+
+    it("names the declared elements as the units, their cycles, and the edge rules in the legend", async () => {
+      const postMessage = await setup({ ...withUnits, units: { ...withUnits.units!, unitsFrom: "elements", configFile: "graphit.architecture.json", rules: [] } });
+      expect(screen.getByText(/0 upward/).parentElement?.textContent).toBe("2 declared elements · 1 layer · 0 upward · 1 cycle between declared elements");
+      expect(screen.getByRole("button", { name: "1 cycle between declared elements" })).toBeTruthy();
+      expect(screen.getByText("2 declared elements").title).toBe("The elements declared in graphit.architecture.json");
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
+        unitsHeader: "2 declared elements",
+        legendNotes: [
+          "Dashed border: role inferred (hover for the evidence)",
+          "Red dashed edge, \"breaks rule\": new violation of a declared rule (hover an edge for its rules)",
+        ],
+      }));
+    });
+
+    it("says the units are the detected projects when the config was refused, never silently", async () => {
+      const error = "graphit.architecture.json: $.roles.x: Invalid option";
+      const postMessage = await setup({
+        ...withUnits,
+        rules: { configFile: "graphit.architecture.json", error, rules: [], configWarnings: [], unitEdges: {}, groupEdges: {} },
+      });
+      expect(screen.getByText("2 detected projects (graphit.architecture.json refused)")).toBeTruthy();
+      expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
+        unitsHeader: "2 detected projects (graphit.architecture.json refused)",
+        rulesError: `Architecture rules not checked: ${error}`,
       }));
     });
 
@@ -1161,7 +1191,7 @@ describe("ArchitectureGraph", () => {
       const postMessage = await setup(unseen());
       const legend = screen.getByRole("list", { name: "Unit roles" });
       expect(legend.textContent).toBe("1 frontend1 library");
-      expect(legend.parentElement?.title).toMatch(/^\[role\?\] inferred from manifests and files/);
+      expect(legend.parentElement?.title).toMatch(/^Roles declared in graphit\.architecture\.json, else inferred from manifests and files \(dashed border/);
       expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ roles: ["frontend=1", "library=1"] }));
       expect(helpers.applyRoleFilter).toHaveBeenLastCalledWith(cy.instance, null);
 
@@ -1777,7 +1807,7 @@ describe("ArchitectureGraph: declared architecture rules", () => {
     expect(edge.data("violation")).toBe(true);
     expect(edge.data("tooltip")).toContain("Breaks: ui-not-store");
     expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({
-      violationEdges: 1, rules: ["ui-not-store=3", "quiet=0"],
+      violationEdges: 1, rules: ["ui-not-store=3", "quiet=0"], configWarnings: ['$.elements.ghost.path: "nowhere/" matches no file'],
     }));
     expect((screen.getByRole("button", { name: "quiet" }) as HTMLButtonElement).disabled).toBe(true);
 
@@ -1824,6 +1854,17 @@ describe("ArchitectureGraph: declared architecture rules", () => {
     send({ ...withRules, rules: { ...withRules.rules!, revision: "c2", groupEdges: {} } });
     expect(screen.queryByRole("region", { name: "Evidence" })).toBeNull();
     expect(cy.state.edges.find((candidate) => candidate.id() === "edge-1-2")!.data("violation")).toBeUndefined();
+  });
+
+  it("opens the Rules panel on a config warning even when every rule passes, and counts the warnings", () => {
+    const postMessage = vi.fn();
+    render(<ArchitectureGraph postMessage={postMessage} />);
+    const warning = '$.roles["(root)"]: "(root)" matches no unit; files outside every project are now in the units src, tests';
+    const totals = { files: 10, unmatchedFiles: 0, rules: 0, brokenRules: 0, violations: 0, newViolations: 0, errors: 0, newErrors: 0, warnings: 0, resolved: 0 };
+    send({ ...summary, rules: { configFile: "graphit.architecture.json", totals, rules: [], configWarnings: [warning], unitEdges: {}, groupEdges: {} } });
+    expect(screen.getByText(/All 0 rules pass/).closest("details")?.open).toBe(true);
+    expect(screen.getByText(/· 1 config warning$/)).toBeTruthy();
+    expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ configWarnings: [warning], rulesError: undefined }));
   });
 
   it("says why a refused config was not checked", () => {

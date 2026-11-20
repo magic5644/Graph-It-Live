@@ -150,6 +150,57 @@ describe("ArchitectureViewService", () => {
     });
   });
 
+  describe("units of graphit.architecture.json (#776)", () => {
+    const writeConfig = (config: unknown) => fs.writeFile(path.join(root, "graphit.architecture.json"), JSON.stringify(config));
+
+    it("draws the declared elements as the units, with the rules on the edges they check and a declared role", async () => {
+      await writeConfig({
+        elements: { app: { path: "main.ts" }, ui: { path: "src/ui/" }, store: { path: "src/store/" } },
+        rules: [{ name: "ui-not-store", from: "ui", forbid: "store" }, { name: "app-not-store", from: "app", forbid: "store" }],
+        roles: { ui: "frontend" },
+      });
+      await createService().build();
+      const [summary] = summaries();
+      const units = summary.units!;
+      expect(units.unitsFrom).toBe("elements");
+      expect(units.units.map(unit => [unit.key, unit.folder, unit.confidence]).toSorted()).toEqual([
+        ["app", "", "inferred"], ["store", "src/store", "inferred"], ["ui", "src/ui", "declared"],
+      ]);
+      const edge = (from: string, to: string) => units.unitEdges.find(candidate => candidate.from === from && candidate.to === to);
+      expect(edge("ui", "store")).toMatchObject({ ruleVerdict: "violated", rules: [{ name: "ui-not-store", verdict: "violated", checkedPairs: 2, newViolations: 2 }] });
+      expect(edge("app", "ui")).toMatchObject({ ruleVerdict: "pass", rules: [{ name: "app-not-store", verdict: "pass", checkedPairs: 1 }] });
+      expect(summary.rules).toMatchObject({ configFile: "graphit.architecture.json", totals: { violations: 2 }, unitEdges: { "ui>store": ["ui-not-store"] } });
+      expect(summary.rules?.error).toBeUndefined();
+    });
+
+    it("keeps the detected projects for a config without elements, and shows its (root) warning in the Rules panel", async () => {
+      await writeConfig({ roles: { "(root)": "tooling" } });
+      await createService().build();
+      const [summary] = summaries();
+      expect(summary.units?.unitsFrom).toBe("manifests");
+      expect(summary.units?.units.map(unit => unit.key)).toEqual(["(root)", "src"]);
+      expect(summary.rules?.configWarnings).toEqual([expect.stringMatching(/^\$\.roles\["\(root\)"\]: "\(root\)" now holds only the 1 file at the workspace root; .*src/)]);
+      expect(summary.rules?.error).toBeUndefined();
+    });
+
+    it("draws the detected projects for a refused config, and the Rules panel says why, never silently", async () => {
+      await writeConfig({ roles: { x: "nope" } });
+      await createService().build();
+      const [summary] = summaries();
+      expect(summary.units?.unitsFrom).toBe("manifests");
+      expect(summary.units?.units.map(unit => unit.key)).toEqual(["(root)", "src"]);
+      expect(summary.rules).toMatchObject({ configFile: "graphit.architecture.json", rules: [], configWarnings: [] });
+      expect(summary.rules?.error).toMatch(/^graphit\.architecture\.json: \$\.roles\.x: /);
+      expect(summary.rules?.error).not.toContain(root);
+    });
+
+    it("has no Rules panel without a config", async () => {
+      await createService().build();
+      expect(summaries()[0].rules).toBeUndefined();
+      expect(summaries()[0].units?.unitsFrom).toBe("manifests");
+    });
+  });
+
   it("sends the units of each cycle, from the cycle edges, as one entry", async () => {
     // a ↔ b form a cycle; c depends on a only.
     const cyclic = { "a/x.ts": ["b/y.ts"], "b/y.ts": ["a/x.ts"], "c/z.ts": ["a/x.ts"] };
