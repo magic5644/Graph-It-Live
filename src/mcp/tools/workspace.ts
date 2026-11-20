@@ -53,6 +53,7 @@ export async function executeGetIndexStatus(): Promise<GetIndexStatusResult> {
             indexedFiles: counts.files,
             symbols: counts.symbols,
             relations: counts.relations,
+            ...(workerState.callGraphAutoImports ? { autoImports: workerState.callGraphAutoImports } : {}),
           };
         })()
       : undefined,

@@ -98,7 +98,9 @@ graph-it tool analyze_breaking_changes --args '{"filePath":"/abs/src/a.ts","symb
 - `query_call_graph`: `--direction callers|callees|both` (default both), `--depth 1-10` (default 2),
   `--includeTypeOnly=true` adds type-only `USES` edges, `--tokenBudget` (default 4000, `0` = no limit) with `--offset <nextOffset>` paging.
   A bare name shared by several symbols returns `reason=ambiguous` with candidates; pick one with
-  `--symbolId` or `--startLine`. Call sites are not all symbol references.
+  `--symbolId` or `--startLine` (1-based, the editor line; ids are opaque). Call sites are not all symbol references.
+  Auto-imports declared in `.nuxt/imports.d.ts`, `auto-imports.d.ts` or `components.d.ts` link like imports;
+  other unimported names in a module stay unresolved.
 - `get_impact_analysis`: `--includeTransitive` (default false), `--maxDepth 1-20` (default 3).
 - `scan_dead_code` is workspace-wide (or `--scopePath`); `find_unused_symbols` is per-file;
   `graph-it check` takes a file, a folder or nothing. All take `--minConfidence high|medium|low`
@@ -157,6 +159,11 @@ graph-it diagram --format diagram-spec --output -
 (`--folder <key>` or a `[dir]` argument) or their matrix (`--view matrix`); `--theme light|dark` for
 SVG. `--rules` draws violations in red; `--baseline` draws accepted ones apart. The file stays inside
 the workspace; `--output -` prints it.
+
+`graph-it diagram --view flow <file#symbol>` draws one entry symbol's calls left to right in at most
+`--maxSteps` steps (1-12, default 8), one lane per path (main, alternative, error); `--startLine <n>`
+(1-based) picks one of several homonyms; formats svg, html, diagram-spec (`kind: "flow"`). MCP:
+`export_architecture_diagram` with `view: "flow"`, `filePath`, `symbolName`, `startLine`, `maxSteps`.
 
 For a polished or branded diagram, pass the `diagram-spec` JSON (add `--rules`, `--folder <key>`) to
 an available diagram skill (`diagram-design`, `architecture-diagram`, `archify`). The spec lists every

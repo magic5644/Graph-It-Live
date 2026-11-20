@@ -38,6 +38,7 @@ import path from "node:path";
 import type { Node as TreeNode, Tree } from "web-tree-sitter";
 import { Query } from "web-tree-sitter";
 import type { CallGraphEdge, CallGraphNode } from "./CallGraphIndexer";
+import { AutoImports, type AutoImport } from "./autoImports";
 import { importLocalNames, resolveImportBindings, resolveNamedImportCalls } from "./importBindings";
 import { isComponentFactory, type DeclarationReads } from "@/analyzer/utils/declarations";
 import { LOCAL_ONLY, resolvePythonImportCalls } from "./pythonImportBindings";
@@ -55,6 +56,8 @@ export interface ExtractorConfig {
   extensionPath: string;
   /** Absolute workspace root path — used to compute workspace-relative folder */
   workspaceRoot: string;
+  /** Auto-imports of the workspace's projects; read on demand from workspaceRoot when absent. */
+  autoImports?: AutoImports;
 }
 
 export interface ExtractionResult {
@@ -402,12 +405,14 @@ async function readTemplateGraph(
   filePath: string,
   content: string,
   declared: ReadonlySet<string>,
-  resolution: { resolver: PathResolver; reads: DeclarationReads; workspaceRoot: string },
+  resolution: { resolver: PathResolver; reads: DeclarationReads; workspaceRoot: string; autoImports?: ReadonlyMap<string, AutoImport> },
 ): Promise<TemplateGraph> {
   const imported = new Set(importLocalNames(root));
-  const analysis = analyzeVueTemplate(filePath, content, new Set([...declared, ...imported]), resolution.workspaceRoot);
-  const used = new Set(analysis.usages.map(usage => usage.name).filter(name => imported.has(name)));
-  const imports = used.size > 0 ? await resolveImportBindings(root, filePath, resolution.resolver, used, resolution.reads) : new Map<string, string | null>();
+  // A `<script setup>` declaration shadows an auto-import of its name, as in the compiled component.
+  const isBound = (name: string) => imported.has(name) || (!declared.has(name) && (resolution.autoImports?.has(name) ?? false));
+  const analysis = analyzeVueTemplate(filePath, content, { has: (name: string) => declared.has(name) || isBound(name) }, resolution.workspaceRoot);
+  const used = new Set(analysis.usages.map(usage => usage.name).filter(isBound));
+  const imports = used.size > 0 ? await resolveImportBindings(root, filePath, resolution.resolver, used, resolution.reads, resolution.autoImports) : new Map<string, string | null>();
   return { analysis, imports };
 }
 
@@ -446,9 +451,12 @@ export class GraphExtractor {
   private readonly querySourceCache = new Map<string, string>();
   /** Compiled tree-sitter Query objects cached per language — avoids recompilation per file */
   private readonly compiledQueryCache = new Map<string, Query>();
+  /** shortcut: without `config.autoImports`, read once per extractor, so a regenerated declaration applies to a new one. */
+  private readonly autoImports: AutoImports;
 
   constructor(config: ExtractorConfig) {
     this.config = config;
+    this.autoImports = config.autoImports ?? new AutoImports(config.workspaceRoot);
   }
 
   private readJsxImportSource(): Promise<string | undefined> {
@@ -554,8 +562,9 @@ export class GraphExtractor {
       let importTargets: Map<number, string | null>;
       const passReads = reads ?? new Map();
       const parse = (calleePath: string) => this.readReturns(calleePath, passReads);
+      const autoImports = lang === "typescript" || lang === "javascript" ? this.autoImports.forFile(normalizedPath)?.names : undefined;
       if (lang === "typescript" || lang === "javascript") {
-        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver, { references, declared, parse }, passReads);
+        importTargets = await resolveNamedImportCalls(tree.rootNode, calls, normalizedPath, resolver, { references, declared, parse, autoImports }, passReads);
         if (isEsModule(tree.rootNode)) bindUnimportedNames(captures, importTargets, new Set(importLocalNames(tree.rootNode)));
       } else if (lang === "python") {
         importTargets = await resolvePythonImportCalls(tree.rootNode, calls, normalizedPath, resolver, parse, passReads);
@@ -565,7 +574,7 @@ export class GraphExtractor {
       const jsxImportSource = lang === 'typescript' || lang === 'javascript'
         ? await this.readJsxImportSource() : undefined;
       const template = VUE_FILE.test(normalizedPath)
-        ? await readTemplateGraph(tree.rootNode, normalizedPath, source, declared, { resolver, reads: passReads, workspaceRoot: this.config.workspaceRoot })
+        ? await readTemplateGraph(tree.rootNode, normalizedPath, source, declared, { resolver, reads: passReads, workspaceRoot: this.config.workspaceRoot, autoImports })
         : undefined;
       return this.processCaptures(captures, normalizedPath, lang, script, importTargets, { jsxImportSource, template });
     } finally {

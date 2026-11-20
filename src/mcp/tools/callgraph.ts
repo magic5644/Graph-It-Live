@@ -9,6 +9,7 @@
  */
 
 import type { IndexCache } from "@/analyzer/cache/IndexCache";
+import { AutoImports, type AutoImportProject } from "@/analyzer/callgraph/autoImports";
 import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
 import type { DeclarationReads } from "@/analyzer/utils/declarations";
 import type { ExtractorConfig } from "@/analyzer/callgraph/GraphExtractor";
@@ -36,7 +37,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fitToTokenBudget } from "../shared/helpers";
 import { workerState } from "../shared/state";
-import type { QueryCallGraphParams } from "../types";
+import type { CallGraphAutoImports, QueryCallGraphParams } from "../types";
 
 const log = getLogger("McpCallGraph");
 
@@ -137,6 +138,7 @@ async function selectStaleJobs(
   callgraphFiles: string[],
   extensionPath: string,
   pendingFiles: readonly string[],
+  autoImports: AutoImportProject[],
 ): Promise<CallGraphJob[]> {
   const onDisk = new Set(callgraphFiles);
   invalidateMissingFiles(indexer, onDisk);
@@ -153,6 +155,7 @@ async function selectStaleJobs(
   const selected = selectChangedJobs(jobs);
   // Explicitly invalidated files are re-extracted even when their mtime did not move.
   for (const filePath of pendingFiles) addIndexableJob(selected, filePath, onDisk);
+  addAutoImportJobs(selected, indexer, autoImports, onDisk);
   await addReferencingJobs(selected, [...selected.values()], onDisk);
 
   if (shouldRebuild(callgraphFiles.length, selected.size)) {
@@ -160,6 +163,80 @@ async function selectStaleJobs(
   }
 
   return [...selected.values()];
+}
+
+/** Metadata key of the auto-import declarations the stored call graph was extracted with: project root -> hash. */
+const AUTO_IMPORTS_KEY = "auto_imports";
+
+function autoImportHashes(projects: AutoImportProject[]): Record<string, string> {
+  return Object.fromEntries(projects.filter(project => project.hash !== "").map(project => [project.root, project.hash]));
+}
+
+function storedAutoImportHashes(indexer: CallGraphIndexer): Record<string, string> {
+  try {
+    return JSON.parse(indexer.getMetadata(AUTO_IMPORTS_KEY) ?? "{}") as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Files whose auto-import bindings may have moved, which no import statement tells: every file of a project whose
+ * declarations changed (added, edited, removed), and the callers of a changed file of a project that auto-imports.
+ */
+function addAutoImportJobs(
+  selected: Map<string, CallGraphJob>,
+  indexer: CallGraphIndexer,
+  projects: AutoImportProject[],
+  onDisk: Set<string>,
+): void {
+  const stored = storedAutoImportHashes(indexer);
+  const current = autoImportHashes(projects);
+  const changedRoots = [...new Set([...Object.keys(stored), ...Object.keys(current)])].filter(root => stored[root] !== current[root]);
+  const autoImporting = projects.filter(project => project.names.size > 0).map(project => `${project.root}/`);
+  const changed = [...selected.keys()].filter(file => autoImporting.some(root => file.startsWith(root)));
+  for (const file of changed) {
+    for (const caller of indexer.getCallerFiles(file)) addIndexableJob(selected, caller, onDisk);
+  }
+  if (changedRoots.length === 0) return;
+  for (const file of onDisk) {
+    if (changedRoots.some(root => file.startsWith(`${root}/`))) addIndexableJob(selected, file, onDisk);
+  }
+}
+
+/** Missing declarations already reported by this process: each is reported once. */
+const reportedMissing = new Set<string>();
+
+/** What get_index_status shows of the auto-imports, workspace-relative; undefined when no project has any. */
+function describeAutoImports(projects: AutoImportProject[], workspaceRoot: string): CallGraphAutoImports | undefined {
+  const relative = (root: string) => normalizePath(path.relative(workspaceRoot, root)) || ".";
+  const declaring = projects.filter(project => project.sources.length > 0)
+    .map(project => ({ project: relative(project.root), sources: project.sources.map(relative), entries: project.names.size }))
+    .sort((a, b) => a.project.localeCompare(b.project));
+  const missing = projects.flatMap(project => project.missing.map(entry => ({ project: relative(project.root), ...entry })))
+    .sort((a, b) => a.project.localeCompare(b.project));
+  return declaring.length > 0 || missing.length > 0 ? { projects: declaring, missing } : undefined;
+}
+
+/** One notice for the missing declarations not reported yet by this process, grouped by file and hint. */
+function reportMissingAutoImports(summary: CallGraphAutoImports | undefined, workspaceRoot: string): void {
+  const fresh = (summary?.missing ?? []).filter(({ project, source }) => {
+    const key = `${workspaceRoot}\0${project}\0${source}`;
+    if (reportedMissing.has(key)) return false;
+    reportedMissing.add(key);
+    return true;
+  });
+  const groups = new Map<string, string[]>();
+  for (const { project, source, hint } of fresh) groups.set(`${source}\0${hint}`, [...(groups.get(`${source}\0${hint}`) ?? []), project]);
+  const parts = [...groups].map(([key, projects]) => {
+    const [source, hint] = key.split("\0");
+    const shown = projects.slice(0, 3).join(", ") + (projects.length > 3 ? ` and ${projects.length - 3} more` : "");
+    return `${source} is missing in ${shown}: ${hint}`;
+  });
+  if (parts.length === 0) return;
+  const message = `auto-imported names stay unresolved in the call graph; ${parts.join("; ")}.`;
+  log.warn(message);
+  workerState.callGraphNotice?.(message);
 }
 
 function invalidateMissingFiles(
@@ -254,13 +331,6 @@ async function indexCallGraph(
     fullRebuild ? null : cache,
   );
 
-  // Initialize GraphExtractor (tree-sitter WASM)
-  const extractorConfig: ExtractorConfig = {
-    extensionPath,
-    workspaceRoot,
-  };
-  const extractor = new GraphExtractor(extractorConfig);
-
   // Collect source files
   const collector = new SourceFileCollector({
     excludeNodeModules: true,
@@ -271,6 +341,16 @@ async function indexCallGraph(
   const callgraphFiles = allFiles
     .map(normalizePath)
     .filter((f) => fileExtToLang(f) !== null);
+  const autoImports = new AutoImports(workspaceRoot);
+  const autoImportProjects = autoImports.projectsOf(callgraphFiles);
+
+  // Initialize GraphExtractor (tree-sitter WASM)
+  const extractorConfig: ExtractorConfig = {
+    extensionPath,
+    workspaceRoot,
+    autoImports,
+  };
+  const extractor = new GraphExtractor(extractorConfig);
 
   const jobs = await selectCallGraphJobs(
     restored,
@@ -278,6 +358,7 @@ async function indexCallGraph(
     callgraphFiles,
     extensionPath,
     pendingFiles,
+    autoImportProjects,
   );
 
   log.info(
@@ -303,6 +384,9 @@ async function indexCallGraph(
   workerState.graphExtractor = extractor;
   workerState.callGraphIndexedRoot = workspaceRoot;
   workerState.clearCallGraphPending(pendingFiles, fullRebuild);
+  indexer.setMetadata(AUTO_IMPORTS_KEY, JSON.stringify(autoImportHashes(autoImportProjects)));
+  workerState.callGraphAutoImports = describeAutoImports(autoImportProjects, workspaceRoot);
+  reportMissingAutoImports(workerState.callGraphAutoImports, workspaceRoot);
 
   cache?.save({ callGraph: indexer.exportDb() });
 
@@ -328,9 +412,10 @@ async function selectCallGraphJobs(
   callgraphFiles: string[],
   extensionPath: string,
   pendingFiles: readonly string[],
+  autoImports: AutoImportProject[],
 ): Promise<CallGraphJob[]> {
   if (restored) {
-    return selectStaleJobs(indexer, callgraphFiles, extensionPath, pendingFiles);
+    return selectStaleJobs(indexer, callgraphFiles, extensionPath, pendingFiles, autoImports);
   }
   return callgraphFiles.map((filePath) => ({
     filePath,

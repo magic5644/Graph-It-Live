@@ -251,6 +251,8 @@ export class CliRuntime {
       maxDepth: 50,
       extensionPath: cliExtensionPath,
     };
+    // A call graph notice (a missing auto-import declaration) is a warning the user acts on: stderr, once.
+    workerState.callGraphNotice = (message) => process.stderr.write(`  Warning: ${message}\n`);
     workerState.isReady = true;
     this._initialized = true;
 

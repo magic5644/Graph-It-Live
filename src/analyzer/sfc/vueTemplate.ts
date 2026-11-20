@@ -124,7 +124,7 @@ export function readExternalTemplate(filePath: string, src: string, rootDir: str
  * throws: a malformed template gives the uses read before the error. An HTML `<template src>` inside `rootDir` is
  * read too, its uses placed at the `<template src>` element (the `.vue` owns them).
  */
-export function analyzeVueTemplate(filePath: string, content: string, scriptBindings: ReadonlySet<string>, rootDir?: string): VueTemplateAnalysis {
+export function analyzeVueTemplate(filePath: string, content: string, scriptBindings: Pick<ReadonlySet<string>, "has">, rootDir?: string): VueTemplateAnalysis {
   const descriptor = parseSfc(filePath, content);
   const src = descriptor.template?.src;
   const external = (src === undefined ? undefined : readExternalTemplate(filePath, src, rootDir)) ?? null;
