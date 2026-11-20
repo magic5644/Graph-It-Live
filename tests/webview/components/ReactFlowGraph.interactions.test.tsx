@@ -193,4 +193,15 @@ describe('file graph interactions', () => {
     expect(flow.props.nodes?.map(n => n.id)).toEqual([a, b]);
     expect(edge(a, b).style?.strokeWidth).toBe(2.5);
   });
+
+  it('ignores a refreshing message from another origin (S2819)', () => {
+    render(<ReactFlowGraph {...props} />);
+    const send = (origin: string) => act(() => {
+      window.dispatchEvent(new MessageEvent('message', { data: { command: 'refreshing' }, origin }));
+    });
+    send('https://evil.example');
+    expect(screen.queryByText('Updating...')).toBeNull();
+    send('vscode-webview://abc');
+    expect(screen.getByText('Updating...')).toBeTruthy();
+  });
 });

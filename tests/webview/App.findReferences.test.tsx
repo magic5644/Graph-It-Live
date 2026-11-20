@@ -118,4 +118,18 @@ describe("App — waiting screen", () => {
     expect(screen.getByText("Open a folder to see its dependency graph")).toBeTruthy();
     expect(screen.queryByText(/Tip:/)).toBeNull();
   });
+
+  it("ignores extension messages from another origin (S2819)", () => {
+    render(React.createElement(App));
+
+    act(() => {
+      window.dispatchEvent(new MessageEvent("message", {
+        data: { command: "emptyState", reason: "no-file-open", message: "No file open" },
+        origin: "https://evil.example",
+      }));
+    });
+
+    expect(screen.queryByText("No file open")).toBeNull();
+    expect(screen.getByRole("status").textContent).toContain("Waiting for graph data...");
+  });
 });
