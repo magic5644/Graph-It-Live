@@ -1,9 +1,23 @@
 # Changelog
 
-## Unreleased (1.25.5)
+## v1.25.5
+
+Patch release on the user contract of every surface: the CLI, the MCP server and VS Code refuse what they do not understand and say why they cannot run, instead of ignoring input or reporting an empty success. It also makes warm `graph-it init` runs reuse unchanged work on large monorepos, and draws architecture units from the elements you declare.
+
+[![Architecture view of Graph-It-Live itself: its 8 declared elements as units in 5 layers, all 9 rules passing; the assets unit has a dashed border because its library role is inferred](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-declared-elements.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-declared-elements.png)
+
+*Graph-It-Live's own `graphit.architecture.json` in the Architecture view: the units are its declared elements.*
+
+Read *Breaking / Behavior changes* and *Changed — breaking* first if a script calls `graph-it` with options a command does not declare, an MCP client sends extra parameters, a script reads the units JSON, or your `graphit.architecture.json` names `(root)` or selects `role: "tooling"`.
 
 ### Breaking / Behavior changes
 
+- **The CLI refuses what a command does not declare** (#767). An unknown option, a missing option value or an extra argument exits 1 on every command (`install`, `update` and `serve` included), with the closest option: `graph-it architecture --maxfiles 3` prints `Did you mean --maxFiles?`. An unknown command or a misspelt global option (`--worksapce`) also exits 1. `update --check` no longer runs an update. `--name=value` equals `--name value`, and positionals are read wherever they sit.
+- **A format a command does not write exits 4** (#767) and names the formats it does, instead of printing another view: `-f mermaid` on `scan`, `summary`, `explain`, `cycles`, `check`, `init`, `check-architecture` and `review-pr`; `query`/`context -f markdown|mermaid`; `wiki -f text|mermaid`; `stats -f toon|mermaid`; `-f html` outside `export`/`diagram`; `-f text` on `diagram`, `export` and `wiki`.
+- **Missing targets exit 1** (#767) with the closest names: a missing file, symbol (`trace`), scope (`export`) or unit.
+- **`graph-it summary` without a file** prints a workspace overview (files, import edges, extensions, most imported files, largest folders); `scan` prints the index status.
+- **`export --output`** is relative to the workspace root, like `diagram --output`; a path outside exits 5, `-` writes to stdout. `diagram --output` must end with the format's extension.
+- `scan` output drops `cacheSize`; TOON writes the workspace root as `.`. `graph-it tool <name>` refuses unknown parameters. `install` without a terminal exits 1 instead of writing the link to its default target; `update` writes its progress to stderr.
 - **MCP and language model tools refuse unknown parameters** (#769). Every tool schema is strict: a misspelt or extra key fails with `Unknown parameter "x". Did you mean "y"? Parameters: …` instead of being ignored. An invalid `response_format` on a VS Code language model tool is refused instead of falling back to TOON.
 - **Missing targets are errors** (#769): a file, symbol, folder, `graph_context` seed or scope, `query_natural_language` `fileFilter`, or `invalidate_files` paths that match nothing fail with the closest candidates. `query_call_graph` no longer answers `reason: "not_found"` as a success; `ambiguous` and `stale_selector` are unchanged.
 - **Offsets past the end are errors** (#769) on `crawl_dependency_graph`, `query_call_graph`, `explore_architecture` and `check_architecture`, naming the item count. `crawl_dependency_graph` sets `truncated: true` whenever `nextOffset` is set.
@@ -21,15 +35,41 @@
 
 - **Architecture units come from the declared elements** (#776). The units view (`graph-it architecture --level units`, `explore_architecture` `level: "units"`, `graph-it diagram`, `export_architecture_diagram`, the `init` report and the VS Code Architecture view) now draws the elements of graphit.architecture.json when it declares any. Without a config, files outside every project form one unit per top-level folder; `(root)` keeps only the root files. Fixture projects under a test folder fold into their parent. The `tooling` role splits into `test`, `fixture` and `tooling`, and the new `application` role is added. Configs that name `(root)` or select `role: "tooling"` get a config warning. JSON field names are unchanged; unit keys and `role` values change. New fields: `unitsFrom`, `configFile`, `baselineFile`, `configWarnings`, `rules` on the units, `folder` and `rules` on each unit, `rules` and `ruleVerdict` on each unit edge. Text and markdown tables gain an Evidence column and say whether the cycles are between declared elements or detected projects. Diagrams draw an inferred role with a dashed border and the evidence in the node tooltip, the role in words on each node; no `?` remains.
 
+  ```json
+  {
+    "elements": {
+      "apps": { "path": "apps/*", "each": true },
+      "packages": { "path": "packages/*", "each": true },
+      "tooling": { "path": ["scripts/", "tools/"] }
+    },
+    "roles": { "tooling": "tooling" }
+  }
+  ```
+
+  With this file, `graph-it architecture --level units` lists `apps (apps/web)`, `packages (packages/core)`, `packages (packages/ui)` and `tooling` (role `declared`), each edge with the verdict of the rules that check it. Key `roles` by element name: a key naming only a detected project sets its role for `role` selectors, not the role drawn on an element.
+
+  [![Exported diagram of the workspaces-project test fixture: 7 detected projects in 3 layers, each node naming its role in words, every role inferred so every border is dashed, and the runtime cycle between @ws/types and @ws/core outlined](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-diagram-roles.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-diagram-roles.png)
+
+  *`graph-it diagram` on a fixture without a config: each node names its role; a dashed border marks an inferred one.*
+
 ### Changed
 
 - **Readable parameter errors** (#769): one line naming the parameter, what it accepts and what was received, shared by the MCP server, its worker, `graph-it tool` and the language model tools. No raw Zod issue list, internal code (`FILE_NOT_FOUND:`, `INVALID_SCOPE_PATH:`) or CLI flag name in MCP messages; paths in messages are workspace-relative.
 - **Descriptions name every parameter** (#769): MCP and language model tool descriptions end with the parameters the tool takes; `npm run sync:tool-descriptions` generates the language model input schemas from the MCP Zod schemas.
 - **`crawl_dependency_graph` pages its cycles like its edges** (#769): each cycle comes with the page of its last listed file, and `cycleCount` gives the total. On a large repository the full cycle list no longer fills the default `tokenBudget`. Before, a default call could fail with `Token budget 4000 cannot contain a single item`. `omitted` gains `cycles`.
 - `scan_dead_code` `scopePath` accepts a workspace-relative folder. `get_session_stats` takes `response_format`.
+- **Warm runs reuse unchanged work** (#774). `init`, `check-architecture`, `summary`, `architecture`, `diagram`, the MCP architecture tools and the VS Code diagram tool read the imports of unchanged files from the index instead of parsing every file again, and symbol analyses persist in `.graph-it/cache/symbols.cache` by content hash. On nuxt.com (1 566 files), a warm `graph-it init --dry-run --format json` drops from 3.6 s to 0.76 s, `check-architecture` from 0.89 s to 0.42 s.
+- **Imports that resolve no file are reported** (#774) in one `unresolvedImports` block, the same in `init`, `check --unreferencedFiles`, `summary`, `scan_dead_code`, `get_index_status`, the language model tools and the VS Code indexing status: `count`, `excludedCount`, `caseMismatchCount` (differs only in letter case: breaks on Linux) and `notAnalyzedCount`, with examples. A dead file such an import may reach gets the reason `unresolved-import-in-workspace` (or `excluded-importer-in-workspace`) and one confidence level less. Without the reverse index the block says `tracked: false` with a warning.
+- **One name per unit** (#774) in every output (text, markdown, JSON, TOON, SVG, HTML, MCP, VS Code), taken from `package.json`, Maven `artifactId`, `Cargo.toml`, `pyproject.toml`, `go.mod` or a lone `.csproj`. The units table gains a **Name** column when the name differs from the folder; long names are cut in the middle so they stay distinct.
+- **The `init` HTML report stays readable with many units** (#774): every group labelled, no group box over another or under the findings panel, a stable layout, and past its size it draws the largest groups and says `K of N groups drawn`.
+- **Large cycles in `init` diagrams** (#767): past 12 cuts or a cycle of more than 20 units, the cut view lists the 10 heaviest cuts (`from → to`, file pairs, the `graph-it architecture --level units --from … --to …` command) and points to the matrix.
+- `architecture --matrix`, `--level units`, `--folder` and `--from/--to` print tables in `text` and `markdown` (#767). Every command's `--help` lists exactly its options and formats. `graph-it … | head` no longer prints an EPIPE stack trace; `review-pr --base nope` says `Unknown Git ref "nope"`.
 
 ### Fixed
 
+- **Java imports resolve across modules** (#774): a test finds its module's `src/main/java` classes, a module finds a sibling module's classes, and ignored and build folders are skipped. Before, a multi-module Java project could have no import edge at all.
+- `graph-it init --dry-run --output <outside the workspace>` exits 5 before any work, and a dry run says `Report: not written (dry run): <dir>` (#774).
+- **`review-pr`** (#776) no longer reports as breaking a return type annotation added to (or dropped from) a function whose return was inferred, and no longer counts a function that only receives a changed type as a declared parameter as building it.
 - **VS Code without a folder** (#770): the Dependency Graph view says "Open a folder to see its dependency graph" instead of "Waiting for graph data...", and **Force re-index**, **Refresh**, the view-mode commands, **Expand All** and **Show/Hide Reverse Dependencies** say "Graph-It-Live: open a folder to …" instead of doing nothing or reporting success. "View not initialized" becomes a message naming the view to open.
 - **Force re-index** shows a progress notification with a Cancel button instead of the false "Re-index triggered".
 - **Show Call Graph** switches the toolbar to call-graph mode only for a file it can render; it says when the call graph is re-indexing, when the cursor is outside every symbol (and which symbol it shows), when a file has no symbol, and reports a build failure in one notification.
