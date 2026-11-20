@@ -23,7 +23,7 @@ import { normalizePath } from "../../shared/path";
 import { hasProjectMarker } from "../utils/workspaceBoundary";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { layerGraph } from "./stronglyConnectedComponents";
-import { unitRole, type DeclaredRoles } from "./unitRoles";
+import { fileKind, mavenOwnPart, matchesWildcard, unitRole, type DeclaredRoles, type FileKind, type RootEvidenceCache } from "./unitRoles";
 import type { UnitSource } from "./workspaceUnits";
 
 /** Unit of the files outside every project (or at the root of a workspace without projects). */
@@ -36,6 +36,18 @@ export interface UnitAssignment {
   names: Map<string, string>;
   /** Folder of every unit key: the key for manifest units, "" for (root), (unmatched) and units across folders. */
   folders: Map<string, string>;
+  /** Kind of every file (fixture, test, tooling, other), read from its path below its project root. */
+  kinds?: Map<string, FileKind>;
+  /** Units of the files outside every project: one per top-level folder (assignUnits only). */
+  outsideProjects?: Set<string>;
+}
+
+/** Test folders: a project below one is a fixture of its parent, not a unit of its own. */
+const TEST_FOLDERS = new Set(["test", "tests", "__tests__", "spec", "specs", "e2e"]);
+
+/** The folder of a unit key; assignments built by hand without `folders` read the key (manifest units). */
+export function unitFolder(assignment: Pick<UnitAssignment, "folders">, key: string): string {
+  return assignment.folders?.get(key) ?? (key === ROOT_UNIT ? "" : key);
 }
 
 function packageName(packageJsonPath: string): string | undefined {
@@ -61,20 +73,6 @@ function readText(file: string): string | undefined {
 function tomlName(text: string | undefined, section: string): string | undefined {
   const body = text?.split(/^\[/m).find((part) => part.startsWith(`${section}]`));
   return body === undefined ? undefined : /^[ \t]*name[ \t]*=[ \t]*["']([^"'\n]+)["']/m.exec(body)?.[1];
-}
-
-/** Text of `text` outside every `open`…`close` block; an unclosed block runs to the end. */
-function outside(text: string, open: string, close: string): string {
-  return text.split(open).map((part, index) => {
-    if (index === 0) return part;
-    const end = part.indexOf(close);
-    return end < 0 ? "" : part.slice(end + close.length);
-  }).join("");
-}
-
-/** A pom.xml without its comments and its `<parent>` block: what is left names this module (#774). */
-function mavenOwnPart(pom: string | undefined): string | undefined {
-  return pom === undefined ? undefined : outside(outside(pom, "<!--", "-->"), "<parent>", "</parent>");
 }
 
 /**
@@ -111,29 +109,46 @@ function foldersOf(relativePath: string): string[] {
 /**
  * Each file goes to its deepest project folder (a folder holding a PROJECT_MARKERS manifest:
  * package.json, pyproject.toml, go.mod, Cargo.toml, *.csproj, pom.xml..., workspace member or
- * not), else to ROOT_UNIT. Without any project below the root, units are the top-level folders. Files come from SourceFileCollector, so node_modules is never read.
+ * not), else to its top-level folder; only the files at the workspace root go to ROOT_UNIT (#776).
+ * A project below a test folder (tests/fixtures/x, src/test/resources/x) folds into the unit
+ * around it, unless a `declared` pattern (roles keys, element `unit` selectors; `*` matches any
+ * characters, a pattern of `*` only keeps nothing) matches its key or name. Files come from
+ * SourceFileCollector, so node_modules is never read.
  */
-export function assignUnits(workspaceRoot: string, files: readonly string[]): UnitAssignment {
+export function assignUnits(workspaceRoot: string, files: readonly string[], declared: readonly string[] = []): UnitAssignment {
   const relativePaths = files.map(normalizePath);
   const isProject = new Map<string, boolean>();
   for (const folder of new Set(relativePaths.flatMap(foldersOf))) {
     isProject.set(folder, hasProjectMarker(path.join(workspaceRoot, folder)));
   }
-  const hasProjects = [...isProject.values()].some(Boolean);
-  const unitOf = new Map<string, string>();
   const names = new Map<string, string>();
+  const nameOf = (folder: string) => {
+    if (!names.has(folder)) names.set(folder, manifestName(path.join(workspaceRoot, folder)) ?? folder);
+    return names.get(folder)!;
+  };
+  const keeping = declared.filter((pattern) => pattern.replaceAll("*", "") !== "");
+  const kept = (folder: string) => keeping.some((pattern) => matchesWildcard(pattern, folder) || matchesWildcard(pattern, nameOf(folder)));
+  const isUnit = new Set([...isProject].filter(([folder, project]) =>
+    project && (!folder.split("/").slice(0, -1).some((segment) => TEST_FOLDERS.has(segment)) || kept(folder))).map(([folder]) => folder));
+
+  const unitOf = new Map<string, string>();
+  const unitNames = new Map<string, string>();
   const folders = new Map<string, string>();
+  const kinds = new Map<string, FileKind>();
+  const outsideProjects = new Set<string>();
   for (const relativePath of relativePaths) {
     const parents = foldersOf(relativePath);
-    const unit = (hasProjects ? parents.find((folder) => isProject.get(folder)) : parents.at(-1)) ?? ROOT_UNIT;
+    const project = parents.find((folder) => isUnit.has(folder));
+    const unit = project ?? parents.at(-1) ?? ROOT_UNIT;
     unitOf.set(relativePath, unit);
-    if (!names.has(unit)) {
-      const name = unit !== ROOT_UNIT && hasProjects ? manifestName(path.join(workspaceRoot, unit)) : undefined;
-      names.set(unit, name ?? unit);
+    kinds.set(relativePath, fileKind(relativePath, parents.find((folder) => isProject.get(folder)) ?? ""));
+    if (project === undefined && unit !== ROOT_UNIT) outsideProjects.add(unit);
+    if (!unitNames.has(unit)) {
+      unitNames.set(unit, project === undefined ? unit : nameOf(unit));
       folders.set(unit, unit === ROOT_UNIT ? "" : unit);
     }
   }
-  return { unitOf, names, folders };
+  return { unitOf, names: unitNames, folders, kinds, outsideProjects };
 }
 
 /** One unit (or group) pair: its file pairs, those whose every import is type-only, those loaded only through import(). */
@@ -197,14 +212,20 @@ export function buildArchitectureUnits(
   workspaceRoot: string,
   assignment?: UnitAssignment,
   declaredRoles?: DeclaredRoles,
+  unitsFrom: ArchitectureUnits["unitsFrom"] = "manifests",
 ): ArchitectureUnits {
-  const { unitOf, names, folders } = assignment ?? assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
+  const resolved = assignment ?? assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
+  const { unitOf, names } = resolved;
+  const folderOf = (key: string) => unitFolder(resolved, key);
+  const kindOf = (file: string) => resolved.kinds?.get(file) ?? fileKind(file, folderOf(unitOf.get(file)!));
   const unitKeys = [...names.keys()].sort(byCodeUnit);
   const files = new Map<string, string[]>(unitKeys.map((key) => [key, []]));
   const internal = new Map<string, number>(unitKeys.map((key) => [key, 0]));
   for (const node of graph.nodes) files.get(unitOf.get(node.relativePath)!)!.push(node.relativePath);
 
   const pairs = new Map<string, UnitPair>();
+  // Only product files make a library: tests that import a folder do not (#776).
+  const productImporters = new Map<string, Set<string>>();
   for (const edge of graph.edges) {
     const from = unitOf.get(edge.sourceRelative)!;
     const to = unitOf.get(edge.targetRelative)!;
@@ -213,6 +234,7 @@ export function buildArchitectureUnits(
       continue;
     }
     countPair(pairs, from, to, edge);
+    if (kindOf(edge.sourceRelative) === "other") productImporters.set(to, (productImporters.get(to) ?? new Set()).add(from));
   }
 
   const successors = new Map<string, string[]>();
@@ -220,17 +242,27 @@ export function buildArchitectureUnits(
   for (const targets of successors.values()) targets.sort(byCodeUnit);
   const { components, componentOf, layerOf } = layerGraph(unitKeys, successors);
 
-  const importers = (key: string) => [...pairs.values()].filter((pair) => pair.to === key).map((pair) => names.get(pair.from)!).sort(byCodeUnit);
+  const importers = (key: string) => [...productImporters.get(key) ?? []].map((from) => names.get(from)!).sort(byCodeUnit);
+  const rootEvidence: RootEvidenceCache = new Map();
   const units: ArchitectureUnit[] = unitKeys
-    .map((key) => ({
-      key,
-      name: names.get(key)!,
-      folder: folders.get(key) ?? (key === ROOT_UNIT ? "" : key),
-      fileCount: files.get(key)!.length,
-      internalEdgeCount: internal.get(key)!,
-      layer: layerOf.get(key)!,
-      ...unitRole(workspaceRoot, { key, name: names.get(key)!, folder: key === ROOT_UNIT ? "" : key, files: files.get(key)!, importers: importers(key) }, declaredRoles),
-    }))
+    .map((key) => {
+      const folder = folderOf(key);
+      const unitFiles = files.get(key)!;
+      const input = {
+        key, name: names.get(key)!, folder, files: unitFiles, importers: importers(key), kinds: unitFiles.map(kindOf),
+        // An element unit across folders has no manifest of its own, and never the root's (#776).
+        manifest: unitsFrom === "manifests" || folder !== "",
+      };
+      return {
+        key,
+        name: names.get(key)!,
+        folder,
+        fileCount: unitFiles.length,
+        internalEdgeCount: internal.get(key)!,
+        layer: layerOf.get(key)!,
+        ...unitRole(workspaceRoot, input, declaredRoles, rootEvidence),
+      };
+    })
     .sort((left, right) => right.layer - left.layer || right.fileCount - left.fileCount || byCodeUnit(left.key, right.key));
   const cycleKinds = components.filter((members) => members.length > 1).map((members) => cycleKind(members, pairs));
   const cycleKindOf = new Map(components.filter((members) => members.length > 1).flatMap((members, index) => members.map((key) => [key, cycleKinds[index]] as const)));
@@ -269,7 +301,7 @@ export function buildArchitectureUnits(
       intraUnitEdges: graph.edges.length - interUnitEdges,
       interUnitEdges,
     },
-    unitsFrom: "manifests",
+    unitsFrom,
   };
 }
 
@@ -277,9 +309,9 @@ export function buildArchitectureUnits(
  * Folder keys of a file, from its unit down to its own folder: the unit, then `<unit>/<domain>`
  * (umbrella folders such as src or tests skipped, as for the path groups), then each sub-folder.
  */
-export function folderKeys(relativePath: string, unit: string): string[] {
+export function folderKeys(relativePath: string, unit: string, folder = unit === ROOT_UNIT ? "" : unit): string[] {
   const normalized = normalizePath(relativePath);
-  const inside = unit === ROOT_UNIT ? normalized : normalized.slice(unit.length + 1);
+  const inside = folder === "" ? normalized : normalized.slice(folder.length + 1);
   const dirs = inside.split("/").slice(0, -1);
   const chain = dirs.slice(domainIndex(dirs, 0));
   return [unit, ...chain.map((_, index) => `${unit}/${chain.slice(0, index + 1).join("/")}`)];
@@ -296,7 +328,7 @@ export function directoryFolderKey(assignment: UnitAssignment, directory: string
   let shared: string[] | undefined;
   for (const [file, unit] of assignment.unitOf) {
     if (!file.startsWith(`${directory}/`)) continue;
-    const keys = folderKeys(file, unit);
+    const keys = folderKeys(file, unit, unitFolder(assignment, unit));
     const dirs = file.split("/").slice(0, -1);
     // Folder of each key below the unit: the file's folders down to the last one of the chain.
     const folderOf = (index: number) => dirs.slice(0, dirs.length - keys.length + 1 + index).join("/");
@@ -332,7 +364,7 @@ export function groupByUnit(
   const unitOrder = new Map(units.units.map((unit, index) => [unit.key, index]));
   const keys = graph.nodes.flatMap((node) => {
     const unit = assignment.unitOf.get(node.relativePath)!;
-    const chain = folderKeys(node.relativePath, unit);
+    const chain = folderKeys(node.relativePath, unit, unitFolder(assignment, unit));
     const level = folder === undefined ? 0 : chain.indexOf(folder);
     return level < 0 ? [] : [{ node, unit, key: chain[level + 1] ?? chain[level], nested: chain.length > level + 2 }];
   });
@@ -402,12 +434,14 @@ export function folderLevel(first: UnitSource | ArchitectureGraph, second: strin
   if (graph.context.communityMode !== "path") {
     throw new Error("folder levels exist in communityMode 'path' only: Louvain groups have no folders.");
   }
-  const folder = legacy ? third : second;
+  const asked = legacy ? third : second;
   const assignment = legacy ? assignUnits(second, graph.nodes.map((node) => node.relativePath)) : (first as UnitSource).assignment;
   const units = legacy ? buildArchitectureUnits(graph, second, assignment) : (first as UnitSource).units;
+  // An element unit is named by its key; its folder (src/analyzer) leads to it too.
+  const folder = assignment.names.has(asked) ? asked : [...(assignment.folders ?? [])].find(([, unitPath]) => unitPath !== "" && unitPath === asked)?.[0] ?? asked;
   const level = groupByUnit(graph, units, assignment, folder);
   if (level.graph.nodes.length === 0) {
-    throw new Error(`No file below folder "${folder}". Pass a unit key (level units) or a group key of a folder level.`);
+    throw new Error(`No file below folder "${asked}". Pass a unit key (level units) or a group key of a folder level.`);
   }
   return level;
 }

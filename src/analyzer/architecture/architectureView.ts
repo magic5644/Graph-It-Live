@@ -8,22 +8,20 @@
  */
 
 import { aggregateCommunityGroups } from "../community/groupAggregation";
-import type { ArchitectureMatrix, ArchitectureOverview, ArchitectureUnits } from "../../shared/architecture-model";
+import type { ArchitectureMatrix, ArchitectureOverview, ArchitectureUnits, UnitRole } from "../../shared/architecture-model";
 import { unitDisplayName } from "../../shared/unitDisplayName";
 import { overviewArchitecture } from "./ArchitectureExplorer";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { groupMatrix, unitMatrix } from "./architectureMatrix";
 import { rulesByEdge, type ArchitectureViolation } from "./architectureRules";
 import {
-  assignUnits,
-  buildArchitectureUnits,
   groupByUnit,
   layerGroupsWithinUnits,
 } from "./architectureUnits";
 import { computeGroupDependents } from "./groupDependents";
 import { stronglyConnectedComponents } from "./stronglyConnectedComponents";
 import type { DeclaredRoles } from "./unitRoles";
-import type { UnitSource, WorkspaceUnits } from "./workspaceUnits";
+import { workspaceUnits, type UnitSource, type WorkspaceUnits } from "./workspaceUnits";
 
 export type { UnitSource } from "./workspaceUnits";
 
@@ -159,11 +157,14 @@ export function viewArchitecture(
   source?: WorkspaceUnits | DeclaredRoles,
 ): ReturnType<typeof viewGroups> & Partial<Pick<ReturnType<typeof viewUnitLevel>, "units">> & { source?: UnitSource } {
   if (graph.context.communityMode !== "path") return viewGroups(graph, maxGroups);
-  if (isWorkspaceUnits(source)) return { ...viewUnitLevel(source, maxGroups), source };
-  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
-  const built = { graph, units: buildArchitectureUnits(graph, workspaceRoot, assignment, source), assignment };
-  return { ...viewUnitLevel(built, maxGroups), source: built };
+  const units = isWorkspaceUnits(source)
+    ? source
+    : workspaceUnits(graph, workspaceRoot, source === undefined ? undefined : { elements: {}, rules: [], roles: declaredOnly(source) });
+  return { ...viewUnitLevel(units, maxGroups), source: units };
 }
+
+const declaredOnly = (roles: DeclaredRoles) =>
+  Object.fromEntries(Object.entries(roles).filter((entry): entry is [string, UnitRole] => entry[1] !== undefined));
 
 const isWorkspaceUnits = (source: WorkspaceUnits | DeclaredRoles | undefined): source is WorkspaceUnits =>
   source !== undefined && typeof source.assignment === "object" && typeof source.units === "object";

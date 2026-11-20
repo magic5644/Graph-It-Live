@@ -1,4 +1,5 @@
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { z } from "zod/v4";
@@ -369,5 +370,68 @@ describe("rulesByEdge", () => {
       { rule: "c", source: "web/a.ts", target: "web/b.ts" },
       { rule: "d", source: "x/a.ts", target: "api/b.ts" },
     ], unitOf)).toEqual({ "web>api": ["a", "b"] });
+  });
+});
+
+describe("config warnings of #776: (root), roles keys and tooling selectors", () => {
+  let dir: string;
+  const files = (list: string[]) => {
+    for (const file of list) {
+      fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
+      fs.writeFileSync(path.join(dir, file), "");
+    }
+    return list;
+  };
+  const check = (list: string[], config: Partial<ArchitectureConfig>, roleOf?: Map<string, string>) => {
+    const assignment = assignUnits(dir, list);
+    const graph = { nodes: list.map((relativePath) => ({ relativePath })), edges: [], context: { revision: "r" } } as unknown as ArchitectureGraph;
+    return checkArchitecture(graph, assignment, { elements: {}, rules: [], ...config }, undefined, roleOf).configWarnings;
+  };
+
+  beforeAll(() => {
+    dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graphit-warnings-")));
+    fs.writeFileSync(path.join(dir, "package.json"), "{}");
+    fs.mkdirSync(path.join(dir, "packages/lib"), { recursive: true });
+    fs.writeFileSync(path.join(dir, "packages/lib/package.json"), JSON.stringify({ name: "@acme/lib" }));
+  });
+  afterAll(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it("warns a roles key or a unit selector naming (root): it holds the root files only, the rest moved", () => {
+    const list = files(["a.ts", "b.ts", "src/x.ts", "src/y.ts", "scripts/s.ts", "packages/lib/i.ts"]);
+    const moved = '"(root)" now holds only the 2 files at the workspace root; files outside every project moved to the units src, scripts: name those instead';
+    expect(check(list, { roles: { "(root)": "tooling" } })).toEqual([`$.roles["(root)"]: ${moved}`]);
+    expect(check(list, { elements: { root: { unit: "(root)" } } })).toEqual([`$.elements.root.unit: ${moved}`]);
+    expect(check(list, { elements: { root: { unit: ["@acme/lib", "(root)"] } } })).toEqual([`$.elements.root.unit[1]: ${moved}`]);
+    // No root file: (root) matches no unit.
+    expect(check(["src/x.ts"], { roles: { "(root)": "tooling" } })).toEqual([
+      '$.roles["(root)"]: "(root)" matches no unit; files outside every project are now in the units src',
+    ]);
+    expect(check(["a.ts"], { roles: { "(root)": "tooling" } }).join()).not.toContain("moved");
+  });
+
+  it("lists at most 10 moved units, then how many more", () => {
+    const list = files(["a.ts", ...Array.from({ length: 12 }, (_, index) => `d${String(index).padStart(2, "0")}/x.ts`)]);
+    expect(check(list, { roles: { "(root)": "tooling" } })[0]).toMatch(/units d00, d01, d02, d03, d04, d05, d06, d07, d08, d09 and 2 more: name those instead$/);
+  });
+
+  it("warns a roles key that matches no unit in either namespace", () => {
+    const list = files(["src/x.ts", "packages/lib/i.ts"]);
+    expect(check(list, {
+      elements: { web: { path: "src/" }, mfe: { path: "src/*", each: true } },
+      roles: { src: "library", "@acme/*": "library", web: "frontend", "mfe (src/x.ts)": "frontend", ghost: "service" },
+    })).toEqual(['$.roles["ghost"]: matches no unit']);
+  });
+
+  it("warns a tooling role selector about the test and fixture units it no longer selects", () => {
+    const list = files(["tests/a.test.ts", "examples/e.ts", "scripts/s.ts"]);
+    const roleOf = new Map([["tests", "test"], ["examples", "fixture"], ["scripts", "tooling"]]);
+    expect(check(list, { elements: { t: { role: "tooling" } } }, roleOf)).toEqual([
+      '$.elements.t.role: "tooling" no longer selects test and fixture units (examples, tests); add "test", "fixture" to keep them',
+    ]);
+    expect(check(list, { elements: { t: { role: ["tooling", "test"] } } }, roleOf)).toEqual([
+      '$.elements.t.role: "tooling" no longer selects fixture units (examples); add "fixture" to keep them',
+    ]);
+    expect(check(list, { elements: { t: { role: ["tooling", "test", "fixture"] } } }, roleOf)).toEqual([]);
+    expect(check(list, { elements: { t: { role: "tooling" } } }, new Map([["scripts", "tooling"]]))).toEqual([]);
   });
 });

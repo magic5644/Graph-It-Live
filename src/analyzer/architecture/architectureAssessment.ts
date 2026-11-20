@@ -448,6 +448,9 @@ export const matrixAction = (kind: MatrixFindingKind) => MATRIX_GUIDE.patterns.f
 function rowFindings(input: AssessmentInput): MatrixFinding[] {
   const { matrix } = input;
   const fileCount = new Map(input.units.units.map((unit) => [unit.key, unit.fileCount]));
+  // Commands take the unit folder, never its key: an element unit is named, not a path (#776).
+  const folderOf = new Map(input.units.units.map((unit) => [unit.key, unit.folder]));
+  const checkCommand = (folder: string) => `graph-it check${folder === "" ? "" : " " + JSON.stringify(folder)} --unreferencedFiles`;
   const deadFiles = new Map<string, number>();
   for (const file of input.deadFiles ?? []) {
     const unit = input.unitOf.get(file.relativePath) ?? NO_UNIT;
@@ -479,7 +482,7 @@ function rowFindings(input: AssessmentInput): MatrixFinding[] {
       .filter((r) => r.incomingPairs === 0)
       .map((r) => row("entry-row", r.key,
         `No other unit imports it (${deadFiles.get(r.key) ?? 0} dead file(s)).`,
-        `graph-it check${r.key === ROOT_UNIT ? "" : " " + JSON.stringify(r.key)} --unreferencedFiles`)),
+        checkCommand(folderOf.get(r.key) ?? (r.key === ROOT_UNIT ? "" : r.key)))),
     ...matrix.rows
       .filter((r) => (fileCount.get(r.key) ?? 0) >= t.cohesionMinFiles && r.outgoingPairs > 0
         && r.internalEdgeCount / (r.internalEdgeCount + r.outgoingPairs) < t.cohesionRatio)

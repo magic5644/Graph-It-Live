@@ -9,7 +9,7 @@
     "edgeCount": 10,
     "context": {
       "communityMode": "path",
-      "revision": "bfe727ad97ac68fb3e86a5b29ef9ae2e3884fb28b729a8be4877ab713040eb74",
+      "revision": "2d577037238e36f434bca331722aa872be1cc35497a71cfc4d284da195a53618",
       "graphKind": "imports",
       "scope": "workspace",
       "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -26,12 +26,17 @@
         "layer": 2,
         "role": "unknown",
         "confidence": "inferred",
-        "evidence": []
+        "evidence": [
+          {
+            "role": "unknown",
+            "detail": "no evidence: no manifest field, framework, entry point or product importer found"
+          }
+        ]
       },
       {
-        "key": "(root)",
-        "name": "(root)",
-        "folder": "",
+        "key": "scripts",
+        "name": "scripts",
+        "folder": "scripts",
         "fileCount": 1,
         "internalEdgeCount": 0,
         "layer": 2,
@@ -40,7 +45,7 @@
         "evidence": [
           {
             "role": "tooling",
-            "detail": "only scripts, tests or config (1 file)"
+            "detail": "only tests, fixtures or tooling (0 test, 0 fixture, 1 tooling file)"
           }
         ]
       },
@@ -72,7 +77,7 @@
         "evidence": [
           {
             "role": "library",
-            "detail": "imported by `(root)`, `@ws/web`"
+            "detail": "imported by `@ws/web`"
           }
         ]
       },
@@ -83,12 +88,12 @@
         "fileCount": 1,
         "internalEdgeCount": 0,
         "layer": 1,
-        "role": "tooling",
+        "role": "unknown",
         "confidence": "inferred",
         "evidence": [
           {
-            "role": "tooling",
-            "detail": "only scripts, tests or config (1 file)"
+            "role": "unknown",
+            "detail": "no evidence: no manifest field, framework, entry point or product importer found"
           }
         ]
       },
@@ -133,12 +138,6 @@
         "kind": "down"
       },
       {
-        "from": "(root)",
-        "to": "packages/ui",
-        "fileEdgeCount": 1,
-        "kind": "down"
-      },
-      {
         "from": "apps/web",
         "to": "packages/core",
         "fileEdgeCount": 1,
@@ -171,6 +170,12 @@
         "kind": "down"
       },
       {
+        "from": "scripts",
+        "to": "packages/ui",
+        "fileEdgeCount": 1,
+        "kind": "down"
+      },
+      {
         "from": "tools/legacy",
         "to": "packages/core",
         "fileEdgeCount": 1,
@@ -183,8 +188,8 @@
     "roleCounts": {
       "function": 1,
       "library": 3,
-      "tooling": 2,
-      "unknown": 1
+      "tooling": 1,
+      "unknown": 2
     },
     "totals": {
       "files": 8,
@@ -198,7 +203,7 @@
     "view": "units",
     "context": {
       "communityMode": "path",
-      "revision": "bfe727ad97ac68fb3e86a5b29ef9ae2e3884fb28b729a8be4877ab713040eb74",
+      "revision": "2d577037238e36f434bca331722aa872be1cc35497a71cfc4d284da195a53618",
       "graphKind": "imports",
       "scope": "workspace",
       "exclusions": "node_modules, .git, dist, build, out, coverage, .next, .nuxt, __pycache__, .venv, venv, target, .*/, .gitignore, .graphitignore, tests/fixtures/, out-*/",
@@ -222,8 +227,8 @@
     "roleCounts": {
       "function": 1,
       "library": 3,
-      "tooling": 2,
-      "unknown": 1
+      "tooling": 1,
+      "unknown": 2
     },
     "units": [
       {
@@ -235,12 +240,17 @@
         "layer": 2,
         "role": "unknown",
         "confidence": "inferred",
-        "evidence": []
+        "evidence": [
+          {
+            "role": "unknown",
+            "detail": "no evidence: no manifest field, framework, entry point or product importer found"
+          }
+        ]
       },
       {
-        "key": "(root)",
-        "name": "(root)",
-        "folder": "",
+        "key": "scripts",
+        "name": "scripts",
+        "folder": "scripts",
         "fileCount": 1,
         "internalEdgeCount": 0,
         "layer": 2,
@@ -249,7 +259,7 @@
         "evidence": [
           {
             "role": "tooling",
-            "detail": "only scripts, tests or config (1 file)"
+            "detail": "only tests, fixtures or tooling (0 test, 0 fixture, 1 tooling file)"
           }
         ]
       }
@@ -262,8 +272,8 @@
         "kind": "down"
       },
       {
-        "from": "(root)",
-        "to": "packages/ui",
+        "from": "apps/web",
+        "to": "packages/core",
         "fileEdgeCount": 1,
         "kind": "down"
       }
@@ -295,7 +305,7 @@
     },
     {
       "id": 3,
-      "key": "(root)/scripts",
+      "key": "scripts",
       "label": "scripts",
       "fileCount": 1,
       "internalEdgeCount": 0
@@ -339,7 +349,7 @@
   "groupUnits": {
     "1": "apps/web",
     "2": "apps/web",
-    "3": "(root)",
+    "3": "scripts",
     "4": "functions/notify",
     "5": "packages/ui",
     "6": "tools/legacy",

@@ -16,18 +16,6 @@
     ]
   },
   {
-    "from": "(root)",
-    "to": "packages/ui",
-    "kind": "down",
-    "total": 1,
-    "pairs": [
-      {
-        "source": "scripts/build.ts",
-        "target": "packages/ui/src/index.ts"
-      }
-    ]
-  },
-  {
     "from": "apps/web",
     "to": "packages/core",
     "kind": "down",
@@ -84,6 +72,18 @@
       {
         "source": "packages/ui/src/index.ts",
         "target": "packages/core/src/index.ts"
+      }
+    ]
+  },
+  {
+    "from": "scripts",
+    "to": "packages/ui",
+    "kind": "down",
+    "total": 1,
+    "pairs": [
+      {
+        "source": "scripts/build.ts",
+        "target": "packages/ui/src/index.ts"
       }
     ]
   },

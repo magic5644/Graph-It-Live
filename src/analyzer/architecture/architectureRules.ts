@@ -22,7 +22,7 @@ import type { CycleKind } from "../../shared/cycleUtils";
 import { normalizePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import type { ArchitectureGraph } from "./ArchitectureGraphBuilder";
-import { assignUnits, buildArchitectureUnits, byCodeUnit, type UnitAssignment } from "./architectureUnits";
+import { assignUnits, buildArchitectureUnits, byCodeUnit, ROOT_UNIT, type UnitAssignment } from "./architectureUnits";
 import { layerGraph } from "./stronglyConnectedComponents";
 import { matchesWildcard, type DeclaredRoles } from "./unitRoles";
 
@@ -267,10 +267,10 @@ export async function loadArchitectureRules(workspaceRoot: string, files: Archit
   return { configFile, config, baselineFile, baseline: parseBaseline(baselineText, baselineFile) };
 }
 
-/** Element name → instance, for one file. An element without `each` has one instance: its name. */
-type Membership = Map<string, string>;
+/** Element name → instance, for one file, in config order. An element without `each` has one instance: its name. */
+export type Membership = Map<string, string>;
 
-interface ResolvedElements {
+export interface ResolvedElements {
   membership: Map<string, Membership>;
   warnings: string[];
 }
@@ -286,13 +286,50 @@ function matchedPrefix(matcher: ReturnType<typeof ignore>, file: string): string
   return file;
 }
 
-function patternWarnings(at: string, value: string | string[] | undefined, matches: (pattern: string) => boolean): string[] {
+function patternWarnings(at: string, value: string | string[] | undefined, matches: (pattern: string) => boolean, special?: (pattern: string, where: string) => string | undefined): string[] {
   const what = at.endsWith(".path") ? "file" : "unit";
   return asList(value).flatMap((pattern, index) => {
-    if (pattern.startsWith("!") || matches(pattern)) return [];
     const where = Array.isArray(value) ? `${at}[${index}]` : at;
+    const warning = special?.(pattern, where);
+    if (warning !== undefined) return [warning];
+    if (pattern.startsWith("!") || matches(pattern)) return [];
     return [`${where}: "${pattern}" matches no ${what}`];
   });
+}
+
+const MAX_LISTED_UNITS = 10;
+
+/** At most 10 names, then `and N more`. */
+function listUnits(names: readonly string[]): string {
+  const shown = names.slice(0, MAX_LISTED_UNITS).join(", ");
+  return names.length > MAX_LISTED_UNITS ? `${shown} and ${names.length - MAX_LISTED_UNITS} more` : shown;
+}
+
+/**
+ * A config naming `(root)` (a roles key or an element unit selector) meant every file outside every
+ * project; since #776 those files form one unit per top-level folder. Undefined when nothing moved.
+ */
+function rootWarning(where: string, assignment: UnitAssignment): string | undefined {
+  const moved = assignment.outsideProjects;
+  if (moved === undefined || moved.size === 0) return undefined;
+  const size = (unit: string) => [...assignment.unitOf.values()].filter((key) => key === unit).length;
+  const units = listUnits([...moved].map((unit) => ({ unit, files: size(unit) }))
+    .sort((left, right) => right.files - left.files || byCodeUnit(left.unit, right.unit)).map(({ unit }) => unit));
+  const rootFiles = size(ROOT_UNIT);
+  return rootFiles === 0
+    ? `${where}: "${ROOT_UNIT}" matches no unit; files outside every project are now in the units ${units}`
+    : `${where}: "${ROOT_UNIT}" now holds only the ${rootFiles} ${rootFiles === 1 ? "file" : "files"} at the workspace root; files outside every project moved to the units ${units}: name those instead`;
+}
+
+/** Roles a `tooling` selector selected before #776 split them out of tooling. */
+const SPLIT_FROM_TOOLING = ["test", "fixture"] as const;
+
+function toolingRoleWarning(at: string, roles: readonly string[], assignment: UnitAssignment, roleOf: RoleOf): string[] {
+  const missing = SPLIT_FROM_TOOLING.filter((role) => !roles.includes(role));
+  if (!roles.includes("tooling") || missing.length === 0) return [];
+  const units = [...roleOf].filter(([, role]) => (missing as readonly string[]).includes(role)).map(([key]) => assignment.names.get(key) ?? key).sort(byCodeUnit);
+  if (units.length === 0) return [];
+  return [`${at}: "tooling" no longer selects ${missing.join(" and ")} units (${listUnits(units)}); add ${missing.map((role) => `"${role}"`).join(", ")} to keep them`];
 }
 
 /** Instance of `file` in one element (path first, then unit), or undefined outside it. */
@@ -323,7 +360,7 @@ function elementInstance(name: string, element: ArchitectureConfig["elements"][s
  * ponytail: elements × files × folder depth `ignore` calls, then rules × edges; fine for tens of
  * thousands of files and tens of rules, index the files by folder if a large config gets slow.
  */
-function resolveElements(config: ArchitectureConfig, files: readonly string[], assignment: UnitAssignment, roleOf: RoleOf): ResolvedElements {
+export function resolveElements(config: ArchitectureConfig, files: readonly string[], assignment: UnitAssignment, roleOf: RoleOf): ResolvedElements {
   const membership = new Map<string, Membership>(files.map((file) => [file, new Map()]));
   const warnings: string[] = [];
   for (const [name, element] of Object.entries(config.elements)) {
@@ -339,11 +376,34 @@ function resolveElements(config: ArchitectureConfig, files: readonly string[], a
         return files.some((file) => matcher.ignores(file));
       }),
       ...patternWarnings(`${at}.unit`, element.unit, (pattern) =>
-        [...assignment.names].some(([key, unitName]) => matchesWildcard(pattern, key) || matchesWildcard(pattern, unitName))),
+        [...assignment.names].some(([key, unitName]) => matchesWildcard(pattern, key) || matchesWildcard(pattern, unitName)),
+      (pattern, where) => (pattern === ROOT_UNIT ? rootWarning(where, assignment) : undefined)),
       ...patternWarnings(`${at}.role`, element.role, (role) => [...roleOf.values()].includes(role)),
+      ...toolingRoleWarning(`${at}.role`, asList<string>(element.role), assignment, roleOf),
     );
   }
   return { membership, warnings };
+}
+
+/**
+ * `roles` keys that match no unit: neither a detected project (key or name) nor an element unit
+ * (`element` or `element (instance)`). A `(root)` key gets the #776 warning instead.
+ */
+function rolesWarnings(config: ArchitectureConfig, assignment: UnitAssignment, elements: ResolvedElements): string[] {
+  const elementUnits = new Set([...Object.keys(config.elements), ...[...elements.membership.values()].flatMap((member) => [...member].map(([element, instance]) => label(element, instance)))]);
+  const names = [...assignment.names].flat();
+  return Object.keys(config.roles ?? {}).flatMap((pattern) => {
+    const where = `$.roles[${JSON.stringify(pattern)}]`;
+    const root = pattern === ROOT_UNIT ? rootWarning(where, assignment) : undefined;
+    if (root !== undefined) return [root];
+    const matches = names.some((name) => matchesWildcard(pattern, name)) || [...elementUnits].some((unit) => matchesWildcard(pattern, unit));
+    return matches ? [] : [`${where}: matches no unit`];
+  });
+}
+
+/** The patterns that keep a project below a test folder a unit of its own: roles keys and element `unit` selectors. */
+export function declaredUnitPatterns(config: ArchitectureConfig): string[] {
+  return [...Object.keys(config.roles ?? {}), ...Object.values(config.elements).flatMap((element) => asList(element.unit))];
 }
 
 export interface ArchitectureViolation {
@@ -366,7 +426,8 @@ export interface ArchitectureViolation {
 type Edge = ArchitectureGraph["edges"][number];
 type Found = Pick<ArchitectureViolation, "from" | "to" | "cycle">;
 
-const label = (element: string, instance: string) => (instance === element ? element : `${element} (${instance})`);
+/** `element`, or `element (instance)` for an element with each: the name of a violation end and of an element unit. */
+export const label = (element: string, instance: string) => (instance === element ? element : `${element} (${instance})`);
 
 function elementLabels(member: Membership | undefined): string {
   return member === undefined || member.size === 0 ? "(no element)" : [...member].map(([element, instance]) => label(element, instance)).join(", ");
@@ -456,9 +517,11 @@ export function checkArchitecture(
   config: ArchitectureConfig,
   baseline?: readonly BaselineEntry[],
   roleOf: RoleOf = new Map(),
+  /** The membership resolveElements gave for these arguments, when the caller already holds it. */
+  precomputed?: ResolvedElements,
 ) {
   const files = graph.nodes.map((node) => node.relativePath);
-  const elements = resolveElements(config, files, assignment, roleOf);
+  const elements = precomputed ?? resolveElements(config, files, assignment, roleOf);
   const accepted = new Set((baseline ?? []).map((entry) => `${entry.rule}\0${entry.source}\0${entry.target}`));
   const found = new Set<string>();
   const violations: ArchitectureViolation[] = [];
@@ -520,7 +583,7 @@ export function checkArchitecture(
     violations,
     resolved,
     unmatchedFiles,
-    configWarnings: elements.warnings,
+    configWarnings: [...elements.warnings, ...rolesWarnings(config, assignment, elements)],
   };
 }
 
@@ -548,9 +611,10 @@ export async function checkWorkspaceArchitecture(
   return { configFile, baselineFile, ...checkGraphArchitecture(graph, workspaceRoot, config, baseline).check };
 }
 
-/** The rules checked against the graph of the tree at `workspaceRoot`, with the unit assignment they read. */
+/** The rules checked against the graph of the tree at `workspaceRoot`, with the detected-project assignment they read. */
 export function checkGraphArchitecture(graph: ArchitectureGraph, workspaceRoot: string, config: ArchitectureConfig, baseline?: readonly BaselineEntry[]) {
-  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath));
+  // Always the detected projects, never the element units: `unit`/`role` selectors and noCycles "units" read them (#776).
+  const assignment = assignUnits(workspaceRoot, graph.nodes.map((node) => node.relativePath), declaredUnitPatterns(config));
   const { units } = buildArchitectureUnits(graph, workspaceRoot, assignment, config.roles);
   const roleOf = new Map(units.map((unit) => [unit.key, unit.role]));
   return { assignment, check: checkArchitecture(graph, assignment, config, baseline, roleOf) };

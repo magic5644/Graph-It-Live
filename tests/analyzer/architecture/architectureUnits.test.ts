@@ -16,6 +16,7 @@ import {
   ROOT_UNIT,
 } from "@/analyzer/architecture/architectureUnits";
 import { aggregateCommunityGroups } from "@/analyzer/community/groupAggregation";
+import { workspaceUnits } from "@/analyzer/architecture/workspaceUnits";
 import { SpiderBuilder } from "@/analyzer/SpiderBuilder";
 import { normalizePath } from "@/shared/path";
 
@@ -53,7 +54,7 @@ afterEach(() => {
 });
 
 describe("assignUnits", () => {
-  it("puts each file in its deepest package, workspace member or not, and the rest in (root)", () => {
+  it("puts each file in its deepest package, workspace member or not, the rest in its top-level folder, root files in (root)", () => {
     write("package.json", manifest("root", { workspaces: ["apps/*", "packages/*"] }));
     write("apps/web/package.json", manifest("@acme/web"));
     write("packages/lib/package.json", manifest("@acme/lib"));
@@ -76,7 +77,7 @@ describe("assignUnits", () => {
       "packages/lib/examples/demo/run.ts": "packages/lib/examples/demo",
       "tools/gen/cli.ts": "tools/gen",
       "services/broken/index.ts": "services/broken",
-      "scripts/build.ts": ROOT_UNIT,
+      "scripts/build.ts": "scripts",
       "index.ts": ROOT_UNIT,
     });
     expect(Object.fromEntries(names)).toEqual({
@@ -85,6 +86,7 @@ describe("assignUnits", () => {
       "packages/lib/examples/demo": "demo",
       "tools/gen": "tools/gen",
       "services/broken": "services/broken",
+      scripts: "scripts",
       [ROOT_UNIT]: ROOT_UNIT,
     });
   });
@@ -105,9 +107,9 @@ describe("assignUnits", () => {
       "services/etl/job.py": "services/etl",
       "services/gateway/main.go": "services/gateway",
       "services/billing/Invoice.cs": "services/billing",
-      // Outside every project: the root package, never a top-level folder.
-      "services/README.py": ROOT_UNIT,
-      "tools/x.py": ROOT_UNIT,
+      // Outside every project: one unit per top-level folder, (root) keeps the root files only (#776).
+      "services/README.py": "services",
+      "tools/x.py": "tools",
     });
     // A manifest without a name keeps the folder key.
     expect(names.get("apps/web")).toBe("@acme/web");
@@ -165,13 +167,13 @@ describe("assignUnits", () => {
 
 describe("assignUnits edge cases", () => {
   it("returns nothing for no file", () => {
-    expect(assignUnits(root, [])).toEqual({ unitOf: new Map(), names: new Map(), folders: new Map() });
+    expect(assignUnits(root, [])).toEqual({ unitOf: new Map(), names: new Map(), folders: new Map(), kinds: new Map(), outsideProjects: new Set() });
   });
 
   it("accepts Windows separators and keys files by normalized path", () => {
     write("apps/web/package.json", manifest("@acme/web"));
     const { unitOf } = assignUnits(root, [String.raw`apps\web\src\main.ts`, String.raw`tools\x.ts`]);
-    expect(Object.fromEntries(unitOf)).toEqual({ "apps/web/src/main.ts": "apps/web", "tools/x.ts": ROOT_UNIT });
+    expect(Object.fromEntries(unitOf)).toEqual({ "apps/web/src/main.ts": "apps/web", "tools/x.ts": "tools" });
   });
 });
 
@@ -216,10 +218,10 @@ describe("buildArchitectureUnits", () => {
   });
 
   it("changes its revision when a package appears, even with the same files and edges", async () => {
-    const analyze = workspace({ "pkg/src/a.ts": [], "other/b.ts": [] });
+    const analyze = workspace({ "libs/pkg/src/a.ts": [], "other/b.ts": [] });
     const graph = await buildArchitectureGraph(root, analyze);
     const before = buildArchitectureUnits(graph, root).context.revision;
-    write("pkg/package.json", manifest("pkg"));
+    write("libs/pkg/package.json", manifest("pkg"));
     expect(buildArchitectureUnits(graph, root).context.revision).not.toBe(before);
     expect(before).not.toBe(graph.context.revision);
   });
@@ -284,7 +286,7 @@ describe("exploreUnits", () => {
 });
 
 describe("exploreUnitEvidence", () => {
-  // A generated workspace with packages: files outside them are the (root) unit.
+  // A generated workspace with packages: files outside them form one unit per top-level folder (scripts).
   async function evidenceOf(files: Record<string, string[]>) {
     write("apps/web/package.json", manifest("@acme/web"));
     write("packages/core/package.json", manifest("@acme/core"));
@@ -307,8 +309,8 @@ describe("exploreUnitEvidence", () => {
       const { pairs, page } = explore({ from: edge.from, to: edge.to, limit: 500 });
       expect(page.total, `${edge.from} → ${edge.to}`).toBe(edge.fileEdgeCount);
       for (const pair of pairs) {
-        expect(pair.source.startsWith(edge.from === ROOT_UNIT ? "scripts/" : `${edge.from}/`)).toBe(true);
-        expect(pair.target.startsWith(edge.to === ROOT_UNIT ? "scripts/" : `${edge.to}/`)).toBe(true);
+        expect(pair.source.startsWith(`${edge.from}/`)).toBe(true);
+        expect(pair.target.startsWith(`${edge.to}/`)).toBe(true);
       }
     }
     expect(explore({ from: "apps/web", to: "packages/core" })).toMatchObject({
@@ -322,9 +324,9 @@ describe("exploreUnitEvidence", () => {
       ],
       page: { total: 3, offset: 0, returned: 3, truncated: false },
     });
-    // (root) by key, a unit by name, and Windows separators.
-    expect(explore({ from: ROOT_UNIT, to: "@acme/core" }).pairs).toEqual([{ source: "scripts/build.ts", target: "packages/core/src/a.ts" }]);
-    expect(explore({ from: "apps\\web", to: ROOT_UNIT }).pairs).toEqual([{ source: "apps/web/src/a.ts", target: "scripts/build.ts" }]);
+    // A top-level folder unit by key, a unit by name, and Windows separators.
+    expect(explore({ from: "scripts", to: "@acme/core" }).pairs).toEqual([{ source: "scripts/build.ts", target: "packages/core/src/a.ts" }]);
+    expect(explore({ from: "apps\\web", to: "scripts" }).pairs).toEqual([{ source: "apps/web/src/a.ts", target: "scripts/build.ts" }]);
   });
 
   it("pages without duplicates, refuses an offset past the end, and rejects an unknown unit or revision", async () => {
@@ -375,7 +377,7 @@ describe("folderKeys", () => {
 });
 
 describe("directoryFolderKey", () => {
-  const assignment = (unitOf: Record<string, string>) => ({ unitOf: new Map(Object.entries(unitOf)), names: new Map<string, string>() });
+  const assignment = (unitOf: Record<string, string>) => ({ unitOf: new Map(Object.entries(unitOf)), names: new Map<string, string>(), folders: new Map<string, string>() });
   const packages = assignment({
     "packages/core/src/a/x.ts": "packages/core",
     "packages/core/src/a/b/y.ts": "packages/core",
@@ -517,6 +519,80 @@ describe("folder levels", () => {
     expect(() => folderLevel(graph, root, "nowhere")).toThrow('No file below folder "nowhere"');
     const louvain = { ...graph, context: { ...graph.context, communityMode: "louvain" as const } };
     expect(() => folderLevel(louvain, root, "app")).toThrow("communityMode 'path' only");
+  });
+
+  it("folderLevel reads a UnitSource: an element unit by its key or its folder (#776)", async () => {
+    const { graph } = await levelsOf(nested);
+    const source = workspaceUnits(graph, root, { elements: { core: { path: "app/src/core/" } }, rules: [] });
+    const keys = (folder: string) => folderLevel(source, folder).graph.nodes.map((node) => node.communityKey).sort();
+    expect(keys("core")).toEqual(keys("app/src/core"));
+    // Only app/src/core: app/tests/core, drawn in app/core by the detected unit, is outside the element.
+    expect(keys("core")).toEqual(["core", "core/util", "core/util"]);
+    expect(() => folderLevel(source, "nowhere")).toThrow('No file below folder "nowhere"');
+    const louvain = { ...source, graph: { ...graph, context: { ...graph.context, communityMode: "louvain" as const } } };
+    expect(() => folderLevel(louvain, "core")).toThrow("communityMode 'path' only");
+  });
+});
+
+describe("assignUnits folds and splits (#776)", () => {
+  it("folds a project below a test folder into the unit around it", () => {
+    write("package.json", manifest("root"));
+    write("tests/fixtures/a/package.json", manifest("fixture-a"));
+    write("tests/vscode-e2e/package.json", manifest("e2e-suite"));
+    write("pkg/package.json", manifest("pkg"));
+    write("pkg/src/test/resources/demo/pom.xml", "<project><artifactId>demo</artifactId></project>");
+    write("e2e/apps/web/package.json", manifest("web"));
+    const { unitOf, names, kinds } = assignUnits(root, [
+      "tests/fixtures/a/index.ts", "tests/vscode-e2e/suite/a.test.ts", "tests/unit/x.test.ts",
+      "pkg/src/test/resources/demo/App.java", "pkg/src/main.ts", "e2e/apps/web/main.ts",
+    ]);
+    expect(Object.fromEntries(unitOf)).toEqual({
+      "tests/fixtures/a/index.ts": "tests",
+      "tests/vscode-e2e/suite/a.test.ts": "tests",
+      "tests/unit/x.test.ts": "tests",
+      // The enclosing project wins over the top-level folder.
+      "pkg/src/test/resources/demo/App.java": "pkg",
+      "pkg/src/main.ts": "pkg",
+      "e2e/apps/web/main.ts": "e2e",
+    });
+    expect(names.get("tests")).toBe("tests");
+    // A folded project is still the project root of its files: its own top folders are read below it.
+    expect(kinds?.get("tests/fixtures/a/index.ts")).toBe("fixture");
+  });
+
+  it("keeps a folded project a unit when a declared pattern names it; a lone * keeps nothing", () => {
+    write("tests/fixtures/a/package.json", manifest("@acme/fixture-a"));
+    write("tests/fixtures/b/package.json", manifest("fixture-b"));
+    const files = ["tests/fixtures/a/x.ts", "tests/fixtures/b/y.ts"];
+    const units = (declared: string[]) => [...new Set(assignUnits(root, files, declared).unitOf.values())].sort();
+    expect(units([])).toEqual(["tests"]);
+    expect(units(["*", "**"])).toEqual(["tests"]);
+    expect(units(["tests/fixtures/a"])).toEqual(["tests", "tests/fixtures/a"]);
+    expect(units(["tests/fixtures/*"])).toEqual(["tests/fixtures/a", "tests/fixtures/b"]);
+    // A package name matches too.
+    expect(units(["@acme/fixture-*"])).toEqual(["tests", "tests/fixtures/a"]);
+  });
+
+  it("splits the files outside every project per top-level folder, root files alone in (root), Windows paths too", () => {
+    write("package.json", manifest("root"));
+    write("packages/lib/package.json", manifest("@acme/lib"));
+    const assignment = assignUnits(root, [String.raw`src\cli\x.ts`, "src/cli/y.ts", "scripts/a.ts", "packages/lib/i.ts", "index.ts"]);
+    expect(Object.fromEntries(assignment.unitOf)).toEqual({
+      "src/cli/x.ts": "src", "src/cli/y.ts": "src", "scripts/a.ts": "scripts", "packages/lib/i.ts": "packages/lib", "index.ts": ROOT_UNIT,
+    });
+    expect(Object.fromEntries(assignment.folders)).toEqual({ src: "src", scripts: "scripts", "packages/lib": "packages/lib", [ROOT_UNIT]: "" });
+    expect([...assignment.outsideProjects ?? []].sort()).toEqual(["scripts", "src"]);
+    expect(Object.fromEntries(assignment.kinds ?? [])).toMatchObject({ "scripts/a.ts": "tooling", "src/cli/x.ts": "other" });
+  });
+
+  it("gives the units their folder, and the folder keys of an element unit read that folder, never the key", async () => {
+    const { units } = await unitsOf({ "a/x.ts": ["b/y.ts"], "b/y.ts": [], "top.ts": [] });
+    expect(units.units.map((unit) => [unit.key, unit.folder]).sort()).toEqual([[ROOT_UNIT, ""], ["a", "a"], ["b", "b"]]);
+    expect(folderKeys("src/analyzer/community/x.ts", "analyzer", "src/analyzer")).toEqual(["analyzer", "analyzer/community"]);
+    expect(folderKeys("tests/unit/x.ts", "tooling", "")).toEqual(["tooling", "tooling/unit"]);
+    const elements = { unitOf: new Map([["src/analyzer/community/x.ts", "analyzer"], ["src/analyzer/y.ts", "analyzer"]]), names: new Map([["analyzer", "analyzer"]]), folders: new Map([["analyzer", "src/analyzer"]]) };
+    expect(directoryFolderKey(elements, "src/analyzer/community")).toBe("analyzer/community");
+    expect(directoryFolderKey(elements, "src/analyzer")).toBe("analyzer");
   });
 });
 
