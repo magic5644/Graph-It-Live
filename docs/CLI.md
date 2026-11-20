@@ -782,10 +782,11 @@ graph-it architecture [options]
 | `--level <level>` | — | `groups` = `--groups`; `units` replaces the file graph with the projects and their layers (see [Units output](#units-output)) |
 | `--folder <key>` | — | `path` mode: the level below a unit or folder key, its sub-folders and own files as groups (see [Folder levels](#folder-levels)) |
 | `--matrix` | off | Dependency structure matrix of the level (groups, `--level units` or `--folder`) instead (see [Matrix output](#matrix-output)) |
+| `--coupling` | off | Most coupled pairs and bridging files of the level instead, with evidence file pairs (see [Coupling output](#coupling-output)) |
 | `--workspace, -w` | auto-detected | Project root |
 | `--format, -f` | `text` | Output format (`toon` recommended for large graphs; `mermaid` for diagrams; `csv` with `--matrix` only) |
 
-`--groups` cannot be combined with `--level units` or `--folder` (exit code 1). `--matrix`, `--level units`, `--folder` and `--from/--to` print tables in `text` and `markdown`: the matrix lists its rows (Ce, Ca, I), its non-zero cells (the upward ones marked) and its cycles; the units list their layer, role and files, then the unit edges; a folder lists its groups and group edges; `--from/--to` lists the file pairs. `json` and `toon` carry the full data; `mermaid` exits with code 4 for these views.
+`--groups` cannot be combined with `--level units` or `--folder` (exit code 1). `--matrix`, `--coupling`, `--level units`, `--folder` and `--from/--to` print tables in `text` and `markdown`: the matrix lists its rows (Ce, Ca, I), its non-zero cells (the upward ones marked) and its cycles; the coupling lists its coupled pairs and bridging files; the units list their layer, role and files, then the unit edges; a folder lists its groups and group edges; `--from/--to` lists the file pairs. `json` and `toon` carry the full data; `mermaid` exits with code 4 for these views.
 
 Each node carries `communityId` (`0` = no community) and `communityKey` (`""` = no community). The `text` format lists the 8 largest communities after the top files.
 
@@ -804,6 +805,7 @@ graph-it architecture --level units --from apps/web --to packages/core --format 
 graph-it architecture --folder analyzer --format toon
 graph-it architecture --level units --matrix --format json
 graph-it architecture --matrix --format csv > matrix.csv
+graph-it architecture --level units --coupling --format toon
 ```
 
 #### Grouped output
@@ -908,6 +910,18 @@ These are the pairs the Architecture view lists when a unit edge is clicked. A k
 Rows and columns share one order: layer 0 first (depends on no other row), the rows of a cycle together, then by label (code-unit order, the same on every OS). Every dependency of a layered level then sits below the diagonal, so an `upward` cell belongs to a cycle. Off-diagonal cells are the `groupEdges` of `--groups` (or the `unitEdges` of `--level units`), and the diagonal their `internalEdgeCount`.
 
 `--format csv` writes the whole matrix for a spreadsheet: a header row of labels, one line per row with its counts (empty = 0), then `Ce`, `Ca` and `I`. A label starting with `=`, `+`, `-`, `@`, a tab or a carriage return is prefixed with `'`, so a spreadsheet never runs it as a formula (scoped package names such as `@scope/lib` show the `'`). `--matrix` is refused with `--from`/`--to`, and `csv` without `--matrix`.
+
+#### Coupling output
+
+`--coupling` lists, for the level the other flags select (the groups, `--level units` or `--folder`, the same rows as `--matrix`), the pairs of rows to inspect first and the files that tie several rows together; `explore_architecture` with `view: "coupling"` returns the same lists, paged. No score says a group is safe to extract: dependency counts alone do not qualify an extraction. Group cycles and Ca/Ce/instability are in [`--matrix`](#matrix-output).
+
+| Field | Content |
+|-------|---------|
+| `coupledPairs` | every pair of rows joined by a file pair, heaviest first: `a`, `b` (row ids, `a` first in the matrix order), `aLabel`, `bLabel`, `aToB`, `bToA` (file pairs each way), `fileEdgeCount` (their sum), `mutual` (both above 0), `evidence` |
+| `bridgingFiles` | files whose import pairs cross into 2 or more rows other than their own, most rows first: `file`, `group`, `groupLabel`, `groupCount`, `fileEdgeCount`, `links` (per other row: `group`, `label`, `imports`, `importedBy`, `evidence`) |
+| `formulas` | how a pair weight and a bridging file are computed, and what evidence holds |
+
+`evidence` holds the first file pairs (`source`, `target`) by path, at most 3; the counts cover every pair. The full list of an edge: `--level units --from <a> --to <b>`, or `explore_architecture` with `from` and `to` at any level. Ties sort by matrix order, then by path, so one index gives one output. `text` and `markdown` show the first 50 items of each list and 5 links per file, and say so; `json` and `toon` list every item. `--coupling` is refused with `--matrix` and with `--from`/`--to` (exit code 1), and `csv` and `mermaid` with `--coupling` (exit code 4).
 
 ### check-architecture
 

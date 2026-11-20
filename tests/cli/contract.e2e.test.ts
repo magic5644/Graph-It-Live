@@ -207,6 +207,9 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     expect(matrixText.status).toBe(0);
     expect(matrixText.stdout).toMatch(/^Dependency matrix \(groups\)\n/);
     expect(cli(["architecture", "--level", "units", "--matrix", "--format", "markdown"]).stdout).toMatch(/^## Dependency matrix \(units\)\n/);
+    expect(cli(["architecture", "--coupling"]).stdout).toMatch(/^Coupling \(groups\)\n/);
+    expect(cli(["architecture", "--level", "units", "--coupling", "--format", "markdown"]).stdout).toMatch(/^## Coupling \(units\)\n/);
+    expect(JSON.parse(cli(["architecture", "--coupling", "--format", "json"]).stdout)).toHaveProperty("coupledPairs");
     const expectFailure = (args: string[], status: number, message: string) => {
       const result = cli(args);
       expect(result.status, args.join(" ")).toBe(status);
@@ -224,6 +227,9 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     expectFailure(["export", "--output", "g.svg"], 1, "--output g.svg does not match --format html");
     expectFailure(["diagram", "--format", "svg", "--output", "a.html"], 1, "--output a.html does not match --format svg");
     expectFailure(["diagram", "--format", "diagram-spec", "--view", "matrix"], 4, "--format diagram-spec describes --view units or folder");
+    expectFailure(["architecture", "--coupling", "--matrix"], 1, "--matrix and --coupling are two views of the level: pass one");
+    expectFailure(["architecture", "--coupling", "--format", "csv"], 4, 'Format "csv" is only produced by graph-it architecture --matrix.');
+    expectFailure(["architecture", "--coupling", "--format", "mermaid"], 4, "--matrix, --coupling, --level units and --folder write");
     expectFailure(["--bogus"], 1, "Unknown option --bogus.");
     expectFailure(["constructor"], 1, 'Unknown command "constructor".');
     const positional = cli(["diagram", "--format", "svg", "--output", "-", "src"]);

@@ -16,6 +16,8 @@ import {
   type MatrixRow,
 } from "../../shared/architecture-model";
 import { unitDisplayName } from "../../shared/unitDisplayName";
+import { aggregateCommunityGroups } from "../community/groupAggregation";
+import type { ArchitectureEdge, ArchitectureGraph } from "./ArchitectureGraphBuilder";
 import { byCodeUnit } from "./architectureUnits";
 import { layerGraph } from "./stronglyConnectedComponents";
 
@@ -129,6 +131,28 @@ export function unitMatrix(units: Pick<ArchitectureUnits, "units" | "unitEdges">
     units.units.map((unit) => ({ id: unit.key, key: unit.key, label: unitDisplayName(unit), internalEdgeCount: unit.internalEdgeCount })),
     units.unitEdges,
   );
+}
+
+/** One level as the matrix and coupling views read it: its matrix, file pairs and the row of each file. */
+export interface ArchitectureLevel<Id extends number | string = number | string> {
+  matrix: ArchitectureMatrix<Id>;
+  context: ArchitectureGraph["context"];
+  edges: readonly ArchitectureEdge[];
+  rowOf: (relativePath: string) => Id | undefined;
+}
+
+/** The groups of a graph: the workspace's, or a folder level's; a file without a group is unassigned (0), as the aggregation counts it. */
+export function groupLevel({ graphData, context, nodes, edges }: ArchitectureGraph): ArchitectureLevel<number> {
+  const groupOf = new Map(nodes.map((node) => [node.relativePath, node.communityId]));
+  return { matrix: groupMatrix(aggregateCommunityGroups(graphData)), context, edges, rowOf: (file) => groupOf.get(file) ?? 0 };
+}
+
+export function unitLevel(
+  { edges }: ArchitectureGraph,
+  units: Pick<ArchitectureUnits, "units" | "unitEdges" | "context">,
+  unitOf: ReadonlyMap<string, string>,
+): ArchitectureLevel<string> {
+  return { matrix: unitMatrix(units), context: units.context, edges, rowOf: (file) => unitOf.get(file) };
 }
 
 /** Sorted `rowKey>columnKey=count` of every non-zero cell: one string to compare two matrices (E2E). */

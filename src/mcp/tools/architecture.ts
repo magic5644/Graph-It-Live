@@ -7,13 +7,13 @@
 
 import * as fs from "node:fs";
 import * as nodePath from "node:path";
-import { exploreArchitecture, exploreArchitectureCheck, exploreMatrix, exploreUnitEvidence, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
+import { exploreArchitecture, exploreArchitectureCheck, exploreCoupling, exploreMatrix, exploreUnitEvidence, exploreUnits } from "../../analyzer/architecture/ArchitectureExplorer";
 import { buildArchitectureGraph, type AnalyzeFile } from "../../analyzer/architecture/ArchitectureGraphBuilder";
-import { groupMatrix, unitMatrix } from "../../analyzer/architecture/architectureMatrix";
+import { architectureCoupling } from "../../analyzer/architecture/architectureCoupling";
+import { groupLevel, unitLevel, type ArchitectureLevel } from "../../analyzer/architecture/architectureMatrix";
 import { checkWorkspaceArchitecture } from "../../analyzer/architecture/architectureRules";
 import { folderLevel } from "../../analyzer/architecture/architectureUnits";
 import { loadWorkspaceUnits } from "../../analyzer/architecture/workspaceUnits";
-import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation";
 import { defaultDiagramFile, diagramLevel } from "../../analyzer/diagram/diagramStyle";
 import { renderWorkspaceDiagram } from "../../analyzer/diagram/workspaceDiagram";
 import { getRelativePath } from "../../shared/path";
@@ -25,7 +25,8 @@ import type { CheckArchitectureParams, ExploreArchitectureParams, ExportArchitec
  * Progressive exploration of the grouped architecture: a bounded summary, one group with
  * its boundary, the file pairs behind one group edge, the units with their layers or the file
  * pairs behind one unit edge; with `folder`, the same views one level below a unit or folder;
- * with `view: "matrix"`, the level's dependency structure matrix.
+ * with `view: "matrix"`, the level's dependency structure matrix; with `view: "coupling"`, its most
+ * coupled pairs and bridging files.
  */
 export async function executeExploreArchitecture(
   params: ExploreArchitectureParams,
@@ -40,7 +41,7 @@ export async function executeExploreArchitecture(
   const { rootDir } = workerState.getConfig();
   if (params.level === "units") {
     const { units, assignment } = await loadWorkspaceUnits(graph, rootDir);
-    if (params.view === "matrix") return exploreMatrix(unitMatrix(units), units.context, { ...params, units: true });
+    if (params.view !== undefined) return exploreLevel(unitLevel(graph, units, assignment.unitOf), params.view, { ...params, units: true });
     if (params.from !== undefined && params.to !== undefined) {
       return exploreUnitEvidence(graph, units, assignment.unitOf, { ...params, from: String(params.from), to: String(params.to) });
     }
@@ -50,13 +51,22 @@ export async function executeExploreArchitecture(
   }
   if (params.folder !== undefined) {
     const { graph: level, nestedGroups } = folderLevel(await loadWorkspaceUnits(graph, rootDir), params.folder);
-    if (params.view === "matrix") {
-      return { folder: params.folder, nestedGroups, ...exploreMatrix(groupMatrix(aggregateCommunityGroups(level.graphData)), level.context, params) };
-    }
+    if (params.view !== undefined) return { folder: params.folder, nestedGroups, ...exploreLevel(groupLevel(level), params.view, params) };
     return { folder: params.folder, nestedGroups, ...exploreArchitecture(level, params) };
   }
-  if (params.view === "matrix") return exploreMatrix(groupMatrix(aggregateCommunityGroups(graph.graphData)), graph.context, params);
+  if (params.view !== undefined) return exploreLevel(groupLevel(graph), params.view, params);
   return exploreArchitecture(graph, params);
+}
+
+/** The matrix or coupling view of one level (units, a folder's groups or the groups), paged. */
+function exploreLevel(
+  level: ArchitectureLevel,
+  view: NonNullable<ExploreArchitectureParams["view"]>,
+  options: Parameters<typeof exploreMatrix>[2],
+) {
+  return view === "matrix"
+    ? exploreMatrix(level.matrix, level.context, options)
+    : exploreCoupling(architectureCoupling(level.matrix.rows, level.edges, level.rowOf), level.context, options);
 }
 
 /** The declared architecture rules checked against every import pair, violations paged. */

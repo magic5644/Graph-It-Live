@@ -180,6 +180,8 @@ Options:
   --matrix           Dependency structure matrix of the level (groups, --level
                      units or --folder): rows by layer, cycles together, cells =
                      file pairs row → column, Ce/Ca/instability (json/toon/csv)
+  --coupling         Most coupled pairs of the level (file pairs both ways) and
+                     files bridging 2+ other groups, with evidence file pairs
   --workspace, -w    Workspace root directory (default: auto-detected)
   --format, -f       Output format: text|json|toon|markdown|mermaid|csv (default: text)
   --help, -h         Show this help
@@ -196,6 +198,7 @@ Examples:
   graph-it architecture --folder "(root)/analyzer" --format toon
   graph-it architecture --level units --matrix --format json
   graph-it architecture --matrix --format csv > matrix.csv
+  graph-it architecture --level units --coupling --format toon
 `,
   "check-architecture": `graph-it check-architecture — Check imports against declared architecture rules
 

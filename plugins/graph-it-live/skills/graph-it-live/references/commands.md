@@ -115,6 +115,7 @@ graph-it architecture --groups --format toon                   # folder groups, 
 graph-it architecture --folder "(root)/src" --format toon      # one level below a unit or folder key
 graph-it architecture --level units --from apps/web --to packages/core --format toon   # file pairs behind a unit edge
 graph-it architecture --level units --matrix --format toon     # dependency structure matrix (--format csv only for a spreadsheet export)
+graph-it architecture --level units --coupling --format toon   # most coupled pairs + files bridging 2+ units, with evidence file pairs
 graph-it architecture --maxFiles 300 --format toon             # cap analyzed files on a large workspace
 ```
 

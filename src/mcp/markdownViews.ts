@@ -6,7 +6,7 @@
  * CRITICAL ARCHITECTURE RULE: no vscode import.
  */
 
-import type { ArchitectureUnit, UnitRuleCheck } from "../shared/architecture-model";
+import type { ArchitectureUnit, BridgingFile, FilePair, UnitRuleCheck } from "../shared/architecture-model";
 
 type Data = Record<string, unknown>;
 
@@ -23,6 +23,26 @@ export function evidenceCell(unit: Pick<ArchitectureUnit, "role" | "confidence" 
 
 /** The rules of a unit or a unit edge with their verdicts, by config order: "a pass, b violated". */
 export const rulesCell = (rules: readonly UnitRuleCheck[] | undefined): string => (rules ?? []).map((rule) => `${rule.name} ${rule.verdict}`).join(", ");
+
+/** Evidence file pairs as one cell: "a.ts → b.ts; c.ts → d.ts". */
+export const pairsCell = (pairs: readonly FilePair[]): string => pairs.map((pair) => `${pair.source} → ${pair.target}`).join("; ");
+
+/** Links shown in one cell; a hub can touch dozens of groups (json and toon list them all). */
+export const LINK_CELLS = 5;
+
+/** A bridging file's links as one cell: "api (imports 2, imported by 1); db (imports 1, imported by 0); +3 more". */
+export function linksCell(links: readonly Pick<BridgingFile<number>["links"][number], "label" | "imports" | "importedBy">[]): string {
+  const shown = links.slice(0, LINK_CELLS).map((link) => `${link.label} (imports ${link.imports}, imported by ${link.importedBy})`);
+  return [...shown, ...(links.length > LINK_CELLS ? [`+${links.length - LINK_CELLS} more`] : [])].join("; ");
+}
+
+/** The coupling view's lists as rows: evidence and links in one cell each, as the CLI shows them. */
+function couplingRows(items: unknown, field: "evidence" | "links"): Row[] {
+  return rows(items).map((item) => ({
+    ...item,
+    [field]: field === "evidence" ? pairsCell(item.evidence as FilePair[]) : linksCell(item.links as BridgingFile<number>["links"]),
+  }));
+}
 
 /** The units of explore_architecture level units as rows: the Evidence and Rules cells the CLI shows. */
 function unitRows(units: unknown): Row[] {
@@ -348,6 +368,10 @@ const VIEWS: Record<string, View> = {
     ...table("Matrix rows", d.rows),
     ...table("Matrix cells", d.cells),
     ...table("Cycles", d.cycles),
+    ...(d.view === "coupling" ? bullets(Object.entries(d.formulas as Data)) : []),
+    ...(d.view === "coupling" && rows(d.coupledPairs).length === 0 ? ["_No file pair crosses two rows of this level._", ""] : []),
+    ...table("Most coupled pairs", couplingRows(d.coupledPairs, "evidence"), ["aLabel", "bLabel", "aToB", "bToA", "fileEdgeCount", "mutual", "evidence"]),
+    ...table("Bridging files", couplingRows(d.bridgingFiles, "links"), ["file", "groupLabel", "groupCount", "fileEdgeCount", "links"]),
     ...continuation((d.page ?? {}) as Data),
     ...(d.nextSteps ? [markdownText(text(d.nextSteps)), ""] : []),
   ],

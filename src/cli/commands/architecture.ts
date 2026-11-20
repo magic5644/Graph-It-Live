@@ -8,17 +8,17 @@
  */
 
 import { buildArchitectureGraph } from "../../analyzer/architecture/ArchitectureGraphBuilder.js";
-import { exploreMatrix, exploreUnitEvidence } from "../../analyzer/architecture/ArchitectureExplorer.js";
-import { groupMatrix, matrixToCsv, unitMatrix } from "../../analyzer/architecture/architectureMatrix.js";
+import { exploreCoupling, exploreMatrix, exploreUnitEvidence } from "../../analyzer/architecture/ArchitectureExplorer.js";
+import { architectureCoupling } from "../../analyzer/architecture/architectureCoupling.js";
+import { groupLevel, matrixToCsv, unitLevel, type ArchitectureLevel } from "../../analyzer/architecture/architectureMatrix.js";
 import { folderLevel } from "../../analyzer/architecture/architectureUnits.js";
 import { loadWorkspaceUnits } from "../../analyzer/architecture/workspaceUnits.js";
 import { aggregateCommunityGroups } from "../../analyzer/community/groupAggregation.js";
-import type { ArchitectureMatrix } from "../../shared/architecture-model.js";
 import { CliError, ExitCode } from "../errors";
 import { workerState } from "../../mcp/shared/state";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
-import { evidenceView, folderView, matrixView, renderArchitectureView, unitsView, type ArchitectureView } from "./architectureTables";
+import { couplingView, evidenceView, folderView, matrixView, renderArchitectureView, unitsView, type ArchitectureView } from "./architectureTables";
 import { readChoiceOption, readCommunityMode, readIntegerOption, readStringOption } from "../options";
 import type { CliRuntime } from "../runtime";
 
@@ -44,18 +44,44 @@ function formatView(view: () => ArchitectureView, data: object, format: CliOutpu
   return format === "text" || format === "markdown" ? renderArchitectureView(view(), format) : formatOutput(data, format, "architecture");
 }
 
-/** One level's matrix, every cell (the CLI does not page): csv for spreadsheets, else as explore_architecture view "matrix" reports it. */
-function formatMatrix(
+/** The views of a whole level: `--matrix` and `--coupling`. */
+const LEVEL_VIEWS = ["matrix", "coupling"] as const;
+type LevelView = (typeof LEVEL_VIEWS)[number];
+
+/**
+ * One level's matrix or coupling, every item (the CLI does not page): csv for the matrix in a
+ * spreadsheet, else as explore_architecture view "matrix" or "coupling" reports it.
+ */
+function formatLevel(
   files: object,
-  matrix: ArchitectureMatrix,
-  context: Parameters<typeof exploreMatrix>[1],
+  { matrix, context, edges, rowOf }: ArchitectureLevel,
+  view: LevelView,
   format: CliOutputFormat,
   level: { level?: string; folder?: string; nestedGroups?: number[] },
 ): string {
   if (format === "csv") return matrixToCsv(matrix);
-  if (format === "text" || format === "markdown") return renderArchitectureView(matrixView(level.folder ?? level.level ?? "groups", matrix), format);
-  const { page: _page, nextSteps: _nextSteps, ...view } = exploreMatrix(matrix, context, { limit: Number.POSITIVE_INFINITY });
-  return formatOutput({ ...files, ...level, ...view }, format, "architecture");
+  const name = level.folder ?? level.level ?? "groups";
+  const tables = format === "text" || format === "markdown";
+  const all = { limit: Number.POSITIVE_INFINITY };
+  if (view === "coupling") {
+    const coupling = architectureCoupling(matrix.rows, edges, rowOf);
+    if (tables) return renderArchitectureView(couplingView(name, coupling), format);
+    const { page: _page, nextSteps: _nextSteps, ...data } = exploreCoupling(coupling, context, all);
+    return formatOutput({ ...files, ...level, ...data }, format, "architecture");
+  }
+  if (tables) return renderArchitectureView(matrixView(name, matrix), format);
+  const { page: _page, nextSteps: _nextSteps, ...data } = exploreMatrix(matrix, context, all);
+  return formatOutput({ ...files, ...level, ...data }, format, "architecture");
+}
+
+/** `--matrix` or `--coupling`: one view of the whole level, so never with an edge's `--from`. */
+function readView(args: string[], from: string | undefined): LevelView | undefined {
+  const views = LEVEL_VIEWS.filter((name) => args.includes(`--${name}`));
+  if (views.length > 1) throw new CliError("--matrix and --coupling are two views of the level: pass one", ExitCode.GENERAL_ERROR);
+  if (views.length === 1 && from !== undefined) {
+    throw new CliError(`--${views[0]} covers the whole level: drop --from and --to`, ExitCode.GENERAL_ERROR);
+  }
+  return views[0];
 }
 
 /** The flags, rejecting the combinations that name no single view. */
@@ -71,24 +97,21 @@ function readFlags(args: string[], format: CliOutputFormat) {
   if ((from === undefined) !== (to === undefined) || (from !== undefined && level !== "units")) {
     throw new CliError("--from and --to name the two units of a unit edge: pass both, with --level units", ExitCode.GENERAL_ERROR);
   }
-  const matrix = args.includes("--matrix");
-  if (matrix && from !== undefined) {
-    throw new CliError("--matrix lists every cell of the level: drop --from and --to", ExitCode.GENERAL_ERROR);
-  }
+  const view = readView(args, from);
   if (args.includes("--groups") && (level === "units" || folder !== undefined)) {
     throw new CliError("--groups is the folder groups of the workspace: drop it with --level units or --folder", ExitCode.GENERAL_ERROR);
   }
-  if (format === "csv" && !matrix) {
+  if (format === "csv" && view !== "matrix") {
     throw new CliError('Format "csv" is only produced by graph-it architecture --matrix.', ExitCode.UNSUPPORTED_FORMAT);
   }
-  const tableView = matrix || level === "units" || folder !== undefined;
+  const tableView = view !== undefined || level === "units" || folder !== undefined;
   if (format === "mermaid" && tableView) {
     throw new CliError(
-      "--format mermaid draws the file graph or --groups; --matrix, --level units and --folder write text, markdown, json or toon (and csv with --matrix).",
+      "--format mermaid draws the file graph or --groups; --matrix, --coupling, --level units and --folder write text, markdown, json or toon (and csv with --matrix).",
       ExitCode.UNSUPPORTED_FORMAT,
     );
   }
-  return { maxFiles: parseMaxFiles(args), communityMode, level, folder, from, to, matrix };
+  return { maxFiles: parseMaxFiles(args), communityMode, level, folder, from, to, view };
 }
 
 export async function run(
@@ -96,7 +119,7 @@ export async function run(
   runtime: CliRuntime,
   format: CliOutputFormat,
 ): Promise<string> {
-  const { maxFiles, communityMode, level, folder, from, to, matrix } = readFlags(args, format);
+  const { maxFiles, communityMode, level, folder, from, to, view } = readFlags(args, format);
 
   await runtime.ensureIndexed();
 
@@ -125,7 +148,7 @@ export async function run(
     // Units replace the file graph: the units, layers and unit edges the view draws.
     const { nodes: _nodes, edges: _edges, ...files } = architecture;
     const { units, assignment } = await loadWorkspaceUnits(graph, runtime.workspaceRoot);
-    if (matrix) return formatMatrix(files, unitMatrix(units), units.context, format, { level });
+    if (view) return formatLevel(files, unitLevel(graph, units, assignment.unitOf), view, format, { level });
     if (from !== undefined && to !== undefined) {
       // Every file pair of the unit edge: the CLI does not page.
       const evidence = exploreUnitEvidence(graph, units, assignment.unitOf, { from, to, limit: Number.POSITIVE_INFINITY });
@@ -138,17 +161,15 @@ export async function run(
     // The level the view draws below this unit or folder: its sub-folders, then its own files.
     const { graph: folderGraph, nestedGroups } = folderLevel(await loadWorkspaceUnits(graph, runtime.workspaceRoot), folder);
     const { nodes: _nodes, edges: _edges, ...files } = architecture;
-    if (matrix) {
-      return formatMatrix(files, groupMatrix(aggregateCommunityGroups(folderGraph.graphData)), folderGraph.context, format, { folder, nestedGroups });
-    }
+    if (view) return formatLevel(files, groupLevel(folderGraph), view, format, { folder, nestedGroups });
     const groups = aggregateCommunityGroups(folderGraph.graphData);
     return formatView(() => folderView(folder, nestedGroups, groups), { ...files, context: folderGraph.context, folder, nestedGroups, ...groups }, format);
   }
 
-  if (matrix) {
+  if (view) {
     // The groups' matrix: its cells are the group edges of --groups, its diagonal their internal pairs.
     const { nodes: _nodes, edges: _edges, ...files } = architecture;
-    return formatMatrix(files, groupMatrix(aggregateCommunityGroups(graphData)), context, format, { level: "groups" });
+    return formatLevel(files, groupLevel(graph), view, format, { level: "groups" });
   }
 
   if (!args.includes("--groups") && level !== "groups") {

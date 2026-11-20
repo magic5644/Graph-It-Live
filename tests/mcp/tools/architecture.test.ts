@@ -177,6 +177,25 @@ describe("executeExploreArchitecture", () => {
     expect(folder.rows.map(row => row.key)).toEqual(["src/db", "src/api"]);
   });
 
+  it("returns the coupled pairs and bridging files of the groups, the units or a folder, as graph-it architecture --coupling", async () => {
+    const runtime = { workspaceRoot, progress: new CliProgress(false), ensureIndexed: vi.fn(), loadState: () => null } as never;
+    const groups = await executeExploreArchitecture({ view: "coupling" });
+    const cli = JSON.parse(await runArchitectureCli(["--coupling"], runtime, "json"));
+    expect(groups).toMatchObject({ view: "coupling", coupledPairs: cli.coupledPairs, bridgingFiles: cli.bridgingFiles });
+    // api → db carries 3 pairs: the heaviest pair, with its evidence capped at 3.
+    expect(groups.coupledPairs[0]).toMatchObject({ aLabel: "db", bLabel: "api", aToB: 0, bToA: 3, fileEdgeCount: 3, mutual: false });
+    expect(groups.coupledPairs[0].evidence).toHaveLength(3);
+
+    const units = await executeExploreArchitecture({ level: "units", view: "coupling" });
+    expect(units.provenance.grouping).toContain("Units are project folders");
+    expect(units.coupledPairs.map(pair => [pair.a, pair.b])).toEqual([["src", "(root)"]]);
+
+    const folder = await executeExploreArchitecture({ folder: "src", view: "coupling", limit: 1 });
+    expect(folder).toMatchObject({ folder: "src", view: "coupling", page: { totalCoupledPairs: 1, truncated: false } });
+    expect(folder.coupledPairs.map(pair => [pair.aLabel, pair.bLabel])).toEqual([["src/db", "src/api"]]);
+    await expect(executeExploreArchitecture({ folder: "nowhere", view: "coupling" })).rejects.toThrow('No file below folder "nowhere"');
+  });
+
   it("groups by import structure with communityMode louvain", async () => {
     const summary = await executeExploreArchitecture({ communityMode: "louvain" });
 
@@ -225,5 +244,9 @@ describe("ExploreArchitectureParamsSchema", () => {
     expect(ExploreArchitectureParamsSchema.safeParse({ view: "matrix", group: 2 }).success).toBe(false);
     expect(ExploreArchitectureParamsSchema.safeParse({ view: "matrix", from: "a", to: "b" }).success).toBe(false);
     expect(ExploreArchitectureParamsSchema.safeParse({ view: "table" }).success).toBe(false);
+    expect(ExploreArchitectureParamsSchema.safeParse({ view: "coupling", folder: "app", limit: 5 }).success).toBe(true);
+    const coupling = ExploreArchitectureParamsSchema.safeParse({ view: "coupling", from: "a", to: "b" });
+    expect(coupling.success).toBe(false);
+    expect(coupling.error?.issues[0].message).toBe("view coupling returns the whole level: drop group, from and to (call them afterwards for a row or a pair)");
   });
 });

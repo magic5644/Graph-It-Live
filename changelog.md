@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased (1.26.0)
+
+### Added
+- **Most coupled pairs and bridging files** (#342): `graph-it architecture --coupling` and `explore_architecture` with `view: "coupling"` list, for the groups, a folder level (`--folder`) or the units (`--level units`), the pairs of rows coupled by file pairs (`aToB`, `bToA`, `mutual`, heaviest first) and the files whose imports cross into 2 or more other rows, each with up to 3 evidence file pairs and the formulas. Counts are the matrix cells folded two by two; no extraction score. Group cycles and Ca/Ce/instability stay in `--matrix` / `view: "matrix"`.
+
 ## v1.25.6
 
 Patch release that brings the SonarCloud quality gate of `main` back to green.
