@@ -88,7 +88,9 @@ describe("noCycles and type-only cycles (#745)", () => {
     const review = compareArchitecture({}, { check: { violations: [], rules: [], unitCycles: pairs } }, false);
     expect(review.unitCycles.newViolations.map(({ cycle }) => cycle)).toEqual(["type-only", "type-only", "runtime", "runtime"]);
     const markdown = renderArchitectureMarkdown(review, (value) => value).join("\n");
-    expect(markdown).toContain("a/user.ts:1 -> b/role.ts (a -> b, type-only cycle)");
-    expect(markdown).toContain("c/order.ts:1 -> d/line.ts (c -> d)");
+    expect(markdown).toContain("- cycle between detected projects a, b: a/user.ts:1 -> b/role.ts (type-only cycle)");
+    expect(markdown).toContain("- cycle between detected projects c, d: c/order.ts:1 -> d/line.ts\n");
+    expect(markdown).toContain("#### New cycles between detected projects");
+    expect(markdown).toContain("Detected-project cycles: 4 new, 0 resolved, 0 unchanged.");
   });
 });
