@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { normalizePath } from "../../shared/path";
+import { shouldSkipDirectory } from "../SourceFileFilters";
 import type { SymbolInfo } from "../types";
 
 export type SymbolCheck =
@@ -73,7 +74,41 @@ function editDistance(a: string, b: string): number {
 export function closestPathsHint(absolutePath: string, workspaceRoot: string): string {
   const folder = path.dirname(absolutePath);
   const names = fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory() ? fs.readdirSync(folder) : [];
-  const close = closestNames(names, path.basename(absolutePath));
-  const relative = (name: string) => normalizePath(path.relative(workspaceRoot, path.join(folder, name)));
+  const near = closestNames(names, path.basename(absolutePath)).map((name) => path.join(folder, name));
+  // A mistyped folder holds no close name: look for the file name anywhere in the workspace.
+  const close = near.length > 0 ? near : sameNameFiles(workspaceRoot, path.basename(absolutePath));
+  const relative = (file: string) => normalizePath(path.relative(workspaceRoot, file));
   return close.length > 0 ? ` Did you mean: ${close.map(relative).join(", ")}?` : "";
+}
+
+/** Directories read at most by sameNameFiles: a hint stays instant on a large monorepo. */
+const MAX_HINT_DIRECTORIES = 5000;
+
+/** A directory's entries, none when it cannot be read (permissions, removed meanwhile). */
+function readEntries(directory: string): fs.Dirent[] {
+  try {
+    return fs.readdirSync(directory, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+}
+
+/** Workspace files whose name is close to `fileName`, breadth first, skipping node_modules, dot and build folders. */
+function sameNameFiles(workspaceRoot: string, fileName: string): string[] {
+  const queue = [workspaceRoot];
+  const files: string[] = [];
+  for (let head = 0; head < queue.length && head < MAX_HINT_DIRECTORIES; head++) {
+    const entries = readEntries(queue[head]);
+    for (const entry of entries) {
+      const full = path.join(queue[head], entry.name);
+      if (entry.isDirectory()) {
+        if (!shouldSkipDirectory(entry.name, true)) queue.push(full);
+      } else if (entry.isFile()) {
+        files.push(full);
+      }
+    }
+  }
+  const byName = new Map<string, string[]>();
+  for (const file of files) byName.set(path.basename(file), [...(byName.get(path.basename(file)) ?? []), file]);
+  return closestNames([...byName.keys()], fileName).flatMap((name) => byName.get(name) ?? []).slice(0, 3);
 }
