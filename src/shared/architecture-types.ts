@@ -21,6 +21,19 @@ import type {
   DependentGroup,
 } from "./architecture-model";
 
+/** The diagram tabs of the Architecture mode: the CLI `graph-it diagram --view` names, same order (parity test). */
+export const DIAGRAM_TABS = ["units", "folder", "matrix", "flow"] as const;
+export type DiagramTab = (typeof DIAGRAM_TABS)[number];
+
+/** One level of the breadcrumb: workspace > unit/folder… > file > symbol. */
+export interface DiagramCrumb {
+  kind: "workspace" | "unit" | "folder" | "file" | "symbol";
+  /** Shown text: workspace name, unit/folder key's last segment, file base name, symbol name. */
+  label: string;
+  /** unit/folder key, workspace-relative file, or symbol id; absent for workspace. */
+  key?: string;
+}
+
 /** Groups drawn per level (per unit in path mode) until Show more groups; the largest first. */
 export const DEFAULT_RENDERED_GROUPS = 50;
 /** Groups drawn per level once Show more groups was clicked; beyond, they are counted in hiddenGroups. */
@@ -86,6 +99,8 @@ export interface ArchitectureSummaryMessage extends ArchitectureOverview {
   maxGroups?: number;
   /** Drawn groups (the unassigned files included, id 0) with no drawn edge to a group of their level: drawn apart, below the graph. */
   isolatedGroups?: number[];
+  /** Set only when the units level has more units than the diagram cap: the drawn units, the total and the cap. */
+  unitCap?: { drawnUnits: string[]; totalUnits: number; cap: number };
 }
 
 /** The level below a unit or folder (answers architectureEnterFolder); its revision and folder go with every request made there. */
@@ -224,6 +239,14 @@ export interface ArchitectureControlsMessage {
   openEvidenceRow?: number;
   /** Shows the graph or the matrix of the drawn level, as the toolbar toggle does. */
   view?: "graph" | "matrix";
+  /** Clicks this diagram tab. */
+  tab?: DiagramTab;
+  /** Clicks the overlay button of this flow node, by index in FlowDiagramMessage.nodes. */
+  flowNode?: number;
+  /** Clicks the overlay button of this flow edge, by index in FlowDiagramMessage.edges. */
+  flowEdge?: number;
+  /** Sets the Follow cursor toggle. */
+  follow?: boolean;
   /** Clicks the matrix cell of these row and column keys (the evidence opens). */
   matrixCell?: { row: string; column: string };
   /** Clicks the matrix header of this row key (a unit or a folder holding sub-folders is entered). */
@@ -258,6 +281,85 @@ export interface ArchitectureControlsMessage {
 
 export type ArchitectureExportTarget = "file" | "clipboard";
 
+/** Workspace capability, sent on architectureMounted and on workspace change: Units/Folder/Matrix are disabled without a folder. */
+export interface DiagramContextMessage {
+  type: "diagramContext";
+  hasWorkspace: boolean;
+  follow: boolean;
+}
+
+/** Re-scopes the Architecture mode (command, explorer, Follow): the levels of `folders` are posted before it (architectureFolderLevel). */
+export interface ArchitectureScopeMessage {
+  type: "architectureScope";
+  revision: string;
+  tab: Exclude<DiagramTab, "flow">;
+  /** Unit key, or null for the units. */
+  unit: string | null;
+  /** Folder keys entered below the unit, outermost first (directoryFolderChain minus the unit). */
+  folders: string[];
+}
+
+/** Built by the extension from `model.nodes[i]` (file, line, lane, title) + `layout.nodes[i]` (box). */
+export interface FlowDiagramNode {
+  id: string;
+  title: string;
+  /** rootDir-relative file (may start with `../` for a loose file) and 1-based line. */
+  file: string;
+  line: number;
+  lane: "main" | "alternative" | "error";
+  /** Accessible name, built by the extension: `Step i of n: <title>, <file>:<line>, <lane> lane`. The webview uses it verbatim. */
+  name: string;
+  /** Box in SVG user units (same as the SVG viewBox). */
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Built from `model.edges[layoutEdge.edge]` (file, line, relation, lane) + `layoutEdge.label` (anchor). */
+export interface FlowDiagramEdge {
+  from: string;
+  to: string;
+  /** Call site: rootDir-relative file and 1-based line. */
+  file: string;
+  line: number;
+  relation: "CALLS" | "REFERENCES";
+  lane: "main" | "alternative" | "error";
+  /** Accessible name: `Call <from title> → <to title> at <file>:<line>, <lane> lane`. */
+  name: string;
+  /** Label anchor in SVG user units, and its text. */
+  label: { x: number; y: number; text: string };
+}
+
+/** A drawn flow: the CLI's SVG plus the geometry of its boxes and edge labels (overlay buttons, keyboard list). */
+export interface FlowDiagramMessage {
+  type: "flowDiagram";
+  /** Increments per render; every flow request echoes it, an older one is ignored. */
+  requestId: number;
+  svg: string;
+  width: number;
+  height: number;
+  /** Header lines of the SVG: alt text = `${title}. ${caption}. ${counts}.` */
+  title: string;
+  caption: string;
+  counts: string;
+  crumbs: DiagramCrumb[];
+  entry: string;
+  nodes: FlowDiagramNode[];
+  edges: FlowDiagramEdge[];
+  /** Files of the steps changed since the render: caption badge + Refresh. */
+  stale: boolean;
+}
+
+/** Flow progress or why no flow is drawn; the previous diagram stays under "loading" and "error". */
+export interface FlowDiagramStateMessage {
+  type: "flowDiagramState";
+  status: "loading" | "empty" | "error" | "stale";
+  /** empty: the entry symbol name; error: the one-line message. */
+  message?: string;
+  crumbs?: DiagramCrumb[];
+}
+
 /** Rasterises a diagram's SVG at 2× in the webview, the PNG export's only renderer. */
 export interface ArchitectureRasterizeMessage {
   type: "architectureRasterize";
@@ -279,7 +381,11 @@ export type ArchitectureExtensionMessage =
   | ArchitectureDependentFilesPageMessage
   | ArchitectureRevisionChangedMessage
   | ArchitectureControlsMessage
-  | ArchitectureRasterizeMessage;
+  | ArchitectureRasterizeMessage
+  | DiagramContextMessage
+  | ArchitectureScopeMessage
+  | FlowDiagramMessage
+  | FlowDiagramStateMessage;
 
 // ---------------------------------------------------------------------------
 // Webview → Extension messages
@@ -613,6 +719,42 @@ export interface ArchitectureRasterizedCommand {
   error?: string;
 }
 
+export interface FlowOpenLocationCommand {
+  command: "flowOpenLocation";
+  requestId: number;
+  /** Index in FlowDiagramMessage.nodes or .edges: never a path, the extension looks it up (CWE-22). */
+  target: { kind: "node" | "edge"; index: number };
+}
+
+export interface FlowExportDiagramCommand {
+  command: "flowExportDiagram";
+  requestId: number;
+  target: ArchitectureExportTarget;
+}
+
+export interface FlowRefreshCommand {
+  command: "flowRefresh";
+  requestId: number;
+}
+
+/** Empty-state action: Show Call Graph on the entry symbol. */
+export interface FlowShowCallGraphCommand {
+  command: "flowShowCallGraph";
+  requestId: number;
+}
+
+/** Breadcrumb click: re-scope to this crumb (turns Follow off). */
+export interface DiagramRescopeCommand {
+  command: "diagramRescope";
+  tab: DiagramTab;
+  crumb: DiagramCrumb;
+}
+
+export interface DiagramFollowCommand {
+  command: "diagramFollow";
+  enabled: boolean;
+}
+
 export type ArchitectureWebviewCommand =
   | ArchitectureMountedCommand
   | ArchitectureRefreshCommand
@@ -636,4 +778,10 @@ export type ArchitectureWebviewCommand =
   | ArchitectureDependentsRenderedCommand
   | ArchitectureDetailRenderedCommand
   | ArchitectureExportDiagramCommand
-  | ArchitectureRasterizedCommand;
+  | ArchitectureRasterizedCommand
+  | FlowOpenLocationCommand
+  | FlowExportDiagramCommand
+  | FlowRefreshCommand
+  | FlowShowCallGraphCommand
+  | DiagramRescopeCommand
+  | DiagramFollowCommand;

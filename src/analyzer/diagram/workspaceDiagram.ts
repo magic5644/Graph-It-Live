@@ -81,7 +81,11 @@ export async function renderSourceDiagram(
   return { markup, counts: layout.text.counts, width: layout.width, height: layout.height, cut };
 }
 
-/** The flow diagram of one entry symbol from the call graph index `db`, or its spec, and its counts line ("4 steps · 5 calls"). */
+/**
+ * The flow diagram of one entry symbol from the call graph index `db`, or its spec, and its counts line ("4 steps · 5 calls"),
+ * with the layout it drew and the model it laid out (the annotated one with `options.spec`): `layout.nodes[i]` is
+ * `model.nodes[i]`, `layout.edges[j]` is `model.edges[layout.edges[j].edge]`.
+ */
 export async function renderFlowDiagram(
   db: Database,
   sources: FlowModelSources,
@@ -98,8 +102,8 @@ export async function renderFlowDiagram(
   const { spec: model, cut }: { spec: FlowModel; cut: string[] } = spec === undefined ? { spec: built, cut: [] } : annotateSpec(spec, flowSpec(built, workspace));
   const layout = layoutFlow(model, sources.rootDir);
   if (options.format === "diagram-spec") {
-    return { markup: `${JSON.stringify(flowSpec(model, workspace), null, 2)}\n`, counts: layout.text.counts, cut };
+    return { markup: `${JSON.stringify(flowSpec(model, workspace), null, 2)}\n`, counts: layout.text.counts, cut, layout, model };
   }
   const markup = options.format === "svg" ? renderDiagramSvg(layout, options.theme) : renderDiagramHtml(layout);
-  return { markup, counts: layout.text.counts, cut };
+  return { markup, counts: layout.text.counts, cut, layout, model };
 }

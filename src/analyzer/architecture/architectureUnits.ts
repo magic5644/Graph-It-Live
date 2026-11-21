@@ -331,6 +331,19 @@ export function folderKeys(relativePath: string, unit: string, folder = unit ===
  * `(root)/cli`, since umbrella folders such as src have no key of their own.
  */
 export function directoryFolderKey(assignment: UnitAssignment, directory: string): string {
+  const key = directoryFolderChain(assignment, directory).at(-1);
+  if (key === undefined) {
+    throw new Error(`"${directory}" holds several units: pass the folder of one of them; the units are drawn without a directory (in a narrowed REPL /scope, with --view units).`);
+  }
+  return key;
+}
+
+/**
+ * The keys that lead to a workspace directory: its unit, then each folder key down to the one
+ * that draws it (`directoryFolderKey` is the last); `[]` when the directory holds several units.
+ * Throws when no indexed file is below it.
+ */
+export function directoryFolderChain(assignment: UnitAssignment, directory: string): string[] {
   let shared: string[] | undefined;
   for (const [file, unit] of assignment.unitOf) {
     if (!file.startsWith(`${directory}/`)) continue;
@@ -346,11 +359,7 @@ export function directoryFolderKey(assignment: UnitAssignment, directory: string
     shared = shared === undefined ? above : shared.filter((key, index) => above[index] === key);
   }
   if (shared === undefined) throw new Error(`No indexed file below "${directory}".`);
-  const key = shared.at(-1);
-  if (key === undefined) {
-    throw new Error(`"${directory}" holds several units: pass the folder of one of them; the units are drawn without a directory (in a narrowed REPL /scope, with --view units).`);
-  }
-  return key;
+  return shared;
 }
 
 /**

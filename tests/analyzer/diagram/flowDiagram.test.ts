@@ -8,6 +8,9 @@ import { layoutFlow, type FlowLayout, type Point } from "@/analyzer/diagram/flow
 import { buildFlowModel, type FlowEdge, type FlowLane, type FlowModel, type FlowNode } from "@/analyzer/diagram/flowModel";
 import { defaultDiagramFile, diagramLevel, LEGEND, MAX_FLOW_STEPS } from "@/analyzer/diagram/diagramStyle";
 import { renderDiagramHtml, renderDiagramSvg } from "@/analyzer/diagram/diagramSvg";
+import { flowSpec } from "@/analyzer/diagram/diagramSpec";
+import { renderFlowDiagram } from "@/analyzer/diagram/workspaceDiagram";
+import { workspaceName } from "@/analyzer/diagram/architectureDiagram";
 import type { SupportedLang } from "@/shared/callgraph-types";
 import { normalizePath } from "@/shared/path";
 
@@ -221,6 +224,19 @@ describe("layoutFlow (#793)", () => {
     const stray = model([node("run")], [edge("run", "ghost", 2), edge("run", "run", 3)]);
     expect(layoutFlow(stray, "shop").edges).toEqual([]);
   });
+
+  it("names the model edge of each placed edge, skipping self-calls and stray ends", () => {
+    const flow = model([node("a"), node("b"), node("c")], [edge("a", "b", 2), edge("b", "b", 3), edge("a", "ghost", 4), edge("b", "c", 5)]);
+    const layout = layoutFlow(flow, "shop");
+    expect(layout.nodes.map((box) => box.id)).toEqual(flow.nodes.map((step) => step.id));
+    expect(layout.edges.map((placed) => placed.edge)).toEqual([0, 3]);
+    expect(layout.edges).toHaveLength(flow.edges.length - 2);
+    for (const placed of layout.edges) {
+      expect([placed.from, placed.to]).toEqual([flow.edges[placed.edge].from, flow.edges[placed.edge].to]);
+    }
+    // The index is geometry metadata: the drawing does not show it.
+    expect(renderDiagramSvg(layout)).toBe(renderDiagramSvg({ ...layout, edges: layout.edges.map((placed) => ({ ...placed, edge: -1 })) }));
+  });
 });
 
 describe("diagramStyle", () => {
@@ -315,6 +331,31 @@ describe("layoutFlow on a built flow model", () => {
         await fs.writeFile(path.join(process.env.FLOW_DIAGRAM_OUT, "twelve.html"), renderDiagramHtml(layoutFlow(TWELVE, "shop")));
         await fs.writeFile(path.join(process.env.FLOW_DIAGRAM_OUT, "diamond.svg"), renderDiagramSvg(layoutFlow(DIAMOND, "shop")));
       }
+
+      // renderFlowDiagram returns the layout it drew and its model; the markup is the same bytes.
+      const request = { filePath: path.join(root, "src/command.ts"), symbolName: "placeOrder" };
+      const drawn = await renderFlowDiagram(indexer.getDb(), { rootDir: root, extractor }, request, { format: "svg", theme: "dark" });
+      expect(drawn.markup).toBe(renderDiagramSvg(layout, "dark"));
+      expect(drawn.model).toEqual(flow);
+      expect(drawn.layout).toEqual(layout);
+      expect(drawn.counts).toBe(layout.text.counts);
+      for (const placed of drawn.layout.edges) expect(drawn.model.edges[placed.edge]).toMatchObject({ from: placed.from, to: placed.to });
+      const spec = await renderFlowDiagram(indexer.getDb(), { rootDir: root, extractor }, request, { format: "diagram-spec" });
+      expect(spec.markup).toBe(`${JSON.stringify(flowSpec(flow, workspaceName(root)), null, 2)}\n`);
+      expect(spec.layout).toEqual(layout);
+
+      // An annotated spec keeps the steps and calls, in order, and carries its texts into the model.
+      const annotated = structuredClone(flowSpec(flow, workspaceName(root)));
+      annotated.nodes[0].title = "Place the order";
+      annotated.edges[0].label = "reads it";
+      const loaded = { kind: "flow" as const, file: "s.json", absolute: path.join(root, "s.json"), data: annotated as unknown as Record<string, unknown> };
+      const redrawn = await renderFlowDiagram(indexer.getDb(), { rootDir: root, extractor }, request, { format: "svg", spec: loaded });
+      expect(redrawn.model.nodes.map((step) => step.id)).toEqual(flow.nodes.map((step) => step.id));
+      expect(redrawn.model.edges.map((call) => [call.from, call.to, call.line])).toEqual(flow.edges.map((call) => [call.from, call.to, call.line]));
+      expect(redrawn.model.nodes[0].title).toBe("Place the order");
+      expect(redrawn.model.edges[0].label).toBe("reads it");
+      expect(redrawn.layout.nodes.map((box) => box.id)).toEqual(redrawn.model.nodes.map((step) => step.id));
+      expect(redrawn.markup).toContain("Place the order");
     } finally {
       indexer.dispose();
     }
