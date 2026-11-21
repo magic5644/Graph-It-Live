@@ -11,13 +11,14 @@ import { ARCHITECTURE_CONFIG_FILE, type ArchitectureRulesFileNames } from "../ar
 import { directoryFolderKey } from "../architecture/architectureUnits";
 import { loadWorkspaceUnits, type UnitSource } from "../architecture/workspaceUnits";
 import type { Database } from "sql.js";
-import { architectureDiagramInput, layoutDiagram, workspaceName, type DiagramInputOptions, type DrawOptions } from "./architectureDiagram";
+import { architectureDiagramInput, layoutDiagram, workspaceName, type DiagramInput, type DiagramInputOptions, type DrawOptions } from "./architectureDiagram";
 import { layoutMatrix } from "./diagramMatrix";
 import type { DIAGRAM_FORMATS, DiagramTheme, DiagramView } from "./diagramStyle";
 import { diagramSpec, flowSpec } from "./diagramSpec";
+import { annotateSpec, type LoadedSpec } from "./diagramSpecImport";
 import { renderDiagramHtml, renderDiagramSvg } from "./diagramSvg";
 import { layoutFlow } from "./flowDiagram";
-import { buildFlowModel, type FlowModelRequest, type FlowModelSources } from "./flowModel";
+import { buildFlowModel, type FlowModel, type FlowModelRequest, type FlowModelSources } from "./flowModel";
 
 export interface WorkspaceDiagramOptions {
   view: DiagramView;
@@ -32,6 +33,16 @@ export interface WorkspaceDiagramOptions {
   rules?: ArchitectureRulesFileNames;
   indexedAt?: string;
   signal?: AbortSignal;
+  /** An annotated spec of the same level (#794): its texts are drawn, anything else must match the index. */
+  spec?: LoadedSpec;
+}
+
+/** The level's input with the annotated node labels and caption of `spec`, refused when it differs otherwise. */
+function annotateLevel(spec: LoadedSpec, input: DiagramInput): { input: DiagramInput; cut: string[] } {
+  const { spec: annotated, cut } = annotateSpec(spec, diagramSpec(input));
+  const labels = new Map(annotated.nodes.map((node) => [node.key, node.label]));
+  const { title, caption } = annotated.caption;
+  return { input: { ...input, caption: { title, caption }, nodes: input.nodes.map((node) => ({ ...node, label: labels.get(node.key) ?? node.label })) }, cut };
 }
 
 /** The markup of one diagram (or its JSON spec) and its counts line ("12 units, 30 edges, ..."). */
@@ -56,17 +67,18 @@ export async function renderWorkspaceDiagram(workspaceRoot: string, analyze: Ana
 export async function renderSourceDiagram(
   source: UnitSource,
   workspaceRoot: string,
-  options: Pick<WorkspaceDiagramOptions, "view" | "folder" | "format" | "theme"> & Omit<DiagramInputOptions, "folder"> & { draw?: DrawOptions },
+  options: Pick<WorkspaceDiagramOptions, "view" | "folder" | "format" | "theme" | "spec"> & Omit<DiagramInputOptions, "folder"> & { draw?: DrawOptions },
 ) {
-  const input = architectureDiagramInput(source, workspaceRoot, options);
+  const level = architectureDiagramInput(source, workspaceRoot, options);
+  const { input, cut } = options.spec === undefined ? { input: level, cut: [] } : annotateLevel(options.spec, level);
   if (options.format === "diagram-spec") {
     // The data alone: no layout, so no size cap and no geometry.
     const spec = diagramSpec(input);
-    return { markup: `${JSON.stringify(spec, null, 2)}\n`, counts: spec.caption.counts, width: 0, height: 0 };
+    return { markup: `${JSON.stringify(spec, null, 2)}\n`, counts: spec.caption.counts, width: 0, height: 0, cut };
   }
   const layout = options.view === "matrix" ? layoutMatrix(input, options.draw) : await layoutDiagram(input, options.draw);
   const markup = options.format === "svg" ? renderDiagramSvg(layout, options.theme) : renderDiagramHtml(layout);
-  return { markup, counts: layout.text.counts, width: layout.width, height: layout.height };
+  return { markup, counts: layout.text.counts, width: layout.width, height: layout.height, cut };
 }
 
 /** The flow diagram of one entry symbol from the call graph index `db`, or its spec, and its counts line ("4 steps · 5 calls"). */
@@ -74,13 +86,20 @@ export async function renderFlowDiagram(
   db: Database,
   sources: FlowModelSources,
   request: FlowModelRequest,
-  options: Pick<WorkspaceDiagramOptions, "format" | "theme">,
+  options: Pick<WorkspaceDiagramOptions, "format" | "theme" | "spec">,
 ) {
-  const model = await buildFlowModel(db, request, sources);
+  const { spec } = options;
+  const workspace = workspaceName(sources.rootDir);
+  const built = await buildFlowModel(db, request, sources).catch((error: unknown) => {
+    if (spec === undefined || !(error instanceof Error)) throw error;
+    throw new Error(`${spec.file} is stale: ${error.message} Export the spec again in format diagram-spec.`, { cause: error });
+  });
+  // An annotated spec is a model too: the same steps and calls, with its texts.
+  const { spec: model, cut }: { spec: FlowModel; cut: string[] } = spec === undefined ? { spec: built, cut: [] } : annotateSpec(spec, flowSpec(built, workspace));
   const layout = layoutFlow(model, sources.rootDir);
   if (options.format === "diagram-spec") {
-    return { markup: `${JSON.stringify(flowSpec(model, workspaceName(sources.rootDir)), null, 2)}\n`, counts: layout.text.counts };
+    return { markup: `${JSON.stringify(flowSpec(model, workspace), null, 2)}\n`, counts: layout.text.counts, cut };
   }
   const markup = options.format === "svg" ? renderDiagramSvg(layout, options.theme) : renderDiagramHtml(layout);
-  return { markup, counts: layout.text.counts };
+  return { markup, counts: layout.text.counts, cut };
 }

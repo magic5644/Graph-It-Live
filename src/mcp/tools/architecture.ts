@@ -16,9 +16,10 @@ import { checkWorkspaceArchitecture } from "../../analyzer/architecture/architec
 import { folderLevel } from "../../analyzer/architecture/architectureUnits";
 import { loadWorkspaceUnits } from "../../analyzer/architecture/workspaceUnits";
 import { defaultDiagramFile, diagramLevel } from "../../analyzer/diagram/diagramStyle";
+import { readDiagramSpec, specFlowRequest, specLevel, type LoadedSpec } from "../../analyzer/diagram/diagramSpecImport";
 import type { FlowModelSources } from "../../analyzer/diagram/flowModel";
 import { renderFlowDiagram, renderWorkspaceDiagram } from "../../analyzer/diagram/workspaceDiagram";
-import { getRelativePath } from "../../shared/path";
+import { getRelativePath, normalizePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { workerState } from "../shared/state";
 import { ensureCallGraphReady } from "./callgraph";
@@ -106,14 +107,22 @@ export async function exportArchitectureDiagram(
   // Refused before any work (CWE-22): the output stays in the workspace, as the rules files do.
   // The raw value, so a refusal names the given path and not the workspace's absolute location.
   const target = params.output === undefined ? undefined : validateWorkspacePath(params.output, rootDir);
-  const { markup, counts } = await renderDiagram(rootDir, analyze, params, signal, flow);
-  if (target === undefined && markup.length <= INLINE_DIAGRAM_MAX_CHARS) return { format, counts, markup };
+  const spec = params.spec === undefined ? undefined : await readDiagramSpec(rootDir, params.spec);
+  if (spec !== undefined && target !== undefined && normalizePath(target) === normalizePath(spec.absolute)) {
+    throw new Error(`output ${params.output} would replace the spec it reads: pass another file.`);
+  }
+  const { markup, counts, cut = [] } = await renderDiagram(rootDir, analyze, params, signal, flow, spec);
+  // The annotated texts cut to fit their box, by JSON path.
+  const notes = cut.length > 0 ? { cut } : {};
+  if (target === undefined && markup.length <= INLINE_DIAGRAM_MAX_CHARS) return { format, counts, markup, ...notes };
 
   // Validated too: a symbolic link at the default name must not lead outside the workspace.
-  const file = target ?? validateWorkspacePath(defaultDiagramFile(format, params.view), rootDir);
+  let view = params.view;
+  if (spec !== undefined) view = spec.kind === "flow" ? "flow" : undefined;
+  const file = target ?? validateWorkspacePath(defaultDiagramFile(format, view), rootDir);
   await fs.promises.mkdir(nodePath.dirname(file), { recursive: true });
   await fs.promises.writeFile(file, markup);
-  return { format, counts, path: getRelativePath(file, rootDir), characters: markup.length };
+  return { format, counts, path: getRelativePath(file, rootDir), characters: markup.length, ...notes };
 }
 
 async function renderDiagram(
@@ -122,9 +131,17 @@ async function renderDiagram(
   params: ExportArchitectureDiagramParams,
   signal?: AbortSignal,
   flow?: () => Promise<FlowSources>,
+  spec?: LoadedSpec,
 ) {
   const format = params.diagramFormat ?? "svg";
   const theme = params.theme ?? "light";
+  if (spec?.kind === "flow") {
+    const rulesParam = (["rules", "config", "baseline"] as const).find((key) => params[key] !== undefined);
+    if (rulesParam !== undefined) throw new Error(`${rulesParam} applies to an architecture spec, not a flow spec.`);
+    if (flow === undefined) throw new Error("a flow spec needs the call graph index");
+    const { db, extractor } = await flow();
+    return renderFlowDiagram(db, { rootDir, extractor }, specFlowRequest(spec, rootDir), { format, theme, spec });
+  }
   if (params.view === "flow") {
     const { filePath, symbolName, startLine, maxSteps } = params;
     if (filePath === undefined || symbolName === undefined) throw new Error("view flow draws one symbol's flow: pass filePath and symbolName");
@@ -135,7 +152,8 @@ async function renderDiagram(
     return renderFlowDiagram(db, { rootDir, extractor }, request, { format, theme });
   }
   return renderWorkspaceDiagram(rootDir, analyze, {
-    ...diagramLevel(params.view, params.folder),
+    ...(spec === undefined ? diagramLevel(params.view, params.folder) : specLevel(spec)),
+    spec,
     format,
     theme,
     rules: params.rules ? { config: params.config, baseline: params.baseline } : undefined,

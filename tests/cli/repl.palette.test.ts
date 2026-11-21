@@ -66,7 +66,7 @@ describe('Ink slash palette', () => {
     expect(first.every((entry) => entry.isArgument && entry.autoExecute === false)).toBe(true);
     expect(windows.length).toBeGreaterThan(0);
     for (const entry of windows) expect(entry.command).not.toContain('\\');
-    expect(flags).toEqual(['--view', '--folder', '--format', '--theme', '--output', '--rules', '--config', '--baseline']);
+    expect(flags).toEqual(['--view', '--folder', '--spec', '--format', '--theme', '--output', '--rules', '--config', '--baseline']);
     expect(afterFlag).toEqual([]);
     expect(filterSlashCommands('/diagram --r', allFiles, workspaceRoot).map((entry) => entry.command)).toEqual(['--rules']);
   });
@@ -103,7 +103,7 @@ describe('Ink slash palette', () => {
     expect(text).toContain('Navigate');
     expect(text).toContain('/scope <directory>');
     expect(text).toContain('/check-architecture [--config <file>] [--baseline <file>] [--update-baseline]');
-    expect(text).toContain('/diagram [dir | <file#symbol> --view flow [--maxSteps N] [--startLine N]] [--view units|folder|matrix|flow] [--folder <key>]');
+    expect(text).toContain('/diagram [dir | <file#symbol> --view flow [--maxSteps N] [--startLine N] | --spec <file.json>] [--view units|folder|matrix|flow] [--folder <key>]');
     expect(text).toContain('/path → /scope');
     expect(text).toContain('/deps-in → /check-dependencies');
     expect(lines.some((line) => line.trimStart().startsWith('/command'))).toBe(false);

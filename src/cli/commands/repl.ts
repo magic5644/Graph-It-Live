@@ -442,13 +442,17 @@ async function runDiagramCommand(
   const hasDirectory = first !== undefined && !first.startsWith('-');
   const scoped = state.workspaceRoot !== runtime.workspaceRoot;
   const view = readStringOption(ordered, '--view', 'units, folder, matrix or flow');
+  const spec = readStringOption(ordered, '--spec', 'an annotated diagram-spec JSON file');
   let directory: string | undefined;
   if (hasDirectory) directory = path.resolve(state.workspaceRoot, first.replaceAll('\\', '/'));
-  else if (scoped && view !== 'units' && view !== 'flow' && !ordered.includes('--folder')) directory = state.workspaceRoot;
+  // A spec names its own level: the narrowed scope is not added to it.
+  else if (scoped && spec === undefined && view !== 'units' && view !== 'flow' && !ordered.includes('--folder')) directory = state.workspaceRoot;
   // Relative to the workspace root, so its errors never show an absolute path.
+  const relative = (target: string) => path.relative(runtime.workspaceRoot, path.resolve(state.workspaceRoot, target.replaceAll('\\', '/')));
+  const withSpec = spec === undefined ? ordered : ordered.map((arg, index) => (ordered[index - 1] === '--spec' ? relative(arg) : arg));
   const args = directory === undefined
-    ? ordered
-    : [path.relative(runtime.workspaceRoot, directory), ...ordered.slice(hasDirectory ? 1 : 0)];
+    ? withSpec
+    : [path.relative(runtime.workspaceRoot, directory), ...withSpec.slice(hasDirectory ? 1 : 0)];
   const { run } = await import('./diagram.js');
   return { command: 'diagram', output: await run(args, runtime, effectiveFormat) };
 }

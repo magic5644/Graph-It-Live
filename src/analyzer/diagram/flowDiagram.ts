@@ -18,7 +18,9 @@ import type { FlowEdge, FlowLane, FlowModel, FlowNode } from "./flowModel";
 const TRACK = 8;
 /** Space between a box and the first track or label of a gap. */
 const GAP_PAD = 12;
-const LABEL_CHARS = 20;
+/** Most cells drawn of an edge label and of a step's subtitle: longer ones end with "…". */
+export const FLOW_LABEL_CHARS = 20;
+export const FLOW_SUBTITLE_CHARS = 40;
 const LABEL_LINE = 14;
 /** Room above and below the tallest box of a lane row. */
 const ROW_PAD = 40;
@@ -81,10 +83,13 @@ interface Plan {
 const isBus = (plan: Plan) => plan.route === "above" || plan.route === "below";
 const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
 
-function edgeLabel(edge: FlowEdge): string {
-  if (edge.relation === "REFERENCES") return fitLabel(`ref · line ${edge.line}`, LABEL_CHARS);
-  return fitLabel(edge.condition ?? `line ${edge.line}`, LABEL_CHARS);
+/** The text an edge carries before any annotation: its condition, or its call line. */
+export function defaultEdgeLabel(edge: FlowEdge): string {
+  if (edge.relation === "REFERENCES") return `ref · line ${edge.line}`;
+  return edge.condition ?? `line ${edge.line}`;
 }
+
+const edgeLabel = (edge: FlowEdge) => fitLabel(edge.label ?? defaultEdgeLabel(edge), FLOW_LABEL_CHARS);
 
 function routeOf(from: number, to: number, sameRow: boolean): Route {
   if (to === from + 1) return sameRow ? "straight" : "jog";
@@ -104,7 +109,7 @@ function planEdges(model: FlowModel, rowOf: (node: FlowNode) => number): Plan[] 
 
 function sizeBox(node: FlowNode, entry: boolean): Omit<FlowBox, "x" | "y"> {
   const text = fitName(node.title);
-  const subtitle = node.subtitle === undefined ? undefined : fitLabel(node.subtitle, 40);
+  const subtitle = node.subtitle === undefined ? undefined : fitLabel(node.subtitle, FLOW_SUBTITLE_CHARS);
   const meta = `${fitName(node.file, 24)}:${node.line} · ${plural(node.symbolCount, "symbol")}`;
   const widest = Math.max(textWidth(text, SIZES.label), textWidth(subtitle ?? "", SIZES.meta), textWidth(meta, SIZES.meta));
   return {
@@ -208,7 +213,8 @@ function placeLabel(grid: Grid, plan: Plan, points: readonly Point[][]): Point &
   return { text: plan.label, x: grid.gaps.get(plan.to - 1)!.labelX, y };
 }
 
-function flowText(model: FlowModel, workspace: string): DiagramText {
+/** The header lines, counts and notes of a flow; an annotated spec's caption replaces the title and caption lines. */
+export function flowText(model: FlowModel, workspace: string): DiagramText {
   const entry = model.nodes.find((node) => node.id === model.entry) ?? model.nodes[0];
   const references = model.edges.filter((edge) => edge.relation === "REFERENCES").length;
   const omitted = model.omittedSteps;
@@ -217,8 +223,9 @@ function flowText(model: FlowModel, workspace: string): DiagramText {
     ? `${callees}: ${MAX_FLOW_STEPS} steps is the most a flow draws`
     : `${callees}: rerun with --maxSteps ${Math.min(MAX_FLOW_STEPS, model.nodes.length + omitted)}`;
   return {
-    title: `Flow · ${fitName(entry?.title ?? model.entry)}`,
-    caption: [fitLabel(workspaceName(workspace), 48), entry ? `${fitName(entry.file, 64)}:${entry.line}` : undefined, model.language].filter(Boolean).join(" · "),
+    title: model.caption?.title ?? `Flow · ${fitName(entry?.title ?? model.entry)}`,
+    caption: model.caption?.caption
+      ?? [fitLabel(workspaceName(workspace), 48), entry ? `${fitName(entry.file, 64)}:${entry.line}` : undefined, model.language].filter(Boolean).join(" · "),
     counts: [plural(model.nodes.length, "step"), plural(model.edges.length - references, "call"), plural(references, "reference")].join(" · "),
     hidden: [
       ...(omitted > 0 ? [rerun] : []),

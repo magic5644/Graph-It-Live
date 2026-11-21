@@ -281,6 +281,89 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     }
   });
 
+  // #794: an annotated spec drawn again, identical when untouched, and every way to hand a wrong one.
+  it("diagram --spec redraws an annotated flow or architecture spec, and refuses each altered or misplaced one", () => {
+    const write = (file: string, data: unknown) => fs.writeFileSync(path.join(root, file), typeof data === "string" ? data : JSON.stringify(data, null, 2));
+    const out = (args: string[]) => {
+      const result = cli(["diagram", ...args, "--output", "-"]);
+      expect(result.status, `${args.join(" ")}: ${result.stderr}`).toBe(0);
+      return result.stdout;
+    };
+    const flow = JSON.parse(out(["--view", "flow", "src/a.ts#run", "--format", "diagram-spec"]));
+    const units = JSON.parse(out(["--format", "diagram-spec"]));
+    write("flow.json", flow);
+    write("units.json", units);
+    for (const format of ["svg", "html", "diagram-spec"]) {
+      expect(out(["--spec", "flow.json", "--format", format]), format).toBe(out(["--view", "flow", "src/a.ts#run", "--format", format]));
+      expect(out(["--spec", "units.json", "--format", format]), format).toBe(out(["--format", format]));
+    }
+    write("annotated.json", {
+      ...flow,
+      caption: { ...flow.caption, title: "How run works" },
+      nodes: flow.nodes.map((node: { title: string }, index: number) => (index === 0 ? { ...node, title: "Start <here>", subtitle: "Entry point" } : node)),
+      edges: flow.edges.map((edge: object, index: number) => (index === 0 ? { ...edge, label: "asks the helper for a long, very detailed answer" } : edge)),
+    });
+    const annotated = cli(["diagram", "--spec", "annotated.json", "--format", "svg", "--output", "annotated.svg"]);
+    expect(annotated.status, annotated.stderr).toBe(0);
+    expect(annotated.stdout).toBe('Diagram written to annotated.svg: 3 steps · 2 calls · 0 references. Cut to fit their box (ends with "…"): edges[0].label.\n');
+    const svg = fs.readFileSync(path.join(root, "annotated.svg"), "utf8");
+    for (const text of ["How run works", "Start &lt;here&gt;", "Entry point", "asks the helper for…"]) expect(svg).toContain(text);
+    const piped = cli(["diagram", "--spec", "annotated.json", "--format", "svg", "--output", "-"]);
+    expect(piped.stdout).toMatch(/^<svg /);
+    expect(piped.stderr).toBe('Cut to fit their box (ends with "…"): edges[0].label.\n');
+    write("units-annotated.json", { ...units, nodes: units.nodes.map((node: object, index: number) => (index === 0 ? { ...node, label: "Core library" } : node)) });
+    expect(out(["--spec", "units-annotated.json", "--format", "svg"])).toContain("Core library");
+
+    write("lane.json", { ...flow, nodes: flow.nodes.map((node: object, index: number) => (index === 1 ? { ...node, lane: "error" } : node)) });
+    write("unknown.json", { ...flow, nodes: flow.nodes.map((node: object, index: number) => (index === 1 ? { ...node, id: "src/b.ts#helpr" } : node)) });
+    write("removed.json", { ...flow, nodes: flow.nodes.slice(0, -1) });
+    write("edge.json", { ...flow, edges: [...flow.edges, { ...flow.edges[0], to: "src/a.ts#run" }] });
+    write("stale.json", { ...units, revision: "0".repeat(64) });
+    // The code renamed the entry symbol since the export.
+    write("other-symbol.json", { ...flow, entry: "src/a.ts#gone", nodes: flow.nodes.map((node: object, index: number) => (index === 0 ? { ...node, id: "src/a.ts#gone" } : node)) });
+    write("other-entry.json", { ...flow, entry: "src/b.ts#helper2" });
+    write("version.json", { ...flow, version: 2 });
+    write("kind.json", { ...flow, kind: "sequence" });
+    write("extra.json", { ...flow, nodes: flow.nodes.map((node: object) => ({ ...node, colour: "red" })) });
+    write("empty-title.json", { ...flow, nodes: flow.nodes.map((node: object) => ({ ...node, title: " " })) });
+    write("bad.json", "{ nope");
+    write("array.json", "[]");
+    const rows: [string[], number, string][] = [
+      [["--spec", "lane.json"], 1, 'lane.json: nodes[1].lane is "error" in the spec, "main" in the current index. Only the node title and subtitle, edge label, caption title and caption may change'],
+      [["--spec", "unknown.json"], 1, "unknown.json: nodes[1] src/b.ts#helpr is not in the current index; nodes and edges cannot be added or renamed. Closest: src/b.ts#helper."],
+      [["--spec", "removed.json"], 1, "removed.json: nodes lacks lib/u.ts#util, which the current index has; nodes and edges cannot be removed."],
+      [["--spec", "edge.json"], 1, "edge.json: edges[2] src/a.ts#run -> src/a.ts#run is not in the current index"],
+      [["--spec", "stale.json"], 1, `stale.json is stale or drawn with other rules: it was exported at revision "${"0".repeat(64)}"`],
+      [["--spec", "other-symbol.json"], 1, "other-symbol.json is stale: Symbol 'gone' not found in src/a.ts. No symbol with a similar name is declared in this file. Export the spec again"],
+      [["--spec", "other-entry.json"], 1, "other-entry.json: nodes must hold the entry step src/b.ts#helper2 with its 1-based line"],
+      [["--spec", "version.json"], 1, "version.json: version 2 is not supported; this graph-it reads diagram-spec version 1."],
+      [["--spec", "kind.json"], 1, 'kind.json: kind "sequence" is not a diagram-spec kind'],
+      [["--spec", "extra.json"], 1, "extra.json: nodes[0].colour is not a field of a flow diagram spec."],
+      [["--spec", "empty-title.json"], 1, "empty-title.json: nodes[0].title must be a non-empty string (schemas/diagram-spec.schema.json)."],
+      [["--spec", "bad.json"], 1, "bad.json is not valid JSON ("],
+      [["--spec", "array.json"], 1, "array.json is not a diagram spec: expected a JSON object in format diagram-spec."],
+      [["--spec", "flw.json"], 1, "Spec file not found: flw.json. Did you mean: flow.json?"],
+      [["--spec", "../x.json"], 5, "Spec file outside workspace: ../x.json."],
+      [["--spec", "flow.json", "--view", "flow"], 1, "--spec draws the view, level or symbol written in the spec: drop --view"],
+      [["--spec", "units.json", "--folder", "src"], 1, "drop --folder"],
+      [["--spec", "flow.json", "--maxSteps", "3"], 1, "drop --maxSteps"],
+      [["--spec", "flow.json", "--startLine", "2"], 1, "drop --startLine"],
+      [["--spec", "units.json", "src"], 1, "drop src"],
+      [["--spec", "flow.json", "src/a.ts#run"], 1, "drop src/a.ts#run"],
+      [["--spec", "flow.json", "--rules"], 1, "--rules applies to an architecture spec, not a flow spec"],
+      [["--spec", "flow.json", "--format", "diagram-spec", "--output", "flow.json"], 1, "--output flow.json would replace the spec it reads"],
+      [["--spec", "flow.json", "--format", "csv"], 4, "graph-it diagram does not write --format csv"],
+      [["--spec"], 1, "--spec"],
+    ];
+    for (const [args, status, message] of rows) {
+      const result = cli(["diagram", ...args]);
+      expect(result.status, args.join(" ")).toBe(status);
+      expect(result.stdout, args.join(" ")).toBe("");
+      expect(result.stderr, args.join(" ")).toContain(message);
+      expect(result.stderr, args.join(" ")).not.toContain(root);
+    }
+  });
+
   // #774: a generated file not built yet is reported by every command that lists dead files, with the same facts.
   it("reports an import resolving to no file the same way in check, summary and init", () => {
     const fixture = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-unresolved-")));

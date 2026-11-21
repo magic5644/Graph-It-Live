@@ -172,6 +172,23 @@ describe("graph-it diagram", { timeout: 60_000 }, () => {
     for (const leak of [root.replaceAll("\\", "/"), root, JSON.stringify(root).slice(1, -1)]) expect(JSON.stringify([units, folder])).not.toContain(leak);
   });
 
+  // #794: a spec with the rules overlay is drawn again with the same --rules; without them its violations differ.
+  it("redraws a spec of the rules overlay and of a folder unchanged, and names the field a missing --rules changes", async () => {
+    fs.writeFileSync(path.join(root, "rules.json"), await run(["--rules", "--output", "-"], runtime, "diagram-spec"));
+    expect(await run(["--spec", "rules.json", "--rules", "--output", "-"], runtime, "svg")).toBe(await run(["--rules", "--output", "-"], runtime, "svg"));
+    await expect(run(["--spec", "rules.json", "--output", "-"], runtime, "svg")).rejects.toThrow("rules.json is stale or drawn with other rules");
+    fs.writeFileSync(path.join(root, "folder.json"), await run(["--folder", "mfe (mfe/cart)", "--output", "-"], runtime, "diagram-spec"));
+    const folder = await run(["--spec", "folder.json", "--output", "folder.svg"], runtime, "svg");
+    expect(folder).toMatch(/^Diagram written to folder\.svg: \d+ groups? · /);
+    expect(fs.readFileSync(path.join(root, "folder.svg"), "utf8")).toBe(await run(["--folder", "mfe (mfe/cart)", "--output", "-"], runtime, "svg"));
+    await expect(run(["--spec", "folder.json", "--view", "units"], runtime, "svg")).rejects.toThrow("drop --view");
+    // The spec spelled with \ is still the file an --output would replace.
+    fs.mkdirSync(path.join(root, "specs"), { recursive: true });
+    fs.copyFileSync(path.join(root, "folder.json"), path.join(root, "specs", "folder.json"));
+    await expect(run(["--spec", String.raw`specs\folder.json`, "--output", "specs/folder.json"], runtime, "diagram-spec"))
+      .rejects.toThrow("--output specs/folder.json would replace the spec it reads");
+  });
+
   it("reads the leading directory against the workspace root, \\ separators included", () => {
     expect(readDirectory([], root)).toBeUndefined();
     expect(readDirectory(["--folder", "mfe/cart"], root)).toBeUndefined();

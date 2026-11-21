@@ -1129,7 +1129,10 @@ Every diagram draws from one legend, shared with the `init` page, and lists only
 
 ```bash
 graph-it diagram [<dir>] [--view units|folder|matrix|flow] [--folder <key>] [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
+graph-it diagram --spec <file.json> [options]
 ```
+
+`--spec` draws an annotated diagram spec again: see [Annotated spec](#annotated-spec---spec).
 
 | Option | Default | Meaning |
 |--------|---------|---------|
@@ -1170,7 +1173,7 @@ graph-it diagram --view flow <file#symbol> [--maxSteps <n>] [--startLine <n>] [-
 | `--startLine <n>` | — | Declaration line of the symbol, 1-based (the editor line), to pick one of several same-name symbols in the file |
 | `--output <file>` | `flow.html` / `flow.svg` / `flow.diagram-spec.json` | As for the other views |
 
-`--format diagram-spec` writes the flow model as JSON (`kind: "flow"`): its steps with file, 1-based line, lane and symbol count, its edges with call line, relation, lane and condition, and `omittedSteps`. A warm run restores the call graph from `.graph-it/cache/` and re-extracts only the files that changed.
+`--format diagram-spec` writes the flow model as JSON (`kind: "flow"`): its `caption` (title, caption and counts lines), its steps with title, subtitle, file, 1-based line, lane and symbol count, its edges with call line, relation, lane, condition and the `label` drawn on them, and `omittedSteps`. An agent may rewrite the texts and draw them with [`--spec`](#annotated-spec---spec). A warm run restores the call graph from `.graph-it/cache/` and re-extracts only the files that changed.
 
 <img src="../media/cli-diagram-flow.svg" alt="graph-it diagram --view flow on src/mcp/worker/invokeTool.ts#invokeTool: eight steps in call order, postMessage on the alternative lane, closestPathsHint on the error lane, edge labels with the call lines, and a note counting one callee left out" width="1000"/>
 
@@ -1213,6 +1216,45 @@ graph-it diagram --view flow <file#symbol> [--maxSteps <n>] [--startLine <n>] [-
 ```
 
 *Excerpt of `graph-it diagram --format diagram-spec` on `tests/fixtures/workspaces-project`.*
+
+#### Annotated spec (`--spec`)
+
+`--spec <file.json>` draws a spec written by `--format diagram-spec` (a flow or an architecture level) again, after an agent or a person rewrote its texts in plain language. Graph-It-Live stays the source of truth: the command rebuilds the same spec from the current index, compares the two field by field, and takes only these texts from the file.
+
+```bash
+graph-it diagram --spec <file.json> [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
+```
+
+| Spec | Texts that may change | Everything else |
+|------|-----------------------|-----------------|
+| Flow (`kind: "flow"`) | `nodes[].title`, `nodes[].subtitle` (also added or removed), `edges[].label`, `caption.title`, `caption.caption` | Ids, order, lanes, files, lines, relations, conditions, counts, `entry`, `maxSteps` must match the index |
+| Architecture level | `nodes[].label`, `caption.title`, `caption.caption` | Keys, layers, edges, cycles, counts, violations and `revision` must match; `date` is not compared |
+
+The spec says what it draws: a flow its entry step (`entry`, the entry step's `line` and `maxSteps`), an architecture spec its `level` and `scope`. So `--spec` takes no `--view`, `--folder`, `<dir>`, `<file#symbol>`, `--maxSteps` or `--startLine`. For an architecture spec exported with `--rules`, pass the same `--rules`, `--config` and `--baseline`; they are refused with a flow spec.
+
+An untouched spec draws the same bytes as the direct command (`--view flow <file#symbol>`, or the level), in SVG, HTML and diagram-spec. Texts are sanitized (control characters replaced, markup escaped) and cut with "…" to what their box holds: 32 cells for a node title or label, 40 for a subtitle, 20 for an edge label, 96 for a caption line. The output names every rewritten text that was cut:
+
+```bash
+graph-it diagram --view flow src/cli/commands/diagram.ts#run --format diagram-spec --output run.json
+# an agent rewrites titles, labels and caption in run.json
+graph-it diagram --spec run.json --format svg --output docs/run-flow.svg
+# Diagram written to docs/run-flow.svg: 8 steps · 11 calls · 0 references. Cut to fit their box (ends with "…"): edges[0].label.
+```
+
+With `--output -` the markup goes to stdout and the cut note to stderr.
+
+**Exit code**: 1, with one line naming the file and the JSON path, for:
+
+- invalid JSON, a document that is not a JSON object, a `version` other than `1`, or a `kind` other than `"flow"` (none for an architecture level);
+- an unknown node or edge id (`nodes[3] src/x.ts#nope is not in the current index …`, with the closest ids), an added, removed or duplicated node or edge;
+- any other changed field (`nodes[2].lane is "error" in the spec, "main" in the current index …`), an unknown field, or an empty or non-string text;
+- a stale spec: an architecture spec of another revision (or drawn with other rules), or a flow whose entry symbol moved or is gone (`run.json is stale: No symbol 'run' starts at line 12 …`); export the spec again and redo its annotations;
+- a missing file (with the closest paths), a file over 8 MB;
+- `--spec` with `--view`, `--folder`, `<dir>`, `<file#symbol>`, `--maxSteps` or `--startLine`, `--rules`, `--config` or `--baseline` with a flow spec, and an `--output` that is the spec itself.
+
+A spec outside the workspace exits 5; any other `--format` exits 4.
+
+**MCP and VS Code**: `export_architecture_diagram` takes `spec` (a workspace-relative JSON file) with the same rules: `view`, `folder`, `filePath`, `symbolName`, `startLine` and `maxSteps` are refused with it, `rules`, `config` and `baseline` apply to an architecture spec. The result adds `cut`, the JSON paths of the rewritten texts that were cut, when there is one. In the REPL, `/diagram --spec <file>` resolves the file against the `/scope` directory and draws the spec's own level, not the scope.
 
 ### check
 

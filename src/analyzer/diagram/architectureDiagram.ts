@@ -76,6 +76,8 @@ export interface DiagramInput {
   acceptedViolations?: number;
   /** The view filters drawn, for the caption: "role library", "min. 3 imports". */
   filters?: string[];
+  /** Header lines from an annotated spec (#794); else built from the level. */
+  caption?: { title: string; caption: string };
 }
 
 export interface Box {
@@ -510,8 +512,8 @@ export function diagramHeader(input: DiagramInput, hidden: string[] = []): { cou
   return {
     counts,
     text: {
-      title: `Architecture · ${fitLabel(input.workspace, 48)}`,
-      caption: [scope, ...(input.filters ?? []).map((filter) => fitLabel(filter, 48)), `revision ${input.revision.slice(0, 12)}`, ...(input.date ? [input.date] : [])].join(" · "),
+      title: input.caption?.title ?? `Architecture · ${fitLabel(input.workspace, 48)}`,
+      caption: input.caption?.caption ?? [scope, ...(input.filters ?? []).map((filter) => fitLabel(filter, 48)), `revision ${input.revision.slice(0, 12)}`, ...(input.date ? [input.date] : [])].join(" · "),
       counts: [plural(counts.nodes, input.noun), plural(counts.layers, "layers"), plural(counts.cycles, "cycles"), plural(counts.violations, "violations") + accepted].join(" · "),
       hidden,
       rules: rules.length > 0 ? fitLabel(`broken rules: ${rules.join(", ")}`, 96) : undefined,

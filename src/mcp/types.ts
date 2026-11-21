@@ -815,6 +815,8 @@ export type CheckArchitectureParams = z.infer<typeof CheckArchitectureParamsSche
 /** The parameters of view flow, and those of the architecture levels a flow refuses. */
 const FLOW_DIAGRAM_PARAMS = ["filePath", "symbolName", "startLine", "maxSteps"] as const;
 const LEVEL_DIAGRAM_PARAMS = ["folder", "rules", "config", "baseline"] as const;
+/** What `spec` names itself: its view, level or entry symbol. */
+const SPEC_REPLACED_PARAMS = ["view", "folder", ...FLOW_DIAGRAM_PARAMS] as const;
 
 export const ExportArchitectureDiagramParamsSchema = z.object({
   view: z.enum(DIAGRAM_VIEWS).optional()
@@ -837,7 +839,9 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
   baseline: RulesFileSchema.optional()
     .describe("Accepted violations with rules, relative to the workspace (default: graphit.architecture.baseline.json when it exists)"),
   output: RulesFileSchema.optional()
-    .describe("File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec; flow.<diagramFormat> for view flow)"),
+    .describe("File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec; flow.<diagramFormat> for view flow or a flow spec)"),
+  spec: RulesFileSchema.optional()
+    .describe("Annotated diagram-spec JSON written by diagramFormat 'diagram-spec', relative to the workspace: draws its rewritten texts (flow: node title and subtitle, edge label, caption title and caption; architecture: node label, caption title and caption) on the current index; any other difference is an error naming its JSON path. The spec names its view, level or entry symbol, so view, folder, filePath, symbolName, startLine and maxSteps are refused with it; rules, config and baseline apply to an architecture spec"),
 }).strict().superRefine((params, context) => {
   for (const message of diagramViewIssues(params)) context.addIssue({ code: "custom", message });
   if (params.theme !== undefined && (params.diagramFormat ?? "svg") !== "svg") {
@@ -853,8 +857,17 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
 /** The parameters that name no single diagram for the view asked, each issue naming its parameter. */
 function diagramViewIssues(params: {
   view?: (typeof DIAGRAM_VIEWS)[number]; folder?: string; rules?: boolean; config?: string; baseline?: string;
-  filePath?: string; symbolName?: string; startLine?: number; maxSteps?: number;
+  filePath?: string; symbolName?: string; startLine?: number; maxSteps?: number; spec?: string;
 }): string[] {
+  const rulesIssues = !params.rules && (params.config !== undefined || params.baseline !== undefined)
+    ? ["config and baseline apply to the rules overlay: add rules: true."]
+    : [];
+  if (params.spec !== undefined) {
+    return [
+      ...SPEC_REPLACED_PARAMS.filter((key) => params[key] !== undefined).map((key) => `${key}: spec draws the view, level or symbol written in the spec; drop ${key}.`),
+      ...rulesIssues,
+    ];
+  }
   if (params.view === "flow") {
     return [
       ...(["filePath", "symbolName"] as const).filter((key) => params[key] === undefined).map((key) => `view flow draws one symbol's flow: pass ${key}.`),
@@ -866,10 +879,7 @@ function diagramViewIssues(params: {
   const { view } = diagramLevel(params.view, folder);
   if (view === "folder" && folder === undefined) issues.push("view folder draws the groups of one unit or folder: pass folder.");
   if (view === "units" && folder !== undefined) issues.push("view units draws every unit: drop folder, or use view folder.");
-  if (!params.rules && (params.config !== undefined || params.baseline !== undefined)) {
-    issues.push("config and baseline apply to the rules overlay: add rules: true.");
-  }
-  return issues;
+  return [...issues, ...rulesIssues];
 }
 export type ExportArchitectureDiagramParams = z.infer<typeof ExportArchitectureDiagramParamsSchema>;
 
