@@ -43,6 +43,8 @@ const GIT_WORKSPACE_SUITE = 'suite/branchWatchReview.gitWorkspace.js';
 /** Suites run in a window without a folder, and in a two-folder workspace (#770). */
 const NO_FOLDER_SUITE = 'suite/noFolder.launch.js';
 const MULTI_ROOT_SUITE = 'suite/multiRoot.launch.js';
+/** Suite run on a generated workspace past the 60-unit diagram cap: in the shared fixtures it would change every count (#795). */
+const UNIT_CAP_SUITE = 'suite/unitCap.launch.js';
 
 /** A separate-launch pass runs with every suite, or when a scoped run names it. */
 function runsLaunchSuite(name: RegExp, env: NodeJS.ProcessEnv = process.env): boolean {
@@ -82,6 +84,24 @@ async function runMultiRootSuite(options: LaunchOptions): Promise<void> {
       settings: { 'graph-it-live.workspaceFolder': second, 'graph-it-live.preIndexCallGraph': false },
     }));
     await runSuiteInWindow(options, MULTI_ROOT_SUITE, workspaceFile);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+/** 61 packages, each importing the next and the last the first: one cycle of 61 units, past the cap of 60. */
+async function runUnitCapSuite(options: LaunchOptions): Promise<void> {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'g-unitcap-'));
+  try {
+    const name = (index: number) => `pkg-${String(index % 61).padStart(2, '0')}`;
+    fs.writeFileSync(path.join(root, 'package.json'), JSON.stringify({ name: 'unit-cap', private: true, workspaces: ['packages/*'] }));
+    for (let index = 0; index < 61; index += 1) {
+      const folder = path.join(root, 'packages', name(index));
+      fs.mkdirSync(folder, { recursive: true });
+      fs.writeFileSync(path.join(folder, 'package.json'), JSON.stringify({ name: name(index) }));
+      fs.writeFileSync(path.join(folder, 'index.ts'), `import { value as next } from '../${name(index + 1)}/index';\nexport const value = 1;\nexport function read(): number {\n  return next;\n}\n`);
+    }
+    await runSuiteInWindow(options, UNIT_CAP_SUITE, root);
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -147,6 +167,7 @@ async function runFromSource(launch: LaunchOptions, launchArgs: string[]): Promi
   if (runsGitWorkspaceSuite()) await runGitWorkspaceSuite(launch);
   if (runsLaunchSuite(/noFolder/i)) await runSuiteInWindow(launch, NO_FOLDER_SUITE);
   if (runsLaunchSuite(/multiRoot/i)) await runMultiRootSuite(launch);
+  if (runsLaunchSuite(/unitCap/i)) await runUnitCapSuite(launch);
 }
 
 async function main() {

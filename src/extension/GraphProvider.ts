@@ -55,10 +55,15 @@ type GraphRefreshReason =
   | "usage-analysis"
   | "unknown";
 
+/** How long revealView() waits for VS Code to resolve the view it focused. */
+const VIEW_RESOLVE_TIMEOUT_MS = 10_000;
+
 export class GraphProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "graph-it-live.graphView";
 
   private _view?: vscode.WebviewView;
+  /** revealView() calls waiting for resolveWebviewView. */
+  private readonly _viewWaiters: (() => void)[] = [];
   private readonly _container: ServiceContainer;
   private _configSnapshot: ProviderConfigSnapshot;
   private readonly _workspaceRoot: string | undefined;
@@ -206,7 +211,17 @@ export class GraphProvider implements vscode.WebviewViewProvider {
 
   /** The view without the folder requirement (the Flow tab draws a loose file): focused first when never opened. */
   private async revealView(action: string): Promise<vscode.WebviewView | undefined> {
-    if (!this._view) await vscode.commands.executeCommand(`${GraphProvider.viewType}.focus`);
+    if (!this._view) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const resolved = new Promise<void>((resolve) => {
+        this._viewWaiters.push(resolve);
+        timer = setTimeout(resolve, VIEW_RESOLVE_TIMEOUT_MS);
+      });
+      await vscode.commands.executeCommand(`${GraphProvider.viewType}.focus`);
+      // VS Code resolves the view after its focus command returns.
+      await resolved;
+      clearTimeout(timer);
+    }
     if (!this._view) {
       void vscode.window.showWarningMessage(`Graph-It-Live: open the Dependency Graph view to ${action} (run "Graph-It-Live: Show Dependency Graph").`);
     }
@@ -1010,6 +1025,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     _token: vscode.CancellationToken,
   ) {
     this._view = webviewView;
+    for (const resolve of this._viewWaiters.splice(0)) resolve();
 
     // Share the sidebar webview with CallGraphViewService so it can postMessage
     this._callGraphViewService?.setSidebarWebview(webviewView);
@@ -1420,6 +1436,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       case "flowRefresh":
       case "flowShowCallGraph":
       case "diagramFollow":
+      case "diagramShown":
         return this._flowDiagramService?.handleWebviewMessage(msg);
       case "diagramRescope":
         return this.rescopeDiagram(msg);
@@ -1549,15 +1566,14 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     refreshReason: GraphRefreshReason,
   ): Promise<void> {
     if (!this._view) return;
-    if (!this.spider || !this.graphViewService) {
-      await this.postNoWorkspaceState();
-      return;
-    }
-
-    // The architecture view is workspace-wide: active-file updates only make sure
-    // the webview (e.g. after a reload) shows that mode.
+    // The architecture view is workspace-wide (its Flow tab draws a loose file without a folder): active-file
+    // updates only make sure the webview (e.g. after a reload, or its first load) shows that mode.
     if (this._stateManager.viewMode === "architecture") {
       await this._view.webview.postMessage({ command: "switchViewMode", mode: "architecture" });
+      return;
+    }
+    if (!this.spider || !this.graphViewService) {
+      await this.postNoWorkspaceState();
       return;
     }
 

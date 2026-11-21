@@ -247,6 +247,8 @@ export interface ArchitectureControlsMessage {
   flowEdge?: number;
   /** Sets the Follow cursor toggle. */
   follow?: boolean;
+  /** Clicks the stale flow's Refresh button. */
+  flowRefresh?: boolean;
   /** Clicks the matrix cell of these row and column keys (the evidence opens). */
   matrixCell?: { row: string; column: string };
   /** Clicks the matrix header of this row key (a unit or a folder holding sub-folders is entered). */
@@ -356,7 +358,8 @@ export interface FlowDiagramStateMessage {
   type: "flowDiagramState";
   /** The request this state is about: an older one is ignored, and Show call graph / Refresh echo it (no flow is drawn when empty). */
   requestId: number;
-  status: "loading" | "empty" | "error" | "stale";
+  /** cancelled: the draw announced by loading was cancelled; the view shows the flow it had, else its previous tab. */
+  status: "loading" | "empty" | "error" | "stale" | "cancelled";
   /** empty: the entry symbol name; error: the one-line message. */
   message?: string;
   crumbs?: DiagramCrumb[];
@@ -759,6 +762,26 @@ export interface DiagramFollowCommand {
   tab?: "flow" | "folder";
 }
 
+/** What the Architecture mode shows, read from its DOM (E2E observability only): posted when it changes. */
+export interface DiagramShownCommand {
+  command: "diagramShown";
+  /** Each tab of the strip: selected, and the tooltip of a disabled one. */
+  tabs: { tab: DiagramTab; selected: boolean; disabled?: string }[];
+  /** Breadcrumb segments, outermost first. */
+  crumbs: string[];
+  /** Text of the units cap banner. */
+  banner?: string;
+  /** Accessible name (or tab name) of the focused element. */
+  focused?: string;
+  /** requestId of the flow drawn on the Flow tab. */
+  flowRequestId?: number;
+  /** Accessible names of the Flow tab's step and call buttons, and its one-line state (empty, error, stale). */
+  flowButtons: string[];
+  flowLine?: string;
+  /** The Flow tab shows its loading state. */
+  flowBusy: boolean;
+}
+
 export type ArchitectureWebviewCommand =
   | ArchitectureMountedCommand
   | ArchitectureRefreshCommand
@@ -788,4 +811,5 @@ export type ArchitectureWebviewCommand =
   | FlowRefreshCommand
   | FlowShowCallGraphCommand
   | DiagramRescopeCommand
-  | DiagramFollowCommand;
+  | DiagramFollowCommand
+  | DiagramShownCommand;

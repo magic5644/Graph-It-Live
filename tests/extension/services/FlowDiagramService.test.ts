@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -191,6 +192,11 @@ describe("FlowDiagramService", () => {
     for (const edge of flow.edges) expect(edge.name).toMatch(/^Call .+ → .+ at src\/order\.ts:\d+, \w+ lane$/);
     expect([flow.title, flow.caption, flow.counts].every((text) => text.length > 0)).toBe(true);
     expect(service.getE2EState()).toMatchObject({ requestId: flow.requestId, entry: flow.entry, stale: false, follow: false, nodes: flow.nodes.map((node) => node.name) });
+    expect(service.getE2EState().svgDigest).toBe(createHash("sha256").update(flow.svg).digest("hex"));
+    // The view's report of what it shows is kept as is for E2E reads.
+    const shown = { command: "diagramShown" as const, tabs: [], crumbs: ["ws"], flowButtons: [], flowRequestId: flow.requestId };
+    await service.handleWebviewMessage(shown);
+    expect(service.getE2EState().view).toBe(shown);
   });
 
   it("asks for the symbol between symbols; Escape draws nothing", async () => {
@@ -265,11 +271,11 @@ describe("FlowDiagramService", () => {
     expect(vs.withProgress).toHaveBeenCalledOnce();
   });
 
-  it("keeps the previous flow on cancel, posts it again, and says nothing", async () => {
-    const service = create();
+  it("keeps the previous flow and its entry on cancel, posts cancelled, and says nothing", async () => {
+    const showCallGraphAt = vi.fn(async () => {});
+    const service = create({ showCallGraphAt });
     await service.showAtCursor(editorAt("src/order.ts", 2));
     const before = service.getE2EState();
-    expect(service.cancelForE2E()).toBe(false);
     callGraph.indexForFlow.mockImplementationOnce(({ filePath: _ }: unknown, { token }: { token: vscode.CancellationToken }) =>
       new Promise((resolve) => token.onCancellationRequested(() => resolve(undefined))));
     vs.quickPick.mockImplementationOnce(async (items: { label: string }[]) => items.find((item) => item.label === "lonely"));
@@ -278,9 +284,61 @@ describe("FlowDiagramService", () => {
     expect(service.cancelForE2E()).toBe(true);
     expect(await drawing).toBe(false);
     expect(notices).toEqual([]);
-    expect(service.getE2EState()).toMatchObject({ entry: before.entry, nodes: before.nodes });
-    expect(flows().at(-1)).toMatchObject({ entry: before.entry });
-    expect(flows().at(-1)!.requestId).toBeGreaterThan(before.requestId);
+    expect(service.getE2EState()).toEqual(before);
+    expect(flows()).toHaveLength(1);
+    expect(states().at(-1)).toMatchObject({ status: "cancelled" });
+    // Show call graph still targets the flow shown, not the cancelled entry.
+    await service.handleWebviewMessage({ command: "flowShowCallGraph", requestId: states().at(-1)!.requestId });
+    expect(showCallGraphAt).toHaveBeenCalledWith(ORDER_FILE(), 2);
+  });
+
+  it("an E2E cancel with no wait running cancels the next draw only", async () => {
+    const service = create();
+    expect(service.cancelForE2E()).toBe(false);
+    expect(await service.showAtCursor(editorAt("src/order.ts", 2))).toBe(false);
+    expect(states().map((state) => state.status)).toEqual(["loading", "cancelled"]);
+    expect(await service.showAtCursor(editorAt("src/order.ts", 2))).toBe(true);
+    expect(flows()).toHaveLength(1);
+  });
+
+  it("cancelling the first flow posts cancelled only, and a remount does not replay it", async () => {
+    const service = create();
+    callGraph.indexForFlow.mockImplementationOnce((_step: unknown, { token }: { token: vscode.CancellationToken }) =>
+      new Promise((resolve) => token.onCancellationRequested(() => resolve(undefined))));
+    const drawing = service.showAtCursor(editorAt("src/order.ts", 2));
+    await vi.waitFor(() => expect(callGraph.indexForFlow).toHaveBeenCalledOnce());
+    expect(service.cancelForE2E()).toBe(true);
+    expect(await drawing).toBe(false);
+    expect(states().map((state) => state.status)).toEqual(["loading", "cancelled"]);
+    expect(service.getE2EState()).toMatchObject({ requestId: 0, state: undefined });
+    posted.length = 0;
+    service.onMounted();
+    expect(posted.map((message) => message.type)).toEqual(["diagramContext"]);
+  });
+
+  it("a draw the view has not shown yet is replayed on mount after loading (it takes the Flow tab); once shown, a remount replays it without", async () => {
+    const service = create();
+    expect(await service.showAtCursor(editorAt("src/order.ts", 2))).toBe(true);
+    posted.length = 0;
+    service.onMounted();
+    expect(posted.map((message) => message.type === "flowDiagramState" ? message.status : message.type)).toEqual(["diagramContext", "loading", "flowDiagram"]);
+    await service.handleWebviewMessage({ command: "diagramShown", tabs: [{ tab: "flow", selected: true }], crumbs: [], flowButtons: [] });
+    posted.length = 0;
+    service.onMounted();
+    expect(posted.map((message) => message.type)).toEqual(["diagramContext", "flowDiagram"]);
+  });
+
+  it("replays the previous empty state after cancelled", async () => {
+    const service = create();
+    vs.quickPick.mockImplementationOnce(async (items: { label: string }[]) => items.find((item) => item.label === "lonely"));
+    await service.showForFile(vscode.Uri.file(ORDER_FILE()));
+    callGraph.indexForFlow.mockImplementationOnce((_step: unknown, { token }: { token: vscode.CancellationToken }) =>
+      new Promise((resolve) => token.onCancellationRequested(() => resolve(undefined))));
+    const drawing = service.showAtCursor(editorAt("src/order.ts", 2));
+    await vi.waitFor(() => expect(callGraph.indexForFlow).toHaveBeenCalledTimes(2));
+    service.cancelForE2E();
+    await drawing;
+    expect(states().map((state) => state.status)).toEqual(["loading", "empty", "loading", "cancelled", "empty"]);
   });
 
   it("cancels the wait from the progress notification", async () => {
@@ -294,6 +352,7 @@ describe("FlowDiagramService", () => {
     callGraph.indexForFlow.mockImplementationOnce(async (_step: unknown, { token }: { token: vscode.CancellationToken }) => (token.isCancellationRequested ? undefined : { db: indexer.getDb(), extractor }));
     expect(await service.showAtCursor(editorAt("src/order.ts", 2))).toBe(false);
     expect(flows()).toHaveLength(0);
+    expect(states().at(-1)).toMatchObject({ status: "cancelled" });
   });
 
   it("abandons a draw a newer one superseded", async () => {
@@ -430,6 +489,8 @@ describe("FlowDiagramService", () => {
     expect(states().filter((state) => state.status === "stale")).toHaveLength(1);
     expect(service.getE2EState()).toMatchObject({ stale: true, state: "stale" });
 
+    // The view showed it on its Flow tab: a remount replays it as it was, without taking the tab.
+    await service.handleWebviewMessage({ command: "diagramShown", tabs: [{ tab: "flow", selected: true }], crumbs: [], flowButtons: [] });
     posted = [];
     service.onMounted();
     expect(posted.map((message) => message.type)).toEqual(["diagramContext", "flowDiagram", "flowDiagramState"]);
@@ -513,10 +574,10 @@ describe("FlowDiagramService", () => {
   it("posts only the Flow controls of the E2E driver, checked", () => {
     const service = create();
     service.setControls(undefined);
-    service.setControls({ tab: "nope" as never, flowNode: -1, flowEdge: 1.5, follow: "yes" as never });
+    service.setControls({ tab: "nope" as never, flowNode: -1, flowEdge: 1.5, follow: "yes" as never, flowRefresh: "yes" as never });
     expect(posted).toEqual([]);
-    service.setControls({ tab: "flow", flowNode: 2, flowEdge: 0, follow: true });
-    expect(posted).toEqual([{ type: "architectureControls", tab: "flow", flowNode: 2, flowEdge: 0, follow: true }]);
+    service.setControls({ tab: "flow", flowNode: 2, flowEdge: 0, follow: true, flowRefresh: true });
+    expect(posted).toEqual([{ type: "architectureControls", tab: "flow", flowNode: 2, flowEdge: 0, follow: true, flowRefresh: true }]);
     service.setControls({ cancelFlow: true });
     expect(posted).toHaveLength(1);
   });

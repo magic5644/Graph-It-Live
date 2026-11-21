@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as vscode from "vscode";
@@ -16,6 +17,7 @@ import {
   type DiagramCrumb,
   type DiagramFollowCommand,
   type DiagramRescopeCommand,
+  type DiagramShownCommand,
   type FlowDiagramEdge,
   type FlowDiagramMessage,
   type FlowDiagramNode,
@@ -46,7 +48,8 @@ export type FlowWebviewCommand =
   | FlowRefreshCommand
   | FlowShowCallGraphCommand
   | DiagramRescopeCommand
-  | DiagramFollowCommand;
+  | DiagramFollowCommand
+  | DiagramShownCommand;
 
 export interface FlowDiagramServiceOptions {
   callGraph: Pick<CallGraphViewService, "extractFileSymbols" | "indexForFlow" | "isFlowSupported" | "activeSourceEditor">;
@@ -131,15 +134,21 @@ export class FlowDiagramService implements vscode.Disposable {
   /** The entry of the last draw request, drawn or empty: Show call graph and Refresh read it. */
   private entry: { filePath: string; symbolName: string; startLine: number; key: string } | null = null;
   private lastState: FlowDiagramStateMessage | null = null;
+  /** A draw the user asked for (announced by loading) the view has not shown on its Flow tab yet: replayed with loading on mount, so it takes the tab. */
+  private unseen = false;
   private follow = false;
   private followTab: "flow" | "folder" = "flow";
   private followSubscriptions: vscode.Disposable[] = [];
   private followTimer: ReturnType<typeof setTimeout> | undefined;
   private lastFollowedFolder: string | undefined;
   private running: vscode.CancellationTokenSource | undefined;
+  /** cancelForE2E ran with no wait running: the next draw starts cancelled. */
+  private cancelNext = false;
   private exportOutput: string | undefined;
   private lastError: string | undefined;
   private lastOpened: { file: string; line: number } | undefined;
+  /** What the view last reported it shows (E2E observability only). */
+  private shown: DiagramShownCommand | undefined;
 
   constructor(private readonly options: FlowDiagramServiceOptions) {}
 
@@ -195,12 +204,19 @@ export class FlowDiagramService implements vscode.Disposable {
     this.running?.cancel();
     const source = new vscode.CancellationTokenSource();
     this.running = source;
+    if (this.cancelNext) source.cancel();
+    this.cancelNext = false;
     const request: FlowModelRequest = { filePath, symbolName: node.name, startLine: node.startLine + 1 };
+    const previousEntry = this.entry;
     this.entry = { filePath, symbolName: node.name, startLine: node.startLine + 1, key: `${filePath}#${node.id}` };
     const crumbs = flowCrumbs(symbols.rootDir, filePath, node.name);
-    // The view switches to the Flow tab on it; a cancelled or abandoned draw posts the previous flow again.
+    // The view switches to the Flow tab on it; a cancelled or abandoned draw tells it to go back.
     this.send({ type: "flowDiagramState", status: "loading", crumbs });
-    const run = () => this.render(drawId, request, symbols, crumbs, origin, source.token);
+    const run = async () => {
+      const drawn = await this.render(drawId, request, symbols, crumbs, origin, source.token);
+      if (drawn === undefined) this.entry = previousEntry;
+      return drawn === true;
+    };
     try {
       if (origin.quiet || origin.inView) return await run();
       return await vscode.window.withProgress(
@@ -223,12 +239,14 @@ export class FlowDiagramService implements vscode.Disposable {
     crumbs: DiagramCrumb[],
     origin: DrawOrigin,
     token: vscode.CancellationToken,
-  ): Promise<boolean> {
+  ): Promise<boolean | undefined> {
     const { rootDir } = symbols;
+    /** Cancelled or abandoned: the view leaves loading for the flow it showed (or its previous tab); superseded: the newer draw answers. */
     const abandon = () => {
-      // Cancelled or superseded: the previous flow stays, loading included.
-      if (drawId === this.drawCount) this.repost();
-      return false;
+      if (drawId !== this.drawCount) return false;
+      this.send({ type: "flowDiagramState", status: "cancelled" });
+      if (this.lastState) this.send(this.lastState);
+      return undefined;
     };
     try {
       const indexed = await this.options.callGraph.indexForFlow({ filePath: request.filePath, edges: symbols.edges, rootDir }, { token, expectActiveFile: origin.expectActiveFile });
@@ -272,13 +290,17 @@ export class FlowDiagramService implements vscode.Disposable {
       return;
     }
     const state = { ...message, requestId: this.current };
-    // A loading state is never replayed: the draw it announces posts its own outcome.
-    if (state.status !== "loading") this.lastState = state;
+    // A cancel replays the flow the view already had: nothing new for it to take the tab with.
+    if (state.status === "loading" || state.status === "cancelled") this.unseen = state.status === "loading";
+    // A loading or cancelled state is never replayed: the draw it announces posts its own outcome.
+    if (state.status !== "loading" && state.status !== "cancelled") this.lastState = state;
     this.options.post(state);
   }
 
   /** The last flow and its state again (after a mount, or to end a loading state the draw abandoned). */
   private repost(): void {
+    const crumbs = this.lastState?.crumbs ?? this.drawn?.message.crumbs;
+    if (this.unseen && (this.drawn || this.lastState)) this.send({ type: "flowDiagramState", status: "loading", crumbs });
     if (this.drawn) this.send(this.drawn.message);
     if (this.lastState) this.send(this.lastState);
   }
@@ -290,6 +312,10 @@ export class FlowDiagramService implements vscode.Disposable {
         return Promise.resolve();
       case "diagramRescope":
         return this.rescope(message);
+      case "diagramShown":
+        this.shown = message;
+        if (message.tabs?.some((tab) => tab.tab === "flow" && tab.selected)) this.unseen = false;
+        return Promise.resolve();
       case "flowOpenLocation":
         return this.isCurrent(message.requestId) ? this.openLocation(message.target) : Promise.resolve();
       case "flowExportDiagram":
@@ -442,11 +468,11 @@ export class FlowDiagramService implements vscode.Disposable {
   }
 
   /** E2E driver: the Flow fields of `e2eArchitectureControls`, checked (any extension can call it). */
-  setControls(controls: (Pick<ArchitectureControlsMessage, "tab" | "flowNode" | "flowEdge" | "follow"> & {
+  setControls(controls: (Pick<ArchitectureControlsMessage, "tab" | "flowNode" | "flowEdge" | "follow" | "flowRefresh"> & {
     cancelFlow?: boolean;
     exportDiagram?: { target?: unknown; output?: unknown };
   }) | undefined): void {
-    const { tab, flowNode, flowEdge, follow, cancelFlow, exportDiagram } = controls ?? {};
+    const { tab, flowNode, flowEdge, follow, flowRefresh, cancelFlow, exportDiagram } = controls ?? {};
     if (cancelFlow === true) this.cancelForE2E();
     if (exportDiagram?.target === "file") this.exportOutput = typeof exportDiagram.output === "string" ? exportDiagram.output : undefined;
     // Without a folder the Architecture view service is absent: the export is refused here, as the view would.
@@ -458,15 +484,19 @@ export class FlowDiagramService implements vscode.Disposable {
       flowNode: isIndex(flowNode, Number.MAX_SAFE_INTEGER) ? flowNode : undefined,
       flowEdge: isIndex(flowEdge, Number.MAX_SAFE_INTEGER) ? flowEdge : undefined,
       follow: typeof follow === "boolean" ? follow : undefined,
+      flowRefresh: flowRefresh === true ? true : undefined,
     };
     if (Object.values(checked).some((value) => value !== undefined)) this.options.post({ type: "architectureControls", ...checked });
   }
 
-  /** E2E only, like `CallGraphViewService.clickCallGraphNodeForE2E`: cancels the running wait. Not called by product code. */
+  /**
+   * E2E only, like `CallGraphViewService.clickCallGraphNodeForE2E`: cancels the running wait, else the next
+   * one (a warm index can end a wait before a driver reaches it). True when a wait was running. Not called by product code.
+   */
   cancelForE2E(): boolean {
-    if (!this.running) return false;
-    this.running.cancel();
-    return true;
+    this.cancelNext = !this.running;
+    this.running?.cancel();
+    return !this.cancelNext;
   }
 
   /** E2E observability (getContext `graph-it-live.flowDiagram`). */
@@ -482,6 +512,9 @@ export class FlowDiagramService implements vscode.Disposable {
       state: this.lastState?.status,
       lastError: this.lastError,
       lastOpened: this.lastOpened,
+      /** SHA-256 of the drawn SVG: compared with the CLI's output for the same theme. */
+      svgDigest: message && createHash("sha256").update(message.svg).digest("hex"),
+      view: this.shown,
     };
   }
 

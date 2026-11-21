@@ -191,8 +191,8 @@ function unitCap(source: UnitSource | undefined, workspaceRoot: string): Pick<Ar
   return { unitCap: { drawnUnits: capNodes(input).nodes.map((node) => node.key), totalUnits: input.nodes.length, cap: MAX_DIAGRAM_NODES } };
 }
 
-/** Keys the E2E driver may press on the canvas: navigation and zoom only. */
-const CANVAS_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Escape", "0", "+", "-"]);
+/** Keys the E2E driver may press on the canvas or the Flow tab (Tab enters its steps): navigation and zoom only. */
+const CANVAS_KEYS = new Set(["Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Enter", "Escape", "0", "+", "-"]);
 
 /** The canvas controls of an E2E driver call, checked: any extension can call it. */
 function canvasControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): Partial<ArchitectureControlsMessage> {
@@ -484,6 +484,7 @@ export class ArchitectureViewService {
       case "flowShowCallGraph":
       case "diagramRescope":
       case "diagramFollow":
+      case "diagramShown":
         return Promise.resolve();
     }
   }

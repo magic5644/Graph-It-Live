@@ -1,6 +1,9 @@
 import * as assert from 'node:assert';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { getContextKey, waitForGraphViewResolved, waitUntil } from './_helpers';
+import { captureWindow, controls, getContextKey, selectedTab, waitForFlow, waitForGraphViewResolved, waitUntil } from './_helpers';
 
 interface EmptyState { reason: string; message?: string }
 
@@ -50,5 +53,48 @@ suite('Without a folder (#770)', function () {
     await vscode.commands.executeCommand('graph-it-live.showIndexStatus');
     assert.strictEqual(await getContextKey('graph-it-live.viewMode'), 'file');
     assert.strictEqual((await getContextKey<EmptyState>('graph-it-live.emptyState'))?.reason, 'no-workspace');
+  });
+
+  // #795: Flow draws a loose file; Units, Folder and Matrix (and exports) ask for a folder. Runs last: it leaves the Architecture mode.
+  test('Flow draws a loose file; the other diagrams ask for a folder', async () => {
+    const folder = fs.mkdtempSync(path.join(os.tmpdir(), 'g-loose-'));
+    const file = path.join(folder, 'main.ts');
+    // A step is one file's symbols: the call must cross files to draw an edge.
+    fs.writeFileSync(path.join(folder, 'lib.ts'), 'export function helper(): number {\n  return 1;\n}\n');
+    fs.writeFileSync(file, "import { helper } from './lib';\n\nexport function main(): number {\n  return helper() + 1;\n}\n");
+    const window = captureWindow();
+    try {
+      await vscode.commands.executeCommand('graph-it-live.showDiagram');
+      assert.deepStrictEqual(window.messages, ['Graph-It-Live: Open a folder or a source file to see a diagram.']);
+      assert.strictEqual(window.picks.length, 0, 'nothing to pick');
+
+      const editor = await vscode.window.showTextDocument(vscode.Uri.file(file));
+      editor.selection = new vscode.Selection(3, 4, 3, 4);
+      window.messages.length = 0;
+      await vscode.commands.executeCommand('graph-it-live.showDiagram');
+      assert.deepStrictEqual(window.picks.map(pick => pick.labels), [['flow']], 'only Flow without a folder');
+      await vscode.commands.executeCommand('graph-it-live.showFolderDiagram');
+      assert.deepStrictEqual(window.messages, ['Graph-It-Live: Open a folder to see the Folder diagram.']);
+      assert.strictEqual(await getContextKey('graph-it-live.viewMode'), 'file');
+
+      await vscode.commands.executeCommand('graph-it-live.showFlowDiagram');
+      const shown = await waitForFlow('the loose file flow', state => Boolean(state.entry?.includes('main')) && state.view?.flowRequestId === state.requestId, 30_000);
+      assert.strictEqual(await getContextKey('graph-it-live.viewMode'), 'architecture');
+      assert.strictEqual(selectedTab(shown), 'flow');
+      assert.match(shown.nodes[0], /^Step 1 of 2: main, main\.ts:3, main lane$/);
+      assert.ok(shown.edges.length > 0, 'main calls helper');
+      assert.deepStrictEqual(shown.view?.tabs.filter(tab => tab.disabled).map(tab => tab.disabled), [
+        'Open a folder to see the Units diagram', 'Open a folder to see the Folder diagram', 'Open a folder to see the Matrix diagram',
+      ]);
+
+      window.messages.length = 0;
+      await controls({ exportDiagram: { target: 'file', output: 'flow.svg' } });
+      await waitUntil(async () => window.messages.length > 0, 'the export refusal');
+      assert.deepStrictEqual(window.messages, ['Graph-It-Live: Open a folder to export the Flow diagram: exports are written inside the workspace.']);
+    } finally {
+      window.restore();
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      fs.rmSync(folder, { recursive: true, force: true });
+    }
   });
 });
