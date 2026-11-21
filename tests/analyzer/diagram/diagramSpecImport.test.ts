@@ -104,7 +104,7 @@ describe("annotateSpec (#794)", () => {
     ["another entry", (s) => { s.entry = HELPER; }, `s.json: entry is "${HELPER}" in the spec, "${RUN}" in the current index.`],
     ["an unknown field", (s) => { s.nodes[0].colour = "red"; }, "s.json: nodes[0].colour is not a field of a flow diagram spec."],
     ["an unknown top-level field", (s) => { s.theme = "dark"; }, "s.json: theme is not a field of a flow diagram spec."],
-    ["an inherited name as a field", (s) => { s.nodes[0] = JSON.parse(JSON.stringify(s.nodes[0]).replace("{", '{"__proto__":1,')); }, "s.json: nodes[0].__proto__ is not a field of a flow diagram spec."],
+    ["an inherited name as a field", (s) => { s.nodes[0] = JSON.parse(`{"__proto__":1,${JSON.stringify(s.nodes[0]).slice(1)}`); }, "s.json: nodes[0].__proto__ is not a field of a flow diagram spec."],
     ["toString as a field", (s) => { s.caption.toString = "x"; }, "s.json: caption.toString is not a field of a flow diagram spec."],
     ["a huge value, shown cut", (s) => { s.language = "x".repeat(10_000); }, `s.json: language is "${"x".repeat(78)}… in the spec`],
     ["an empty title", (s) => { s.nodes[0].title = "  "; }, "s.json: nodes[0].title must be a non-empty string (schemas/diagram-spec.schema.json)."],

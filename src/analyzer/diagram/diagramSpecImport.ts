@@ -58,7 +58,7 @@ const EDITABLE_WORDS: Record<SpecKind, string> = {
 };
 
 /** A value in a message, cut to 80 characters: a huge field never floods the error line. */
-const show = (value: unknown) => (value === undefined ? "absent" : fitLabel(JSON.stringify(value) ?? String(value), 80));
+const show = (value: unknown) => (value === undefined ? "absent" : fitLabel(String(JSON.stringify(value)), 80));
 const isObject = (value: unknown): value is Json => typeof value === "object" && value !== null && !Array.isArray(value);
 const pattern = (at: string) => at.replaceAll(/\[\d+\]/g, "[]");
 
