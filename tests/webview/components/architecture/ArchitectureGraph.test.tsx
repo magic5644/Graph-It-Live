@@ -536,7 +536,9 @@ describe("ArchitectureGraph", () => {
       helpers.highlightFocus.mockClear();
       fireEvent.keyDown(window, { key: "Escape" });
       expect(helpers.highlightFocus.mock.lastCall?.[1].empty()).toBe(true);
-      expect(postMessage).toHaveBeenLastCalledWith(interacted);
+      expect(lastOf(postMessage, "architectureInteracted")).toEqual(interacted);
+      // Escape moved the focus to the tab strip: the E2E report says so.
+      expect(lastOf(postMessage, "diagramShown")).toMatchObject({ focused: "units", tabs: [{ tab: "units", selected: true }, {}, {}, {}] });
     });
 
     it("stops listening to Escape once unmounted", () => {
@@ -1266,7 +1268,7 @@ describe("ArchitectureGraph", () => {
       await setup(unseen());
       const find = screen.getByRole("searchbox", { name: "Find group" });
       // Shrinks beside the diagram tabs rather than wrapping to a row of its own, never wider than its native width.
-      expect(find.style.flex).toBe("1 1 60px");
+      expect(find.style.flex).toBe("1 1 30px");
       expect(find.style.minWidth).toBe("0");
       expect(find.style.maxWidth).toBe("max-content");
       // The 40% cap includes the legend's padding and border: the overlay ends inside the canvas.
@@ -1777,6 +1779,20 @@ describe("ArchitectureGraph", () => {
         stale: false,
       };
       const tabOf = (name: string) => screen.getByRole("tab", { name });
+      /** A draw the user asked for: the extension announces it with loading, then sends the flow. */
+      const drawFlow = () => {
+        send({ type: "flowDiagramState", requestId: flow.requestId, status: "loading" });
+        send(flow);
+      };
+
+      it("a flow replayed when the view mounts waits on its tab; the Flow tab shows it", async () => {
+        await setup();
+        send(flow);
+        expect(tabOf("Units").getAttribute("aria-selected")).toBe("true");
+        fireEvent.click(tabOf("Flow"));
+        expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
+        expect(screen.getByRole("button", { name: flow.nodes[1].name })).toBeTruthy();
+      });
 
       it("without a workspace: no build spinner, Flow selected, the other tabs disabled with why", () => {
         const postMessage = vi.fn();
@@ -1800,7 +1816,7 @@ describe("ArchitectureGraph", () => {
         const postMessage = await setup();
         expect(tabOf("Units").getAttribute("aria-selected")).toBe("true");
         expect(tabOf("Folder").title).toBe("Double-click a unit, or right-click a folder in the Explorer, to see its Folder diagram");
-        send(flow);
+        drawFlow();
 
         expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
         expect(screen.getByTestId("architecture-graph").parentElement!.style.visibility).toBe("hidden");
@@ -1828,7 +1844,7 @@ describe("ArchitectureGraph", () => {
       it("the flow breadcrumb re-scopes, turns Follow off, and the workspace step shows the units", async () => {
         const postMessage = await setup();
         send({ type: "diagramContext", hasWorkspace: true, follow: true });
-        send(flow);
+        drawFlow();
         const toggle = screen.getByRole("button", { name: "Follow cursor" });
         expect(toggle.getAttribute("aria-pressed")).toBe("true");
         const scope = screen.getByRole("navigation", { name: "Diagram scope" });
@@ -1867,14 +1883,43 @@ describe("ArchitectureGraph", () => {
         send({ type: "flowDiagramState", requestId: 2, status: "stale" });
         fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
         expect(lastOf(postMessage, "flowRefresh")).toEqual({ command: "flowRefresh", requestId: 2 });
+        // The E2E driver clicks the same Refresh button.
+        send({ type: "architectureControls", flowRefresh: true });
+        expect(postMessage.mock.calls.filter(([message]) => message.command === "flowRefresh")).toHaveLength(2);
         // A state for an older request is dropped.
         send({ type: "flowDiagramState", requestId: 1, status: "error", message: "late" });
         expect(screen.queryByRole("alert")).toBeNull();
       });
 
+      it("a cancelled first flow returns to the previous tab; a cancelled later one keeps the drawn flow", async () => {
+        const postMessage = await setup();
+        expect(tabOf("Units").getAttribute("aria-selected")).toBe("true");
+        send({ type: "flowDiagramState", requestId: 1, status: "loading" });
+        expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
+        expect(lastOf(postMessage, "diagramShown")).toMatchObject({ flowBusy: true });
+        send({ type: "flowDiagramState", requestId: 2, status: "cancelled" });
+        expect(lastOf(postMessage, "diagramShown")).toMatchObject({ flowBusy: false });
+        expect(tabOf("Units").getAttribute("aria-selected")).toBe("true");
+        expect(screen.queryByText("Drawing the flow diagram…")).toBeNull();
+
+        send({ ...flow, requestId: 3 });
+        send({ type: "flowDiagramState", requestId: 4, status: "loading" });
+        send({ type: "flowDiagramState", requestId: 5, status: "cancelled" });
+        expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
+        expect(screen.queryByText("Drawing the flow diagram…")).toBeNull();
+        expect(screen.getByRole("img", { name: "run. Call flow. 2 steps." })).toBeTruthy();
+        // The E2E report reads the same DOM: Flow selected, the drawn request, its step names, its breadcrumb.
+        expect(lastOf(postMessage, "diagramShown")).toMatchObject({
+          tabs: [{ tab: "units", selected: false }, { tab: "folder" }, { tab: "matrix" }, { tab: "flow", selected: true }],
+          flowRequestId: 3,
+          flowButtons: [...flow.nodes.map((node) => node.name), ...flow.edges.map((edge) => edge.name)],
+          crumbs: flow.crumbs.map((crumb) => crumb.label),
+        });
+      });
+
       it("Escape in the flow returns to the tab strip; keys from the E2E driver walk the steps", async () => {
         const postMessage = await setup();
-        send(flow);
+        drawFlow();
         send({ type: "architectureControls", keys: ["Tab", "ArrowRight"] });
         expect(document.activeElement?.getAttribute("aria-label")).toBe(flow.nodes[1].name);
         send({ type: "architectureControls", keys: ["Enter"] });
@@ -1935,6 +1980,19 @@ describe("ArchitectureGraph", () => {
         fireEvent.click(screen.getByRole("button", { name: "Open matrix" }));
         expect(tabOf("Matrix").getAttribute("aria-selected")).toBe("true");
         expect(screen.queryByText(/Showing 1 of 2 units/)).toBeNull();
+      });
+
+      it("a units cycle past the cap opens on the Matrix with its banner; Units still switches", async () => {
+        await setup({
+          ...withUnits,
+          unitCap: { drawnUnits: ["apps/web"], totalUnits: 2, cap: 1 },
+          units: { ...withUnits.units!, cycleUnits: [["apps/web", "packages/core"]] },
+        });
+        expect(tabOf("Matrix").getAttribute("aria-selected")).toBe("true");
+        expect(screen.getByText(/This level has a cycle of 2 members: drawn as a matrix\./)).toBeTruthy();
+        fireEvent.click(tabOf("Units"));
+        expect(tabOf("Units").getAttribute("aria-selected")).toBe("true");
+        expect(screen.getByText(/This level has a cycle of 2 members: drawn as a matrix\. Showing 1 of 2 units\./)).toBeTruthy();
       });
     });
   });

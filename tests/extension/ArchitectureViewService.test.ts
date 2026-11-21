@@ -1091,8 +1091,8 @@ describe("ArchitectureViewService", () => {
     service.setControls({ view: "table", matrixCell: { row: "src", column: 3 }, matrixHeader: 4 } as never);
     expect(posted.at(-1)).toMatchObject({ view: undefined, matrixCell: undefined, matrixHeader: undefined });
     // Canvas controls: zoom actions, navigation keys (at most 20), a legend unit and the cycle count, nothing else.
-    service.setControls({ zoom: "fit", keys: ["Tab", "ArrowDown", "Enter", "x"], legendUnit: "src", cycleCount: true });
-    expect(posted.at(-1)).toMatchObject({ zoom: "fit", keys: ["ArrowDown", "Enter"], legendUnit: "src", cycleCount: true });
+    service.setControls({ zoom: "fit", keys: ["Tab", "ArrowDown", "Enter", "x", "Delete"], legendUnit: "src", cycleCount: true });
+    expect(posted.at(-1)).toMatchObject({ zoom: "fit", keys: ["Tab", "ArrowDown", "Enter"], legendUnit: "src", cycleCount: true });
     service.setControls({ zoom: "spin", keys: "ArrowDown", legendUnit: 3, cycleCount: "yes" } as never);
     expect(posted.at(-1)).toMatchObject({ zoom: undefined, keys: undefined, legendUnit: undefined, cycleCount: undefined });
     service.setControls({ keys: Array.from({ length: 30 }, () => "0") });
@@ -1533,7 +1533,7 @@ describe("ArchitectureViewService", () => {
 
     it("ignores the diagram tabs' commands, which GraphProvider routes", async () => {
       const service = createService();
-      for (const command of ["flowOpenLocation", "flowExportDiagram", "flowRefresh", "flowShowCallGraph", "diagramRescope", "diagramFollow"]) {
+      for (const command of ["flowOpenLocation", "flowExportDiagram", "flowRefresh", "flowShowCallGraph", "diagramRescope", "diagramFollow", "diagramShown"]) {
         await service.handleWebviewMessage({ command } as never);
       }
       expect(posted).toEqual([]);

@@ -18,16 +18,19 @@ export const NO_FLOW: FlowState = { flow: null, status: null };
 
 /**
  * The next flow state for a message, and whether it shows the Flow tab: a request (loading, empty,
- * error) or a flow of another entry does; a re-render of the drawn one (theme, stale) keeps the tab.
+ * error) or a flow of another entry does; a re-render of the drawn one (theme, stale) or a cancel keeps the tab.
  * A message older than the drawn flow is dropped.
  */
 export function receiveFlow(current: FlowState, message: FlowDiagramMessage | FlowDiagramStateMessage): { next: FlowState; selects: boolean } {
   if (current.flow && message.requestId < current.flow.requestId) return { next: current, selects: false };
+  // Cancelled: back to the flow drawn before the loading state, without its status (a replayed one follows).
+  if (message.type === "flowDiagramState" && message.status === "cancelled") return { next: { flow: current.flow, status: null }, selects: false };
+  // Only a draw the user asked for (announced by loading) takes the Flow tab; the flow replayed when the view mounts waits on its tab.
+  const answersLoading = current.status?.status === "loading";
   if (message.type === "flowDiagramState") {
-    return { next: { flow: current.flow, status: message }, selects: message.status !== "stale" };
+    return { next: { flow: current.flow, status: message }, selects: message.status === "loading" || (answersLoading && message.status !== "stale") };
   }
-  const selects = current.flow?.entry !== message.entry || current.status?.status === "loading";
-  return { next: { flow: message, status: null }, selects };
+  return { next: { flow: message, status: null }, selects: answersLoading };
 }
 
 /** `data:` URL of the SVG, UTF-8 safe (titles hold arrows and non-Latin names); the CSP allows `img-src data:`. */
@@ -100,11 +103,11 @@ export interface FlowDiagramPanelProps {
 function FlowStatus({ state, onRefresh, onShowCallGraph }: Readonly<Pick<FlowDiagramPanelProps, "state" | "onRefresh" | "onShowCallGraph">>) {
   const { flow, status } = state;
   if (status?.status === "error") {
-    return <output role="alert" style={{ display: "block", color: "var(--vscode-errorForeground)" }}>{status.message}</output>;
+    return <output role="alert" data-flow-line style={{ display: "block", color: "var(--vscode-errorForeground)" }}>{status.message}</output>;
   }
   if (status?.status === "empty") {
     return (
-      <output style={{ display: "block" }}>
+      <output data-flow-line style={{ display: "block" }}>
         No calls found from `{status.message}`.{" "}
         <button type="button" className={DIAGRAM_FOCUS_CLASS} onClick={onShowCallGraph}>Show call graph</button>
       </output>
@@ -112,13 +115,13 @@ function FlowStatus({ state, onRefresh, onShowCallGraph }: Readonly<Pick<FlowDia
   }
   if (status?.status === "stale" || flow?.stale) {
     return (
-      <output data-flow-stale style={{ display: "block" }}>
+      <output data-flow-stale data-flow-line style={{ display: "block" }}>
         Stale: files changed since this flow was drawn.{" "}
         <button type="button" className={DIAGRAM_FOCUS_CLASS} onClick={onRefresh}>Refresh</button>
       </output>
     );
   }
-  if (!flow && status?.status !== "loading") return <output style={{ display: "block" }}>Right-click a function in the editor and run Show Flow Diagram.</output>;
+  if (!flow && status?.status !== "loading") return <output data-flow-line style={{ display: "block" }}>Right-click a function in the editor and run Show Flow Diagram.</output>;
   return null;
 }
 
@@ -153,12 +156,12 @@ export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, on
     onEscape();
   };
   return (
-    <div ref={panelRef} data-testid="flow-diagram" style={{ position: "absolute", inset: 0, overflow: "auto", padding: "4px 10px", fontSize: 12 }}>
+    <div ref={panelRef} data-testid="flow-diagram" aria-busy={status?.status === "loading"} style={{ position: "absolute", inset: 0, overflow: "auto", padding: "4px 10px", fontSize: 12 }}>
       <FlowStatus state={state} onRefresh={onRefresh} onShowCallGraph={onShowCallGraph} />
       {flow && status?.status !== "empty" && (
         <figure style={{ position: "relative", margin: 0 }}>
           <img
-            ref={imageRef} role="img" src={flowDataUrl(flow.svg)} alt={`${flow.title}. ${flow.caption}. ${flow.counts}.`}
+            ref={imageRef} role="img" data-request-id={flow.requestId} src={flowDataUrl(flow.svg)} alt={`${flow.title}. ${flow.caption}. ${flow.counts}.`}
             style={{ display: "block", width: "100%", maxWidth: flow.width }}
           />
           <div role="group" aria-label="Flow steps">

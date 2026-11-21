@@ -5,7 +5,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DIAGRAM_TABS, type DiagramCrumb } from "@/shared/architecture-types";
 import { DiagramBreadcrumb } from "@/webview/components/architecture/DiagramBreadcrumb";
-import { DiagramTabs, disabledReason, focusSelectedTab, FollowToggle, UnitCapBanner } from "@/webview/components/architecture/DiagramTabs";
+import { DiagramTabs, disabledReason, focusSelectedTab, FollowToggle, UnitCapBanner, largeUnitCycle, diagramShownReport } from "@/webview/components/architecture/DiagramTabs";
 
 const all = { hasWorkspace: true, folderEntered: true, flowAvailable: true };
 
@@ -78,11 +78,26 @@ describe("FollowToggle and UnitCapBanner", () => {
   it("the cap banner counts from the message and offers the matrix and the list", () => {
     const onMatrix = vi.fn();
     const onList = vi.fn();
-    render(<UnitCapBanner unitCap={{ drawnUnits: ["a", "b"], totalUnits: 70, cap: 2 }} onMatrix={onMatrix} onList={onList} />);
+    render(<UnitCapBanner unitCap={{ drawnUnits: ["a", "b"], totalUnits: 70, cap: 2 }} cycle={0} onMatrix={onMatrix} onList={onList} />);
     expect(screen.getByRole("status").textContent).toMatch(/^Showing 2 of 70 units\. /);
     fireEvent.click(screen.getByRole("button", { name: "Open matrix" }));
     fireEvent.click(screen.getByRole("button", { name: "Show list" }));
     expect([onMatrix.mock.calls.length, onList.mock.calls.length]).toEqual([1, 1]);
+  });
+
+  it("the cap banner says a cycle past the cap is drawn as a matrix", () => {
+    render(<UnitCapBanner unitCap={{ drawnUnits: ["a", "b"], totalUnits: 70, cap: 2 }} cycle={3} onMatrix={vi.fn()} onList={vi.fn()} />);
+    expect(screen.getByRole("status").textContent).toMatch(/^This level has a cycle of 3 members: drawn as a matrix\. Showing 2 of 70 units\. /);
+  });
+
+  it("largeUnitCycle: the largest cycle only past the cap, 0 without a cap, cycles or units", () => {
+    const unitCap = { drawnUnits: ["a", "b"], totalUnits: 4, cap: 2 };
+    const units = (cycleUnits?: string[][]) => ({ cycleUnits }) as NonNullable<Parameters<typeof largeUnitCycle>[0]["units"]>;
+    expect(largeUnitCycle({ unitCap, units: units([["a", "b"], ["c", "d", "e"]]) })).toBe(3);
+    expect(largeUnitCycle({ unitCap, units: units([["a", "b"]]) })).toBe(0);
+    expect(largeUnitCycle({ units: units([["a", "b", "c"]]) })).toBe(0);
+    expect(largeUnitCycle({ unitCap, units: units() })).toBe(0);
+    expect(largeUnitCycle({ unitCap })).toBe(0);
   });
 });
 
@@ -107,5 +122,42 @@ describe("DiagramBreadcrumb", () => {
   it("renders nothing without a scope", () => {
     const { container } = render(<DiagramBreadcrumb crumbs={[]} onCrumb={vi.fn()} />);
     expect(container.textContent).toBe("");
+  });
+});
+
+describe("diagramShownReport", () => {
+  afterEach(cleanup);
+
+  it("reads the tabs, a levels breadcrumb, the banner, the focus and the flow from the DOM", () => {
+    render(
+      <div>
+        <DiagramTabs tab="units" state={{ hasWorkspace: true, folderEntered: false, flowAvailable: false }} onTab={vi.fn()} />
+        <nav aria-label="Diagram scope"><span>All units</span><span>{" › "}<span>ui</span><button type="button">×</button></span></nav>
+        <output data-unit-cap>Showing 60 of 61 units.</output>
+        <img alt="" data-request-id="7" />
+        <button type="button" data-flow-node="0" aria-label="Step 1 of 1: a, a.ts:1, main lane" />
+        <output data-flow-line>Stale: files changed.</output>
+      </div>,
+    );
+    (document.querySelector('[data-tab="units"]') as HTMLElement).focus();
+    const report = diagramShownReport();
+    expect(report).toMatchObject({
+      command: "diagramShown",
+      crumbs: ["All units", "ui"],
+      banner: "Showing 60 of 61 units.",
+      focused: "units",
+      flowRequestId: 7,
+      flowButtons: ["Step 1 of 1: a, a.ts:1, main lane"],
+      flowLine: "Stale: files changed.",
+      flowBusy: false,
+    });
+    expect(report.tabs[0]).toEqual({ tab: "units", selected: true });
+    expect(report.tabs[3]).toEqual({ tab: "flow", selected: false, disabled: "Right-click a function in the editor and run Show Flow Diagram" });
+  });
+
+  it("an empty view reports no crumbs, banner, focus or flow", () => {
+    expect(diagramShownReport()).toEqual({
+      command: "diagramShown", tabs: [], crumbs: [], banner: undefined, focused: undefined, flowRequestId: undefined, flowButtons: [], flowLine: undefined, flowBusy: false,
+    });
   });
 });

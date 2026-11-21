@@ -297,6 +297,10 @@ describe("GraphProvider", () => {
       expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
       expect(empty.getViewMode()).toBe("architecture");
       expect(webview.postMessage).toHaveBeenCalledWith({ command: "switchViewMode", mode: "architecture" });
+      // The view loaded after the switch (its first load, or a reload) asks again: the Flow tab, not the no-folder state.
+      webview.postMessage.mockClear();
+      await empty.updateGraph();
+      expect(webview.postMessage.mock.calls).toEqual([[{ command: "switchViewMode", mode: "architecture" }]]);
       const flow = { handleWebviewMessage: vi.fn(async () => {}), onMounted: vi.fn(), setFollow: vi.fn() };
       empty.setFlowDiagramService(flow as any);
       const onMessage = webview.onDidReceiveMessage.mock.calls[0][0];
@@ -311,11 +315,30 @@ describe("GraphProvider", () => {
 
   it("focuses the view for a Flow diagram without a folder, and says so when it does not open", async () => {
     vi.mocked(vscode.window.showWarningMessage).mockClear();
-    await provider.setViewModeArchitecture({ allowNoWorkspace: true });
+    vi.useFakeTimers();
+    try {
+      const switching = provider.setViewModeArchitecture({ allowNoWorkspace: true });
+      await vi.advanceTimersByTimeAsync(10_000);
+      await switching;
+    } finally {
+      vi.useRealTimers();
+    }
     expect(vscode.commands.executeCommand).toHaveBeenCalledWith("graph-it-live.graphView.focus");
     expect(vi.mocked(vscode.window.showWarningMessage).mock.calls[0][0]).toBe(
       'Graph-It-Live: open the Dependency Graph view to show the Flow diagram (run "Graph-It-Live: Show Dependency Graph").',
     );
+  });
+
+  it("waits for the view the focus command resolves later, then switches it to the Architecture mode", async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockClear();
+    const webview = { postMessage: vi.fn(), asWebviewUri: vi.fn(), options: {}, html: "", onDidReceiveMessage: vi.fn(() => ({ dispose: vi.fn() })), cspSource: "test-csp" };
+    vi.mocked(vscode.commands.executeCommand).mockImplementationOnce(async () => {
+      // VS Code resolves the view after the focus command returned.
+      setTimeout(() => provider.resolveWebviewView({ webview, onDidDispose: vi.fn() } as any, {} as any, {} as any), 0);
+    });
+    await provider.setViewModeArchitecture({ allowNoWorkspace: true });
+    expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+    expect(webview.postMessage).toHaveBeenCalledWith({ command: "switchViewMode", mode: "architecture" });
   });
 
   it("asks to open the Dependency Graph view when a view command runs before it", async () => {
@@ -1023,12 +1046,12 @@ describe("GraphProvider", () => {
     const showUnits = vi.spyOn(service, "showUnits").mockResolvedValue(true);
     const showMatrix = vi.spyOn(service, "showMatrix").mockResolvedValue(true);
     const showDirectory = vi.spyOn(service, "showDirectory").mockResolvedValue(true);
-    for (const command of ["flowOpenLocation", "flowExportDiagram", "flowRefresh", "flowShowCallGraph", "diagramFollow"]) {
+    for (const command of ["flowOpenLocation", "flowExportDiagram", "flowRefresh", "flowShowCallGraph", "diagramFollow", "diagramShown"]) {
       await onMessage({ command, requestId: 1 });
     }
-    expect(flow.handleWebviewMessage).toHaveBeenCalledTimes(5);
-    await onMessage({ command: "diagramRescope", tab: "flow", crumb: { kind: "file", label: "a.ts" } });
     expect(flow.handleWebviewMessage).toHaveBeenCalledTimes(6);
+    await onMessage({ command: "diagramRescope", tab: "flow", crumb: { kind: "file", label: "a.ts" } });
+    expect(flow.handleWebviewMessage).toHaveBeenCalledTimes(7);
     await onMessage({ command: "diagramRescope", tab: "units", crumb: { kind: "workspace", label: "w" } });
     await onMessage({ command: "diagramRescope", tab: "matrix", crumb: { kind: "workspace", label: "w" } });
     await onMessage({ command: "diagramRescope", tab: "folder", crumb: { kind: "folder", label: "ui", key: "src/ui" } });

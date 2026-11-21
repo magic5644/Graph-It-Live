@@ -1175,12 +1175,13 @@ suite('Architecture view mode', () => {
       });
       const before = (await readRender()).renderCount;
       await openFreshArchitecture();
-      const render = await waitForRender('the 73 units', before, current => !current.stale && current.groupCount === EXPECTED.units.groups + 60);
+      // #795: past 60 units the Units diagram draws the 60 the export keeps and says so.
+      const render = await waitForRender('the 60 of 73 units', before, current => !current.stale && current.groupCount === 60);
       const rendered = await readRendered() as RenderedReport & { stale?: boolean };
       assert.ok((rendered.headerHeightPx ?? Infinity) <= (rendered.viewHeightPx ?? 0) * 0.25,
         `header and controls within 25% of the view: ${rendered.headerHeightPx} of ${rendered.viewHeightPx}px (stale ${rendered.stale}, ${rendered.headerRows?.join(' ')})`);
       assert.strictEqual(rendered.legendOverflowing, false, 'the legend stays inside the canvas');
-      assert.strictEqual(rendered.legendScrolls, true, '73 units scroll inside the legend, capped at 40% of the canvas');
+      assert.strictEqual(rendered.legendScrolls, true, '60 units scroll inside the legend, capped at 40% of the canvas');
       assert.strictEqual(render.unitLevel?.layerBands, EXPECTED.units.layers, 'the new units sit on layer 0');
     } finally {
       await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');

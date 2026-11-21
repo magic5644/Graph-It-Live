@@ -84,7 +84,7 @@ import { rasterizeSvg } from "./rasterizeSvg";
 import { parseColor, type Rgba, themeKindOf } from "./unitColors";
 import { isExtensionMessageOrigin } from "../../utils/messageOrigin";
 import { DiagramBreadcrumb } from "./DiagramBreadcrumb";
-import { DiagramTabs, focusSelectedTab, FollowToggle, UnitCapBanner } from "./DiagramTabs";
+import { DiagramTabs, diagramShownReport, focusSelectedTab, FollowToggle, largeUnitCycle, UnitCapBanner } from "./DiagramTabs";
 import { FlowDiagramPanel, type FlowState, NO_FLOW, pressFlowKeys, receiveFlow } from "./FlowDiagramPanel";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
@@ -769,7 +769,7 @@ function GraphControls(props: Readonly<GraphControlsProps>) {
           value={query}
           onChange={(event) => onQuery(event.target.value)}
           // Shrinks beside the diagram tabs on a narrow view rather than wrapping to a row of its own (#426); max-content keeps its native width on a wide one.
-          style={{ flex: "1 1 60px", minWidth: 0, maxWidth: "max-content" }}
+          style={{ flex: "1 1 30px", minWidth: 0, maxWidth: "max-content" }}
         />
         {view === "graph" && (
         <label>
@@ -1229,6 +1229,17 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   /** The Flow tab is shown; Units, Folder and Matrix derive from the view and the drawn level. */
   const [flowShown, setFlowShown] = useState(false);
   const flowShownRef = useRef(flowShown);
+  /** Whether Flow was shown when the last draw started loading: a cancelled first flow goes back to the tab before it. */
+  const flowShownBeforeLoadingRef = useRef(false);
+  /** E2E observability: what the mode shows, posted when it changed (after a render, a focus move or a driver action). */
+  const shownRef = useRef("");
+  const reportShownRef = useRef(() => {
+    const shown = diagramShownReport();
+    const key = JSON.stringify(shown);
+    if (key === shownRef.current) return;
+    shownRef.current = key;
+    postMessageRef.current(shown);
+  });
   /** The drawn flow and its request state. */
   const [flowState, setFlowState] = useState<FlowState>(NO_FLOW);
   const flowStateRef = useRef(flowState);
@@ -1709,7 +1720,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     // unless the rules changed (the matrices and evidence carry them).
     const rulesKey = (summary: ArchitectureSummaryMessage | null) => summary?.rules?.revision ?? summary?.rules?.error;
     const rulesChanged = rulesKey(summaryRef.current) !== rulesKey(message);
-    if (summaryRef.current?.revision !== message.revision || (summaryRef.current && rulesChanged)) reset();
+    const revised = summaryRef.current?.revision !== message.revision;
+    if (revised || (summaryRef.current && rulesChanged)) reset();
+    // A units cycle past the cap is never drawn node-link: a new units level opens on its Matrix.
+    if (revised && unitRef.current === null && largeUnitCycle(message) > 0) switchView("matrix");
     summaryRef.current = message;
     setSummary(message);
     setState(null);
@@ -1783,7 +1797,11 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   };
   /** E2E driver: the toggle, a matrix cell and a matrix header, named by row keys. */
   const controlMatrix = ({ view: next, matrixCell: cell, matrixHeader: header }: ArchitectureControlsMessage) => {
-    if (next !== undefined) switchView(next);
+    // Like a tab click: the Graph or Matrix view leaves the Flow tab.
+    if (next !== undefined) {
+      showFlow(false);
+      switchView(next);
+    }
     const rows = matrix?.matrix.rows ?? [];
     const indexOf = (rowKey: string) => rows.findIndex((row) => row.key === rowKey);
     if (cell && indexOf(cell.row) >= 0 && indexOf(cell.column) >= 0) setMatrixRequest({ row: indexOf(cell.row), column: indexOf(cell.column) });
@@ -1893,10 +1911,14 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (requestId !== undefined) post({ command: "flowOpenLocation", requestId, target: { kind, index } });
   };
   const receiveFlowMessage = (message: FlowDiagramMessage | FlowDiagramStateMessage) => {
+    const status = message.type === "flowDiagramState" ? message.status : undefined;
+    if (status === "loading") flowShownBeforeLoadingRef.current = flowShownRef.current;
     const { next, selects } = receiveFlow(flowStateRef.current, message);
     flowStateRef.current = next;
     setFlowState(next);
     if (selects) showFlow(true);
+    // The first flow cancelled: back to the tab shown before it (without a folder, Flow is the only tab).
+    if (status === "cancelled" && !next.flow && !flowShownBeforeLoadingRef.current && hasWorkspace) showFlow(false);
   };
   const receiveContext = ({ hasWorkspace: workspace, follow: following }: DiagramContextMessage) => {
     setHasWorkspace(workspace);
@@ -1914,15 +1936,18 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (tab !== "matrix") goTo(nextUnit, nextFolders);
   };
   /** E2E driver: real clicks on a tab, a flow step or call, the Follow toggle. */
-  const controlDiagram = ({ tab, flowNode, flowEdge, follow: following }: ArchitectureControlsMessage) => {
+  const controlDiagram = ({ tab, flowNode, flowEdge, follow: following, flowRefresh }: ArchitectureControlsMessage) => {
     const click = (selector: string) => document.querySelector<HTMLButtonElement>(selector)?.click();
     if (tab !== undefined) click(`[role="tab"][data-tab="${CSS.escape(tab)}"]`);
     if (flowNode !== undefined) click(`button[data-flow-node="${Number(flowNode)}"]`);
     if (flowEdge !== undefined) click(`button[data-flow-edge="${Number(flowEdge)}"]`);
     if (following !== undefined && following !== followRef.current) click("button[data-follow]");
+    if (flowRefresh) click("output[data-flow-stale] button");
   };
   /** E2E driver: the same actions as a user, groups named by key. */
   const control = (message: ArchitectureControlsMessage) => {
+    // Keys move the focus without a render, and an unfocused webview fires no focusin: report after the driver.
+    queueMicrotask(() => reportShownRef.current());
     if (message.exportDiagram) exportDiagram(message.exportDiagram.target);
     controlDiagram(message);
     controlMatrix(message);
@@ -2023,6 +2048,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     postMessageRef.current({ command: "architectureMounted" });
     return () => window.removeEventListener("message", handleMessage);
   }, []);
+
+  useEffect(() => {
+    const report = () => reportShownRef.current();
+    report();
+    document.addEventListener("focusin", report);
+    return () => document.removeEventListener("focusin", report);
+  });
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -2402,8 +2434,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             view={view}
             />}
           />
-          {tab === "units" && summary.unitCap && (
-            <UnitCapBanner unitCap={summary.unitCap} onMatrix={() => actionsRef.current.selectTab("matrix")} onList={showUnitList} />
+          {(tab === "units" || (tab === "matrix" && unit === null && largeUnitCycle(summary) > 0)) && summary.unitCap && (
+            <UnitCapBanner unitCap={summary.unitCap} cycle={largeUnitCycle(summary)} onMatrix={() => actionsRef.current.selectTab("matrix")} onList={showUnitList} />
           )}
         </>
       )}

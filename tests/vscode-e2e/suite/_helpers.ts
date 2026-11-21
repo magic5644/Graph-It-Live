@@ -219,3 +219,86 @@ export async function saveDocumentText(file: vscode.Uri, text: string): Promise<
   assert.ok(await vscode.workspace.applyEdit(edit), `Could not edit ${file.fsPath}`);
   assert.ok(await document.save(), `Could not save ${file.fsPath}`);
 }
+
+/** What the extension showed through `vscode.window` while captured: toasts and quick picks. */
+export interface WindowCapture {
+  messages: string[];
+  picks: { labels: string[]; placeHolder?: string }[];
+  /** Label the next quick pick answers; undefined presses Escape. */
+  answer: string | undefined;
+  restore(): void;
+}
+
+/**
+ * Records the extension's toasts and answers its quick picks (E2E cannot read or click either). The test
+ * files live in the extension folder, so they share its `vscode` API object; `restore()` puts it back.
+ */
+export function captureWindow(): WindowCapture {
+  const window = vscode.window as unknown as Record<string, unknown>;
+  const names = ['showInformationMessage', 'showWarningMessage', 'showErrorMessage', 'showQuickPick'];
+  const saved = Object.fromEntries(names.map(name => [name, window[name]]));
+  const labelOf = (item: string | vscode.QuickPickItem) => (typeof item === 'string' ? item : item.label);
+  const capture: WindowCapture = { messages: [], picks: [], answer: undefined, restore: () => Object.assign(window, saved) };
+  const record = (message: string) => {
+    capture.messages.push(message);
+    return Promise.resolve(undefined);
+  };
+  Object.assign(window, {
+    showInformationMessage: record,
+    showWarningMessage: record,
+    showErrorMessage: record,
+    showQuickPick: async (items: readonly (string | vscode.QuickPickItem)[] | Thenable<readonly (string | vscode.QuickPickItem)[]>, options?: vscode.QuickPickOptions) => {
+      const list = await items;
+      capture.picks.push({ labels: list.map(labelOf), placeHolder: options?.placeHolder });
+      return list.find(item => labelOf(item) === capture.answer);
+    },
+  });
+  assert.strictEqual(vscode.window.showQuickPick, window.showQuickPick, 'vscode.window could not be captured');
+  return capture;
+}
+
+/** What the Architecture mode shows, as the webview reports it (`diagramShown`). */
+export interface DiagramShown {
+  tabs: { tab: string; selected: boolean; disabled?: string }[];
+  crumbs: string[];
+  banner?: string;
+  focused?: string;
+  flowRequestId?: number;
+  flowButtons: string[];
+  flowLine?: string;
+  flowBusy: boolean;
+}
+
+/** getContext `graph-it-live.flowDiagram`: FlowDiagramService.getE2EState(). */
+export interface FlowE2EState {
+  requestId: number;
+  entry?: string;
+  nodes: string[];
+  edges: string[];
+  stale: boolean;
+  follow: boolean;
+  state?: string;
+  lastError?: string;
+  lastOpened?: { file: string; line: number };
+  svgDigest?: string;
+  view?: DiagramShown;
+}
+
+export const flowState = async (): Promise<FlowE2EState> =>
+  (await getContextKey<FlowE2EState>('graph-it-live.flowDiagram')) ?? { requestId: 0, nodes: [], edges: [], stale: false, follow: false };
+export const selectedTab = (state: FlowE2EState) => state.view?.tabs.find(tab => tab.selected)?.tab;
+export const controls = (value: Record<string, unknown>) => vscode.commands.executeCommand('graph-it-live.e2eArchitectureControls', value);
+
+export async function waitForFlow(what: string, accept: (state: FlowE2EState) => boolean, timeoutMs = 120_000): Promise<FlowE2EState> {
+  let last = await flowState();
+  await waitUntil(async () => accept((last = await flowState())), `${what} (last: ${JSON.stringify({ ...last, nodes: last.nodes.length })})`, timeoutMs);
+  return last;
+}
+
+/** `file:line` of a step or call accessible name (`…, <file>:<line>, <lane> lane`). */
+export function locationOf(name: string): { file: string; line: number } {
+  const match = /(?:, | at )([^,]+):(\d+), \w+ lane$/.exec(name);
+  assert.ok(match, `no file:line in "${name}"`);
+  return { file: match[1], line: Number(match[2]) };
+}
+

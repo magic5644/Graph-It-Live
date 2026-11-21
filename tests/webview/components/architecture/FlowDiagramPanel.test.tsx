@@ -34,10 +34,11 @@ const state = (status?: Partial<FlowDiagramStateMessage>, drawn: FlowDiagramMess
 });
 
 describe("receiveFlow", () => {
-  it("a first flow, a new entry, or the answer to a loading request selects the Flow tab", () => {
-    expect(receiveFlow(NO_FLOW, flow)).toEqual({ next: { flow, status: null }, selects: true });
-    expect(receiveFlow(state(), { ...flow, requestId: 5, entry: "b" }).selects).toBe(true);
+  it("only the answer to a loading request selects the Flow tab; a flow replayed on mount or a new entry without loading waits", () => {
     expect(receiveFlow(state({ requestId: 5 }), { ...flow, requestId: 5 }).selects).toBe(true);
+    expect(receiveFlow(state({ requestId: 5 }), { ...flow, requestId: 5, entry: "b" }).selects).toBe(true);
+    expect(receiveFlow(NO_FLOW, flow)).toEqual({ next: { flow, status: null }, selects: false });
+    expect(receiveFlow(state(), { ...flow, requestId: 5, entry: "b" }).selects).toBe(false);
   });
 
   it("a re-render of the drawn entry (theme) keeps the tab; an older message is dropped", () => {
@@ -47,12 +48,21 @@ describe("receiveFlow", () => {
     expect(receiveFlow(current, { type: "flowDiagramState", requestId: 3, status: "error", message: "late" }).next).toBe(current);
   });
 
-  it("a loading, empty or error state selects the tab and keeps the drawn flow; stale does not select", () => {
-    for (const status of ["loading", "empty", "error"] as const) {
+  it("loading selects the tab; empty or error select it when they answer a loading, not when replayed; stale never", () => {
+    const loading: FlowDiagramStateMessage = { type: "flowDiagramState", requestId: 5, status: "loading" };
+    expect(receiveFlow(state(), loading)).toEqual({ next: { flow, status: loading }, selects: true });
+    for (const status of ["empty", "error"] as const) {
       const message: FlowDiagramStateMessage = { type: "flowDiagramState", requestId: 5, status };
-      expect(receiveFlow(state(), message)).toEqual({ next: { flow, status: message }, selects: true });
+      expect(receiveFlow(state({ requestId: 5 }), message)).toEqual({ next: { flow, status: message }, selects: true });
+      expect(receiveFlow(state(), message).selects).toBe(false);
     }
-    expect(receiveFlow(state(), { type: "flowDiagramState", requestId: 4, status: "stale" }).selects).toBe(false);
+    expect(receiveFlow(state({ requestId: 4 }), { type: "flowDiagramState", requestId: 4, status: "stale" }).selects).toBe(false);
+  });
+
+  it("cancelled drops the loading status, keeps the drawn flow (or none) and never selects", () => {
+    const cancelled: FlowDiagramStateMessage = { type: "flowDiagramState", requestId: 6, status: "cancelled" };
+    expect(receiveFlow(state({ requestId: 5 }), cancelled)).toEqual({ next: { flow, status: null }, selects: false });
+    expect(receiveFlow(state({ requestId: 5 }, null), cancelled)).toEqual({ next: NO_FLOW, selects: false });
   });
 });
 

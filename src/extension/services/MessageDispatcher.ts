@@ -200,6 +200,9 @@ export class MessageDispatcher {
         diagramFollow: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        diagramShown: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
       },
     });
   }
