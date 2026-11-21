@@ -14,6 +14,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ARCHITECTURE_BASELINE_FILE } from "../../analyzer/architecture/architectureRules.js";
 import { DIAGRAM_THEMES, DIAGRAM_VIEWS, defaultDiagramFile, diagramLevel, MAX_FLOW_STEPS, type DiagramRequestView } from "../../analyzer/diagram/diagramStyle.js";
+import { cutNote, readDiagramSpec, specFlowRequest, specLevel } from "../../analyzer/diagram/diagramSpecImport.js";
 import { renderFlowDiagram, renderWorkspaceDiagram, type WorkspaceDiagramOptions } from "../../analyzer/diagram/workspaceDiagram.js";
 import { workerFlowSources } from "../../mcp/tools/architecture";
 import { workerState } from "../../mcp/shared/state";
@@ -150,8 +151,46 @@ export function readDiagramOptions(args: string[], format: CliOutputFormat, dire
   return { ...view, ...output, rules: readRules(args) };
 }
 
+/** What `--spec` replaces: the spec names its own view, level or entry symbol. */
+const SPEC_FLAGS = ["--view", "--folder", ...FLOW_FLAGS];
+
+/** `--spec <file>`: an annotated diagram spec drawn again on the current index (#794). */
+async function runSpec(args: string[], runtime: CliRuntime, format: CliOutputFormat, file: string): Promise<string> {
+  const { workspaceRoot } = runtime;
+  const positional = args[0] !== undefined && !args[0].startsWith("-") ? args[0] : undefined;
+  const replaced = SPEC_FLAGS.find((flag) => args.includes(flag)) ?? positional;
+  if (replaced !== undefined) {
+    throw new CliError(`--spec draws the view, level or symbol written in the spec: drop ${replaced}`, ExitCode.GENERAL_ERROR);
+  }
+  const spec = await readDiagramSpec(workspaceRoot, file);
+  if (spec.kind === "flow") refuseFlags(args, ["--rules", "--config", "--baseline"], "an architecture spec, not a flow spec");
+  const options = readMarkupOptions(args, format, spec.kind === "flow" ? "flow" : undefined);
+  const target = options.file === "-" ? undefined : resolveInWorkspace(workspaceRoot, options.file);
+  if (target !== undefined && normalizePath(target) === normalizePath(spec.absolute)) {
+    throw new CliError(`--output ${options.file} would replace the spec it reads: pass another file`, ExitCode.GENERAL_ERROR);
+  }
+  if (spec.kind === "flow") {
+    const { db, extractor } = await workerFlowSources();
+    const diagram = await renderFlowDiagram(db, { rootDir: workspaceRoot, extractor }, specFlowRequest(spec, workspaceRoot), { ...options, spec });
+    return writeDiagram(runtime, options.file, target, diagram);
+  }
+  const level = specLevel(spec);
+  const rules = readRules(args);
+  await runtime.ensureIndexed();
+  const diagram = await renderWorkspaceDiagram(workspaceRoot, (filePath) => workerState.getSpider().analyzeFromIndex(filePath), {
+    ...level,
+    ...options,
+    rules,
+    spec,
+    indexedAt: runtime.loadState()?.lastScanTimestamp,
+  });
+  return writeDiagram(runtime, options.file, target, diagram);
+}
+
 export async function run(args: string[], runtime: CliRuntime, format: CliOutputFormat): Promise<string> {
   const { workspaceRoot } = runtime;
+  const spec = readStringOption(args, "--spec", "an annotated diagram-spec JSON file of the workspace");
+  if (spec !== undefined) return runSpec(args, runtime, format, spec);
   if (readChoiceOption(args, "--view", DIAGRAM_VIEWS) === "flow") return runFlow(args, runtime, format);
   const options = readDiagramOptions(args, format, readDirectory(args, workspaceRoot));
   // Refused before any work: the output stays in the workspace, as --config does.
@@ -175,8 +214,13 @@ async function runFlow(args: string[], runtime: CliRuntime, format: CliOutputFor
   return writeDiagram(runtime, options.file, target, diagram);
 }
 
-async function writeDiagram(runtime: CliRuntime, file: string, target: string | undefined, { markup, counts }: { markup: string; counts: string }) {
-  if (target === undefined) return markup;
+async function writeDiagram(runtime: CliRuntime, file: string, target: string | undefined, { markup, counts, cut = [] }: { markup: string; counts: string; cut?: string[] }) {
+  const note = cutNote(cut);
+  if (target === undefined) {
+    // stdout holds the markup alone: the note goes to stderr.
+    if (note !== "") process.stderr.write(`${note.trim()}\n`);
+    return markup;
+  }
   await writeWorkspaceFile(runtime.workspaceRoot, file, markup);
-  return `Diagram written to ${getRelativePath(target, runtime.workspaceRoot)}: ${counts}.`;
+  return `Diagram written to ${getRelativePath(target, runtime.workspaceRoot)}: ${counts}.${note}`;
 }

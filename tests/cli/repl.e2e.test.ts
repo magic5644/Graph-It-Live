@@ -399,14 +399,27 @@ describe('REPL command chaining e2e', () => {
       fs.mkdirSync(path.join(root, 'src', 'cli', 'commands'), { recursive: true });
       const runtime = { ...createRuntimeStub(), workspaceRoot: root };
       mocks.diagramRun.mockResolvedValue('ok');
-      await typedSession(runtime, '/diagram', '/scope src/cli', '/diagram', '/diagram commands', '/diagram --folder (root)/cli', '/diagram --view units');
+      await typedSession(
+        runtime,
+        '/diagram --spec flow.json',
+        '/diagram',
+        '/scope src/cli',
+        '/diagram',
+        '/diagram commands',
+        '/diagram --folder (root)/cli',
+        '/diagram --view units',
+        // #794: the spec names its level, so the scope adds no directory; its path resolves against the scope.
+        String.raw`/diagram --format svg --spec specs\flow.json`,
+      );
 
       expect(mocks.diagramRun.mock.calls.map(([args]) => args)).toEqual([
+        ['--spec', 'flow.json'],
         [],
         [path.join('src', 'cli')],
         [path.join('src', 'cli', 'commands')],
         ['--folder', '(root)/cli'],
         ['--view', 'units'],
+        ['--spec', path.join('src', 'cli', 'specs', 'flow.json')],
       ]);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });

@@ -9,6 +9,7 @@
 
 import { byCodeUnit } from "../architecture/architectureUnits";
 import { brokenRules, cyclesOf, diagramHeader, sanitizeText, type DiagramEdge, type DiagramInput, type DiagramNode } from "./architectureDiagram";
+import { defaultEdgeLabel, flowText } from "./flowDiagram";
 import type { FlowModel } from "./flowModel";
 
 export const DIAGRAM_SPEC_SCHEMA = "https://raw.githubusercontent.com/magic5644/Graph-It-Live/main/schemas/diagram-spec.schema.json";
@@ -41,8 +42,12 @@ export interface DiagramSpec {
   violations: { count: number; accepted: number; rules: string[] };
 }
 
-/** The flow of one entry symbol (`kind: "flow"`): its steps in call order, their lanes and source locations. */
-export interface FlowDiagramSpec extends Omit<FlowModel, "entry"> {
+/**
+ * The flow of one entry symbol (`kind: "flow"`): its steps in call order, their lanes and source locations, the
+ * header lines and each edge's label. Node titles and subtitles, edge labels and the caption's title and caption
+ * are the texts an agent may rewrite before `graph-it diagram --spec` draws them (#794).
+ */
+export interface FlowDiagramSpec extends Omit<FlowModel, "entry" | "edges" | "caption"> {
   $schema: string;
   version: number;
   kind: "flow";
@@ -50,18 +55,27 @@ export interface FlowDiagramSpec extends Omit<FlowModel, "entry"> {
   workspace: string;
   /** Id of the entry step. */
   entry: string;
+  caption: { title: string; caption: string; counts: string };
+  edges: (FlowModel["edges"][number] & { label: string })[];
 }
 
 /** The spec of one flow model; the model is in call order already, so one index revision gives one document. */
 export function flowSpec(model: FlowModel, workspace: string): FlowDiagramSpec {
+  const name = sanitizeText(workspace);
+  const { title, caption, counts } = flowText(model, name);
   return {
     $schema: DIAGRAM_SPEC_SCHEMA,
     version: DIAGRAM_SPEC_VERSION,
     kind: "flow",
-    workspace: sanitizeText(workspace),
+    workspace: name,
     ...model,
+    caption: { title, caption, counts },
     nodes: model.nodes.map((node) => ({ ...node, title: sanitizeText(node.title), ...(node.subtitle ? { subtitle: sanitizeText(node.subtitle) } : {}) })),
-    edges: model.edges.map((edge) => ({ ...edge, ...(edge.condition ? { condition: sanitizeText(edge.condition) } : {}) })),
+    edges: model.edges.map((edge) => ({
+      ...edge,
+      ...(edge.condition ? { condition: sanitizeText(edge.condition) } : {}),
+      label: sanitizeText(edge.label ?? defaultEdgeLabel(edge)),
+    })),
   };
 }
 

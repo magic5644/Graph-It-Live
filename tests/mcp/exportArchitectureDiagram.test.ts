@@ -84,6 +84,12 @@ describe("export_architecture_diagram schema", () => {
     [{ filePath: "src/a.ts", symbolName: "run" }, "filePath applies to view flow only."],
     [{ view: "matrix", startLine: 3 }, "startLine applies to view flow only."],
     [{ maxSteps: 3 }, "maxSteps applies to view flow only."],
+    [{ spec: "s.json", view: "units" }, "view: spec draws the view, level or symbol written in the spec; drop view."],
+    [{ spec: "s.json", folder: "src" }, "drop folder."],
+    [{ spec: "s.json", filePath: "src/a.ts", symbolName: "run" }, "drop symbolName."],
+    [{ spec: "s.json", startLine: 2 }, "drop startLine."],
+    [{ spec: "s.json", maxSteps: 2 }, "drop maxSteps."],
+    [{ spec: "s.json", config: "c.json" }, "config and baseline apply to the rules overlay: add rules: true."],
   ])("refuses %j", (params, message) => {
     const result = ExportArchitectureDiagramParamsSchema.safeParse(params);
     expect(result.success).toBe(false);
@@ -197,6 +203,25 @@ describe("export_architecture_diagram", { timeout: 60_000 }, () => {
     }
   });
 
+  // #794: an annotated spec through the spec parameter, as graph-it diagram --spec.
+  it("redraws an architecture spec with its rules as the CLI does, takes its labels, and never overwrites it", async () => {
+    fs.writeFileSync(path.join(root, "units.json"), (await executeExportArchitectureDiagram({ diagramFormat: "diagram-spec", rules: true })).markup!);
+    const redrawn = await executeExportArchitectureDiagram({ spec: "units.json", rules: true });
+    expect(redrawn).toEqual(await executeExportArchitectureDiagram({ rules: true }));
+    expect(redrawn.markup).toBe(await runDiagram(["--spec", "units.json", "--rules", "--output", "-"], runtime, "svg"));
+    const units = JSON.parse(fs.readFileSync(path.join(root, "units.json"), "utf8"));
+    units.nodes[0].label = "A very long name for the first unit of this level";
+    fs.writeFileSync(path.join(root, "annotated.json"), JSON.stringify(units));
+    const annotated = await executeExportArchitectureDiagram({ spec: "annotated.json", rules: true, diagramFormat: "diagram-spec" });
+    expect(annotated.cut).toEqual(["nodes[0].label"]);
+    expect(JSON.parse(annotated.markup!).nodes[0].label).toBe("A very long name for the first …");
+    await expect(executeExportArchitectureDiagram({ spec: "units.json", rules: true, diagramFormat: "diagram-spec", output: "units.json" }))
+      .rejects.toThrow("output units.json would replace the spec it reads: pass another file.");
+    await expect(executeExportArchitectureDiagram({ spec: "../units.json" })).rejects.toThrow("Spec file outside workspace: ../units.json.");
+    oversized.markup = "x".repeat(INLINE_DIAGRAM_MAX_CHARS + 1);
+    expect(await executeExportArchitectureDiagram({ spec: "units.json", rules: true })).toMatchObject({ path: "architecture.svg" });
+  });
+
   it("refuses rules files outside the workspace and an unknown folder", async () => {
     await expect(executeExportArchitectureDiagram({ rules: true, config: "../rules.json" })).rejects.toThrow("outside workspace");
     await expect(executeExportArchitectureDiagram({ folder: "nowhere" })).rejects.toThrow('No file below folder "nowhere"');
@@ -274,6 +299,23 @@ describe.skipIf(!wasmBuilt)("export_architecture_diagram view flow", { timeout: 
     await expect(executeExportArchitectureDiagram({ ...flow, symbolName: "rnu" })).rejects.toThrow("Symbol 'rnu' not found in src/app.ts. Did you mean: run?");
     await expect(executeExportArchitectureDiagram({ ...flow, filePath: "src/missing.ts" })).rejects.toThrow("File 'src/missing.ts' is not in the call graph index.");
     await expect(executeExportArchitectureDiagram({ ...flow, filePath: "../outside.ts" })).rejects.toThrow("outside workspace");
+  });
+
+  // #794: a flow spec names its entry symbol, a homonym by its @line.
+  it("redraws a flow spec as the CLI does, a homonym's included, and refuses rules or a missing call graph with it", async () => {
+    fs.writeFileSync(path.join(root, "run.json"), (await executeExportArchitectureDiagram({ ...flow, diagramFormat: "diagram-spec", maxSteps: 3 })).markup!);
+    expect(await executeExportArchitectureDiagram({ spec: "run.json" })).toEqual(await executeExportArchitectureDiagram({ ...flow, maxSteps: 3 }));
+    expect((await executeExportArchitectureDiagram({ spec: "run.json", diagramFormat: "html" })).markup).toBe(await runDiagram(["--spec", "run.json", "--output", "-"], runtime, "html"));
+    const twins = { view: "flow" as const, filePath: "src/twins.ts", symbolName: "go", startLine: 2 };
+    const twin = (await executeExportArchitectureDiagram({ ...twins, diagramFormat: "diagram-spec" })).markup!;
+    // One go of the file in the flow: its id has no @line, the entry step's line tells the two apart.
+    expect(JSON.parse(twin).entry).toBe("src/twins.ts#go");
+    fs.writeFileSync(path.join(root, "twin.json"), twin);
+    expect((await executeExportArchitectureDiagram({ spec: "twin.json" })).markup).toBe((await executeExportArchitectureDiagram(twins)).markup);
+    expect(await executeExportArchitectureDiagram({ spec: "twin.json", output: "docs/twin.svg" })).toMatchObject({ path: "docs/twin.svg" });
+    await expect(executeExportArchitectureDiagram({ spec: "run.json", rules: true })).rejects.toThrow("rules applies to an architecture spec, not a flow spec.");
+    const { exportArchitectureDiagram } = await import("@/mcp/tools/architecture");
+    await expect(exportArchitectureDiagram(root, vi.fn(), { spec: "run.json" })).rejects.toThrow("a flow spec needs the call graph index");
   });
 
   it("refuses a flow without its symbol or without a call graph source", async () => {

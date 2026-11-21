@@ -22,7 +22,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["title", "caption", "counts"],
-          "description": "Header lines of the generated diagram: reuse them as the title and caption",
+          "description": "Header lines of the generated diagram: reuse them as the title and caption; title and caption may be rewritten before graph-it diagram --spec draws them",
           "properties": { "title": { "type": "string" }, "caption": { "type": "string" }, "counts": { "type": "string" } }
         },
         "counts": {
@@ -56,7 +56,7 @@
             "required": ["key", "label", "layer", "fileCount", "internalEdgeCount"],
             "properties": {
               "key": { "type": "string", "description": "Workspace-relative folder; edges, layers and cycles refer to it" },
-              "label": { "type": "string", "description": "Name to draw: package name, else folder" },
+              "label": { "type": "string", "description": "Name to draw: package name, else folder; may be rewritten before graph-it diagram --spec draws it" },
               "layer": { "$ref": "#/$defs/count" },
               "fileCount": { "$ref": "#/$defs/count" },
               "internalEdgeCount": { "$ref": "#/$defs/count", "description": "Import file pairs inside the node" },
@@ -116,11 +116,18 @@
       "description": "The flow of one entry symbol (#792): its steps in call order (at most maxSteps), the lane of each step and call, and their source locations.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["$schema", "version", "kind", "workspace", "entry", "language", "lanes", "maxSteps", "nodes", "edges", "omittedSteps"],
+      "required": ["$schema", "version", "kind", "workspace", "entry", "language", "lanes", "maxSteps", "caption", "nodes", "edges", "omittedSteps"],
       "properties": {
         "$schema": { "type": "string" },
         "version": { "const": 1, "description": "Bumped when a field changes meaning or goes away" },
         "kind": { "const": "flow" },
+        "caption": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "caption", "counts"],
+          "description": "Header lines of the generated diagram; title and caption may be rewritten before graph-it diagram --spec draws them",
+          "properties": { "title": { "type": "string" }, "caption": { "type": "string" }, "counts": { "type": "string" } }
+        },
         "workspace": { "type": "string", "description": "Workspace folder name, never an absolute path" },
         "entry": { "type": "string", "description": "Id of the entry step, the first node" },
         "language": { "type": "string", "description": "Language of the entry symbol" },
@@ -143,8 +150,8 @@
                 "type": "string",
                 "description": "Stable id: workspace-relative file and symbol name (src/a.ts#run), @line added only for a homonym; edges refer to it"
               },
-              "title": { "type": "string", "description": "Symbol name" },
-              "subtitle": { "type": "string", "description": "First sentence of the symbol's doc comment" },
+              "title": { "type": "string", "description": "Symbol name; may be rewritten before graph-it diagram --spec draws it" },
+              "subtitle": { "type": "string", "description": "First sentence of the symbol's doc comment; may be rewritten, added or removed" },
               "file": { "type": "string", "description": "Workspace-relative file" },
               "line": { "type": "integer", "minimum": 1, "description": "1-based line" },
               "lane": {
@@ -161,7 +168,7 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["from", "to", "file", "line", "relation", "lane"],
+            "required": ["from", "to", "file", "line", "relation", "lane", "label"],
             "properties": {
               "from": { "type": "string" },
               "to": { "type": "string" },
@@ -172,7 +179,8 @@
                 "enum": ["main", "alternative", "error"],
                 "description": "main: the path taken; alternative: under a branch that ends in return; error: under a catch, or a branch that throws, raises or exits"
               },
-              "condition": { "type": "string", "description": "The condition the call sits under, when short" }
+              "condition": { "type": "string", "description": "The condition the call sits under, when short" },
+              "label": { "type": "string", "description": "Text drawn on the edge: the condition, else the call line; may be rewritten before graph-it diagram --spec draws it" }
             }
           }
         }

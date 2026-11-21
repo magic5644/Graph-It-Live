@@ -44,6 +44,8 @@ export interface FlowEdge {
   lane: FlowLane;
   /** The condition the call site sits under, when it is short. */
   condition?: string;
+  /** Text drawn on the edge, from an annotated spec (#794); else the condition or the call line. */
+  label?: string;
 }
 
 export interface FlowModel {
@@ -58,6 +60,8 @@ export interface FlowModel {
   edges: FlowEdge[];
   /** Symbols of other files the shown steps call that the step cap left out (not walked further). */
   omittedSteps: number;
+  /** Header lines from an annotated spec (#794); else built from the entry step. */
+  caption?: { title: string; caption: string };
 }
 
 export interface FlowModelRequest {

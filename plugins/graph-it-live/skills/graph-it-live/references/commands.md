@@ -165,6 +165,15 @@ the workspace; `--output -` prints it.
 (1-based) picks one of several homonyms; formats svg, html, diagram-spec (`kind: "flow"`). MCP:
 `export_architecture_diagram` with `view: "flow"`, `filePath`, `symbolName`, `startLine`, `maxSteps`.
 
+To explain a flow or a level in plain language (CLI 1.26.0 or later): export it with
+`--format diagram-spec --output x.json`, rewrite only its texts (flow: `nodes[].title`,
+`nodes[].subtitle`, `edges[].label`, `caption.title`, `caption.caption`; level: `nodes[].label`,
+`caption.title`, `caption.caption`), then `graph-it diagram --spec x.json --format svg --output y.svg`
+(MCP: `spec`). Never add, remove or rename a node or edge, nor change lanes, lines or counts: the spec
+is compared with the current index and any other change fails with its JSON path. `--spec` takes no
+`--view`, `--folder`, dir, `file#symbol`, `--maxSteps` or `--startLine`; pass the export's `--rules`
+flags for a level. Keep titles under 32 characters, edge labels under 20: longer ones are cut and named.
+
 For a polished or branded diagram, pass the `diagram-spec` JSON (add `--rules`, `--folder <key>`) to
 an available diagram skill (`diagram-design`, `architecture-diagram`, `archify`). The spec lists every
 node (label, layer, file count, role), layers, weighted edges, cycles, broken rules and caption lines

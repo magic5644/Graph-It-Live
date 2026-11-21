@@ -268,6 +268,7 @@ Examples:
 
 Usage: graph-it diagram [dir] [options]
        graph-it diagram --view flow <file#symbol> [--maxSteps N] [--startLine N] [options]
+       graph-it diagram --spec <file.json> [options]
 
 Draws one level of the architecture as the Architecture view lays it out: the units (layers
 top to bottom, layer 0 at the bottom, cycles outlined, stroke width = file pairs), the groups
@@ -277,6 +278,16 @@ URL: drop it in a README, a wiki or a pull request. At most 60 units or groups a
 --view flow draws the calls of one entry symbol from the call graph index: one column per
 step in call order (a step is one file's symbols), one row per lane (main, alternative,
 error) read from the call sites of TypeScript, JavaScript and Python.
+
+--spec redraws a spec written by --format diagram-spec after an agent or a person rewrote
+its texts. Only these may change: in a flow spec, node title and subtitle, edge label,
+caption.title and caption.caption; in an architecture spec, node label, caption.title and
+caption.caption. Everything else (ids, nodes, edges, lanes, files, lines, counts) must still
+match the current index, or the command stops with the JSON path that differs: export the
+spec again when the code changed. The spec says what it draws (kind "flow": its entry symbol
+and maxSteps; else its level and scope), so --spec takes no --view, --folder, dir,
+file#symbol, --maxSteps or --startLine. Texts longer than their box are cut with "…" and
+the output names them.
 
 Arguments:
   dir                Workspace directory whose level is drawn, as --folder draws its key
@@ -292,12 +303,15 @@ Options:
   --startLine N      With --view flow: declaration line of the symbol, 1-based (the
                      editor line), to pick one of several same-name symbols
   --folder KEY       Unit or folder key, as graph-it architecture --folder takes it
+  --spec FILE        Annotated diagram-spec JSON in the workspace: draw its texts on the
+                     current index (see above); --rules, --config and --baseline apply to
+                     an architecture spec, as at its export
   --format, -f       html|svg|diagram-spec (default: html, or svg when --output ends with .svg);
                      the HTML page follows the reader's light or dark scheme
   --theme THEME      light|dark colours of --format svg (default: light)
   --output FILE      File in the workspace, relative to its root (default:
                      architecture.html or architecture.svg, flow.html or flow.svg for
-                     --view flow); - writes to stdout
+                     --view flow or a flow spec); - writes to stdout
   --rules            Draw the violations of graphit.architecture.json in the error
                      colour, their rule names in the legend
   --config FILE      Rules file in the workspace, with --rules
@@ -315,6 +329,8 @@ Examples:
   graph-it diagram --view matrix --format svg --output - > matrix.svg
   graph-it diagram --view flow src/cli/index.ts#main --format svg --output docs/main-flow.svg
   graph-it diagram --view flow src/app.ts#start --startLine 42 --maxSteps 12
+  graph-it diagram --view flow src/app.ts#start --format diagram-spec --output start.json
+  graph-it diagram --spec start.json --format svg --output docs/start-flow.svg
 `,
   check: `graph-it check — Find unused exported symbols in the workspace, a folder or a file
 

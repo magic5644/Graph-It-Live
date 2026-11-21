@@ -235,6 +235,40 @@ describe.skipIf(!distExists)("MCP user contract (E2E)", { timeout: TIMEOUT_MS },
     expectReadableError(await call("export_architecture_diagram", { ...flow, filePath: "src/nope.ts" }), "File not found: src/nope.ts.");
   });
 
+  // #794: the spec parameter, as the CLI's --spec.
+  it("redraws an annotated spec unchanged when untouched, and refuses an altered, stale or misplaced one", async () => {
+    const data = async (args: Args) => {
+      const result = await call("export_architecture_diagram", { ...args, response_format: "json" });
+      expect(result.isError, result.content[0].text).toBeFalsy();
+      return JSON.parse(result.content[0].text).data as { markup: string; cut?: string[] };
+    };
+    const flowArgs = { view: "flow", filePath: "src/a.ts", symbolName: "run" };
+    const flow = JSON.parse((await data({ ...flowArgs, diagramFormat: "diagram-spec" })).markup);
+    const units = JSON.parse((await data({ diagramFormat: "diagram-spec" })).markup);
+    const write = (file: string, spec: unknown) => fs.writeFileSync(path.join(root, file), JSON.stringify(spec));
+    write("flow.json", flow);
+    write("units.json", units);
+    expect((await data({ spec: "flow.json" })).markup).toBe((await data(flowArgs)).markup);
+    expect((await data({ spec: "units.json", diagramFormat: "html" })).markup).toBe((await data({ diagramFormat: "html" })).markup);
+    write("annotated.json", { ...flow, edges: flow.edges.map((edge: object) => ({ ...edge, label: "fetches helper results quickly" })) });
+    const annotated = await data({ spec: "annotated.json" });
+    expect(annotated.markup).toContain("fetches helper resu…");
+    expect(annotated.cut).toEqual(["edges[0].label", "edges[1].label"]);
+
+    write("moved.json", { ...flow, nodes: flow.nodes.map((node: { line: number }) => ({ ...node, line: node.line + 1 })) });
+    write("stale.json", { ...units, revision: "0".repeat(64) });
+    write("added.json", { ...flow, nodes: [...flow.nodes, { ...flow.nodes[0], id: "src/a.ts#extra" }] });
+    expectReadableError(await call("export_architecture_diagram", { spec: "moved.json" }), "moved.json is stale: No symbol 'run' starts at line 3 in src/a.ts. Candidates: run (function, line 2).");
+    expectReadableError(await call("export_architecture_diagram", { spec: "stale.json" }), "stale.json is stale or drawn with other rules: it was exported at revision");
+    expectReadableError(await call("export_architecture_diagram", { spec: "added.json" }), "src/a.ts#extra is not in the current index; nodes and edges cannot be added or renamed");
+    expectReadableError(await call("export_architecture_diagram", { spec: "../x.json" }), "Spec file outside workspace: ../x.json.");
+    expectReadableError(await call("export_architecture_diagram", { spec: "nope.json" }), "Spec file not found: nope.json.");
+    expectReadableError(await call("export_architecture_diagram", { spec: "flow.json", view: "flow" }), "view: spec draws the view, level or symbol written in the spec; drop view.");
+    expectReadableError(await call("export_architecture_diagram", { spec: "flow.json", filePath: "src/a.ts" }), "drop filePath.");
+    expectReadableError(await call("export_architecture_diagram", { spec: "flow.json", rules: true }), "rules applies to an architecture spec, not a flow spec.");
+    expectReadableError(await call("export_architecture_diagram", { spec: "flow.json", diagramFormat: "diagram-spec", output: "flow.json" }), "output flow.json would replace the spec it reads");
+  });
+
   // #774, last: it moves the session to another workspace. MCP and CLI count the same unresolved imports.
   it("reports an import resolving to no file like the CLI, in scan_dead_code and get_index_status", async () => {
     const fixture = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-mcp-unresolved-")));
