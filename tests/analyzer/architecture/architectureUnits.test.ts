@@ -8,6 +8,7 @@ import {
   assignUnits,
   buildArchitectureUnits,
   classifyUnitEdge,
+  directoryFolderChain,
   directoryFolderKey,
   folderKeys,
   folderLevel,
@@ -388,6 +389,14 @@ describe("directoryFolderKey", () => {
     "src/cli/index.ts": ROOT_UNIT,
     "src/cli/commands/run.ts": ROOT_UNIT,
     "src/index.ts": ROOT_UNIT,
+  });
+
+  it("chains a directory's unit and folder keys, outermost first (#795)", () => {
+    expect(directoryFolderChain(packages, "packages/core")).toEqual(["packages/core"]);
+    expect(directoryFolderChain(packages, "packages/core/src/a/b")).toEqual(["packages/core", "packages/core/a", "packages/core/a/b"]);
+    expect(directoryFolderChain(packages, "src/cli/commands")).toEqual([ROOT_UNIT, `${ROOT_UNIT}/cli`, `${ROOT_UNIT}/cli/commands`]);
+    expect(directoryFolderChain(packages, "packages")).toEqual([]);
+    expect(() => directoryFolderChain(packages, "docs")).toThrow('No indexed file below "docs".');
   });
 
   it("maps a unit root, and its umbrella folders, to the unit", () => {

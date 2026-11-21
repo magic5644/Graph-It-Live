@@ -44,6 +44,8 @@ export interface FlowBox extends Box {
 }
 
 export interface FlowPlacedEdge {
+  /** Index of the drawn edge in `model.edges`: self-calls and edges to undrawn steps are not placed. */
+  edge: number;
   from: string;
   to: string;
   kind: LegendKind;
@@ -269,6 +271,7 @@ export function layoutFlow(model: FlowModel, workspace: string): FlowLayout {
     lanes: rows.map((lane, row) => ({ text: lane, x: SIZES.margin, y: centre(row) + 4 })),
     nodes: boxes,
     edges: plans.map((plan, index) => ({
+      edge: plan.index,
       from: plan.edge.from,
       to: plan.edge.to,
       kind: edgeKind(plan.edge),
