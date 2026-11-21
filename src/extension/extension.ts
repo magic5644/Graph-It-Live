@@ -9,6 +9,8 @@ import {
 } from './extensionLogger';
 import { GraphProvider } from './GraphProvider';
 import { CallGraphViewService } from './services/CallGraphViewService';
+import { diagramThemeFor, FlowDiagramService } from './services/FlowDiagramService';
+import { showArchitectureDiagram, showDiagram, showFlowDiagram, type ShowDiagramDeps } from './services/showDiagramCommands';
 import { parseReviewCallGraphDepth } from '../shared/reviewTarget';
 import { CommandCoordinator } from './services/CommandCoordinator';
 import { CommandRegistrationService } from './services/CommandRegistrationService';
@@ -80,6 +82,34 @@ export function activate(context: vscode.ExtensionContext) {
         return spider ? (await spider.findReferencingFilesThroughBarrels(filePath)).map((ref) => ref.path) : [];
     }, () => provider.getWorkspaceRoot());
     provider.setCallGraphViewService(callGraphViewService);
+    // Owned here, not by the provider's container: the Flow tab works without a folder (no Spider).
+    const flowDiagramService = new FlowDiagramService({
+        callGraph: callGraphViewService,
+        post: (message) => provider.postToView(message),
+        workspaceRoot: () => provider.getWorkspaceRoot(),
+        diagramTheme: () => diagramThemeFor(vscode.window.activeColorTheme.kind),
+        notify: (message, level) => {
+            void (level === 'error' ? vscode.window.showErrorMessage(message) : vscode.window.showInformationMessage(message));
+        },
+        pickDiagramFile: async (defaultPath) => (await vscode.window.showSaveDialog({
+            defaultUri: vscode.Uri.file(defaultPath),
+            filters: { SVG: ['svg'], HTML: ['html'], 'Diagram spec': ['json'] },
+            title: 'Export Flow Diagram',
+        }))?.fsPath,
+        writeClipboard: (text) => Promise.resolve(vscode.env.clipboard.writeText(text)),
+        openLocation: async (absolutePath, line) => {
+            const position = new vscode.Position(Math.max(0, line - 1), 0);
+            await vscode.window.showTextDocument(vscode.Uri.file(absolutePath), { selection: new vscode.Range(position, position), preview: true });
+        },
+        showCallGraphAt: async (absolutePath, line) => {
+            const position = new vscode.Position(Math.max(0, line - 1), 0);
+            await vscode.window.showTextDocument(vscode.Uri.file(absolutePath), { selection: new vscode.Range(position, position) });
+            await vscode.commands.executeCommand('graph-it-live.showCallGraph');
+        },
+        followFolder: async (relativeDir) => (await provider.getArchitectureViewService()?.showDirectory(relativeDir, { quiet: true })) ?? false,
+    });
+    provider.setFlowDiagramService(flowDiagramService);
+    const diagramDeps: ShowDiagramDeps = { provider, flow: flowDiagramService, callGraph: callGraphViewService };
     const branchWatchRegistration = registerBranchWatch(context, provider);
     provider.setBranchWatchRegistration(branchWatchRegistration);
     context.subscriptions.push(branchWatchRegistration);
@@ -90,6 +120,13 @@ export function activate(context: vscode.ExtensionContext) {
 
         // Call Graph panel service
         callGraphViewService,
+        flowDiagramService,
+
+        vscode.commands.registerCommand('graph-it-live.showDiagram', (uri?: vscode.Uri) => showDiagram(diagramDeps, uri)),
+        vscode.commands.registerCommand('graph-it-live.showFlowDiagram', (uri?: vscode.Uri) => showFlowDiagram(diagramDeps, uri)),
+        vscode.commands.registerCommand('graph-it-live.showFolderDiagram', (uri?: vscode.Uri) => showArchitectureDiagram(diagramDeps, 'folder', uri)),
+        vscode.window.onDidChangeActiveColorTheme(() => flowDiagramService.onThemeChanged()),
+        vscode.workspace.onDidSaveTextDocument((document) => flowDiagramService.onFileSaved(document.uri.fsPath)),
 
         // showCallGraph command
         vscode.commands.registerCommand('graph-it-live.showCallGraph', async () => {

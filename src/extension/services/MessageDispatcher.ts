@@ -182,6 +182,24 @@ export class MessageDispatcher {
         architectureRasterized: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        flowOpenLocation: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        flowExportDiagram: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        flowRefresh: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        flowShowCallGraph: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        diagramRescope: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        diagramFollow: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
       },
     });
   }

@@ -12,6 +12,7 @@ import type {
   ArchitectureFolderLevelMessage,
   ArchitectureMatrixMessage,
   ArchitectureSummaryMessage,
+  FlowDiagramMessage,
 } from "@/shared/architecture-types";
 
 // Cytoscape needs a canvas: stand in a fake that records elements and runs layouts at once.
@@ -676,7 +677,7 @@ describe("ArchitectureGraph", () => {
       expect(lastOf(postMessage, "architectureExpandGroup")).toBeUndefined();
       expect(helpers.focusGroup).toHaveBeenLastCalledWith(cy.instance, nodeById("group-2"));
       expect(lastOf(postMessage, "architectureDetailRendered")).toMatchObject({ focusedGroup: "store", expandedGroups: 0 });
-      expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toContain("store");
+      expect(screen.getByRole("navigation", { name: "Diagram scope" }).textContent).toContain("store");
 
       // The focused group ends the path: where the view is, not a link.
       expect(screen.getByText("store", { selector: "nav span[aria-current]" }).getAttribute("aria-current")).toBe("location");
@@ -1264,7 +1265,7 @@ describe("ArchitectureGraph", () => {
     it("sets the find and legend styles that keep a narrow view's header compact and its legend inside", async () => {
       await setup(unseen());
       const find = screen.getByRole("searchbox", { name: "Find group" });
-      // Shrinks beside Graph | Matrix rather than wrapping to a row of its own, never wider than its native width.
+      // Shrinks beside the diagram tabs rather than wrapping to a row of its own, never wider than its native width.
       expect(find.style.flex).toBe("1 1 60px");
       expect(find.style.minWidth).toBe("0");
       expect(find.style.maxWidth).toBe("max-content");
@@ -1500,7 +1501,7 @@ describe("ArchitectureGraph", () => {
         expect(nodeById("group-2")?.data("layer")).toBe(1);
         expect(edgeById("edge-2-1")?.data("kind")).toBe("down");
         expect(lastOf(postMessage, "architectureRendered")).toEqual(expect.objectContaining({ unit: "apps/web", folder: "ui" }));
-        expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toMatch(/^All units › @ws\/web › ui(?! ›)/);
+        expect(screen.getByRole("navigation", { name: "Diagram scope" }).textContent).toMatch(/^All units › @ws\/web › ui(?! ›)/);
 
         // Requests made in the folder name its level: its revision and the folder.
         await dbltap(nodeById("group-2"));
@@ -1567,7 +1568,7 @@ describe("ArchitectureGraph", () => {
         cy.instance.zoom.mockReturnValue(1);
         cy.instance.pan.mockReturnValue({ x: 0, y: 0 });
         expect(keys()).toEqual(["path:ui/forms@ui/forms"]);
-        expect(screen.getByRole("navigation", { name: "Architecture path" }).textContent).toMatch(/^All units › @ws\/web › ui › forms/);
+        expect(screen.getByRole("navigation", { name: "Diagram scope" }).textContent).toMatch(/^All units › @ws\/web › ui › forms/);
 
         const asked = postMessage.mock.calls.filter(([message]) => message.command === "architectureEnterFolder").length;
         fireEvent.click(screen.getByRole("button", { name: "ui" }));
@@ -1611,7 +1612,7 @@ describe("ArchitectureGraph", () => {
       };
       const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
       const toMatrix = async (postMessage: ReturnType<typeof vi.fn>, message = unitsMatrix) => {
-        fireEvent.click(screen.getByRole("button", { name: "Matrix" }));
+        fireEvent.click(screen.getByRole("tab", { name: "Matrix" }));
         send(message);
         await nextFrame();
         return postMessage;
@@ -1624,7 +1625,7 @@ describe("ArchitectureGraph", () => {
 
       it("asks for the drawn level's matrix once, shows it, reports it, and keeps it across toggles", async () => {
         const postMessage = await setup();
-        fireEvent.click(screen.getByRole("button", { name: "Matrix" }));
+        fireEvent.click(screen.getByRole("tab", { name: "Matrix" }));
         expect(lastOf(postMessage, "architectureMatrix")).toEqual({ command: "architectureMatrix", revision: "r1", folder: undefined, unit: undefined });
         expect(screen.getByText("Building the matrix…")).toBeTruthy();
         expect(screen.getByTestId("graph-it-live-logo")).toBeTruthy();
@@ -1640,16 +1641,16 @@ describe("ArchitectureGraph", () => {
         }));
         expect(screen.getByTestId("architecture-graph").parentElement!.style.visibility).toBe("hidden");
 
-        fireEvent.click(screen.getByRole("button", { name: "Graph" }));
+        fireEvent.click(screen.getByRole("tab", { name: "Units" }));
         expect(screen.getByTestId("architecture-graph").parentElement!.style.visibility).toBe("");
-        fireEvent.click(screen.getByRole("button", { name: "Matrix" }));
+        fireEvent.click(screen.getByRole("tab", { name: "Matrix" }));
         expect(asked(postMessage)).toBe(1);
         expect(screen.getByRole("region", { name: /Dependency structure matrix/ })).toBeTruthy();
       });
 
       it("reports the cells breaking a declared rule from the whole matrix, not only those in view", async () => {
         const postMessage = await setup();
-        fireEvent.click(screen.getByRole("button", { name: "Matrix" }));
+        fireEvent.click(screen.getByRole("tab", { name: "Matrix" }));
         send({ ...unitsMatrix, violations: { "apps/web>packages/core": ["r"], "packages/core>apps/web": ["r"], "x>y": ["r"] } });
         await nextFrame();
 
@@ -1666,7 +1667,7 @@ describe("ArchitectureGraph", () => {
         const matrixRoot = screen.getByRole("region", { name: /Dependency structure matrix/ }).parentElement!;
         expect(matrixRoot.style.zIndex).toBe("0");
         expect(matrixRoot.compareDocumentPosition(screen.getByRole("region", { name: "Evidence" })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-        expect(screen.getByRole("navigation", { name: "Architecture path" }).title).toMatch(/^Cell: evidence · Header: enter/);
+        expect(screen.getByRole("navigation", { name: "Diagram scope" }).title).toMatch(/^Cell: evidence · Header: enter/);
 
         fireEvent.click(screen.getByRole("button", { name: "Close evidence" }));
         const evidence = postMessage.mock.calls.length;
@@ -1754,6 +1755,186 @@ describe("ArchitectureGraph", () => {
         await settle();
         expect(lastOf(postMessage, "architectureMatrix")).toEqual(expect.objectContaining({ revision: "r3" }));
         expect(screen.getByText("Building the matrix…")).toBeTruthy();
+      });
+    });
+
+    describe("diagram tabs, Flow and scope", () => {
+      const flow: FlowDiagramMessage = {
+        type: "flowDiagram", requestId: 2, svg: "<svg/>", width: 400, height: 200, title: "run", caption: "Call flow", counts: "2 steps",
+        crumbs: [
+          { kind: "workspace", label: "ws" }, { kind: "folder", label: "src", key: "src" },
+          { kind: "file", label: "a.ts", key: "src/a.ts" }, { kind: "symbol", label: "run", key: "src/a.ts:run" },
+        ],
+        entry: "src/a.ts:run",
+        nodes: [
+          { id: "a", title: "run", file: "src/a.ts", line: 1, lane: "main", name: "Step 1 of 2: run, src/a.ts:1, main lane", x: 0, y: 0, width: 100, height: 40 },
+          { id: "b", title: "save", file: "src/b.ts", line: 4, lane: "main", name: "Step 2 of 2: save, src/b.ts:4, main lane", x: 200, y: 0, width: 100, height: 40 },
+        ],
+        edges: [{
+          from: "a", to: "b", file: "src/a.ts", line: 2, relation: "CALLS", lane: "main",
+          name: "Call run → save at src/a.ts:2, main lane", label: { x: 150, y: 20, text: "save()" },
+        }],
+        stale: false,
+      };
+      const tabOf = (name: string) => screen.getByRole("tab", { name });
+
+      it("without a workspace: no build spinner, Flow selected, the other tabs disabled with why", () => {
+        const postMessage = vi.fn();
+        render(<ArchitectureGraph postMessage={postMessage} />);
+        expect(screen.getByText("Building architecture…")).toBeTruthy();
+        send({ type: "diagramContext", hasWorkspace: false, follow: false });
+
+        expect(screen.queryByText("Building architecture…")).toBeNull();
+        expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
+        expect(tabOf("Units").getAttribute("aria-disabled")).toBe("true");
+        expect(tabOf("Units").title).toBe("Open a folder to see the Units diagram");
+        expect(tabOf("Matrix").title).toBe("Open a folder to see the Matrix diagram");
+        expect(tabOf("Flow").title).toBe("Right-click a function in the editor and run Show Flow Diagram");
+        expect(screen.getByText("Right-click a function in the editor and run Show Flow Diagram.")).toBeTruthy();
+        // A disabled tab does nothing.
+        fireEvent.click(tabOf("Units"));
+        expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
+      });
+
+      it("a flow selects the Flow tab; its steps and calls open by index, Export goes to the flow", async () => {
+        const postMessage = await setup();
+        expect(tabOf("Units").getAttribute("aria-selected")).toBe("true");
+        expect(tabOf("Folder").title).toBe("Double-click a unit, or right-click a folder in the Explorer, to see its Folder diagram");
+        send(flow);
+
+        expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
+        expect(screen.getByTestId("architecture-graph").parentElement!.style.visibility).toBe("hidden");
+        expect(screen.getByRole("img", { name: "run. Call flow. 2 steps." })).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: flow.nodes[1].name }));
+        expect(lastOf(postMessage, "flowOpenLocation")).toEqual({ command: "flowOpenLocation", requestId: 2, target: { kind: "node", index: 1 } });
+        send({ type: "architectureControls", flowEdge: 0 });
+        expect(lastOf(postMessage, "flowOpenLocation")).toEqual({ command: "flowOpenLocation", requestId: 2, target: { kind: "edge", index: 0 } });
+        send({ type: "architectureControls", exportDiagram: { target: "clipboard" } });
+        expect(lastOf(postMessage, "flowExportDiagram")).toEqual({ command: "flowExportDiagram", requestId: 2, target: "clipboard" });
+        expect(lastOf(postMessage, "architectureExportDiagram")).toBeUndefined();
+
+        // An older render is dropped; a theme re-render of the same entry keeps the tab the user chose.
+        send({ ...flow, requestId: 1, title: "old" });
+        expect(screen.queryByRole("img", { name: /^old/ })).toBeNull();
+        fireEvent.click(tabOf("Units"));
+        send({ ...flow, requestId: 3 });
+        expect(tabOf("Units").getAttribute("aria-selected")).toBe("true");
+        send({ type: "architectureControls", tab: "flow" });
+        expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
+        send({ type: "architectureControls", flowNode: 0 });
+        expect(lastOf(postMessage, "flowOpenLocation")).toEqual({ command: "flowOpenLocation", requestId: 3, target: { kind: "node", index: 0 } });
+      });
+
+      it("the flow breadcrumb re-scopes, turns Follow off, and the workspace step shows the units", async () => {
+        const postMessage = await setup();
+        send({ type: "diagramContext", hasWorkspace: true, follow: true });
+        send(flow);
+        const toggle = screen.getByRole("button", { name: "Follow cursor" });
+        expect(toggle.getAttribute("aria-pressed")).toBe("true");
+        const scope = screen.getByRole("navigation", { name: "Diagram scope" });
+        expect(within(scope).getByText("run").getAttribute("aria-current")).toBe("page");
+
+        fireEvent.click(within(scope).getByRole("button", { name: "src" }));
+        expect(lastOf(postMessage, "diagramFollow")).toEqual({ command: "diagramFollow", enabled: false, tab: "flow" });
+        expect(lastOf(postMessage, "diagramRescope")).toEqual({ command: "diagramRescope", tab: "folder", crumb: flow.crumbs[1] });
+        expect(toggle.getAttribute("aria-pressed")).toBe("false");
+        fireEvent.click(within(scope).getByRole("button", { name: "a.ts" }));
+        expect(lastOf(postMessage, "diagramRescope")).toEqual({ command: "diagramRescope", tab: "flow", crumb: flow.crumbs[2] });
+        expect(postMessage.mock.calls.filter(([message]) => message.command === "diagramFollow")).toHaveLength(1);
+
+        send({ type: "architectureControls", follow: true });
+        expect(lastOf(postMessage, "diagramFollow")).toEqual({ command: "diagramFollow", enabled: true, tab: "flow" });
+        fireEvent.click(within(scope).getByRole("button", { name: "ws" }));
+        expect(tabOf("Units").getAttribute("aria-selected")).toBe("true");
+        expect(screen.queryByRole("button", { name: "Follow cursor" })).toBeNull();
+      });
+
+      it("shows the empty, error, stale and loading states, each with its one action", async () => {
+        const postMessage = await setup();
+        send({ type: "flowDiagramState", requestId: 1, status: "loading" });
+        expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
+        expect(screen.getByText("Drawing the flow diagram…")).toBeTruthy();
+        send({ type: "flowDiagramState", requestId: 1, status: "empty", message: "run" });
+        expect(screen.getByText(/No calls found from `run`\./)).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "Show call graph" }));
+        expect(lastOf(postMessage, "flowShowCallGraph")).toEqual({ command: "flowShowCallGraph", requestId: 1 });
+
+        send(flow);
+        send({ type: "flowDiagramState", requestId: 2, status: "error", message: "Graph-It-Live: no symbol run in src/a.ts." });
+        expect(screen.getByRole("alert").textContent).toBe("Graph-It-Live: no symbol run in src/a.ts.");
+        // The previous diagram stays under an error.
+        expect(screen.getByRole("img", { name: "run. Call flow. 2 steps." })).toBeTruthy();
+        send({ type: "flowDiagramState", requestId: 2, status: "stale" });
+        fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+        expect(lastOf(postMessage, "flowRefresh")).toEqual({ command: "flowRefresh", requestId: 2 });
+        // A state for an older request is dropped.
+        send({ type: "flowDiagramState", requestId: 1, status: "error", message: "late" });
+        expect(screen.queryByRole("alert")).toBeNull();
+      });
+
+      it("Escape in the flow returns to the tab strip; keys from the E2E driver walk the steps", async () => {
+        const postMessage = await setup();
+        send(flow);
+        send({ type: "architectureControls", keys: ["Tab", "ArrowRight"] });
+        expect(document.activeElement?.getAttribute("aria-label")).toBe(flow.nodes[1].name);
+        send({ type: "architectureControls", keys: ["Enter"] });
+        expect(lastOf(postMessage, "flowOpenLocation")).toEqual(expect.objectContaining({ target: { kind: "node", index: 1 } }));
+        send({ type: "architectureControls", keys: ["Escape"] });
+        expect(document.activeElement).toBe(tabOf("Flow"));
+        // The window's Escape leaves the architecture levels alone while Flow is shown.
+        act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+        expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
+      });
+
+      it("Escape at the units level, with nothing left to leave, focuses the selected tab", async () => {
+        await setup();
+        act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" })); });
+        expect(document.activeElement).toBe(tabOf("Units"));
+      });
+
+      it("a scope message draws the folder level its levels came with, then Matrix, then the units", async () => {
+        const postMessage = await setup(nested);
+        send(uiLevel);
+        send({ type: "architectureScope", revision: "other", tab: "folder", unit: "apps/web", folders: ["ui"] });
+        send({ type: "architectureScope", revision: "r1", tab: "folder", unit: "apps/web", folders: ["missing"] });
+        expect(tabOf("Units").getAttribute("aria-selected")).toBe("true");
+
+        send({ type: "architectureScope", revision: "r1", tab: "folder", unit: "apps/web", folders: ["ui"] });
+        await settle();
+        expect(tabOf("Folder").getAttribute("aria-selected")).toBe("true");
+        expect(screen.getByRole("navigation", { name: "Diagram scope" }).textContent).toMatch(/^All units › @ws\/web › ui/);
+        expect(screen.getByRole("button", { name: "Follow cursor" })).toBeTruthy();
+        send({ type: "architectureScope", revision: "r1", tab: "matrix", unit: null, folders: [] });
+        expect(tabOf("Matrix").getAttribute("aria-selected")).toBe("true");
+        expect(lastOf(postMessage, "architectureMatrix")).toEqual(expect.objectContaining({ folder: "ui", unit: "apps/web" }));
+        // Folder returns to the last folder level drawn, Units to the units.
+        fireEvent.click(tabOf("Units"));
+        await settle();
+        expect(tabOf("Units").getAttribute("aria-selected")).toBe("true");
+        fireEvent.click(tabOf("Folder"));
+        await settle();
+        expect(screen.getByRole("navigation", { name: "Diagram scope" }).textContent).toMatch(/@ws\/web › ui/);
+        // The level's breadcrumb turns Follow off too.
+        send({ type: "diagramContext", hasWorkspace: true, follow: true });
+        fireEvent.click(within(screen.getByRole("navigation", { name: "Diagram scope" })).getByRole("button", { name: "All units" }));
+        expect(lastOf(postMessage, "diagramFollow")).toEqual({ command: "diagramFollow", enabled: false, tab: "folder" });
+        // Arrow keys move between tabs.
+        tabOf("Units").focus();
+        fireEvent.keyDown(tabOf("Units"), { key: "ArrowLeft" });
+        expect(document.activeElement).toBe(tabOf("Flow"));
+      });
+
+      it("past the units cap: draws the capped units only, says so, Open matrix and Show list", async () => {
+        await setup({ ...withUnits, unitCap: { drawnUnits: ["apps/web"], totalUnits: 2, cap: 1 } });
+        expect(cy.state.nodes.map((node) => node.data("unitKey")).filter(Boolean)).toEqual(["apps/web"]);
+        expect(cy.state.edges).toHaveLength(0);
+        expect(screen.getByText(/Showing 1 of 2 units\./)).toBeTruthy();
+
+        fireEvent.click(screen.getByRole("button", { name: "Show list" }));
+        expect(document.activeElement?.closest('[aria-label="Units"]')).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: "Open matrix" }));
+        expect(tabOf("Matrix").getAttribute("aria-selected")).toBe("true");
+        expect(screen.queryByText(/Showing 1 of 2 units/)).toBeNull();
       });
     });
   });

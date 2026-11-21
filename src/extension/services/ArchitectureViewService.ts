@@ -15,7 +15,9 @@ import {
   type HiddenGroup,
   type UnitSource,
 } from "@/analyzer/architecture/architectureView";
+import { directoryFolderChain } from "@/analyzer/architecture/architectureUnits";
 import { loadWorkspaceUnits, type WorkspaceUnits } from "@/analyzer/architecture/workspaceUnits";
+import { architectureDiagramInput, capNodes, MAX_DIAGRAM_NODES } from "@/analyzer/diagram/architectureDiagram";
 import { diagramLevel, type DiagramTheme } from "@/analyzer/diagram/diagramStyle";
 import { renderSourceDiagram } from "@/analyzer/diagram/workspaceDiagram";
 import type { IndexerStatusSnapshot } from "@/analyzer/IndexerStatus";
@@ -43,6 +45,7 @@ import {
   type ArchitectureRevealInFileGraphCommand,
   type ArchitectureRuleEvidenceCommand,
   type ArchitectureRulesView,
+  type ArchitectureScopeMessage,
   type ArchitectureSummaryMessage,
   type ArchitectureUnitEvidenceCommand,
   type ArchitectureWebviewCommand,
@@ -50,12 +53,15 @@ import {
 import type { CommunityMode } from "@/shared/graph-types";
 import { normalizePath } from "@/shared/path";
 import { validateWorkspacePath } from "@/shared/pathSecurity";
+import { untilCancelled, type CancelToken } from "./untilCancelled";
 
 const PROGRESS_INTERVAL_MS = 250;
 /** How long the webview may take to draw a PNG export. */
 const RASTERIZE_TIMEOUT_MS = 30_000;
 /** The export formats the save dialog offers, by file extension. */
-const EXPORT_FORMATS: Readonly<Record<string, "svg" | "html" | "png">> = { ".svg": "svg", ".html": "html", ".htm": "html", ".png": "png" };
+const EXPORT_FORMATS: Readonly<Record<string, "svg" | "html" | "png" | "diagram-spec">> = {
+  ".svg": "svg", ".html": "html", ".htm": "html", ".png": "png", ".json": "diagram-spec",
+};
 const BUSY_INDEX_STATES = new Set<IndexerStatusSnapshot["state"]>(["counting", "indexing", "validating"]);
 
 export interface ArchitectureViewServiceOptions {
@@ -84,6 +90,14 @@ export interface ArchitectureViewServiceOptions {
   writeClipboard: (text: string) => Promise<void>;
   /** Indexed files whose unresolved imports may resolve to `filePath` once it exists. */
   unresolvedImportersOf: (filePath: string) => string[];
+  /** Asks for one unit of the units level (Show Folder Diagram without a folder); undefined on Escape. */
+  pickUnit?: (units: { key: string; role: string }[]) => Promise<string | undefined>;
+}
+
+/** The file an export writes: the E2E driver's `output` once checked to stay in the workspace (CWE-22), else the user's pick. */
+export function workspaceExportFile(output: string | undefined, workspaceRoot: string, pick: () => Promise<string | undefined>): Promise<string | undefined> {
+  if (output === undefined) return pick();
+  return Promise.resolve(validateWorkspacePath(path.resolve(workspaceRoot, output), workspaceRoot));
 }
 
 /**
@@ -167,6 +181,14 @@ interface LevelGraph {
   graph: ArchitectureGraph;
   files: Set<string>;
   hidden: HiddenGroup[];
+}
+
+/** The units the units level draws when it has more than the diagram cap: the export's ranking, so both draw the same units. */
+function unitCap(source: UnitSource | undefined, workspaceRoot: string): Pick<ArchitectureSummaryMessage, "unitCap"> {
+  if (!source) return {};
+  const input = architectureDiagramInput(source, workspaceRoot);
+  if (input.nodes.length <= MAX_DIAGRAM_NODES) return {};
+  return { unitCap: { drawnUnits: capNodes(input).nodes.map((node) => node.key), totalUnits: input.nodes.length, cap: MAX_DIAGRAM_NODES } };
 }
 
 /** Keys the E2E driver may press on the canvas: navigation and zoom only. */
@@ -289,9 +311,9 @@ function exportLevel({ view, folder, role, minImports }: ArchitectureExportDiagr
 }
 
 /** The format of an export file, by its extension. */
-function exportFormat(file: string): "svg" | "html" | "png" {
+function exportFormat(file: string): "svg" | "html" | "png" | "diagram-spec" {
   const format = EXPORT_FORMATS[path.extname(file).toLowerCase()];
-  if (format === undefined) throw new Error(`${path.basename(file)}: save as .svg, .html or .png`);
+  if (format === undefined) throw new Error(`${path.basename(file)}: save as .svg, .html, .png or .json`);
   return format;
 }
 
@@ -341,7 +363,11 @@ export class ArchitectureViewService {
    * The running build; `reading` once the index it waited for is idle, `indexRan` when an index run started since.
    * Unlike `changedDuringBuild`, an aborted build's index run is not carried: the next build waits for it.
    */
-  private running: { controller: AbortController; communityMode: CommunityMode; startedAt: number; reading: boolean; indexRan: boolean } | null = null;
+  private running: { controller: AbortController; communityMode: CommunityMode; startedAt: number; reading: boolean; indexRan: boolean; done: Promise<void> } | null = null;
+  /** The last build ended in an error: its `architectureState` replaced the older summary in the view. */
+  private buildFailed = false;
+  /** A scope a command asked for before the Architecture mode mounted: posted once its summary is. */
+  private pendingScope: (() => void) | null = null;
   /** Groups drawn per level; Show more groups raises it for the rest of the session. */
   private maxGroups = DEFAULT_RENDERED_GROUPS;
   private buildCount = 0;
@@ -378,7 +404,7 @@ export class ArchitectureViewService {
   handleWebviewMessage(message: ArchitectureWebviewCommand): Promise<void> {
     switch (message.command) {
       case "architectureMounted":
-        return this.show();
+        return this.show().then(() => this.postPendingScope());
       case "architectureRefresh":
         return this.build();
       case "architectureRendered":
@@ -451,7 +477,102 @@ export class ArchitectureViewService {
       case "architectureRasterized":
         this.rasterRequests.get(Number(message.requestId))?.(message);
         return Promise.resolve();
+      // GraphProvider routes the diagram tabs' commands to the flow service, showDirectory, showUnits and showMatrix.
+      case "flowOpenLocation":
+      case "flowExportDiagram":
+      case "flowRefresh":
+      case "flowShowCallGraph":
+      case "diagramRescope":
+      case "diagramFollow":
+        return Promise.resolve();
     }
+  }
+
+  /**
+   * Resolves once a summary for the communityMode setting is cached, waiting for a running build (and
+   * the newer one that replaced it) or starting one: true with a summary, false on cancel (the build
+   * goes on) or when the build ended empty or in an error (its `architectureState` is already posted).
+   */
+  private async whenSummary(token?: CancelToken): Promise<boolean> {
+    const running = this.running;
+    if (running) return (await untilCancelled(running.done, token)) && this.whenSummary(token);
+    if (this.summary?.context.communityMode !== this.options.readCommunityMode() && !(await untilCancelled(this.build(), token))) return false;
+    return this.summary !== null && !this.buildFailed && !this.disposed;
+  }
+
+  /** Posts a scope now, or once the Architecture mode mounts (`whenMounted`): it must follow the summary. */
+  private postScope(post: () => void, whenMounted: boolean | undefined): void {
+    if (whenMounted) this.pendingScope = post;
+    else post();
+  }
+
+  private async postPendingScope(): Promise<void> {
+    const post = this.pendingScope;
+    this.pendingScope = null;
+    if (post && (await this.whenSummary())) post();
+  }
+
+  /**
+   * Shows the level that draws a workspace directory (relative, "/"-separated): its unit, then the folder
+   * levels down to it, then `architectureScope`. No directory: asks for a unit. The workspace root draws
+   * the units. False when nothing was scoped; the reason is told unless `quiet` (Follow cursor).
+   */
+  async showDirectory(
+    relativeDir: string | undefined,
+    options: { quiet?: boolean; token?: CancelToken; whenMounted?: boolean } = {},
+  ): Promise<boolean> {
+    if (relativeDir === "") return this.showUnits(options);
+    if (!(await this.whenSummary(options.token))) return false;
+    if (!this.graph?.source) {
+      if (!options.quiet) this.options.notify("Graph-It-Live: the Folder diagram draws units: set graph-it-live.communityMode to path.", "info");
+      return false;
+    }
+    const chain = relativeDir === undefined ? await this.pickUnit() : this.folderChain(relativeDir, options.quiet);
+    if (chain === undefined) return false;
+    this.postScope(() => {
+      const revision = this.summary!.revision;
+      // Every level of the chain, so the webview's breadcrumb and Back walk them as a double-click does.
+      for (const key of chain) this.postFolderLevel(revision, key);
+      this.options.post({ type: "architectureScope", revision, tab: "folder", unit: chain[0], folders: chain.slice(1) });
+    }, options.whenMounted);
+    return true;
+  }
+
+  /** The keys down to a directory, or undefined once the reason is told (unless quiet). */
+  private folderChain(directory: string, quiet: boolean | undefined): string[] | undefined {
+    const tell = (message: string) => {
+      if (!quiet) this.options.notify(`Graph-It-Live: ${message}`, "info");
+      return undefined;
+    };
+    try {
+      const chain = directoryFolderChain(this.graph!.source!.assignment, directory);
+      return chain.length > 0 ? chain : tell(`"${directory}" holds several units: right-click the folder of one of them, or pick Units.`);
+    } catch (error) {
+      return tell(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /** The chain of the unit the user picks (a unit is its own first level); undefined on Escape. */
+  private async pickUnit(): Promise<string[] | undefined> {
+    const units = this.summary?.units?.units ?? [];
+    const key = await this.options.pickUnit?.(units.map(({ key, role }) => ({ key, role })));
+    return units.some((unit) => unit.key === key) ? [key!] : undefined;
+  }
+
+  /** Units tab: the units level, once a summary is cached (see whenSummary). */
+  showUnits(options: { token?: CancelToken; whenMounted?: boolean } = {}): Promise<boolean> {
+    return this.showLevelTab("units", options);
+  }
+
+  /** Matrix tab: the matrix of the units level, once a summary is cached. */
+  showMatrix(options: { token?: CancelToken; whenMounted?: boolean } = {}): Promise<boolean> {
+    return this.showLevelTab("matrix", options);
+  }
+
+  private async showLevelTab(tab: Exclude<ArchitectureScopeMessage["tab"], "folder">, options: { token?: CancelToken; whenMounted?: boolean }): Promise<boolean> {
+    if (!(await this.whenSummary(options.token))) return false;
+    this.postScope(() => this.options.post({ type: "architectureScope", revision: this.summary!.revision, tab, unit: null, folders: [] }), options.whenMounted);
+    return true;
   }
 
   /**
@@ -474,7 +595,7 @@ export class ArchitectureViewService {
       const format = file === undefined ? "svg" : exportFormat(file);
       const { markup, width, height } = await renderSourceDiagram(cached.source, workspaceRoot, {
         ...exportLevel(message),
-        format: format === "html" ? "html" : "svg",
+        format: format === "png" ? "svg" : format,
         theme: this.options.diagramTheme(),
         violations: cached.rules && "check" in cached.rules ? cached.rules.check.violations : [],
       });
@@ -491,11 +612,9 @@ export class ArchitectureViewService {
     }
   }
 
-  /** The file to write: the E2E driver's `output` once checked to stay in the workspace (CWE-22), else the user's pick. */
   private exportFile(output: string | undefined): Promise<string | undefined> {
     const { workspaceRoot } = this.options;
-    if (output === undefined) return this.options.pickDiagramFile(path.join(workspaceRoot, "architecture.svg"));
-    return Promise.resolve(validateWorkspacePath(path.resolve(workspaceRoot, output), workspaceRoot));
+    return workspaceExportFile(output, workspaceRoot, () => this.options.pickDiagramFile(path.join(workspaceRoot, "architecture.svg")));
   }
 
   /** The PNG of an SVG at 2×, drawn by the webview: base64. */
@@ -670,7 +789,11 @@ export class ArchitectureViewService {
     const controller = new AbortController();
     const communityMode = this.options.readCommunityMode();
     const startedAt = Date.now();
-    const running = { controller, communityMode, startedAt, reading: false, indexRan: false };
+    let finished = () => {};
+    const done = new Promise<void>((resolve) => {
+      finished = resolve;
+    });
+    const running = { controller, communityMode, startedAt, reading: false, indexRan: false, done };
     this.running = running;
     const { signal } = controller;
     // Every message of this build goes through here: once aborted (replaced or disposed), it posts nothing, progress included.
@@ -697,6 +820,7 @@ export class ArchitectureViewService {
       });
       signal.throwIfAborted();
       this.buildCount += 1;
+      this.buildFailed = false;
       if (graph.scannedFiles === 0) {
         this.summary = null;
         this.graph = null;
@@ -718,6 +842,7 @@ export class ArchitectureViewService {
         stale: running.indexRan || any || [...changed].some(file => files.has(file)),
         ...overview,
         ...rulesView(rules, viewGraph, source?.assignment.unitOf),
+        ...unitCap(source, this.options.workspaceRoot),
       };
       this.graph = { graph: viewGraph, files, hidden, source, rules, folders: new Map(), startedAt };
       // Cleared only once posted: a change seen by an aborted build still applies to the next one.
@@ -727,9 +852,11 @@ export class ArchitectureViewService {
       if (signal.aborted) return;
       // Only workspace-level failures get here (per-file ones are counted in failedFiles); keep the root out of the view.
       const message = maskWorkspaceRoot(error instanceof Error ? error.message : String(error), this.options.workspaceRoot);
+      this.buildFailed = true;
       post({ type: "architectureState", status: "error", message });
     } finally {
       if (this.running?.controller === controller) this.running = null;
+      finished();
     }
   }
 

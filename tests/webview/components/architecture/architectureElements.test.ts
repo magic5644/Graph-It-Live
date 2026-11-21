@@ -5,6 +5,7 @@ import type { ArchitectureSummaryMessage } from "@/shared/architecture-types";
 import type { GraphData } from "@/shared/graph-types";
 import {
   applyMinImports,
+  capUnits,
   ARCHITECTURE_FCOSE_LAYOUT,
   type Expansions,
   FILE_CAP_MESSAGE,
@@ -50,6 +51,26 @@ function summaryOf(data: GraphData): ArchitectureSummaryMessage {
   const graph = { context: { revision: "r1", communityMode: "path" }, graphData: data, scannedFiles: 4, analyzedFiles: 4 } as unknown as ArchitectureGraph;
   return { type: "architectureSummary", revision: "r1", stale: false, ...overviewArchitecture(graph, 150) };
 }
+
+describe("capUnits", () => {
+  const node = (id: string, data: Record<string, string> = {}) => ({ group: "nodes" as const, data: { id, ...data } });
+  const edge = (source: string, target: string) => ({ group: "edges" as const, data: { id: `${source}-${target}`, source, target } });
+  const elements = [
+    node("cycle-0", { cycle: "true" }), node("cycle-1", { cycle: "true" }),
+    node("group-1", { unitKey: "a", parent: "cycle-0" }), node("group-2", { unitKey: "b", parent: "cycle-0" }),
+    node("group-3", { unitKey: "c", parent: "cycle-1" }), node("group-4", { unitKey: "d" }),
+    edge("group-1", "group-2"), edge("group-1", "group-3"), edge("group-4", "group-1"),
+  ];
+
+  it("keeps the drawn units, the cycle blocks holding one, and the edges between what stays", () => {
+    expect(capUnits(elements, ["a", "d"]).map((element) => element.data.id)).toEqual(["cycle-0", "group-1", "group-4", "group-4-group-1"]);
+  });
+
+  it("keeps everything without a cap, and nothing for an empty list", () => {
+    expect(capUnits(elements, undefined)).toBe(elements);
+    expect(capUnits(elements, [])).toEqual([]);
+  });
+});
 
 describe("toArchitectureElements", () => {
   it("renders one node per group plus unassigned and one edge per group edge", () => {
