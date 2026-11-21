@@ -30,12 +30,19 @@ import {
   type ArchitectureRulesView,
   type ArchitectureStateMessage,
   type ArchitectureSummaryMessage,
+  type ArchitectureScopeMessage,
   type ArchitectureWebviewCommand,
+  type DiagramCrumb,
+  type DiagramContextMessage,
+  type DiagramTab,
+  type FlowDiagramMessage,
+  type FlowDiagramStateMessage,
 } from "../../../shared/architecture-types";
 import { buildArchitectureStylesheet } from "../cytoscape/CytoscapeTheme";
 import {
   applyMinImports,
   applyRoleFilter,
+  capUnits,
   ARCHITECTURE_FCOSE_LAYOUT,
   bandLabel,
   describeNode,
@@ -76,6 +83,9 @@ import { LoadingState } from "../LoadingState";
 import { rasterizeSvg } from "./rasterizeSvg";
 import { parseColor, type Rgba, themeKindOf } from "./unitColors";
 import { isExtensionMessageOrigin } from "../../utils/messageOrigin";
+import { DiagramBreadcrumb } from "./DiagramBreadcrumb";
+import { DiagramTabs, focusSelectedTab, FollowToggle, UnitCapBanner } from "./DiagramTabs";
+import { FlowDiagramPanel, type FlowState, NO_FLOW, pressFlowKeys, receiveFlow } from "./FlowDiagramPanel";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -355,6 +365,13 @@ const levelKey = (unit: string | null, folder: string | undefined) => `${unit ??
 
 /** The drawn level as a graph or as its dependency structure matrix. */
 type View = "graph" | "matrix";
+
+/** The selected diagram tab: Flow when shown, else derived from the view and the drawn level. */
+function tabOf(flowShown: boolean, view: View, unit: string | null): DiagramTab {
+  if (flowShown) return "flow";
+  if (view === "matrix") return "matrix";
+  return unit === null ? "units" : "folder";
+}
 
 /** Key of a level's matrix: its revision (a folder's covers the folder), the entered unit and folder. */
 const matrixKey = (revision: string, unit: string | null | undefined, folder: string | undefined) => `${revision}|${unit ?? ""}|${folder ?? ""}`;
@@ -693,7 +710,8 @@ interface GraphControlsProps {
   onMinImports: (minImports: number) => void;
   capReached: boolean;
   view: View;
-  onView: (view: View) => void;
+  /** The diagram tabs (and Follow cursor on Folder): first on the controls' row. */
+  tabs: React.ReactNode;
   /** Groups the find matches where it searched: the canvas, or the matrix rows. */
   findMatches: number;
   /** The extension's answer about the hidden groups, for this query and level. */
@@ -736,24 +754,21 @@ function HiddenMatches({ needle, findMatches, found, onShowMore, canShowMore }: 
   );
 }
 
-/** Graph | Matrix toggle, then find and weak-edge filter: they only change what is drawn, never the counts above. */
+/** The diagram tabs, then find and weak-edge filter: they only change what is drawn, never the counts above. */
 function GraphControls(props: Readonly<GraphControlsProps>) {
-  const { summary, shownEdges, query, onQuery, minImports, onMinImports, capReached, view, onView, unitsLevel, path } = props;
+  const { summary, shownEdges, query, onQuery, minImports, onMinImports, capReached, view, tabs, unitsLevel, path } = props;
   const counts = summary.groupEdges.map((edge) => edge.fileEdgeCount);
-  const toggle = (name: View, label: string) => (
-    <button type="button" aria-pressed={view === name} onClick={() => onView(name)} style={{ fontWeight: view === name ? 600 : undefined }}>{label}</button>
-  );
   return (
     <div style={{ padding: "4px 10px", fontSize: 12, borderBottom: "1px solid var(--vscode-widget-border)" }}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
-        <span>{toggle("graph", "Graph")}{toggle("matrix", "Matrix")}</span>
+        {tabs}
         <input
           type="search"
           aria-label="Find group"
           placeholder="Find group"
           value={query}
           onChange={(event) => onQuery(event.target.value)}
-          // Shrinks beside Graph | Matrix on a narrow view rather than wrapping to a row of its own (#426); max-content keeps its native width on a wide one.
+          // Shrinks beside the diagram tabs on a narrow view rather than wrapping to a row of its own (#426); max-content keeps its native width on a wide one.
           style={{ flex: "1 1 60px", minWidth: 0, maxWidth: "max-content" }}
         />
         {view === "graph" && (
@@ -1085,7 +1100,7 @@ function Breadcrumb(props: Readonly<BreadcrumbProps>) {
   const last = !focused && entered.length === 0;
   return (
     <nav
-      aria-label="Architecture path" style={{ fontSize: 12 }}
+      aria-label="Diagram scope" style={{ fontSize: 12 }}
       title={view === "graph"
         ? "Click: select · Double-click or Enter: enter · Arrows: move · Escape: back · 0, +, -: zoom"
         : "Cell: evidence · Header: enter · Arrows: move · Escape: back"}
@@ -1211,6 +1226,19 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const matricesRef = useRef(new Map<string, ArchitectureMatrixMessage>());
   /** A cell the E2E driver clicks; the matrix selects and reveals it. */
   const [matrixRequest, setMatrixRequest] = useState<{ row: number; column: number } | null>(null);
+  /** The Flow tab is shown; Units, Folder and Matrix derive from the view and the drawn level. */
+  const [flowShown, setFlowShown] = useState(false);
+  const flowShownRef = useRef(flowShown);
+  /** The drawn flow and its request state. */
+  const [flowState, setFlowState] = useState<FlowState>(NO_FLOW);
+  const flowStateRef = useRef(flowState);
+  /** Without a workspace folder, only Flow can be drawn. */
+  const [hasWorkspace, setHasWorkspace] = useState(true);
+  const [follow, setFollow] = useState(false);
+  const followRef = useRef(follow);
+  /** The last folder level drawn: the Folder tab returns to it. */
+  const [lastFolder, setLastFolder] = useState<{ unit: string; folders: readonly string[] } | null>(null);
+  const flowPanelRef = useRef<HTMLDivElement>(null);
   /** The summary, or the entered folder's level shaped as one. */
   const source = useMemo(() => {
     const level = folder === undefined ? undefined : levelsRef.current.get(folder);
@@ -1459,6 +1487,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     setUnit(nextUnit);
     foldersRef.current = nextFolders;
     setFolders(nextFolders);
+    if (nextUnit !== null) setLastFolder({ unit: nextUnit, folders: nextFolders });
   };
   /** Enters a unit (null: back to the units): its folder groups. */
   const selectUnit = (next: string | null) => goTo(next, []);
@@ -1538,6 +1567,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     matricesRef.current.clear();
     setMatrix(null);
     setRoleFilter(null);
+    setLastFolder(null);
     fitRef.current = "all";
   };
   /** A legend click: keeps only this role's units, or shows them all again. */
@@ -1646,6 +1676,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
    * group, else drops the focus, else goes up one folder, else back to the units, else clears the highlight.
    */
   const key = (event: KeyboardEvent, clearFocus: () => void) => {
+    // The Flow panel handles its own keys.
+    if (flowShownRef.current) return;
     const selected = pinnedRef.current?.length === 1 ? pinnedRef.current[0] : undefined;
     if (event.key === "Enter") {
       const typing = event.target instanceof HTMLElement && event.target.closest("input, button, textarea") !== null;
@@ -1666,7 +1698,11 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     else if (graph && focusRef.current !== null) updateFocus(null, "all");
     else if (foldersRef.current.length > 0) upOneFolder();
     else if (unitRef.current !== null) selectUnit(null);
-    else if (graph) clearFocus();
+    else {
+      if (graph) clearFocus();
+      // Nothing left to leave: back to the tab strip.
+      focusSelectedTab();
+    }
   };
   const receiveSummary = (message: ArchitectureSummaryMessage) => {
     // Group ids and pages only hold for their revision; a stale mark or a rebuild of the same graph keeps them,
@@ -1686,9 +1722,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       setLevelsVersion((version) => version + 1);
       return;
     }
-    if (pendingFolderRef.current !== key) return;
+    // Kept even when not asked for: a re-scope (architectureScope) posts its levels first.
     levelsRef.current.set(key, level);
-    goTo(unitRef.current, [...foldersRef.current, key]);
+    if (pendingFolderRef.current === key) goTo(unitRef.current, [...foldersRef.current, key]);
   };
   /** Kept only for the drawn level and the current query: a late answer is dropped. */
   const receiveFound = (message: ArchitectureFoundMessage) => {
@@ -1769,7 +1805,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (key !== undefined) document.querySelector<HTMLButtonElement>(`[aria-label="Units"] button[data-unit="${CSS.escape(key)}"]`)?.click();
     if (cycleCount) document.querySelector<HTMLButtonElement>("button[data-cycle-count]")?.click();
     const container = containerRef.current;
-    if (!keys || !container) return;
+    if (keys && flowShownRef.current) pressFlowKeys(flowPanelRef.current, keys);
+    if (!keys || !container || flowShownRef.current) return;
     container.focus();
     for (const pressed of keys) container.dispatchEvent(new KeyboardEvent("keydown", { key: pressed, bubbles: true, cancelable: true }));
   };
@@ -1803,9 +1840,91 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
       showDependents(selected);
     }
   };
+  const showFlow = (shown: boolean) => {
+    flowShownRef.current = shown;
+    setFlowShown(shown);
+  };
+  /** A tab click: Flow, the Matrix of the drawn level, the units, or the last folder level drawn. */
+  const selectTab = (tab: DiagramTab) => {
+    showFlow(tab === "flow");
+    if (tab === "flow") return;
+    switchView(tab === "matrix" ? "matrix" : "graph");
+    const target = tab === "units" ? { unit: null, folders: [] } : lastFolder;
+    if (target && (target.unit !== unitRef.current || target.folders.join("\0") !== foldersRef.current.join("\0"))) goTo(target.unit, target.folders);
+  };
+  const updateFollow = (enabled: boolean) => {
+    followRef.current = enabled;
+    setFollow(enabled);
+  };
+  const toggleFollow = (enabled: boolean) => {
+    updateFollow(enabled);
+    const tab = tabOf(flowShownRef.current, viewRef.current, unitRef.current);
+    post({ command: "diagramFollow", enabled, ...(tab === "flow" || tab === "folder" ? { tab } : {}) });
+  };
+  /** A breadcrumb click re-scopes by hand: Follow turns off. */
+  const unfollow = () => {
+    if (followRef.current) toggleFollow(false);
+  };
+  const crumbUnits = () => {
+    unfollow();
+    selectUnit(null);
+  };
+  const crumbLevel = (depth: number) => {
+    unfollow();
+    goTo(unitRef.current, foldersRef.current.slice(0, depth));
+  };
+  /** Flow breadcrumb: the workspace shows the units; a unit or folder its Folder diagram, a file its symbols (the extension asks which). */
+  const flowCrumb = (crumb: DiagramCrumb) => {
+    unfollow();
+    if (crumb.kind === "workspace") {
+      if (hasWorkspace) selectTab("units");
+      return;
+    }
+    post({ command: "diagramRescope", tab: crumb.kind === "unit" || crumb.kind === "folder" ? "folder" : "flow", crumb });
+  };
+  /** Commands about the flow echo the latest request (a state may be newer than the drawn flow). */
+  const postFlow = (make: (requestId: number) => ArchitectureWebviewCommand) => {
+    const requestId = flowStateRef.current.status?.requestId ?? flowStateRef.current.flow?.requestId;
+    if (requestId !== undefined) post(make(requestId));
+  };
+  /** A step or call of the drawn flow: indices into its message, never a path (the extension looks it up). */
+  const openFlow = (kind: "node" | "edge", index: number) => {
+    const requestId = flowStateRef.current.flow?.requestId;
+    if (requestId !== undefined) post({ command: "flowOpenLocation", requestId, target: { kind, index } });
+  };
+  const receiveFlowMessage = (message: FlowDiagramMessage | FlowDiagramStateMessage) => {
+    const { next, selects } = receiveFlow(flowStateRef.current, message);
+    flowStateRef.current = next;
+    setFlowState(next);
+    if (selects) showFlow(true);
+  };
+  const receiveContext = ({ hasWorkspace: workspace, follow: following }: DiagramContextMessage) => {
+    setHasWorkspace(workspace);
+    updateFollow(following);
+    if (workspace) return;
+    // No summary comes without a folder: the build spinner goes, Flow is the one tab.
+    setState(null);
+    showFlow(true);
+  };
+  /** A re-scope from a command, the Explorer or Follow: units, a folder level (its levels came first), or the matrix of the drawn level. */
+  const receiveScope = ({ revision, tab, unit: nextUnit, folders: nextFolders }: ArchitectureScopeMessage) => {
+    if (revision !== summaryRef.current?.revision || nextFolders.some((key) => !levelsRef.current.has(key))) return;
+    showFlow(false);
+    switchView(tab === "matrix" ? "matrix" : "graph");
+    if (tab !== "matrix") goTo(nextUnit, nextFolders);
+  };
+  /** E2E driver: real clicks on a tab, a flow step or call, the Follow toggle. */
+  const controlDiagram = ({ tab, flowNode, flowEdge, follow: following }: ArchitectureControlsMessage) => {
+    const click = (selector: string) => document.querySelector<HTMLButtonElement>(selector)?.click();
+    if (tab !== undefined) click(`[role="tab"][data-tab="${CSS.escape(tab)}"]`);
+    if (flowNode !== undefined) click(`button[data-flow-node="${Number(flowNode)}"]`);
+    if (flowEdge !== undefined) click(`button[data-flow-edge="${Number(flowEdge)}"]`);
+    if (following !== undefined && following !== followRef.current) click("button[data-follow]");
+  };
   /** E2E driver: the same actions as a user, groups named by key. */
   const control = (message: ArchitectureControlsMessage) => {
     if (message.exportDiagram) exportDiagram(message.exportDiagram.target);
+    controlDiagram(message);
     controlMatrix(message);
     // Entering a unit first: the group keys below are those of the unit's groups, drawn on the next render.
     if (message.unit !== undefined) {
@@ -1857,10 +1976,21 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         return control(message);
       case "architectureRasterize":
         return rasterize(message);
+      case "diagramContext":
+        return receiveContext(message);
+      case "architectureScope":
+        return receiveScope(message);
+      case "flowDiagram":
+      case "flowDiagramState":
+        return receiveFlowMessage(message);
     }
   };
   /** Export / Copy Architecture Diagram (the view's toolbar): the drawn level and the filters that change what it draws; the analyzer renders it. */
   const exportDiagram = (target: ArchitectureExportTarget) => {
+    if (flowShownRef.current) {
+      postFlow((requestId) => ({ command: "flowExportDiagram", requestId, target }));
+      return;
+    }
     // Without units (Louvain mode) the extension says why it draws nothing.
     if (!summary) return;
     const graph = view === "graph";
@@ -1879,7 +2009,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const actions = {
     tap, dbltap, key, canvasKey, zoom, legendUnit, showCycle, showBands, chrome, markSelected, openFile, moreEvidence, receive, overview, leave, updateFocus, selectUnit, goTo, openRule, toggleRole, showMoreGroups,
     switchView, matrixCell, matrixHeader, matrixPainted, enterable, rowColor, levelOf, contextMenu, selectionActions, toggleDependentRow,
-    moreDependentFiles, updateDependents,
+    moreDependentFiles, updateDependents, selectTab, toggleFollow, crumbUnits, crumbLevel, flowCrumb, openFlow, postFlow,
   };
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
@@ -2006,7 +2136,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (freshRevision) filePositions.clear();
     // A page, a collapse or a stale mark redraws the same graph: keep what was tapped.
     const pinnedIds = new Set(freshLevel ? [] : (pinnedRef.current?.map((element) => element.id()) ?? []));
-    const elements = toLevelElements(source, unit, expansions, folder);
+    // Past the units cap, only the units the export draws (same ranking): the banner says so.
+    const elements = capUnits(toLevelElements(source, unit, expansions, folder), unit === null ? summary.unitCap?.drawnUnits : undefined);
     cy.elements().remove();
     cy.add(elements);
     pinnedRef.current = pinnedIds.size > 0 ? cy.elements().filter((element) => pinnedIds.has(element.id())) : null;
@@ -2193,17 +2324,47 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   }, [view, revision, unit, folders]);
 
   const refresh = () => postMessageRef.current({ command: "architectureRefresh" });
+  /** Show list: the units legend opens, its list takes the focus. */
+  const showUnitList = () => {
+    if (legendRef.current) legendRef.current.open = true;
+    legendRef.current?.querySelector<HTMLButtonElement>('[aria-label="Units"] button')?.focus();
+  };
   const unitsLevel = summary?.units !== undefined && unit === null;
   const levelName = unitsLevel ? "the units" : [unit, ...folders].findLast(Boolean) ?? "the groups";
   const actionTarget = view === "matrix" ? rowSelection(drawn, focusId, unitsLevel) : selection;
   const shownPanel = shownPanelOf(panel, evidence !== null, dependents !== null);
   const tabs = evidence && dependents && shownPanel ? <PanelTabs panel={shownPanel} onPanel={setPanel} /> : undefined;
+  const tab = tabOf(flowShown, view, unit);
+  const tabState = { hasWorkspace, folderEntered: lastFolder !== null, flowAvailable: flowState.flow !== null || flowState.status !== null };
+  const tabStrip = (
+    <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+      <DiagramTabs tab={tab} state={tabState} onTab={(next) => actionsRef.current.selectTab(next)} />
+      {(tab === "flow" || tab === "folder") && <FollowToggle follow={follow} onFollow={(enabled) => actionsRef.current.toggleFollow(enabled)} />}
+    </span>
+  );
+  /** The Units, Folder or Matrix diagram is shown (not Flow, not a build state). */
+  const architectureShown = !state && !flowShown;
+  const header = Boolean(architectureShown && summary && drawn);
   return (
     <div ref={rootRef} style={{ position: "relative", display: "flex", flexDirection: "column", width: "100%", height: "100%" }}>
-      {state && (
+      {!header && (
+        // Above the build cover: Flow stays reachable while the architecture builds.
+        <div style={{
+          position: "relative", zIndex: 2, display: "flex", flexWrap: "wrap", gap: 8, alignItems: "center", padding: "4px 10px", fontSize: 12,
+          background: "var(--vscode-sideBar-background)", borderBottom: "1px solid var(--vscode-widget-border)",
+        }}>
+          {tabStrip}
+          {flowShown && (
+            <DiagramBreadcrumb
+              crumbs={flowState.status?.crumbs ?? flowState.flow?.crumbs ?? []} onCrumb={(crumb) => actionsRef.current.flowCrumb(crumb)}
+            />
+          )}
+        </div>
+      )}
+      {state && !flowShown && (
         <StatePanel state={state} onRetry={refresh} onSettings={() => postMessageRef.current({ command: "architectureOpenSettings" })} />
       )}
-      {!state && summary && drawn && (
+      {header && summary && drawn && (
         <>
           <SummaryHeader
             summary={summary} level={drawn} onShowMore={() => actionsRef.current.showMoreGroups()}
@@ -2221,7 +2382,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onMinImports={setMinImports}
             capReached={capReached}
             view={view}
-            onView={(next) => actionsRef.current.switchView(next)}
+            tabs={tabStrip}
             findMatches={view === "matrix" ? matrixMatches.length : findMatches}
             found={found}
             onShowMore={() => actionsRef.current.showMoreGroups()}
@@ -2230,8 +2391,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             summary={drawn}
             unit={unit}
             folders={folders}
-            onUnits={() => actionsRef.current.selectUnit(null)}
-            onLevel={(depth) => actionsRef.current.goTo(unit, folders.slice(0, depth))}
+            onUnits={() => actionsRef.current.crumbUnits()}
+            onLevel={(depth) => actionsRef.current.crumbLevel(depth)}
             expansions={expansions}
             focusId={focusId}
             onOverview={() => actionsRef.current.overview()}
@@ -2241,11 +2402,14 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             view={view}
             />}
           />
+          {tab === "units" && summary.unitCap && (
+            <UnitCapBanner unitCap={summary.unitCap} onMatrix={() => actionsRef.current.selectTab("matrix")} onList={showUnitList} />
+          )}
         </>
       )}
-      <div ref={canvasAreaRef} style={{ position: "relative", flex: 1, minHeight: 0, visibility: state ? "hidden" : "visible" }}>
+      <div ref={canvasAreaRef} style={{ position: "relative", flex: 1, minHeight: 0, visibility: state && !flowShown ? "hidden" : "visible" }}>
         {/* Hidden on a wrapper: the ELK layout shows and hides the container itself. */}
-        <div style={{ position: "absolute", inset: 0, overflow: "hidden", visibility: view === "matrix" ? "hidden" : undefined }}>
+        <div style={{ position: "absolute", inset: 0, overflow: "hidden", visibility: view === "matrix" || flowShown ? "hidden" : undefined }}>
           <div ref={bandsLayerRef} aria-hidden="true" style={{ position: "absolute", inset: 0, pointerEvents: "none" }} />
           {/* Enter and Escape are window-wide; arrows and zoom keys need the canvas focused. */}
           <div
@@ -2254,7 +2418,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             aria-describedby={LIVE_REGION}
             style={{ position: "absolute", inset: 0, outlineOffset: -2 }}
           />
-          {!state && summary && drawn && (
+          {header && summary && drawn && (
             <CanvasOverlays
               summary={summary} drawn={drawn} unitsLevel={unitsLevel} view={view} legendRef={legendRef}
               onZoom={(action) => actionsRef.current.zoom(action)} onUnit={(key) => actionsRef.current.legendUnit(key)}
@@ -2263,8 +2427,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
           )}
         </div>
         <output id={LIVE_REGION} aria-live="polite" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clipPath: "inset(50%)" }} />
-        {!state && view === "matrix" && !matrix && <div style={LOADING_COVER}><LoadingState message="Building the matrix…" /></div>}
-        {!state && view === "matrix" && matrix && (
+        {architectureShown && view === "matrix" && !matrix && <div style={LOADING_COVER}><LoadingState message="Building the matrix…" /></div>}
+        {architectureShown && view === "matrix" && matrix && (
           <ArchitectureMatrix
             matrix={matrix.matrix}
             violations={matrix.violations}
@@ -2279,13 +2443,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onPaint={(paint) => actionsRef.current.matrixPainted(paint)}
           />
         )}
-        {!state && actionTarget && (
+        {architectureShown && actionTarget && (
           <SelectionActions selection={actionTarget} actions={actionsRef.current.selectionActions(actionTarget)} />
         )}
-        {!state && menu && selection && view === "graph" && (
+        {architectureShown && menu && selection && view === "graph" && (
           <SelectionMenu at={menu} actions={actionsRef.current.selectionActions(selection)} onClose={() => setMenu(null)} />
         )}
-        {!state && evidence && shownPanel === "evidence" && (
+        {architectureShown && evidence && shownPanel === "evidence" && (
           <EvidencePanel
             evidence={evidence}
             unit={unit}
@@ -2296,7 +2460,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             tabs={tabs}
           />
         )}
-        {!state && dependents && shownPanel === "dependents" && (
+        {architectureShown && dependents && shownPanel === "dependents" && (
           <DependentsPanel
             dependents={dependents}
             tabs={tabs}
@@ -2304,6 +2468,15 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onRow={(groupKey) => actionsRef.current.toggleDependentRow(groupKey)}
             onMore={(groupKey) => actionsRef.current.moreDependentFiles(groupKey)}
             onClear={() => actionsRef.current.updateDependents(null)}
+          />
+        )}
+        {flowShown && (
+          <FlowDiagramPanel
+            state={flowState} panelRef={flowPanelRef}
+            onOpen={(kind, index) => actionsRef.current.openFlow(kind, index)}
+            onRefresh={() => actionsRef.current.postFlow((requestId) => ({ command: "flowRefresh", requestId }))}
+            onShowCallGraph={() => actionsRef.current.postFlow((requestId) => ({ command: "flowShowCallGraph", requestId }))}
+            onEscape={focusSelectedTab}
           />
         )}
       </div>

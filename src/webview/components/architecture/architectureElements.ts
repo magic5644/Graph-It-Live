@@ -671,6 +671,20 @@ function edgeRuleData(rules: readonly UnitRuleCheck[] | undefined) {
   return { ruled: true, ruleLabel: `breaks ${broken[0]}${more}` };
 }
 
+/**
+ * The units level past the diagram cap: only `drawnUnits` (the export's ranking), the cycle blocks
+ * holding one of them, and the edges between what stays. Undefined keeps every element.
+ */
+export function capUnits(elements: ArchitectureElement[], drawnUnits: readonly string[] | undefined): ArchitectureElement[] {
+  if (!drawnUnits) return elements;
+  const drawn = new Set(drawnUnits);
+  const units = elements.filter((element) => element.group === "nodes" && drawn.has(String(element.data.unitKey)));
+  const kept = new Set<unknown>(units.flatMap((element) => [element.data.id, element.data.parent]));
+  return elements.filter((element) => (element.group === "nodes"
+    ? kept.has(element.data.id)
+    : kept.has(element.data.source) && kept.has(element.data.target)));
+}
+
 /** Hides (class `filtered`) the units of other roles and their edges; null shows them all. Returns the units left. */
 export function applyRoleFilter(cy: Core, role: string | null): number {
   cy.batch(() => {

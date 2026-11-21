@@ -9,6 +9,7 @@ import type { VsCodeLogger } from "../extensionLogger";
 import { WebviewManager } from "../WebviewManager";
 import { resolvePreferredWorkspaceFolder } from "../workspaceFolder";
 import { ArchitectureViewService } from "./ArchitectureViewService";
+import { diagramThemeFor } from "./FlowDiagramService";
 import { BackgroundIndexingManager } from "./BackgroundIndexingManager";
 import { EditorNavigationService } from "./EditorNavigationService";
 import type { GraphRefreshReason } from "./ExtensionEventHub";
@@ -250,17 +251,22 @@ export function createGraphProviderServiceContainer(
           const show = level === "error" ? vscode.window.showErrorMessage : vscode.window.showInformationMessage;
           void show(message);
         },
-        diagramTheme: () =>
-          [vscode.ColorThemeKind.Dark, vscode.ColorThemeKind.HighContrast].includes(vscode.window.activeColorTheme.kind) ? "dark" : "light",
+        diagramTheme: () => diagramThemeFor(vscode.window.activeColorTheme.kind),
         pickDiagramFile: async (defaultPath) => {
           const uri = await vscode.window.showSaveDialog({
             defaultUri: vscode.Uri.file(defaultPath),
-            filters: { SVG: ["svg"], HTML: ["html"], PNG: ["png"] },
+            filters: { SVG: ["svg"], HTML: ["html"], PNG: ["png"], "Diagram spec": ["json"] },
             title: "Export Architecture Diagram",
           });
           return uri?.fsPath;
         },
         writeClipboard: (text) => Promise.resolve(vscode.env.clipboard.writeText(text)),
+        pickUnit: async (units) => {
+          const picked = await vscode.window.showQuickPick(units.map(({ key, role }) => ({ label: key, description: role })), {
+            placeHolder: "Pick the unit whose Folder diagram to show",
+          });
+          return picked?.label;
+        },
       });
     });
 

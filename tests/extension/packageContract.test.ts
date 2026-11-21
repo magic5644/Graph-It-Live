@@ -1,7 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { SUPPORTED_SOURCE_FILE_REGEX } from "../../src/shared/constants";
+import { fileExtToLang } from "../../src/analyzer/callgraph/GraphExtractor";
+import { SUPPORTED_SOURCE_EXTENSIONS, SUPPORTED_SOURCE_FILE_REGEX } from "../../src/shared/constants";
 
 // The VS Code contract (#770): package.json declares what the code does, and nothing else.
 interface SettingSchema {
@@ -106,6 +107,25 @@ describe("package.json commands", () => {
       expect(contributed).toContain(id);
       expect(palette.get(id), id).toBe("false");
     }
+  });
+
+  it("offers Show Flow Diagram in the editor menu for exactly the call graph's files (#795)", () => {
+    const entry = pkg.contributes.menus["editor/context"].find((item) => item.command === "graph-it-live.showFlowDiagram") as MenuEntry & { group?: string };
+    const match = /^editorTextFocus && resourceExtname =~ \/\\\.\(([\w|]+)\)\$\/$/.exec(entry?.when ?? "");
+    expect(match, entry?.when).not.toBeNull();
+    // The call graph reads every source extension but the .csproj XML (CallGraphViewService langFromPath).
+    const callGraph = SUPPORTED_SOURCE_EXTENSIONS.filter((extension) => extension !== "csproj" && fileExtToLang(`a.${extension}`) !== null);
+    expect(match![1].split("|").sort()).toEqual([...callGraph].sort());
+    expect(entry.group).toBe("navigation@98");
+  });
+
+  it("offers Show Diagram on Explorer files and Show Folder Diagram on Explorer folders (#795)", () => {
+    const explorer = pkg.contributes.menus["explorer/context"] as (MenuEntry & { group?: string })[];
+    expect(explorer.map(({ command, when, group }) => [command, when, group])).toEqual([
+      ["graph-it-live.showDiagram", "!explorerResourceIsFolder", "navigation@98"],
+      ["graph-it-live.showFolderDiagram", "explorerResourceIsFolder", "navigation@98"],
+    ]);
+    for (const id of ["graph-it-live.showDiagram", "graph-it-live.showFlowDiagram", "graph-it-live.showFolderDiagram"]) expect(contributed).toContain(id);
   });
 
   it("offers Show Dependency Graph in the editor title for exactly the supported source files", () => {

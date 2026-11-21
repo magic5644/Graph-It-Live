@@ -64,6 +64,7 @@ function createProviderMock(): GraphProvider {
     getCallGraphCycleCount: vi.fn().mockReturnValue(4),
     getFileGraphNodeMetadata: vi.fn().mockReturnValue({}),
     getFileGraphRoot: vi.fn().mockReturnValue(undefined),
+    getFlowE2EState: vi.fn().mockReturnValue({ requestId: 7, nodes: ['Step 1 of 1: run, a.ts:1, main lane'] }),
     getArchitectureE2EState: vi.fn().mockReturnValue({
       buildCount: 2, renderCount: 3, groupCount: 20, groupEdgeCount: 6, revision: 'r1', communityMode: 'path', stale: true,
       overlappingGroups: 1, overflowingLabels: 2, positions: 'path:ui@0,0', resizeCount: 4, viewSize: { width: 320, height: 200 },
@@ -174,6 +175,7 @@ describe('CommandRegistrationService', () => {
     const getContext = registeredHandlers.get('getContext')!;
     expect(await getContext('graph-it-live.viewMode')).toBe('file');
     expect(await getContext('graph-it-live.architectureRenderCount')).toBe(3);
+    expect(await getContext('graph-it-live.flowDiagram')).toEqual({ requestId: 7, nodes: ['Step 1 of 1: run, a.ts:1, main lane'] });
     expect(await getContext('graph-it-live.architectureGroupCount')).toBe(20);
     expect(await getContext('graph-it-live.architectureGroupEdgeCount')).toBe(6);
     expect(await getContext('graph-it-live.architectureRevision')).toBe('r1');

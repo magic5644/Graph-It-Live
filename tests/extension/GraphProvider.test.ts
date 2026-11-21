@@ -290,9 +290,32 @@ describe("GraphProvider", () => {
       }
       expect(vscode.window.showInformationMessage).not.toHaveBeenCalled();
       expect(vscode.commands.executeCommand).not.toHaveBeenCalledWith("setContext", "graph-it-live.viewMode", "list");
+
+      // The Flow tab draws a loose file: the Architecture mode opens without a folder (#795).
+      vi.mocked(vscode.window.showWarningMessage).mockClear();
+      await empty.setViewModeArchitecture({ allowNoWorkspace: true });
+      expect(vscode.window.showWarningMessage).not.toHaveBeenCalled();
+      expect(empty.getViewMode()).toBe("architecture");
+      expect(webview.postMessage).toHaveBeenCalledWith({ command: "switchViewMode", mode: "architecture" });
+      const flow = { handleWebviewMessage: vi.fn(async () => {}), onMounted: vi.fn(), setFollow: vi.fn() };
+      empty.setFlowDiagramService(flow as any);
+      const onMessage = webview.onDidReceiveMessage.mock.calls[0][0];
+      await onMessage({ command: "architectureMounted" });
+      await onMessage({ command: "diagramRescope", tab: "units", crumb: { kind: "workspace", label: "w" } });
+      expect(flow.onMounted).toHaveBeenCalledOnce();
+      expect(empty.getArchitectureViewService()).toBeUndefined();
     } finally {
       (vscode.workspace as any).workspaceFolders = folders;
     }
+  });
+
+  it("focuses the view for a Flow diagram without a folder, and says so when it does not open", async () => {
+    vi.mocked(vscode.window.showWarningMessage).mockClear();
+    await provider.setViewModeArchitecture({ allowNoWorkspace: true });
+    expect(vscode.commands.executeCommand).toHaveBeenCalledWith("graph-it-live.graphView.focus");
+    expect(vi.mocked(vscode.window.showWarningMessage).mock.calls[0][0]).toBe(
+      'Graph-It-Live: open the Dependency Graph view to show the Flow diagram (run "Graph-It-Live: Show Dependency Graph").',
+    );
   });
 
   it("asks to open the Dependency Graph view when a view command runs before it", async () => {
@@ -981,15 +1004,49 @@ describe("GraphProvider", () => {
     vi.mocked(vscode.window.showSaveDialog).mockResolvedValueOnce({ fsPath: "/w/a.png" } as any).mockResolvedValueOnce(undefined);
     await expect(options.pickDiagramFile("/w/architecture.svg")).resolves.toBe("/w/a.png");
     expect(vscode.window.showSaveDialog).toHaveBeenCalledWith(expect.objectContaining({
-      defaultUri: { fsPath: "/w/architecture.svg" }, filters: { SVG: ["svg"], HTML: ["html"], PNG: ["png"] },
+      defaultUri: { fsPath: "/w/architecture.svg" }, filters: { SVG: ["svg"], HTML: ["html"], PNG: ["png"], "Diagram spec": ["json"] },
     }));
     await expect(options.pickDiagramFile("/w/architecture.svg")).resolves.toBeUndefined();
     await options.writeClipboard("<svg/>");
     expect(vscode.env.clipboard.writeText).toHaveBeenCalledWith("<svg/>");
 
+    const pickUnit = vi.fn().mockResolvedValueOnce({ label: "src" });
+    (vscode.window as any).showQuickPick = pickUnit;
+    await expect(options.pickUnit([{ key: "src", role: "app" }])).resolves.toBe("src");
+    expect(pickUnit.mock.calls.at(-1)?.[0]).toEqual([{ label: "src", description: "app" }]);
+
+    // The diagram tabs (#795): Flow commands go to the flow service, a breadcrumb to its tab, the rest as before.
+    const flow = { handleWebviewMessage: vi.fn(async () => {}), onMounted: vi.fn(), setFollow: vi.fn(), setControls: vi.fn(), getE2EState: vi.fn(() => ({ requestId: 3 })) };
+    provider.setFlowDiagramService(flow as any);
+    expect(provider.getArchitectureViewService()).toBe(service);
+    const handle = vi.spyOn(service, "handleWebviewMessage").mockResolvedValue(undefined);
+    const showUnits = vi.spyOn(service, "showUnits").mockResolvedValue(true);
+    const showMatrix = vi.spyOn(service, "showMatrix").mockResolvedValue(true);
+    const showDirectory = vi.spyOn(service, "showDirectory").mockResolvedValue(true);
+    for (const command of ["flowOpenLocation", "flowExportDiagram", "flowRefresh", "flowShowCallGraph", "diagramFollow"]) {
+      await onMessage({ command, requestId: 1 });
+    }
+    expect(flow.handleWebviewMessage).toHaveBeenCalledTimes(5);
+    await onMessage({ command: "diagramRescope", tab: "flow", crumb: { kind: "file", label: "a.ts" } });
+    expect(flow.handleWebviewMessage).toHaveBeenCalledTimes(6);
+    await onMessage({ command: "diagramRescope", tab: "units", crumb: { kind: "workspace", label: "w" } });
+    await onMessage({ command: "diagramRescope", tab: "matrix", crumb: { kind: "workspace", label: "w" } });
+    await onMessage({ command: "diagramRescope", tab: "folder", crumb: { kind: "folder", label: "ui", key: "src/ui" } });
+    expect([showUnits.mock.calls.length, showMatrix.mock.calls.length]).toEqual([1, 1]);
+    expect(showDirectory).toHaveBeenCalledWith("src/ui");
+    expect(flow.setFollow).toHaveBeenCalledTimes(3);
+    expect(handle).not.toHaveBeenCalled();
+    await onMessage({ command: "architectureMounted" });
+    expect(flow.onMounted).toHaveBeenCalledOnce();
+    expect(handle).toHaveBeenCalledWith({ command: "architectureMounted" });
+    provider.postToView({ type: "diagramContext", hasWorkspace: true, follow: false });
+    expect(webview.postMessage).toHaveBeenLastCalledWith({ type: "diagramContext", hasWorkspace: true, follow: false });
+    expect(provider.getFlowE2EState()).toEqual({ requestId: 3 });
+
     const setControls = vi.spyOn(service, "setControls").mockReturnValue(undefined);
-    provider.setArchitectureControls({ find: "ui" });
-    expect(setControls).toHaveBeenCalledWith({ find: "ui" });
+    provider.setArchitectureControls({ find: "ui", cancelFlow: true });
+    expect(setControls).toHaveBeenCalledWith({ find: "ui", cancelFlow: true });
+    expect(flow.setControls).toHaveBeenCalledWith({ find: "ui", cancelFlow: true });
 
     Object.assign(getService<any>(graphProviderServiceTokens.spider), { beginShutdown: vi.fn().mockResolvedValue(undefined) });
     vi.spyOn(indexingManager, "dispose").mockResolvedValue(undefined);

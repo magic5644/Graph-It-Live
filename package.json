@@ -221,6 +221,21 @@
         "icon": "$(call-incoming)"
       },
       {
+        "command": "graph-it-live.showDiagram",
+        "title": "Show Diagram…",
+        "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.showFlowDiagram",
+        "title": "Show Flow Diagram (Symbol at Cursor)",
+        "category": "Graph-It-Live"
+      },
+      {
+        "command": "graph-it-live.showFolderDiagram",
+        "title": "Show Folder Diagram",
+        "category": "Graph-It-Live"
+      },
+      {
         "command": "graph-it-live.reviewCallGraph",
         "title": "Open Review Call Graph",
         "category": "Graph-It-Live"
@@ -518,9 +533,26 @@
       ],
       "editor/context": [
         {
+          "command": "graph-it-live.showFlowDiagram",
+          "when": "editorTextFocus && resourceExtname =~ /\\.(ts|tsx|mts|cts|js|jsx|mjs|cjs|vue|svelte|gql|graphql|py|pyi|rs|cs|go|java)$/",
+          "group": "navigation@98"
+        },
+        {
           "command": "graph-it-live.showCallGraph",
           "when": "editorTextFocus",
           "group": "navigation@99"
+        }
+      ],
+      "explorer/context": [
+        {
+          "command": "graph-it-live.showDiagram",
+          "when": "!explorerResourceIsFolder",
+          "group": "navigation@98"
+        },
+        {
+          "command": "graph-it-live.showFolderDiagram",
+          "when": "explorerResourceIsFolder",
+          "group": "navigation@98"
         }
       ],
       "view/item/context": [

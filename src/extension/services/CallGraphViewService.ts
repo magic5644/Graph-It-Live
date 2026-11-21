@@ -14,7 +14,7 @@
  */
 
 import { IndexCache } from "@/analyzer/cache/IndexCache";
-import { type CallGraphEdge, CallGraphIndexer, getSqlJsWasmPath } from "@/analyzer/callgraph/CallGraphIndexer";
+import { type CallGraphEdge, CallGraphIndexer, type CallGraphNode, getSqlJsWasmPath } from "@/analyzer/callgraph/CallGraphIndexer";
 import { queryNeighbourhood } from "@/analyzer/callgraph/CallGraphQuery";
 import { collectChangedFiles, fileExtToLang, getQueryFreshnessCutoffs, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { SourceFileCollector } from "@/analyzer/SourceFileCollector";
@@ -29,12 +29,14 @@ import type {
 import { normalizePath, relativizeWorkspacePaths } from "@/shared/path";
 import { resolveReviewCallGraphPath, REVIEW_CALL_GRAPH_MAX_DEPTH, validateReviewCallGraphTarget } from "@/shared/reviewTarget";
 import crypto from "node:crypto";
+import type { Database } from "sql.js";
 import * as fs from "node:fs";
 import path from "node:path";
 import * as vscode from "vscode";
 import { resolvePreferredWorkspaceFolder } from "../workspaceFolder";
 import type { EventType } from "./FileChangeScheduler";
 import type { ExternalCallerResult, ICallGraphQueryService } from "./ICallGraphQueryService";
+import { untilCancelled } from "./untilCancelled";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -93,6 +95,22 @@ function toSupportedLang(languageId: string): SupportedLang | null {
 function langFromPath(filePath: string): SupportedLang | null {
   // .csproj is XML — not suitable for call graph extraction
   return path.extname(filePath).toLowerCase() === ".csproj" ? null : fileExtToLang(filePath);
+}
+
+/** The most specific symbol whose lines hold `line` (0-based), or null between symbols: no guess. */
+export function symbolAtLine<T extends { startLine: number; endLine: number }>(nodes: readonly T[], line: number): T | null {
+  let best: T | null = null;
+  for (const node of nodes) {
+    if (node.startLine <= line && line <= node.endLine && (!best || node.startLine > best.startLine)) best = node;
+  }
+  return best;
+}
+
+/** The symbols and calls of one file just extracted and indexed, and the folder the flow is drawn against. */
+export interface FileSymbols {
+  nodes: CallGraphNode[];
+  edges: CallGraphEdge[];
+  rootDir: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -291,9 +309,17 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     return !this.disposed && !this.refuseWhileReindexing() && this.activeSourceEditor() !== undefined;
   }
 
-  /** The active editor when the call graph can render it; otherwise tells the user why (#770). */
-  private activeSourceEditor(): { editor: vscode.TextEditor; lang: SupportedLang } | undefined {
-    const editor = vscode.window.activeTextEditor;
+  /** The language of a document the call graph (and the flow diagram) can read, or null. */
+  isFlowSupported(document: { languageId?: string; uri: { fsPath: string } }): SupportedLang | null {
+    // GraphQL has no built-in VS Code language id: fall back to the file extension.
+    return toSupportedLang(document.languageId ?? "") ?? langFromPath(document.uri.fsPath);
+  }
+
+  /** The editor when `feature` can render it; otherwise tells the user why (#770). */
+  activeSourceEditor(
+    feature = "Call Graph",
+    editor: vscode.TextEditor | undefined = vscode.window.activeTextEditor,
+  ): { editor: vscode.TextEditor; lang: SupportedLang } | undefined {
     if (!editor) {
       void vscode.window.showInformationMessage(
         "Graph-It-Live: Open a source file and position the cursor on a symbol first.",
@@ -301,11 +327,10 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       return undefined;
     }
 
-    // GraphQL has no built-in VS Code language id: fall back to the file extension.
-    const lang = toSupportedLang(editor.document.languageId) ?? langFromPath(editor.document.uri.fsPath);
+    const lang = this.isFlowSupported(editor.document);
     if (!lang) {
       void vscode.window.showInformationMessage(
-        `Graph-It-Live: Call Graph is not supported for "${editor.document.languageId}". Supported: TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, Java, GraphQL.`,
+        `Graph-It-Live: ${feature} is not supported for "${editor.document.languageId}". Supported: TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, Java, GraphQL.`,
       );
       return undefined;
     }
@@ -332,20 +357,13 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     this.postMessage({ type: "callGraphIndexing", status: "started", message: "Extracting current file…" });
 
     try {
-      // Without a folder, a loose file is drawn against its own directory: the call graph still works.
-      const workspaceRoot = normalizePath(
-        this.getWorkspaceRoot() ?? path.dirname(filePath),
-      );
-      const indexer = await this.ensureIndexer();
-      if (this.disposed) return;
-      const extractor = this.ensureExtractor(workspaceRoot);
-
       // Step 1: Extract + index the active file immediately (fast; needed for root resolution).
       this.postMessage({ type: "callGraphIndexing", status: "progress", percent: 5, message: "Parsing current file…" });
-      const fileMtime = Date.now();
-      const { nodes, edges } = await extractor.extractFile(filePath, lang, fileMtime);
-      if (this.disposed) return;
-      indexer.indexFile(nodes, edges, filePath, lang, fileMtime);
+      const extracted = await this.extractAndIndexFile(filePath, lang);
+      if (!extracted) return;
+      const { nodes, edges, rootDir: workspaceRoot } = extracted;
+      const indexer = await this.ensureIndexer();
+      const extractor = this.ensureExtractor(workspaceRoot);
 
       // Resolve root node from the just-extracted symbols (avoids DB round-trip).
       const rootNode = this.resolveRootNode(nodes, cursorLine);
@@ -416,6 +434,65 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       this.postMessage({ type: "callGraphIndexing", status: "error", message });
       void vscode.window.showErrorMessage(`Graph-It-Live: could not build the call graph: ${message}`);
     }
+  }
+
+  /**
+   * Flow step 1, cheap: extracts and indexes one file, posting nothing to the call graph view.
+   * Undefined while the call graph re-indexes (said once, unless `quiet`) or once disposed.
+   */
+  extractFileSymbols(filePath: string, lang: SupportedLang, options: { quiet?: boolean } = {}): Promise<FileSymbols | undefined> {
+    if (this.disposed) return Promise.resolve(undefined);
+    if (options.quiet ? this.reindexing : this.refuseWhileReindexing()) return Promise.resolve(undefined);
+    return this.trackOperation(this.extractAndIndexFile(normalizePath(filePath), lang));
+  }
+
+  /** Without a folder, a loose file is drawn against its own directory: the call graph still works. */
+  private async extractAndIndexFile(filePath: string, lang: SupportedLang): Promise<FileSymbols | undefined> {
+    const rootDir = normalizePath(this.getWorkspaceRoot() ?? path.dirname(filePath));
+    const indexer = await this.ensureIndexer();
+    if (this.disposed) return undefined;
+    const extractor = this.ensureExtractor(rootDir);
+    const fileMtime = Date.now();
+    const { nodes, edges } = await extractor.extractFile(filePath, lang, fileMtime);
+    if (this.disposed) return undefined;
+    indexer.indexFile(nodes, edges, filePath, lang, fileMtime);
+    return { nodes, edges, rootDir };
+  }
+
+  /**
+   * Flow step 2, the wait: indexes the workspace (silently, joining a walk in flight), then the file's
+   * import targets and cross-file calls. Undefined on cancel (the shared walk goes on), once disposed, or
+   * when `expectActiveFile` is set and another file became active meanwhile (abandoned, as Show Call Graph does).
+   */
+  indexForFlow(
+    step1: Pick<FileSymbols, "edges" | "rootDir"> & { filePath: string },
+    options: { token: vscode.CancellationToken; expectActiveFile?: string },
+  ): Promise<{ db: Database; extractor: GraphExtractor } | undefined> {
+    if (this.disposed) return Promise.resolve(undefined);
+    return this.trackOperation(this.doIndexForFlow(step1, options));
+  }
+
+  private async doIndexForFlow(
+    { filePath, edges, rootDir }: Pick<FileSymbols, "edges" | "rootDir"> & { filePath: string },
+    { token, expectActiveFile }: { token: vscode.CancellationToken; expectActiveFile?: string },
+  ): Promise<{ db: Database; extractor: GraphExtractor } | undefined> {
+    const indexer = await this.ensureIndexer();
+    if (this.disposed) return undefined;
+    const extractor = this.ensureExtractor(rootDir);
+    const indexed = await untilCancelled(this.indexWorkspace(rootDir, indexer, extractor, normalizePath(filePath), true), token);
+    if (!indexed || this.disposed) return undefined;
+    if (expectActiveFile !== undefined) {
+      const active = vscode.window.activeTextEditor;
+      const activeFile = active ? normalizePath(active.document.uri.fsPath) : null;
+      if (activeFile !== normalizePath(expectActiveFile)) {
+        this.log(`[CallGraph] Active file changed during the flow wait (${expectActiveFile} → ${activeFile ?? "none"}); flow abandoned`);
+        return undefined;
+      }
+    }
+    await this.indexImportTargets(edges, rootDir, indexer, extractor);
+    if (this.disposed || token.isCancellationRequested) return undefined;
+    indexer.resolveExternalEdges();
+    return { db: indexer.getDb(), extractor };
   }
 
   /** Open a validated workspace-relative review target in the existing call graph. */
@@ -936,16 +1013,7 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     cursorLine: number,
   ): T | null {
     if (nodes.length === 0) { return null; }
-
-    // Find nodes whose range contains the cursor, pick the most specific (latest start)
-    let best: T | null = null;
-    for (const n of nodes) {
-      if (n.startLine <= cursorLine && cursorLine <= n.endLine) {
-        if (!best || n.startLine > best.startLine) {
-          best = n;
-        }
-      }
-    }
+    const best = symbolAtLine(nodes, cursorLine);
     if (best) return best;
     void vscode.window.showInformationMessage(
       `Graph-It-Live: the cursor is outside every symbol; showing "${nodes[0].name}", the first one in the file.`,

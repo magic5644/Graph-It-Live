@@ -354,6 +354,8 @@ export interface FlowDiagramMessage {
 /** Flow progress or why no flow is drawn; the previous diagram stays under "loading" and "error". */
 export interface FlowDiagramStateMessage {
   type: "flowDiagramState";
+  /** The request this state is about: an older one is ignored, and Show call graph / Refresh echo it (no flow is drawn when empty). */
+  requestId: number;
   status: "loading" | "empty" | "error" | "stale";
   /** empty: the entry symbol name; error: the one-line message. */
   message?: string;
@@ -753,6 +755,8 @@ export interface DiagramRescopeCommand {
 export interface DiagramFollowCommand {
   command: "diagramFollow";
   enabled: boolean;
+  /** The tab whose toggle was pressed: Follow redraws the flow at the cursor, or the Folder level of its file. Default flow. */
+  tab?: "flow" | "folder";
 }
 
 export type ArchitectureWebviewCommand =

@@ -276,6 +276,7 @@ export class CommandRegistrationService {
       ['graph-it-live.architectureRendered', () => architecture()?.rendered],
       ['graph-it-live.architectureDependentsGroupCount', () => architecture()?.dependents?.highlightedGroups ?? 0],
       ['graph-it-live.architectureDependents', () => architecture()?.dependents],
+      ['graph-it-live.flowDiagram', () => this.provider.getFlowE2EState()],
     ]);
     // Unknown keys return undefined.
     return vscode.commands.registerCommand('getContext', (key: string) => getters.get(key)?.());

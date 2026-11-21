@@ -1403,6 +1403,162 @@ describe("ArchitectureViewService", () => {
       expect(service.getE2EState().folder).toBe("apps/web/pages");
     });
   });
+  describe("Show Diagram scopes (#795)", () => {
+    type Token = { isCancellationRequested: boolean; onCancellationRequested(listener: () => void): { dispose(): void }; cancel(): void };
+    const token = (): Token => {
+      const listeners: (() => void)[] = [];
+      return {
+        isCancellationRequested: false,
+        onCancellationRequested(listener) {
+          listeners.push(listener);
+          return { dispose: () => {} };
+        },
+        cancel() {
+          this.isCancellationRequested = true;
+          for (const listener of listeners) listener();
+        },
+      };
+    };
+    const scopes = () => posted.filter((message) => message.type === "architectureScope");
+    const levels = () => posted.filter((message): message is ArchitectureFolderLevelMessage => message.type === "architectureFolderLevel").map((message) => message.folder);
+
+    it("posts every level down to a directory, then its scope", async () => {
+      const service = createService();
+      await service.show();
+      const revision = summaries()[0].revision;
+      expect(await service.showDirectory("src/ui")).toBe(true);
+      expect(levels()).toEqual(["src", "src/ui"]);
+      expect(posted.at(-1)).toEqual({ type: "architectureScope", revision, tab: "folder", unit: "src", folders: ["src/ui"] });
+      expect(await service.showUnits()).toBe(true);
+      expect(posted.at(-1)).toEqual({ type: "architectureScope", revision, tab: "units", unit: null, folders: [] });
+      expect(await service.showMatrix()).toBe(true);
+      expect(posted.at(-1)).toMatchObject({ tab: "matrix", unit: null });
+      // The workspace root draws the units.
+      expect(await service.showDirectory("")).toBe(true);
+      expect(posted.at(-1)).toMatchObject({ tab: "units" });
+    });
+
+    it("waits for a running build, and for the newer one that replaced it", async () => {
+      const service = createService();
+      const first = service.show();
+      const shown = service.showDirectory("src");
+      const second = service.build();
+      expect(await shown).toBe(true);
+      await Promise.all([first, second]);
+      expect(summaries()).toHaveLength(1);
+      expect(scopes()).toHaveLength(1);
+      expect(posted.indexOf(summaries()[0])).toBeLessThan(posted.indexOf(scopes()[0]));
+      expect(scopes()[0]).toMatchObject({ unit: "src", folders: [] });
+    });
+
+    it("stops waiting on cancel and leaves the build running", async () => {
+      const service = createService();
+      const build = service.show();
+      const cancel = token();
+      const shown = service.showDirectory("src", { token: cancel });
+      cancel.cancel();
+      expect(await shown).toBe(false);
+      await build;
+      expect(summaries()).toHaveLength(1);
+      expect(scopes()).toHaveLength(0);
+      // Cancelled before the wait: nothing is built for it.
+      expect(await service.showUnits({ token: cancel })).toBe(true);
+    });
+
+    it("scopes nothing when the build ends empty or in an error", async () => {
+      const empty = path.join(root, "empty");
+      await fs.mkdir(empty);
+      expect(await createService({ workspaceRoot: empty }).showDirectory("src")).toBe(false);
+      expect(states().at(-1)).toMatchObject({ status: "empty" });
+      const failing = createService({ whenStartupIndexSettled: async () => { throw new Error("index failed"); } });
+      expect(await failing.showUnits()).toBe(false);
+      expect(states().at(-1)).toMatchObject({ status: "error", message: "index failed" });
+      expect(scopes()).toHaveLength(0);
+    });
+
+    it("says why a directory has no level, unless quiet", async () => {
+      const service = createService();
+      await service.show();
+      expect(await service.showDirectory("nope")).toBe(false);
+      expect(notices).toEqual([{ message: 'Graph-It-Live: No indexed file below "nope".', level: "info" }]);
+      expect(await service.showDirectory("nope", { quiet: true })).toBe(false);
+      expect(notices).toHaveLength(1);
+      communityMode = "louvain";
+      expect(await service.showDirectory("src")).toBe(false);
+      expect(notices.at(-1)?.message).toBe("Graph-It-Live: the Folder diagram draws units: set graph-it-live.communityMode to path.");
+      expect(scopes()).toHaveLength(0);
+    });
+
+    it("refuses a folder holding several units", async () => {
+      for (const name of ["a", "b"]) {
+        await fs.mkdir(path.join(root, "packages", name), { recursive: true });
+        await fs.writeFile(path.join(root, "packages", name, "package.json"), JSON.stringify({ name }));
+        await fs.writeFile(path.join(root, "packages", name, "index.ts"), "");
+      }
+      const service = createService();
+      await service.show();
+      expect(await service.showDirectory("packages")).toBe(false);
+      expect(notices.at(-1)?.message).toBe('Graph-It-Live: "packages" holds several units: right-click the folder of one of them, or pick Units.');
+      expect(await service.showDirectory("packages/a")).toBe(true);
+      expect(scopes().at(-1)).toMatchObject({ unit: "packages/a", folders: [] });
+    });
+
+    it("asks for a unit without a directory; Escape scopes nothing", async () => {
+      let answer: string | undefined = "src";
+      const asked: { key: string; role: string }[][] = [];
+      const service = createService({ pickUnit: async (units) => (asked.push(units), answer) });
+      await service.show();
+      expect(await service.showDirectory(undefined)).toBe(true);
+      expect(asked[0].map((unit) => unit.key)).toEqual(["(root)", "src"]);
+      expect(scopes().at(-1)).toMatchObject({ unit: "src", folders: [] });
+      answer = undefined;
+      expect(await service.showDirectory(undefined)).toBe(false);
+      answer = "not-a-unit";
+      expect(await service.showDirectory(undefined)).toBe(false);
+      expect(await createService().showDirectory(undefined)).toBe(false);
+      expect(scopes()).toHaveLength(1);
+    });
+
+    it("posts a scope asked before the mode mounted after the mount's summary, once", async () => {
+      const service = createService();
+      expect(await service.showDirectory("src/ui", { whenMounted: true })).toBe(true);
+      expect(scopes()).toHaveLength(0);
+      posted = [];
+      await service.handleWebviewMessage({ command: "architectureMounted" });
+      expect(posted.map((message) => message.type)).toEqual(["architectureSummary", "architectureFolderLevel", "architectureFolderLevel", "architectureScope"]);
+      posted = [];
+      await service.handleWebviewMessage({ command: "architectureMounted" });
+      expect(scopes()).toHaveLength(0);
+    });
+
+    it("ignores the diagram tabs' commands, which GraphProvider routes", async () => {
+      const service = createService();
+      for (const command of ["flowOpenLocation", "flowExportDiagram", "flowRefresh", "flowShowCallGraph", "diagramRescope", "diagramFollow"]) {
+        await service.handleWebviewMessage({ command } as never);
+      }
+      expect(posted).toEqual([]);
+    });
+
+    it("caps the units level at the diagram's 60 units, as the export ranks them", async () => {
+      for (let index = 0; index < 61; index += 1) {
+        const name = `pkg-${String(index).padStart(2, "0")}`;
+        await fs.mkdir(path.join(root, "packages", name), { recursive: true });
+        await fs.writeFile(path.join(root, "packages", name, "package.json"), JSON.stringify({ name }));
+        await fs.writeFile(path.join(root, "packages", name, "index.ts"), "");
+      }
+      await createService().show();
+      const { unitCap, units } = summaries()[0];
+      expect(unitCap).toMatchObject({ totalUnits: units!.units.length, cap: 60 });
+      expect(unitCap!.drawnUnits).toHaveLength(60);
+      expect(new Set(unitCap!.drawnUnits).size).toBe(60);
+    });
+
+    it("draws no cap at or below 60 units", async () => {
+      await createService().show();
+      expect(summaries()[0].unitCap).toBeUndefined();
+    });
+  });
+
   describe("diagram export (#448)", () => {
     const built = async (overrides: Partial<ArchitectureViewServiceOptions> = {}) => {
       const service = createService(overrides);
@@ -1435,6 +1591,14 @@ describe("ArchitectureViewService", () => {
       const matrix = await read("src.svg");
       expect(matrix).toContain("folder src");
       expect(matrix).toContain('class="cell');
+    });
+
+    it("saves the level's diagram spec as .json", async () => {
+      const { service, revision } = await built();
+      await run(service, revision, { output: "units.json" });
+      const spec = JSON.parse(await read("units.json")) as { nodes: { key: string }[] };
+      expect(spec.nodes.map((node) => node.key)).toEqual(expect.arrayContaining(["src", "(root)"]));
+      expect(notices.at(-1)).toEqual({ message: "Architecture diagram saved to units.json.", level: "info" });
     });
 
     it("draws the view's role and min-imports filters, and copies the SVG in the editor's theme", async () => {
@@ -1543,7 +1707,7 @@ describe("ArchitectureViewService", () => {
         await fs.rm(outside, { recursive: true, force: true });
       }
       await run(service, revision, { output: "units.txt" });
-      expect(notices.at(-1)).toEqual({ message: "Could not export the architecture diagram: units.txt: save as .svg, .html or .png", level: "error" });
+      expect(notices.at(-1)).toEqual({ message: "Could not export the architecture diagram: units.txt: save as .svg, .html, .png or .json", level: "error" });
       await run(service, revision, { output: "nowhere.svg", folder: "nowhere" });
       expect(notices.at(-1)?.message).toContain('No file below folder "nowhere"');
 

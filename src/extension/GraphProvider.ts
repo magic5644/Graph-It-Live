@@ -18,6 +18,8 @@ import { getExtensionLogger } from "./extensionLogger";
 import type { ArchitectureViewService } from "./services/ArchitectureViewService";
 import type { BackgroundIndexingManager } from "./services/BackgroundIndexingManager";
 import type { CallGraphViewService } from "./services/CallGraphViewService";
+import type { FlowDiagramService } from "./services/FlowDiagramService";
+import type { ArchitectureExtensionMessage, ArchitectureWebviewCommand, DiagramRescopeCommand } from "../shared/architecture-types";
 import type { EditorNavigationService } from "./services/EditorNavigationService";
 import { ExtensionEventHub } from "./services/ExtensionEventHub";
 import type { EventType, FileChangeScheduler } from "./services/FileChangeScheduler";
@@ -111,6 +113,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Used to route call-graph webview messages and provide sidebar webview.
    */
   private _callGraphViewService: CallGraphViewService | null = null;
+  /** The Flow tab of the Architecture mode, owned by extension.ts: it works without a folder. */
+  private _flowDiagramService: FlowDiagramService | null = null;
   private _branchWatchRegistration: BranchWatchRegistration | null = null;
   private _disposePromise: Promise<void> | null = null;
   private _isDisposing = false;
@@ -126,6 +130,20 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     this._callGraphViewService = service;
     // Also inject into SymbolViewService for cross-file caller enrichment
     this.symbolViewService?.setCallGraphQueryService(service);
+  }
+
+  public setFlowDiagramService(service: FlowDiagramService): void {
+    this._flowDiagramService = service;
+  }
+
+  /** Posts an Architecture mode message to the sidebar webview, when it is resolved. */
+  public postToView(message: ArchitectureExtensionMessage): void {
+    void this._view?.webview.postMessage(message);
+  }
+
+  /** The workspace architecture (Units, Folder, Matrix tabs); undefined without a folder. */
+  public getArchitectureViewService(): ArchitectureViewService | undefined {
+    return this.architectureViewService;
   }
 
   public setBranchWatchRegistration(registration: BranchWatchRegistration): void {
@@ -182,6 +200,15 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       void vscode.window.showWarningMessage(
         `Graph-It-Live: open the Dependency Graph view to ${action} (run "Graph-It-Live: Show Dependency Graph").`,
       );
+    }
+    return this._view;
+  }
+
+  /** The view without the folder requirement (the Flow tab draws a loose file): focused first when never opened. */
+  private async revealView(action: string): Promise<vscode.WebviewView | undefined> {
+    if (!this._view) await vscode.commands.executeCommand(`${GraphProvider.viewType}.focus`);
+    if (!this._view) {
+      void vscode.window.showWarningMessage(`Graph-It-Live: open the Dependency Graph view to ${action} (run "Graph-It-Live: Show Dependency Graph").`);
     }
     return this._view;
   }
@@ -410,9 +437,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
         handleCallGraphMessage: (msg) => {
           this._callGraphViewService?.handleWebviewMessage(msg);
         },
-        handleArchitectureMessage: async (msg) => {
-          await this.architectureViewService?.handleWebviewMessage(msg);
-        },
+        handleArchitectureMessage: (msg) => this.routeArchitectureMessage(msg),
       },
       onIndexingComplete: () => this._refreshAfterIndexing(),
       viewProvider: () => this._view,
@@ -1206,8 +1231,8 @@ export class GraphProvider implements vscode.WebviewViewProvider {
    * Switch to the workspace architecture view: the webview mounts it and asks
    * for the cached summary or a build.
    */
-  public async setViewModeArchitecture(): Promise<void> {
-    const view = this.requireView("show the architecture view");
+  public async setViewModeArchitecture(options: { allowNoWorkspace?: boolean } = {}): Promise<void> {
+    const view = options.allowNoWorkspace ? await this.revealView("show the Flow diagram") : this.requireView("show the architecture view");
     if (!view) return;
 
     log.info("Switching to architecture view mode");
@@ -1384,14 +1409,53 @@ export class GraphProvider implements vscode.WebviewViewProvider {
     return { hide: this._configSnapshot.ignoreTypeImports, edges: this._lastFileGraphTypeOnlyEdges };
   }
 
+  /**
+   * The Architecture mode's commands: the Flow tab's go to the flow service, the breadcrumb to the tab it
+   * names, everything else to the architecture service (absent without a folder: only Flow answers).
+   */
+  private async routeArchitectureMessage(msg: ArchitectureWebviewCommand): Promise<void> {
+    switch (msg.command) {
+      case "flowOpenLocation":
+      case "flowExportDiagram":
+      case "flowRefresh":
+      case "flowShowCallGraph":
+      case "diagramFollow":
+        return this._flowDiagramService?.handleWebviewMessage(msg);
+      case "diagramRescope":
+        return this.rescopeDiagram(msg);
+      case "architectureMounted":
+        this._flowDiagramService?.onMounted();
+        break;
+    }
+    await this.architectureViewService?.handleWebviewMessage(msg);
+  }
+
+  /** A breadcrumb click re-scopes its tab and turns Follow cursor off. */
+  private async rescopeDiagram(msg: DiagramRescopeCommand): Promise<void> {
+    if (msg.tab === "flow") return this._flowDiagramService?.handleWebviewMessage(msg);
+    this._flowDiagramService?.setFollow(false);
+    const architecture = this.architectureViewService;
+    if (msg.tab === "units") await architecture?.showUnits();
+    else if (msg.tab === "matrix") await architecture?.showMatrix();
+    else await architecture?.showDirectory(String(msg.crumb?.key ?? "").slice(0, 1024));
+  }
+
+  /** E2E observability pass-through to FlowDiagramService (getContext `graph-it-live.flowDiagram`). */
+  public getFlowE2EState(): ReturnType<FlowDiagramService["getE2EState"]> | undefined {
+    return this._flowDiagramService?.getE2EState();
+  }
+
   /** E2E observability pass-through to ArchitectureViewService */
   public getArchitectureE2EState(): ReturnType<ArchitectureViewService["getE2EState"]> | undefined {
     return this.architectureViewService?.getE2EState();
   }
 
   /** E2E driver pass-through to ArchitectureViewService */
-  public setArchitectureControls(controls: Parameters<ArchitectureViewService["setControls"]>[0]): void {
+  public setArchitectureControls(
+    controls: (Parameters<ArchitectureViewService["setControls"]>[0] & Parameters<FlowDiagramService["setControls"]>[0]) | undefined,
+  ): void {
     this.architectureViewService?.setControls(controls);
+    this._flowDiagramService?.setControls(controls);
   }
 
   /** E2E observability pass-throughs to CallGraphViewService */
