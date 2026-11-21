@@ -321,15 +321,20 @@ export class FlowDiagramService implements vscode.Disposable {
       case "flowExportDiagram":
         return this.isCurrent(message.requestId) ? this.exportDiagram(message.target) : Promise.resolve();
       case "flowRefresh":
-        return this.entry && message.requestId === this.current ? this.refresh(this.entry) : Promise.resolve();
+        return this.entry && this.isLatest(message.requestId) ? this.refresh(this.entry) : Promise.resolve();
       case "flowShowCallGraph":
-        return this.entry && message.requestId === this.current ? this.options.showCallGraphAt(this.entry.filePath, this.entry.startLine) : Promise.resolve();
+        return this.entry && this.isLatest(message.requestId) ? this.options.showCallGraphAt(this.entry.filePath, this.entry.startLine) : Promise.resolve();
     }
   }
 
   /** A request about the flow the view shows (its message or its last state); an older one is ignored. */
   private isCurrent(requestId: unknown): boolean {
-    return this.drawn !== null && (requestId === this.current || requestId === this.drawn.message.requestId);
+    return this.drawn !== null && this.isLatest(requestId);
+  }
+
+  /** The id of the last message posted, or of the flow drawn (the view echoes either). */
+  private isLatest(requestId: unknown): boolean {
+    return requestId === this.current || (this.drawn !== null && requestId === this.drawn.message.requestId);
   }
 
   /** A Flow crumb: the file asks for its symbol again; the symbol is the current flow. Never a path from the webview. */
@@ -441,7 +446,8 @@ export class FlowDiagramService implements vscode.Disposable {
     const directory = normalizePath(path.relative(root, path.dirname(editor.document.uri.fsPath)));
     if (directory.startsWith("..") || path.isAbsolute(directory) || directory === this.lastFollowedFolder) return;
     this.lastFollowedFolder = directory;
-    await this.options.followFolder(directory);
+    // A folder that could not be drawn is forgotten, so the next move inside it tries again.
+    if (!(await this.options.followFolder(directory)) && this.lastFollowedFolder === directory) this.lastFollowedFolder = undefined;
   }
 
   private postContext(): void {

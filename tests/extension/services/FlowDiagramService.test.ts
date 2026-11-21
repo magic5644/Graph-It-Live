@@ -529,6 +529,36 @@ describe("FlowDiagramService", () => {
     expect(vs.quickPick).toHaveBeenCalledOnce();
   });
 
+  it("a folder Follow could not draw is tried again on the next move inside it; a drawn one is not", async () => {
+    vi.useFakeTimers();
+    const followFolder = vi.fn(async () => false);
+    const service = create({ followFolder });
+    service.setFollow(true, "folder");
+    const move = async (relative: string) => {
+      for (const listener of vs.listeners.active) listener(editorAt(relative, 0));
+      await vi.advanceTimersByTimeAsync(FOLLOW_DEBOUNCE_MS);
+    };
+    await move("src/store.ts");
+    followFolder.mockResolvedValue(true);
+    await move("src/order.ts");
+    await move("src/store.ts");
+    expect(followFolder.mock.calls).toEqual([["src"], ["src"]]);
+    service.setFollow(false);
+    vi.useRealTimers();
+  });
+
+  it("Refresh and Show call graph accept the drawn flow's id as well as the last state's", async () => {
+    const service = create();
+    expect(await service.showAtCursor(editorAt("src/order.ts", 2))).toBe(true);
+    const drawnId = flows().at(-1)!.requestId;
+    service.onThemeChanged();
+    const refresh = vi.spyOn(service as unknown as { refresh: () => Promise<void> }, "refresh").mockResolvedValue();
+    await service.handleWebviewMessage({ command: "flowRefresh", requestId: drawnId - 1 });
+    expect(refresh).not.toHaveBeenCalled();
+    await service.handleWebviewMessage({ command: "flowRefresh", requestId: flows().at(-1)!.requestId });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
+
   it("follows the cursor once per 300 ms burst, on the Flow or the Folder tab, until turned off", async () => {
     vi.useFakeTimers();
     const followFolder = vi.fn(async () => true);
