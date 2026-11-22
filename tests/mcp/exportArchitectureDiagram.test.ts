@@ -378,6 +378,11 @@ describe.skipIf(!wasmBuilt)("export_architecture_diagram view flow", { timeout: 
     await expect(executeExportArchitectureDiagram({ ...sequence, symbolName: "rnu" })).rejects.toThrow("Symbol 'rnu' not found in src/app.ts. Did you mean: run?");
     await expect(executeExportArchitectureDiagram({ ...sequence, filePath: "src/missing.ts" })).rejects.toThrow("File 'src/missing.ts' is not in the call graph index.");
     await expect(executeExportArchitectureDiagram({ ...sequence, filePath: "../outside.ts" })).rejects.toThrow("outside workspace");
+    // A file on disk the call graph skips is named as such, never suggested as its own closest path.
+    fs.writeFileSync(path.join(root, "notes.md"), "# notes\n");
+    await expect(executeExportArchitectureDiagram({ ...sequence, filePath: "notes.md" })).rejects.toThrow(
+      "File 'notes.md' is not in the call graph index. Its language has no call graph, or the analysis excludes it: pick a symbol of a source file.",
+    );
   });
 
   it("redraws a sequence spec as the CLI does, a homonym's included, and refuses Mermaid for any other spec", async () => {
