@@ -4,6 +4,7 @@ import Ajv2020 from "ajv/dist/2020";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sequenceSpec } from "@/analyzer/diagram/diagramSpec";
 import { defaultMessageLabel, sequenceText } from "@/analyzer/diagram/sequenceDiagram";
+import type { FlowModelSources } from "@/analyzer/diagram/flowModel";
 import { buildSequenceModel, type SequenceModel, type SequenceModelRequest } from "@/analyzer/diagram/sequenceModel";
 import { normalizePath } from "@/shared/path";
 import { createTreeSitterHarness } from "../callgraph/treeSitterHarness";
@@ -21,14 +22,18 @@ beforeAll(async () => {
 afterAll(() => harness.dispose());
 
 /** Indexes `files` in a fresh folder, then builds the sequence model of `request` there. */
-async function sequenceOf(files: Record<string, string>, request: Omit<SequenceModelRequest, "filePath"> & { file: string }): Promise<SequenceModel> {
+async function sequenceOf(
+  files: Record<string, string>,
+  request: Omit<SequenceModelRequest, "filePath"> & { file: string },
+  extractor: FlowModelSources["extractor"] = harness.extractor,
+): Promise<SequenceModel> {
   const folder = `case${run++}`;
   const dir = path.join(harness.root, folder);
   const indexer = await harness.newIndexer();
   try {
     await harness.indexInto(indexer, Object.fromEntries(Object.entries(files).map(([name, source]) => [`${folder}/${name}`, source])));
     const { file, ...rest } = request;
-    return await buildSequenceModel(indexer.getDb(), { ...rest, filePath: path.join(dir, file) }, { rootDir: dir, extractor: harness.extractor });
+    return await buildSequenceModel(indexer.getDb(), { ...rest, filePath: path.join(dir, file) }, { rootDir: dir, extractor });
   } finally {
     indexer.dispose();
   }
@@ -120,6 +125,40 @@ describe("buildSequenceModel — TypeScript fragments", () => {
     expect(model.messages[1]).toMatchObject({ level: 2, parent: "m1" });
     expect(fragments(model)).toEqual(["opt[ok:m1-m2]"]);
   });
+  it("keeps chained iterator loops apart and marks only awaited calls, never a passed reference", async () => {
+    const source = [
+      'import { a, b, c, cb, go } from "./lib";',
+      "export async function run(xs: number[]) {",
+      "  xs.map((x) => a(x)).filter((x) => b(x));",
+      "  await go(cb);",
+      "  await (c());",
+      "}",
+      "",
+    ].join("\n");
+    const model = await sequenceOf({ "src/run.ts": source, "src/lib.ts": ["a", "b", "c", "cb", "go"].map((name) => fn(name)).join("") }, { file: "src/run.ts", symbolName: "run" });
+    expect(model.messages.map((message) => [defaultMessageLabel(message), message.relation])).toEqual([
+      ["a", "CALLS"],
+      ["b", "CALLS"],
+      ["ref cb", "REFERENCES"],
+      ["await go", "CALLS"],
+      ["await c", "CALLS"],
+    ]);
+    expect(fragments(model)).toEqual(["loop[.map:m1-m1]", "loop[.filter:m2-m2]"]);
+  });
+
+  it("lists the candidates of an ambiguous symbol with their 1-based lines", async () => {
+    const source = "export class A {\n  run() {\n    return 1;\n  }\n}\nexport class B {\n  run() {\n    return 2;\n  }\n}\n";
+    await expect(sequenceOf({ "src/ab.ts": source }, { file: "src/ab.ts", symbolName: "run" })).rejects.toThrow(/ambiguous.*line 2.*line 7.*Pass startLine/s);
+    const second = await sequenceOf({ "src/ab.ts": source }, { file: "src/ab.ts", symbolName: "run", startLine: 7 });
+    expect(second.entry).toBe("src/ab.ts#run");
+  });
+
+  it("fails when a caller file cannot be parsed to read its fragments", async () => {
+    const files = { "src/run.ts": 'import { a } from "./lib";\nexport function run() {\n  a();\n}\n', "src/lib.ts": fn("a") };
+    await expect(sequenceOf(files, { file: "src/run.ts", symbolName: "run" }, { parseTree: () => Promise.resolve(null) })).rejects.toThrow(
+      "src/run.ts could not be parsed to read its call sites' fragments.",
+    );
+  });
 });
 
 describe("buildSequenceModel — walk", () => {
@@ -162,9 +201,21 @@ describe("buildSequenceModel — walk", () => {
     const capped = await sequenceOf(files, { file: "src/run.ts", symbolName: "run", maxMessages: 2 });
     expect(capped.messages.map((message) => message.name)).toEqual(["first", "shared"]);
     expect(capped.omitted.messages).toBe(2);
-    expect(sequenceText(capped, "ws").hidden[0]).toBe("2 calls past 2 messages left out: rerun with --maxMessages 4");
+    expect(sequenceText(capped, "ws").hidden[0]).toBe("at least 2 calls past 2 messages left out: rerun with --maxMessages 4");
     const full = await sequenceOf(files, { file: "src/run.ts", symbolName: "run", maxMessages: 60, depth: 9 });
     expect(full.omitted).toEqual({ depth: 0, messages: 0, participants: 0 });
+  });
+
+  it("expands a callee the depth bound cut once a shallower call reaches it, and stops counting its calls", async () => {
+    const files = {
+      "src/run.ts": 'import { a } from "./a";\nimport { x } from "./x";\nexport function run() {\n  a();\n  x();\n}\n',
+      "src/a.ts": 'import { x } from "./x";\nexport function a() {\n  x();\n}\n',
+      "src/x.ts": 'import { leaf } from "./leaf";\nexport function x() {\n  leaf();\n}\n',
+      "src/leaf.ts": fn("leaf"),
+    };
+    const model = await sequenceOf(files, { file: "src/run.ts", symbolName: "run", depth: 2 });
+    expect(model.messages.map((message) => `${message.level} ${message.name}${message.repeat ? " repeat" : ""}`)).toEqual(["1 a", "2 x", "1 x", "2 leaf"]);
+    expect(model.omitted.depth).toBe(0);
   });
 
   it("caps the lifelines at 12 and counts the calls left out", async () => {
@@ -246,6 +297,26 @@ describe("buildSequenceModel — other languages", () => {
     ]);
   });
 
+  it("reads Python match / case, conditional expression and await", async () => {
+    const source = [
+      "from lib import a, b, c, d, e, check",
+      "",
+      "async def run(command, ok):",
+      "    match command:",
+      "        case 1 if check():",
+      "            a()",
+      "        case _:",
+      "            b()",
+      "    value = c() if ok else d()",
+      "    await e()",
+      "",
+    ].join("\n");
+    const lib = ["a", "b", "c", "d", "e", "check"].map((name) => `def ${name}(*args):\n    return 1\n\n`).join("");
+    const model = await sequenceOf({ "run.py": source, "lib.py": lib }, { file: "run.py", symbolName: "run" });
+    expect(model.messages.map((message) => defaultMessageLabel(message))).toEqual(["check", "a", "b", "c", "d", "await e"]);
+    expect(fragments(model)).toEqual(["alt[case 1 if check():m2-m2|case _:m3-m3]", "alt[ok:m4-m4|else:m5-m5]"]);
+  });
+
   it("draws Go calls in call order without fragments and says so", async () => {
     const source = "package main\n\nfunc run(ok bool) {\n\tif ok {\n\t\tfirst()\n\t}\n\tsecond()\n}\n\nfunc first() {}\n\nfunc second() {}\n";
     const model = await sequenceOf({ "main.go": source }, { file: "main.go", symbolName: "run" });
@@ -301,6 +372,6 @@ describe("sequenceSpec", () => {
     const spec = sequenceSpec(model, "ws");
     expect(spec.participants[0].title).toBe("a�");
     expect(spec.messages[0].label).toBe("x�y");
-    expect(sequenceText(model, "ws").hidden).toEqual(["5 calls past 60 messages left out: 60 messages is the most a sequence draws: rerun with a smaller --depth"]);
+    expect(sequenceText(model, "ws").hidden).toEqual(["at least 5 calls past 60 messages left out: 60 messages is the most a sequence draws: rerun with a smaller --depth"]);
   });
 });

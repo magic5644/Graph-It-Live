@@ -36,7 +36,7 @@ export function sequenceText(model: SequenceModel, workspace: string): DiagramTe
     ].join(" · "),
     hidden: [
       ...(depth > 0 ? [`${plural(depth, "call")} past depth ${model.depth} left out: rerun with --depth ${model.depth + 1}`] : []),
-      ...(messages > 0 ? [`${plural(messages, "call")} past ${model.maxMessages} messages left out: ${more}`] : []),
+      ...(messages > 0 ? [`at least ${plural(messages, "call")} past ${model.maxMessages} messages left out: ${more}`] : []),
       ...(participants > 0 ? [`${plural(participants, "call")} into lifelines past ${MAX_SEQUENCE_PARTICIPANTS} left out: ${lifelines}`] : []),
       ...(model.messages.some((message) => message.repeat) ? ["a callee drawn again is not expanded twice: its calls are under its first message"] : []),
       ...(model.fragmentDetection === "unsupported" ? [`fragments not read for ${model.language}: messages in call order`] : []),
