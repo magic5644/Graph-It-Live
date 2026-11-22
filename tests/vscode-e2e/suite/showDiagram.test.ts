@@ -32,11 +32,12 @@ async function drawFlowAt(relative: string, line: number, symbol: string): Promi
     state.requestId > before && Boolean(state.entry?.includes(symbol)) && state.view?.flowRequestId === state.requestId && selectedTab(state) === 'flow');
 }
 
-/** The CLI's diagram, run as a user would (no shell), in the same workspace; `--output -` writes the file's bytes. */
+/**
+ * The CLI's diagram, run as a user would (no shell), in the same workspace; `--output -` writes the file's bytes.
+ * The repository's build: the VSIX does not ship the CLI (a separate npm package), and `npm run package` builds both.
+ */
 async function cliDiagram(root: string, args: string[]): Promise<string> {
-  const extension = vscode.extensions.getExtension('magic5644.graph-it-live');
-  assert.ok(extension, 'the extension under test');
-  const cli = path.join(extension.extensionPath, 'dist', 'graph-it.js');
+  const cli = path.resolve(__dirname, '..', '..', '..', 'dist', 'graph-it.js');
   const { stdout } = await execFileAsync(process.execPath, [cli, 'diagram', ...args, '--output', '-', '-w', root], {
     env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', GRAPH_IT_NO_CACHE: '1', GRAPH_IT_NO_STATS: '1' },
     maxBuffer: 64 * 1024 * 1024,
