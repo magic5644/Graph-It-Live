@@ -366,7 +366,7 @@ describe("sequenceSpec", () => {
     expect(defaultMessageLabel(message)).toBe("ref go");
     const model: SequenceModel = {
       entry: "a#run", entryParticipant: "a", language: "typescript", fragmentDetection: "detected", participantsBy: "file", depth: 3, maxMessages: 60,
-      participants: [{ id: "a", title: "a\u0007", kind: "file", file: "a" }], messages: [{ ...message, label: "x‮y" }], fragments: [],
+      participants: [{ id: "a", title: "a\u0007", kind: "file", file: "a" }], messages: [{ ...message, label: "x\u202Ey" }], fragments: [],
       omitted: { depth: 0, messages: 5, participants: 0 },
     };
     const spec = sequenceSpec(model, "ws");
