@@ -398,6 +398,33 @@ describe("FlowDiagramService", () => {
     expect(flows().at(-1)?.view).toBe("flow");
   });
 
+  it("an early exit with view sequence leaves the drawn flow's view: pick cancelled, unsupported file", async () => {
+    const service = create();
+    await service.showAtCursor(editorAt("src/order.ts", 2));
+    vs.quickPick.mockResolvedValueOnce(undefined);
+    expect(await service.showAtCursor(editorAt("src/order.ts", 0), { view: "sequence" })).toBe(false);
+    expect(vs.quickPick.mock.calls.at(-1)?.[1]).toMatchObject({ placeHolder: "Pick the symbol of src/order.ts to draw its sequence" });
+    expect(await service.showForFile({ fsPath: path.join(root, "notes.md") } as vscode.Uri, { view: "sequence" })).toBe(false);
+    expect(notices.at(-1)?.message).toMatch(/^Graph-It-Live: Sequence Diagram is not supported for "\.md"\./);
+    // The stale Refresh (no view) draws what is shown: the flow.
+    await service.handleWebviewMessage({ command: "flowRefresh", requestId: flows()[0].requestId });
+    expect(flows().at(-1)?.view).toBe("flow");
+    expect(states().every((state) => state.view === "flow")).toBe(true);
+  });
+
+  it("a sequence turns stale and re-colours as a sequence; Follow keeps it; a sequence without calls is empty", async () => {
+    const service = create();
+    await service.showAtCursor(editorAt("src/order.ts", 2), { view: "sequence" });
+    service.onFileSaved(path.join(root, "src/store.ts"));
+    expect(states().at(-1)).toMatchObject({ status: "stale", view: "sequence" });
+    service.onThemeChanged();
+    expect(flows().at(-1)).toMatchObject({ view: "sequence", stale: true });
+    // Follow on another symbol keeps the view: lonely calls nothing, so its sequence is the empty state.
+    expect(await service.showAtCursor(editorAt("src/order.ts", 9), { quiet: true })).toBe(true);
+    expect(states().at(-1)).toMatchObject({ status: "empty", view: "sequence", message: "lonely" });
+    expect(service.getE2EState().drawnView).toBeUndefined();
+  });
+
   it("a cancelled switch to the Sequence tab keeps the flow, and the next refresh draws the flow", async () => {
     const service = create();
     await service.showAtCursor(editorAt("src/order.ts", 2));

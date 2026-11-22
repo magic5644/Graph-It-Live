@@ -86,6 +86,8 @@ interface DrawnFlow {
 
 /** Where a draw comes from: a command (progress notification) or the view itself (Follow, Refresh, breadcrumb). */
 interface DrawOrigin {
+  /** The view to draw: set on the service only once the draw starts, so an early exit leaves the drawn view alone. */
+  view: SymbolDiagramView;
   quiet?: boolean;
   inView?: boolean;
   expectActiveFile?: string;
@@ -189,7 +191,8 @@ export class FlowDiagramService implements vscode.Disposable {
   async showAtCursor(editor: vscode.TextEditor | undefined, options: { quiet?: boolean; view?: SymbolDiagramView } = {}): Promise<boolean> {
     const { quiet } = options;
     if (!quiet) this.setFollow(false);
-    if (options.view) this.view = options.view;
+    // Follow keeps the view drawn; a command names its own.
+    const view = options.view ?? this.view;
     const lang = quiet ? editor && this.options.callGraph.isFlowSupported(editor.document) : this.options.callGraph.activeSourceEditor("Flow Diagram", editor)?.lang;
     if (!editor || !lang) return false;
     const filePath = normalizePath(editor.document.uri.fsPath);
@@ -198,37 +201,37 @@ export class FlowDiagramService implements vscode.Disposable {
     const atCursor = symbolAtLine(symbols.nodes, editor.selection.active.line);
     // Follow: between symbols, or on the flow already drawn, nothing changes.
     if (quiet && (!atCursor || this.entry?.key === `${filePath}#${atCursor.id}`)) return false;
-    const node = atCursor ?? (await this.pickSymbol(filePath, symbols.nodes));
+    const node = atCursor ?? (await this.pickSymbol(filePath, symbols.nodes, view));
     if (!node) return false;
-    return this.draw(filePath, symbols, node, { quiet, inView: quiet, expectActiveFile: filePath });
+    return this.draw(filePath, symbols, node, { view, quiet, inView: quiet, expectActiveFile: filePath });
   }
 
   /** Explorer, Show Diagram… or a file crumb: a pick of the file's symbols. */
   async showForFile(uri: vscode.Uri, options: { inView?: boolean; view?: SymbolDiagramView } = {}): Promise<boolean> {
     this.setFollow(false);
-    if (options.view) this.view = options.view;
+    const view = options.view ?? this.view;
     const filePath = normalizePath(uri.fsPath);
     const lang = this.options.callGraph.isFlowSupported({ uri });
     if (!lang) {
-      this.options.notify(`Graph-It-Live: ${VIEW_NAMES[this.view]} Diagram is not supported for "${path.extname(filePath) || path.basename(filePath)}". ${SUPPORTED}`, "info");
+      this.options.notify(`Graph-It-Live: ${VIEW_NAMES[view]} Diagram is not supported for "${path.extname(filePath) || path.basename(filePath)}". ${SUPPORTED}`, "info");
       return false;
     }
     const symbols = await this.options.callGraph.extractFileSymbols(filePath, lang);
     if (!symbols) return false;
-    const node = await this.pickSymbol(filePath, symbols.nodes);
-    return node ? this.draw(filePath, symbols, node, { inView: options.inView }) : false;
+    const node = await this.pickSymbol(filePath, symbols.nodes, view);
+    return node ? this.draw(filePath, symbols, node, { view, inView: options.inView }) : false;
   }
 
   /** The symbol the user picks; a file without symbols is told. Escape: undefined, silently. */
-  private async pickSymbol(filePath: string, nodes: CallGraphNode[]): Promise<CallGraphNode | undefined> {
+  private async pickSymbol(filePath: string, nodes: CallGraphNode[], view: SymbolDiagramView): Promise<CallGraphNode | undefined> {
     const relative = vscode.workspace.asRelativePath(filePath);
     if (nodes.length === 0) {
-      this.options.notify(`Graph-It-Live: ${relative} has no symbol to draw a ${this.view} from.`, "info");
+      this.options.notify(`Graph-It-Live: ${relative} has no symbol to draw a ${view} from.`, "info");
       return undefined;
     }
     const picked = await vscode.window.showQuickPick(
       nodes.map((node) => ({ label: node.name, description: `line ${node.startLine + 1}`, node })),
-      { placeHolder: `Pick the symbol of ${relative} to draw its ${this.view}` },
+      { placeHolder: `Pick the symbol of ${relative} to draw its ${view}` },
     );
     return picked?.node;
   }
@@ -243,7 +246,8 @@ export class FlowDiagramService implements vscode.Disposable {
     this.cancelNext = false;
     const request: FlowModelRequest = { filePath, symbolName: node.name, startLine: node.startLine + 1 };
     const previousEntry = this.entry;
-    const previousView = this.drawn?.message.view ?? this.view;
+    const previousView = this.view;
+    this.view = origin.view;
     this.entry = { filePath, symbolName: node.name, startLine: node.startLine + 1, key: `${filePath}#${node.id}` };
     const crumbs = flowCrumbs(symbols.rootDir, filePath, node.name);
     // The view switches to the Flow tab on it; a cancelled or abandoned draw tells it to go back.
@@ -333,14 +337,15 @@ export class FlowDiagramService implements vscode.Disposable {
   }
 
   /** Posts a flow or a state under a new requestId, the one the view's next commands echo; keeps it for a remount. */
-  private send(message: FlowDiagramMessage | Omit<FlowDiagramStateMessage, "requestId" | "view">): void {
+  private send(message: FlowDiagramMessage | (Omit<FlowDiagramStateMessage, "requestId" | "view"> & { view?: SymbolDiagramView })): void {
     this.current = ++this.requestCount;
     if (message.type === "flowDiagram") {
       this.drawn!.message = { ...message, requestId: this.current };
       this.options.post(this.drawn!.message);
       return;
     }
-    const state = { ...message, view: this.view, requestId: this.current };
+    // A state is about the view of the draw it reports, unless it names the drawn one (stale, a replay).
+    const state = { ...message, view: message.view ?? this.view, requestId: this.current };
     // A cancel replays the flow the view already had: nothing new for it to take the tab with.
     if (state.status === "loading" || state.status === "cancelled") this.unseen = state.status === "loading";
     // A loading or cancelled state is never replayed: the draw it announces posts its own outcome.
@@ -351,7 +356,9 @@ export class FlowDiagramService implements vscode.Disposable {
   /** The last flow and its state again (after a mount, or to end a loading state the draw abandoned). */
   private repost(): void {
     const crumbs = this.lastState?.crumbs ?? this.drawn?.message.crumbs;
-    if (this.unseen && (this.drawn || this.lastState)) this.send({ type: "flowDiagramState", status: "loading", crumbs });
+    if (this.unseen && (this.drawn || this.lastState)) {
+      this.send({ type: "flowDiagramState", status: "loading", crumbs, view: this.lastState?.view ?? this.drawn?.message.view });
+    }
     if (this.drawn) this.send(this.drawn.message);
     if (this.lastState) this.send(this.lastState);
   }
@@ -373,8 +380,7 @@ export class FlowDiagramService implements vscode.Disposable {
         return this.isCurrent(message.requestId) ? this.exportDiagram(message.target) : Promise.resolve();
       case "flowRefresh":
         if (!this.entry || !this.isLatest(message.requestId)) return Promise.resolve();
-        if (message.view) this.view = message.view;
-        return this.refresh(this.entry);
+        return this.refresh(this.entry, message.view ?? this.view);
       case "flowShowCallGraph":
         return this.entry && this.isLatest(message.requestId) ? this.options.showCallGraphAt(this.entry.filePath, this.entry.startLine) : Promise.resolve();
     }
@@ -413,7 +419,7 @@ export class FlowDiagramService implements vscode.Disposable {
   }
 
   /** Draws the flow again from the index: the same entry symbol, found again in its file. */
-  private async refresh({ filePath, symbolName, startLine }: { filePath: string; symbolName: string; startLine: number }): Promise<void> {
+  private async refresh({ filePath, symbolName, startLine }: { filePath: string; symbolName: string; startLine: number }, view: SymbolDiagramView): Promise<void> {
     const lang = this.options.callGraph.isFlowSupported({ uri: { fsPath: filePath } });
     const symbols = lang ? await this.options.callGraph.extractFileSymbols(filePath, lang) : undefined;
     if (!symbols) return;
@@ -421,7 +427,7 @@ export class FlowDiagramService implements vscode.Disposable {
     // The symbol moved: the homonym nearest to its old line; gone: buildFlowModel names the closest ones.
     const node = symbols.nodes.filter((candidate) => candidate.name === symbolName).toSorted((a, b) => distance(a) - distance(b))[0]
       ?? ({ id: symbolName, name: symbolName, startLine: startLine - 1 } as CallGraphNode);
-    await this.draw(filePath, symbols, node, { inView: true });
+    await this.draw(filePath, symbols, node, { view, inView: true });
   }
 
   /**
@@ -433,7 +439,7 @@ export class FlowDiagramService implements vscode.Disposable {
     this.exportOutput = undefined;
     const workspaceRoot = this.options.workspaceRoot();
     if (workspaceRoot === undefined) {
-      this.options.notify(`Graph-It-Live: Open a folder to export the ${VIEW_NAMES[this.view]} diagram: exports are written inside the workspace.`, "info");
+      this.options.notify(`Graph-It-Live: Open a folder to export the ${VIEW_NAMES[this.drawn?.message.view ?? this.view]} diagram: exports are written inside the workspace.`, "info");
       return;
     }
     const { request, rootDir, source, message } = this.drawn!;
@@ -523,7 +529,7 @@ export class FlowDiagramService implements vscode.Disposable {
   onFileSaved(filePath: string): void {
     if (!this.drawn || this.drawn.message.stale || !this.drawn.files.has(normalizePath(filePath))) return;
     this.drawn.message = { ...this.drawn.message, stale: true };
-    this.send({ type: "flowDiagramState", status: "stale" });
+    this.send({ type: "flowDiagramState", status: "stale", view: this.drawn.message.view });
   }
 
   /** The Architecture mode mounted: the workspace capability and the last flow, posted before it listened. */

@@ -21,7 +21,7 @@ describe("disabledReason", () => {
       "Open a folder to see the Folder diagram",
       "Open a folder to see the Matrix diagram",
       "Right-click a function in the editor and run Show Flow Diagram",
-      "Right-click a function in the editor and run Show Flow Diagram",
+      "Run Show Diagram… on a function in the editor and pick sequence",
     ]);
     expect(disabledReason("folder", { ...all, folderEntered: false }))
       .toBe("Double-click a unit, or right-click a folder in the Explorer, to see its Folder diagram");
