@@ -345,24 +345,11 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     const units = JSON.parse(out(["--format", "diagram-spec"]));
     write("flow.json", flow);
     write("units.json", units);
-    const sequence = JSON.parse(out(["--view", "sequence", "src/a.ts#run", "--format", "diagram-spec"]));
-    write("sequence.json", sequence);
     for (const format of ["svg", "html", "diagram-spec"]) {
       expect(out(["--spec", "flow.json", "--format", format]), format).toBe(out(["--view", "flow", "src/a.ts#run", "--format", format]));
       expect(out(["--spec", "units.json", "--format", format]), format).toBe(out(["--format", format]));
     }
-    for (const format of ["svg", "html", "diagram-spec", "mermaid"]) {
-      expect(out(["--spec", "sequence.json", "--format", format]), format).toBe(out(["--view", "sequence", "src/a.ts#run", "--format", format]));
-    }
-    write("sequence-annotated.json", {
-      ...sequence,
-      participants: sequence.participants.map((item: object, index: number) => (index === 1 ? { ...item, title: "Helpers" } : item)),
-      messages: sequence.messages.map((item: object, index: number) => (index === 0 ? { ...item, label: "asks for help" } : item)),
-    });
-    const drawn = out(["--spec", "sequence-annotated.json", "--format", "mermaid"]);
-    expect(drawn).toContain("participant P2 as Helpers");
-    expect(drawn).toContain("P1->>P2: asks for help");
-    write("sequence-unknown.json", { ...sequence, messages: sequence.messages.map((item: object, index: number) => (index === 0 ? { ...item, id: "m9" } : item)) });
+
     write("annotated.json", {
       ...flow,
       caption: { ...flow.caption, title: "How run works" },
@@ -420,9 +407,6 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
       [["--spec", "flow.json", "--format", "diagram-spec", "--output", "flow.json"], 1, "--output flow.json would replace the spec it reads"],
       [["--spec", "flow.json", "--format", "csv"], 4, "graph-it diagram does not write --format csv"],
       [["--spec", "flow.json", "--format", "mermaid"], 4, "--format mermaid writes --view sequence only"],
-      [["--spec", "sequence-unknown.json"], 1, "sequence-unknown.json: messages[0] m9 is not in the current index; lifelines and messages cannot be added or renamed."],
-      [["--spec", "sequence.json", "--depth", "2"], 1, "drop --depth"],
-      [["--spec", "sequence.json", "--rules"], 1, "--rules applies to an architecture spec, not a sequence spec"],
       [["--spec"], 1, "--spec"],
     ];
     for (const [args, status, message] of rows) {
@@ -431,6 +415,41 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
       expect(result.stdout, args.join(" ")).toBe("");
       expect(result.stderr, args.join(" ")).toContain(message);
       expect(result.stderr, args.join(" ")).not.toContain(root);
+    }
+  });
+
+  // #798 b: a sequence spec, apart from the flow and architecture ones so each test stays within its timeout on Windows.
+  it("diagram --spec redraws an annotated sequence spec as svg and Mermaid, and refuses an unknown message or a sequence option", () => {
+    const write = (file: string, data: unknown) => fs.writeFileSync(path.join(root, file), JSON.stringify(data, null, 2));
+    const out = (args: string[]) => {
+      const result = cli(["diagram", ...args, "--output", "-"]);
+      expect(result.status, `${args.join(" ")}: ${result.stderr}`).toBe(0);
+      return result.stdout;
+    };
+    const sequence = JSON.parse(out(["--view", "sequence", "src/a.ts#run", "--format", "diagram-spec"]));
+    write("sequence.json", sequence);
+    for (const format of ["svg", "mermaid"]) {
+      expect(out(["--spec", "sequence.json", "--format", format]), format).toBe(out(["--view", "sequence", "src/a.ts#run", "--format", format]));
+    }
+    write("sequence-annotated.json", {
+      ...sequence,
+      participants: sequence.participants.map((item: object, index: number) => (index === 1 ? { ...item, title: "Helpers" } : item)),
+      messages: sequence.messages.map((item: object, index: number) => (index === 0 ? { ...item, label: "asks for help" } : item)),
+    });
+    const drawn = out(["--spec", "sequence-annotated.json", "--format", "mermaid"]);
+    expect(drawn).toContain("participant P2 as Helpers");
+    expect(drawn).toContain("P1->>P2: asks for help");
+    write("sequence-unknown.json", { ...sequence, messages: sequence.messages.map((item: object, index: number) => (index === 0 ? { ...item, id: "m9" } : item)) });
+    const rows: [string[], number, string][] = [
+      [["--spec", "sequence-unknown.json"], 1, "sequence-unknown.json: messages[0] m9 is not in the current index; lifelines and messages cannot be added or renamed."],
+      [["--spec", "sequence.json", "--depth", "2"], 1, "drop --depth"],
+      [["--spec", "sequence.json", "--rules"], 1, "--rules applies to an architecture spec, not a sequence spec"],
+    ];
+    for (const [args, status, message] of rows) {
+      const result = cli(["diagram", ...args]);
+      expect(result.status, args.join(" ")).toBe(status);
+      expect(result.stdout, args.join(" ")).toBe("");
+      expect(result.stderr, args.join(" ")).toContain(message);
     }
   });
 
