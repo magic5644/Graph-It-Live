@@ -79,17 +79,17 @@ export interface FlowModelSources {
   readFile?: (filePath: string) => Promise<string>;
 }
 
-const LANE_LANGUAGES: ReadonlySet<string> = new Set(["typescript", "javascript", "python"]);
+export const LANE_LANGUAGES: ReadonlySet<string> = new Set(["typescript", "javascript", "python"]);
 const LANE_RANK: Record<FlowLane, number> = { main: 0, alternative: 1, error: 2 };
 const MAX_CONDITION = 60;
 const MAX_SUBTITLE = 120;
 
-const CALLEES_SQL = `SELECT e.target_id, t.name, t.path, t.start_line, t.lang, e.source_line, e.type_relation
+export const CALLEES_SQL = `SELECT e.target_id, t.name, t.path, t.start_line, t.lang, e.source_line, e.type_relation
   FROM edges e JOIN nodes t ON t.id = e.target_id
   WHERE e.source_id = ? AND e.type_relation IN ('CALLS', 'REFERENCES')
   ORDER BY e.source_line, e.target_id`;
 
-interface FlowSymbol {
+export interface FlowSymbol {
   id: string;
   name: string;
   path: string;
@@ -98,7 +98,7 @@ interface FlowSymbol {
 }
 
 /** The call into a symbol: the caller's file, the 0-based call line and the called name. */
-interface CallSite {
+export interface CallSite {
   file: string;
   row: number;
   name: string;
@@ -148,7 +148,7 @@ export async function buildFlowModel(db: Database, request: FlowModelRequest, so
   return toModel(walk, { root, maxSteps, lanes, lines, siteLanes, rootDir: sources.rootDir });
 }
 
-function findEntry(db: Database, request: FlowModelRequest, rootDir: string): FlowSymbol {
+export function findEntry(db: Database, request: FlowModelRequest, rootDir: string): FlowSymbol {
   const label = relativeTo(rootDir, request.filePath);
   const indexed = db.exec("SELECT 1 FROM file_index WHERE path = ?", [normalizePath(request.filePath)]);
   if (!indexed[0]) throw new Error(`File '${label}' is not in the call graph index.${closestPathsHint(request.filePath, rootDir)}`);
@@ -285,7 +285,7 @@ function queueCallees(state: WalkState, statement: Statement, index: number): vo
   state.front.push(...sameFile.toReversed());
 }
 
-async function readSource(readFile: (file: string) => Promise<string>, file: string, rootDir: string): Promise<string> {
+export async function readSource(readFile: (file: string) => Promise<string>, file: string, rootDir: string): Promise<string> {
   try {
     return await readFile(file);
   } catch (error) {
@@ -320,9 +320,9 @@ async function readSiteLanes(walk: Walk, lines: Map<string, string[]>, { extract
   return lanes;
 }
 
-const SCOPES = new Set(["function_declaration", "generator_function_declaration", "function_expression", "function", "arrow_function", "method_definition", "function_definition", "lambda", "class_body", "class_definition"]);
+export const SCOPES = new Set(["function_declaration", "generator_function_declaration", "function_expression", "function", "arrow_function", "method_definition", "function_definition", "lambda", "class_body", "class_definition"]);
 const THROWS = new Set(["throw_statement", "raise_statement"]);
-const CATCHES = new Set(["catch_clause", "except_clause", "except_group_clause"]);
+export const CATCHES = new Set(["catch_clause", "except_clause", "except_group_clause"]);
 const BLOCKS = new Set(["statement_block", "block"]);
 const EXIT_CALL = /^(?:process\.exit|sys\.exit|os\._exit|exit|quit)\s*\(/;
 /** An exit code that reports success: no argument, 0, a `*SUCCESS` constant or `os.EX_OK`. */
@@ -334,9 +334,7 @@ const isSuccessCode = (code: string) => code === "" || code === "0" || code === 
  * exit is the alternative lane.
  */
 export function laneAt(root: TreeNode, line: string, site: CallSite): SiteLane {
-  const named = line.indexOf(site.name);
-  const column = named >= 0 ? named : line.length - line.trimStart().length;
-  let child = root.descendantForPosition({ row: site.row, column }) ?? root;
+  let child = siteNode(root, line, site);
   let thrown = false;
   for (let parent = child.parent; parent && !SCOPES.has(child.type); child = parent, parent = parent.parent) {
     if (THROWS.has(child.type)) thrown = true;
@@ -347,6 +345,17 @@ export function laneAt(root: TreeNode, line: string, site: CallSite): SiteLane {
   }
   return { lane: thrown ? "error" : "main" };
 }
+
+/** The AST node at a call site: the called name on its line, else the line's first token. */
+export function siteNode(root: TreeNode, line: string, site: CallSite): TreeNode {
+  // Whole word only: `e` must not match inside `values`.
+  let named = line.indexOf(site.name);
+  while (named >= 0 && (isWordChar(line[named - 1]) || isWordChar(line[named + site.name.length]))) named = line.indexOf(site.name, named + 1);
+  const column = named >= 0 ? named : line.length - line.trimStart().length;
+  return root.descendantForPosition({ row: site.row, column }) ?? root;
+}
+
+const isWordChar = (char: string | undefined) => char !== undefined && /[\w$]/.test(char);
 
 /** The if / elif / else branch `child` is, with its condition text. */
 function branchOf(child: TreeNode, parent: TreeNode): { body: TreeNode; condition: string } | null {
@@ -376,7 +385,7 @@ function exitCode(node: TreeNode): string | undefined {
 }
 
 /** `catch (error)` of `catch (error) {…}`, `except OSError` of `except OSError:`. */
-function clauseHead(text: string): string {
+export function clauseHead(text: string): string {
   const head = text.split(/[{\n]/)[0].trimEnd();
   return head.endsWith(":") ? head.slice(0, -1) : head;
 }
@@ -526,4 +535,4 @@ function pythonDocstring(lines: string[], startLine: number): string | undefined
   return close >= 0 ? rest.slice(0, close) : undefined;
 }
 
-const relativeTo = (rootDir: string, file: string) => normalizePath(path.relative(rootDir, file));
+export const relativeTo = (rootDir: string, file: string) => normalizePath(path.relative(rootDir, file));

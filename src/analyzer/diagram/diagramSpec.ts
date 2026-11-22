@@ -2,7 +2,7 @@
  * The diagram spec: the exact data of one architecture diagram level as a small JSON document
  * (schemas/diagram-spec.schema.json), for an agent diagram skill that draws a hand-crafted or
  * branded diagram. The same level, filters and violations as the SVG, but every node: the size
- * cap is a drawing concern, left to the skill. A flow spec (`kind: "flow"`) carries one entry symbol's flow model.
+ * cap is a drawing concern, left to the skill. A flow spec (`kind: "flow"`) carries one entry symbol's flow model. A sequence spec (`kind: "sequence"`) carries one entry symbol's calls in order.
  *
  * CRITICAL ARCHITECTURE RULE: This module is completely VS Code agnostic!
  */
@@ -11,6 +11,8 @@ import { byCodeUnit } from "../architecture/architectureUnits";
 import { brokenRules, cyclesOf, diagramHeader, sanitizeText, type DiagramEdge, type DiagramInput, type DiagramNode } from "./architectureDiagram";
 import { defaultEdgeLabel, flowText } from "./flowDiagram";
 import type { FlowModel } from "./flowModel";
+import { defaultMessageLabel, sequenceText } from "./sequenceDiagram";
+import type { SequenceModel } from "./sequenceModel";
 
 export const DIAGRAM_SPEC_SCHEMA = "https://raw.githubusercontent.com/magic5644/Graph-It-Live/main/schemas/diagram-spec.schema.json";
 
@@ -76,6 +78,38 @@ export function flowSpec(model: FlowModel, workspace: string): FlowDiagramSpec {
       ...(edge.condition ? { condition: sanitizeText(edge.condition) } : {}),
       label: sanitizeText(edge.label ?? defaultEdgeLabel(edge)),
     })),
+  };
+}
+
+/**
+ * The calls of one entry symbol (`kind: "sequence"`): lifelines, messages in call order, fragments and the header
+ * lines. Participant titles, message labels, operand guards and the caption's title and caption are the texts an
+ * agent may rewrite before `graph-it diagram --spec` draws them (#798 b).
+ */
+export interface SequenceDiagramSpec extends Omit<SequenceModel, "caption" | "messages"> {
+  $schema: string;
+  version: number;
+  kind: "sequence";
+  /** Workspace folder name, never its absolute path. */
+  workspace: string;
+  caption: { title: string; caption: string; counts: string };
+  messages: (SequenceModel["messages"][number] & { label: string })[];
+}
+
+/** The spec of one sequence model; the model is in call order already, so one index revision gives one document. */
+export function sequenceSpec(model: SequenceModel, workspace: string): SequenceDiagramSpec {
+  const name = sanitizeText(workspace);
+  const { title, caption, counts } = sequenceText(model, name);
+  return {
+    $schema: DIAGRAM_SPEC_SCHEMA,
+    version: DIAGRAM_SPEC_VERSION,
+    kind: "sequence",
+    workspace: name,
+    ...model,
+    caption: { title, caption, counts },
+    participants: model.participants.map((participant) => ({ ...participant, title: sanitizeText(participant.title) })),
+    messages: model.messages.map((message) => ({ ...message, label: sanitizeText(message.label ?? defaultMessageLabel(message)) })),
+    fragments: model.fragments.map((fragment) => ({ ...fragment, operands: fragment.operands.map((operand) => ({ ...operand, guard: sanitizeText(operand.guard) })) })),
   };
 }
 
