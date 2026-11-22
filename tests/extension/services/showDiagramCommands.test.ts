@@ -20,10 +20,7 @@ vi.mock("vscode", () => ({
 }));
 
 import * as vscode from "vscode";
-import { DIAGRAM_VIEWS as CLI_VIEWS } from "@/analyzer/diagram/diagramStyle";
-
-// shortcut: the VS Code Sequence tab comes with #810; drop this filter there, so the tabs match every CLI view again.
-const DIAGRAM_VIEWS = CLI_VIEWS.filter((view) => view !== "sequence");
+import { DIAGRAM_VIEWS } from "@/analyzer/diagram/diagramStyle";
 import { diagramChoices, showArchitectureDiagram, showDiagram, showFlowDiagram, type ShowDiagramDeps } from "@/extension/services/showDiagramCommands";
 import { DIAGRAM_TABS } from "@/shared/architecture-types";
 
@@ -37,10 +34,10 @@ describe("diagramChoices", () => {
   });
 
   it("hides what cannot be drawn", () => {
-    expect(diagramChoices({ hasWorkspace: false, flowFile: true })).toEqual(["flow"]);
+    expect(diagramChoices({ hasWorkspace: false, flowFile: true })).toEqual(["flow", "sequence"]);
     expect(diagramChoices({ hasWorkspace: true, flowFile: false })).toEqual(["units", "folder", "matrix"]);
     expect(diagramChoices({ hasWorkspace: true, flowFile: true, fileOrFolder: "folder" })).toEqual(["units", "folder", "matrix"]);
-    expect(diagramChoices({ hasWorkspace: true, flowFile: true, fileOrFolder: "file" })).toEqual(["units", "folder", "matrix", "flow"]);
+    expect(diagramChoices({ hasWorkspace: true, flowFile: true, fileOrFolder: "file" })).toEqual(["units", "folder", "matrix", "flow", "sequence"]);
     expect(diagramChoices({ hasWorkspace: false, flowFile: false })).toEqual([]);
   });
 });
@@ -76,7 +73,7 @@ describe("Show Diagram commands (#795)", () => {
   it("Show Flow Diagram switches to the Architecture mode, with no folder too, only once something is drawn", async () => {
     vs.editor = { document: { uri: uri("src/a.ts") } };
     await showFlowDiagram(deps);
-    expect(flow.showAtCursor).toHaveBeenCalledWith(vs.editor);
+    expect(flow.showAtCursor).toHaveBeenCalledWith(vs.editor, { view: "flow" });
     expect(setViewModeArchitecture).toHaveBeenCalledWith({ allowNoWorkspace: true });
     // The editor menu passes the active editor's file: the cursor's symbol.
     await showFlowDiagram(deps, uri("src/a.ts"));
@@ -85,7 +82,7 @@ describe("Show Diagram commands (#795)", () => {
     await showFlowDiagram(deps);
     expect(setViewModeArchitecture).toHaveBeenCalledTimes(2);
     await showFlowDiagram(deps, uri("src/b.ts"));
-    expect(flow.showForFile).toHaveBeenCalledWith(uri("src/b.ts"));
+    expect(flow.showForFile).toHaveBeenCalledWith(uri("src/b.ts"), { view: "flow" });
   });
 
   it("refuses Units, Folder and Matrix without a folder, the mode unchanged", async () => {

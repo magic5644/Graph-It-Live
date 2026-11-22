@@ -22,8 +22,10 @@ import type {
 } from "./architecture-model";
 
 /** The diagram tabs of the Architecture mode: the CLI `graph-it diagram --view` names, same order (parity test). */
-export const DIAGRAM_TABS = ["units", "folder", "matrix", "flow"] as const;
+export const DIAGRAM_TABS = ["units", "folder", "matrix", "flow", "sequence"] as const;
 export type DiagramTab = (typeof DIAGRAM_TABS)[number];
+/** The tabs drawing one entry symbol: the same entry, drawn as a flow or as a sequence (#798). */
+export type SymbolDiagramView = Extract<DiagramTab, "flow" | "sequence">;
 
 /** One level of the breadcrumb: workspace > unit/folder… > file > symbol. */
 export interface DiagramCrumb {
@@ -294,7 +296,7 @@ export interface DiagramContextMessage {
 export interface ArchitectureScopeMessage {
   type: "architectureScope";
   revision: string;
-  tab: Exclude<DiagramTab, "flow">;
+  tab: Exclude<DiagramTab, SymbolDiagramView>;
   /** Unit key, or null for the units. */
   unit: string | null;
   /** Folder keys entered below the unit, outermost first (directoryFolderChain minus the unit). */
@@ -336,6 +338,8 @@ export interface FlowDiagramEdge {
 /** A drawn flow: the CLI's SVG plus the geometry of its boxes and edge labels (overlay buttons, keyboard list). */
 export interface FlowDiagramMessage {
   type: "flowDiagram";
+  /** The tab it is drawn on; a sequence's nodes are its lifelines (lane main) and its edges its messages. */
+  view: SymbolDiagramView;
   /** Increments per render; every flow request echoes it, an older one is ignored. */
   requestId: number;
   svg: string;
@@ -356,6 +360,8 @@ export interface FlowDiagramMessage {
 /** Flow progress or why no flow is drawn; the previous diagram stays under "loading" and "error". */
 export interface FlowDiagramStateMessage {
   type: "flowDiagramState";
+  /** The tab the state is about: loading takes it. */
+  view: SymbolDiagramView;
   /** The request this state is about: an older one is ignored, and Show call graph / Refresh echo it (no flow is drawn when empty). */
   requestId: number;
   /** cancelled: the draw announced by loading was cancelled; the view shows the flow it had, else its previous tab. */
@@ -740,6 +746,8 @@ export interface FlowExportDiagramCommand {
 export interface FlowRefreshCommand {
   command: "flowRefresh";
   requestId: number;
+  /** Draws the entry as this view (a Flow or Sequence tab click); default: the view drawn. */
+  view?: SymbolDiagramView;
 }
 
 /** Empty-state action: Show Call Graph on the entry symbol. */

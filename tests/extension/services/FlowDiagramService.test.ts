@@ -51,9 +51,11 @@ import { CallGraphIndexer } from "@/analyzer/callgraph/CallGraphIndexer";
 import { fileExtToLang, GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import type { FlowLayout } from "@/analyzer/diagram/flowDiagram";
 import type { FlowModel } from "@/analyzer/diagram/flowModel";
-import { renderFlowDiagram } from "@/analyzer/diagram/workspaceDiagram";
+import { renderFlowDiagram, renderSequenceDiagram } from "@/analyzer/diagram/workspaceDiagram";
+import { layoutSequence } from "@/analyzer/diagram/sequenceDiagram";
+import type { SequenceModel } from "@/analyzer/diagram/sequenceModel";
 import { readFlowOptions } from "@/cli/commands/diagram";
-import { diagramThemeFor, flowGeometry, FlowDiagramService, FOLLOW_DEBOUNCE_MS, type FlowDiagramServiceOptions } from "@/extension/services/FlowDiagramService";
+import { diagramThemeFor, flowGeometry, FlowDiagramService, FOLLOW_DEBOUNCE_MS, sequenceGeometry, type FlowDiagramServiceOptions } from "@/extension/services/FlowDiagramService";
 import type { ArchitectureExtensionMessage, FlowDiagramMessage, FlowDiagramStateMessage } from "@/shared/architecture-types";
 import type { SupportedLang } from "@/shared/callgraph-types";
 import { normalizePath } from "@/shared/path";
@@ -371,6 +373,66 @@ describe("FlowDiagramService", () => {
     expect(states().at(-1)).toMatchObject({ status: "empty" });
   });
 
+  // #798 c: the same entry drawn as a sequence, on the Sequence tab.
+  it("draws the sequence at the cursor as the CLI does: lifelines and calls by index, then the flow again from the Flow tab", async () => {
+    const service = create();
+    expect(await service.showAtCursor(editorAt("src/order.ts", 2), { view: "sequence" })).toBe(true);
+    expect(vs.withProgress.mock.calls[0][0]).toMatchObject({ title: "Graph-It-Live: drawing the sequence diagram…" });
+    expect(states()[0]).toMatchObject({ status: "loading", view: "sequence" });
+    const [sequence] = flows();
+    const request = { filePath: ORDER_FILE(), symbolName: "placeOrder", startLine: 2 };
+    expect(sequence).toMatchObject({ view: "sequence", title: "Sequence · placeOrder" });
+    expect(sequence.svg).toBe((await renderSequenceDiagram(indexer.getDb(), { rootDir: root, extractor }, request, { format: "svg", theme: "light" })).markup);
+    expect(sequence.nodes.map((node) => node.name)).toEqual(["Lifeline 1 of 2: order.ts, src/order.ts:1", "Lifeline 2 of 2: store.ts, src/store.ts:1"]);
+    expect(sequence.edges.map((edge) => edge.name)).toEqual(["Call order.ts → validate at src/order.ts:3", "Call order.ts → save at src/order.ts:4"]);
+    expect(service.getE2EState()).toMatchObject({ drawnView: "sequence", edges: sequence.edges.map((edge) => edge.name) });
+    // A lifeline opens its file, a call its call site.
+    const open = (kind: "node" | "edge", index: number) => service.handleWebviewMessage({ command: "flowOpenLocation", requestId: sequence.requestId, target: { kind, index } });
+    await open("node", 1);
+    await open("edge", 1);
+    expect(opened).toEqual([{ file: path.resolve(root, "src/store.ts"), line: 1 }, { file: path.resolve(root, "src/order.ts"), line: 4 }]);
+    // The Flow tab draws the same entry as a flow; a later refresh keeps the view drawn.
+    await service.handleWebviewMessage({ command: "flowRefresh", requestId: sequence.requestId, view: "flow" });
+    expect(flows().at(-1)).toMatchObject({ view: "flow", title: "Flow · placeOrder" });
+    await service.handleWebviewMessage({ command: "flowRefresh", requestId: flows().at(-1)!.requestId });
+    expect(flows().at(-1)?.view).toBe("flow");
+  });
+
+  it("a cancelled switch to the Sequence tab keeps the flow, and the next refresh draws the flow", async () => {
+    const service = create();
+    await service.showAtCursor(editorAt("src/order.ts", 2));
+    const flow = flows()[0];
+    callGraph.indexForFlow.mockResolvedValueOnce(undefined);
+    await service.handleWebviewMessage({ command: "flowRefresh", requestId: flow.requestId, view: "sequence" });
+    expect(states().map((state) => [state.status, state.view]).slice(-2)).toEqual([["loading", "sequence"], ["cancelled", "sequence"]]);
+    // The view keeps the flow it shows: nothing is drawn again.
+    expect(flows()).toEqual([flow]);
+    expect(service.getE2EState().drawnView).toBe("flow");
+    await service.handleWebviewMessage({ command: "flowRefresh", requestId: states().at(-1)!.requestId });
+    expect(flows().at(-1)?.view).toBe("flow");
+  });
+
+  it("exports the sequence as the CLI writes it, Mermaid included; a flow refuses Mermaid with the CLI's reason", async () => {
+    const service = create();
+    await service.showAtCursor(editorAt("src/order.ts", 2), { view: "sequence" });
+    const request = { filePath: ORDER_FILE(), symbolName: "placeOrder", startLine: 2 };
+    const exportTo = async (output: string) => {
+      service.setControls({ exportDiagram: { target: "file", output } });
+      await service.handleWebviewMessage({ command: "flowExportDiagram", requestId: flows().at(-1)!.requestId, target: "file" });
+    };
+    for (const [file, format] of [["seq.mmd", "mermaid"], ["seq.json", "diagram-spec"]] as const) {
+      await exportTo(file);
+      const cli = await renderSequenceDiagram(indexer.getDb(), { rootDir: root, extractor }, request, { format, theme: "light" });
+      expect(await fs.readFile(path.join(root, file), "utf8")).toBe(cli.markup);
+      expect(notices.at(-1)).toEqual({ message: `Sequence diagram saved to ${file}.`, level: "info" });
+    }
+    await exportTo("seq.txt");
+    expect(notices.at(-1)).toEqual({ message: "Could not export the Sequence diagram: seq.txt: save as .svg, .html or .json, or .mmd for Mermaid", level: "error" });
+    await service.handleWebviewMessage({ command: "flowRefresh", requestId: flows().at(-1)!.requestId, view: "flow" });
+    await exportTo("flow.mmd");
+    expect(notices.at(-1)?.message).toMatch(/^Could not export the Flow diagram: format mermaid writes a sequence diagram only/);
+  });
+
   it("opens a step or a call site by index only, refusing bad indexes, old requests and deleted files", async () => {
     const service = create();
     await service.showAtCursor(editorAt("src/order.ts", 2));
@@ -611,6 +673,27 @@ describe("FlowDiagramService", () => {
     expect(posted).toEqual([{ type: "architectureControls", tab: "flow", flowNode: 2, flowEdge: 0, follow: true, flowRefresh: true }]);
     service.setControls({ cancelFlow: true });
     expect(posted).toHaveLength(1);
+  });
+});
+
+describe("sequenceGeometry", () => {
+  const model: SequenceModel = {
+    entry: "src/a.ts#run", entryLine: 2, entryParticipant: "src/a.ts", language: "typescript", fragmentDetection: "detected",
+    participantsBy: "class", depth: 3, maxMessages: 30, omitted: { depth: 0, messages: 0, participants: 0 },
+    participants: [{ id: "src/a.ts", title: "a.ts", kind: "file", file: "src/a.ts" }, { id: "src/b.ts#Cart", title: "Cart", kind: "class", file: "src/b.ts", line: 4 }],
+    messages: [{ id: "m1", from: "src/a.ts", to: "src/b.ts#Cart", name: "save", targetFile: "src/b.ts", targetLine: 5, file: "src/a.ts", line: 9, relation: "CALLS", level: 1 }],
+    fragments: [{ id: "src/a.ts:8:3", kind: "catch", operands: [{ guard: "catch (error)", first: "m1", last: "m1" }] }],
+  };
+
+  it("names lifelines and calls, a class lifeline at its line, a call in a catch on the error lane", () => {
+    const { nodes, edges } = sequenceGeometry(model, layoutSequence(model, "/w"));
+    expect(nodes.map((node) => [node.name, node.line])).toEqual([["Lifeline 1 of 2: a.ts, src/a.ts:1", 1], ["Lifeline 2 of 2: Cart, src/b.ts:4", 4]]);
+    expect(edges).toMatchObject([{ name: "Call a.ts → save at src/a.ts:9, in a catch", lane: "error", file: "src/a.ts", line: 9 }]);
+  });
+
+  it("refuses a layout that is not the model's", () => {
+    const layout = layoutSequence(model, "/w");
+    expect(() => sequenceGeometry({ ...model, messages: [] }, layout)).toThrow("internal error: the sequence layout does not match its model");
   });
 });
 

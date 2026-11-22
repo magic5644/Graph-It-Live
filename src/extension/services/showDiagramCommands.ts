@@ -1,6 +1,6 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { DIAGRAM_TABS, type DiagramTab } from "@/shared/architecture-types";
+import { DIAGRAM_TABS, type DiagramTab, type SymbolDiagramView } from "@/shared/architecture-types";
 import { normalizePath } from "@/shared/path";
 import type { GraphProvider } from "../GraphProvider";
 import type { CallGraphViewService } from "./CallGraphViewService";
@@ -12,15 +12,16 @@ const DESCRIPTIONS: Record<DiagramTab, string> = {
   folder: "the groups of one folder",
   matrix: "dependency structure matrix of the level",
   flow: "call flow of one symbol, in call order",
+  sequence: "calls of one symbol in order, as a sequence diagram",
 };
-const TAB_NAMES: Record<DiagramTab, string> = { units: "Units", folder: "Folder", matrix: "Matrix", flow: "Flow" };
+const TAB_NAMES: Record<DiagramTab, string> = { units: "Units", folder: "Folder", matrix: "Matrix", flow: "Flow", sequence: "Sequence" };
 
 /**
- * The diagrams Show Diagram… lists, in the CLI's order: Units, Folder and Matrix need a folder; Flow
- * needs a supported file (the active editor, or the Explorer file), never an Explorer folder.
+ * The diagrams Show Diagram… lists, in the CLI's order: Units, Folder and Matrix need a folder; Flow and
+ * Sequence need a supported file (the active editor, or the Explorer file), never an Explorer folder.
  */
 export function diagramChoices(context: { hasWorkspace: boolean; flowFile: boolean; fileOrFolder?: "file" | "folder" }): DiagramTab[] {
-  return DIAGRAM_TABS.filter((tab) => (tab === "flow" ? context.flowFile && context.fileOrFolder !== "folder" : context.hasWorkspace));
+  return DIAGRAM_TABS.filter((tab) => (tab === "flow" || tab === "sequence" ? context.flowFile && context.fileOrFolder !== "folder" : context.hasWorkspace));
 }
 
 export interface ShowDiagramDeps {
@@ -31,11 +32,11 @@ export interface ShowDiagramDeps {
 
 const info = (message: string) => void vscode.window.showInformationMessage(message);
 
-/** Show Flow Diagram (Symbol at Cursor): the mode switches only once a flow (or its empty state) is drawn. */
-export async function showFlowDiagram(deps: ShowDiagramDeps, uri?: vscode.Uri): Promise<void> {
+/** Show Flow Diagram (Symbol at Cursor), or Show Diagram… sequence: the mode switches only once a diagram (or its empty state) is drawn. */
+export async function showFlowDiagram(deps: ShowDiagramDeps, uri?: vscode.Uri, view: SymbolDiagramView = "flow"): Promise<void> {
   const drawn = uri === undefined || uri.fsPath === vscode.window.activeTextEditor?.document.uri.fsPath
-    ? await deps.flow.showAtCursor(vscode.window.activeTextEditor)
-    : await deps.flow.showForFile(uri);
+    ? await deps.flow.showAtCursor(vscode.window.activeTextEditor, { view })
+    : await deps.flow.showForFile(uri, { view });
   if (drawn) await deps.provider.setViewModeArchitecture({ allowNoWorkspace: true });
 }
 
@@ -43,7 +44,7 @@ export async function showFlowDiagram(deps: ShowDiagramDeps, uri?: vscode.Uri): 
  * Units, Folder or Matrix tab: refused without a folder or outside it (mode unchanged), else waits for
  * the architecture summary under a cancellable notification. `directory`: the Folder tab's target; none asks for a unit.
  */
-export async function showArchitectureDiagram(deps: ShowDiagramDeps, tab: Exclude<DiagramTab, "flow">, directory?: vscode.Uri): Promise<void> {
+export async function showArchitectureDiagram(deps: ShowDiagramDeps, tab: Exclude<DiagramTab, SymbolDiagramView>, directory?: vscode.Uri): Promise<void> {
   const root = deps.provider.getWorkspaceRoot();
   const architecture = deps.provider.getArchitectureViewService();
   if (root === undefined || architecture === undefined) {
@@ -81,8 +82,8 @@ export async function showDiagram(deps: ShowDiagramDeps, uri?: vscode.Uri): Prom
     placeHolder: "Pick the diagram to show",
   });
   if (!picked) return;
-  if (picked.view === "flow") {
-    await showFlowDiagram(deps, uri);
+  if (picked.view === "flow" || picked.view === "sequence") {
+    await showFlowDiagram(deps, uri, picked.view);
     return;
   }
   // The Folder diagram of an Explorer file is its folder's; from the palette, a unit is asked for.

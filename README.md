@@ -210,7 +210,7 @@ The CLI (`graph-it architecture --level units`) and the MCP tool `explore_archit
 <img src="media/architecture-matrix.png" alt="Dependency structure matrix of Graph-It-Live's src folder: every cell below the diagonal, no cycle" width="800"/>
 </div>
 
-*Click the *Matrix* tab (*Units | Folder | Matrix | Flow*) for the dependency structure matrix of the drawn level.*
+*Click the *Matrix* tab (*Units | Folder | Matrix | Flow | Seq*) for the dependency structure matrix of the drawn level.*
 
 To share the drawn level as a picture, click *Export Architecture Diagram* (icon `$(desktop-download)`) in the *Dependency Graph* view title bar, then save it as `.svg`, `.html` or `.png`. *Copy Architecture Diagram as SVG* (icon `$(copy)`) puts the SVG on the clipboard. Both commands are also in the Command Palette while the Architecture view is open. The export draws the units, or the groups of the entered unit or folder, as a graph or a matrix, with the rule violations of the view; the graph also keeps the role filter and *Min. imports*, which the matrix does not apply. It uses the renderer of `graph-it diagram`: without a role or *Min. imports* filter, the same level gives the same SVG as the CLI; the PNG is that SVG at twice its size, and the SVG follows the editor's light or dark theme. Exports need the default `graph-it-live.communityMode` (`path`).
 
@@ -228,7 +228,7 @@ To see what one function does step by step, draw its call flow: `graph-it diagra
 
 *`graph-it diagram --view flow` on this repository: one step per column, one lane per row.*
 
-For the order of the calls, draw a sequence diagram: `graph-it diagram --view sequence src/cli/commands/diagram.ts#run --depth 2 --format svg`. One lifeline per file (or per class with `--participants class`), one message per call, activation bars, and the `alt` / `opt` / `loop` / `catch` fragments with their guards. `--depth`, `--maxMessages` (up to 60) and `--startLine` bound it, and a note names what was left out. `--format mermaid` writes a `sequenceDiagram` that GitHub renders in a pull request or a README; the MCP tool takes `view: "sequence"` and `diagramFormat: "mermaid"`. Not drawn: dynamic dispatch, library callbacks, `node_modules`, return values.
+For the order of the calls, draw a sequence diagram: `graph-it diagram --view sequence src/cli/commands/diagram.ts#run --depth 2 --format svg`. One lifeline per file (or per class with `--participants class`), one message per call, activation bars, and the `alt` / `opt` / `loop` / `catch` fragments with their guards. `--depth`, `--maxMessages` (up to 60) and `--startLine` bound it, and a note names what was left out. `--format mermaid` writes a `sequenceDiagram` that GitHub renders in a pull request or a README; the MCP tool takes `view: "sequence"` and `diagramFormat: "mermaid"`. In VS Code, **Show Diagram…** › *sequence*, or the *Seq* tab next to *Flow*, draws the symbol at the cursor: a lifeline opens its file, a call its call site, and Export also writes Mermaid (`.mmd`). Not drawn: dynamic dispatch, library callbacks, `node_modules`, return values.
 
 <div align="center">
 <img src="media/cli-diagram-sequence.png" alt="Sequence diagram of the diagram command's run function: lifelines for its files, activation bars, opt and alt fragments with their guards, and the notes counting the calls left out" width="900"/>

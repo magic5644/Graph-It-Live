@@ -116,7 +116,7 @@ function FlowStatus({ state, onRefresh, onShowCallGraph }: Readonly<Pick<FlowDia
   if (status?.status === "stale" || flow?.stale) {
     return (
       <output data-flow-stale data-flow-line style={{ display: "block" }}>
-        Stale: files changed since this flow was drawn.{" "}
+        Stale: files changed since this {flow?.view ?? status?.view ?? "flow"} was drawn.{" "}
         <button type="button" className={DIAGRAM_FOCUS_CLASS} onClick={onRefresh}>Refresh</button>
       </output>
     );
@@ -164,7 +164,7 @@ export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, on
             ref={imageRef} data-request-id={flow.requestId} src={flowDataUrl(flow.svg)} alt={`${flow.title}. ${flow.caption}. ${flow.counts}.`}
             style={{ display: "block", width: "100%", maxWidth: flow.width }}
           />
-          <fieldset aria-label="Flow steps" style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
+          <fieldset aria-label={flow.view === "sequence" ? "Sequence lifelines" : "Flow steps"} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
             {flow.nodes.map((node, index) => (
               <button
                 key={node.id} type="button" data-flow-node={index} className={DIAGRAM_FOCUS_CLASS}
@@ -174,7 +174,7 @@ export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, on
               />
             ))}
           </fieldset>
-          <fieldset aria-label="Flow calls" style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
+          <fieldset aria-label={flow.view === "sequence" ? "Sequence calls" : "Flow calls"} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
             {flow.edges.map((edge, index) => {
               const halfWidth = (edge.label.text.length * LABEL_CHAR_WIDTH) / 2 + 4;
               return (

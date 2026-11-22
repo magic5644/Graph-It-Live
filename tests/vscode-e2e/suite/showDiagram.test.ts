@@ -49,7 +49,7 @@ const sha256 = (text: string) => createHash('sha256').update(text).digest('hex')
 /** diagramThemeFor: dark and high contrast draw the CLI's dark palette, the light themes its light one. */
 const cliTheme = () => ([vscode.ColorThemeKind.Dark, vscode.ColorThemeKind.HighContrast].includes(vscode.window.activeColorTheme.kind) ? 'dark' : 'light');
 
-/** #795: Show Diagram (Units | Folder | Matrix | Flow) in the Architecture view. */
+/** #795: Show Diagram (Units | Folder | Matrix | Flow | Sequence) in the Architecture view. */
 suite('Show Diagram (#795)', function () {
   this.timeout(180_000);
   let window: WindowCapture;
@@ -78,10 +78,8 @@ suite('Show Diagram (#795)', function () {
 
   test('Show Diagram… lists exactly the CLI --view names; Escape changes nothing', async () => {
     const help = await cliDiagram(root, ['--help']).catch((error: { stdout?: string }) => error.stdout ?? '');
-    const cliViews = /--view VIEW\s+([a-z|]+)/.exec(help)?.[1].split('|');
-    assert.deepStrictEqual(cliViews, ['units', 'folder', 'matrix', 'flow', 'sequence'], `the CLI's --view names (help: ${help.slice(0, 200)})`);
-    // shortcut: the Sequence tab comes with #810; drop this filter there, so the picks list every CLI view again.
-    const views = (cliViews ?? []).filter(view => view !== 'sequence');
+    const views = /--view VIEW\s+([a-z|]+)/.exec(help)?.[1].split('|');
+    assert.deepStrictEqual(views, ['units', 'folder', 'matrix', 'flow', 'sequence'], `the CLI's --view names (help: ${help.slice(0, 200)})`);
     await openAt(CONTROLLER, IN_GET_USER);
     const mode = await getContextKey('graph-it-live.viewMode');
     await vscode.commands.executeCommand('graph-it-live.showDiagram');
@@ -111,6 +109,49 @@ suite('Show Diagram (#795)', function () {
     };
     await expectOpened('step 2 opened at its declaration', { flowNode: 1 }, shown.nodes[1]);
     await expectOpened('call 1 opened at its call site', { flowEdge: 0 }, shown.edges[0]);
+  });
+
+  // #798 c: the same entry as a sequence diagram, on the Sequence tab.
+  test('Sequence tab: the entry at the cursor as the CLI draws it; a lifeline opens its file, a call its call site', async () => {
+    const flow = await drawFlowAt(CONTROLLER, IN_GET_USER, 'handleGetUser');
+    await controls({ tab: 'sequence' });
+    const shown = await waitForFlow('the sequence of handleGetUser on the Sequence tab', state =>
+      state.drawnView === 'sequence' && state.requestId > flow.requestId && state.view?.flowRequestId === state.requestId && selectedTab(state) === 'sequence');
+    assert.strictEqual(shown.entry, flow.entry);
+    shown.nodes.forEach((name, index) => assert.match(name, new RegExp(`^Lifeline ${index + 1} of ${shown.nodes.length}: .+, .+:\\d+$`)));
+    assert.match(shown.nodes[0], /^Lifeline 1 of \d+: controller\.ts, trace\/controller\.ts:1$/);
+    assert.ok(shown.edges.length > 0 && shown.edges.every(name => /^Call .+ → .+ at .+:\d+/.test(name)), shown.edges.join(' | '));
+    assert.deepStrictEqual(shown.view?.flowButtons, [...shown.nodes, ...shown.edges]);
+    assert.deepStrictEqual(window.messages, []);
+    const { line } = locationOf(flow.nodes[0]);
+    const cli = await cliDiagram(root, ['--view', 'sequence', `${CONTROLLER}#handleGetUser`, '--startLine', String(line), '--format', 'svg', '--theme', cliTheme()]);
+    assert.strictEqual(shown.svgDigest, sha256(cli), 'the drawn SVG is the CLI\'s');
+
+    const expectOpened = async (what: string, control: Record<string, number>, target: { file: string; line: number }) => {
+      await controls(control);
+      await waitForFlow(what, state => state.lastOpened?.file === target.file && state.lastOpened.line === target.line
+        && vscode.window.activeTextEditor?.selection.active.line === target.line - 1
+        && path.relative(path.resolve(root, target.file), vscode.window.activeTextEditor.document.uri.fsPath) === '', 30_000);
+    };
+    const [, file, calleeLine] = /, ([^,]+):(\d+)$/.exec(shown.nodes[1])!;
+    const callee = { file, line: Number(calleeLine) };
+    await expectOpened('lifeline 2 opened at its file', { flowNode: 1 }, callee);
+    const site = /at (.+):(\d+)/.exec(shown.edges[0])!;
+    await expectOpened('call 1 opened at its call site', { flowEdge: 0 }, { file: site[1], line: Number(site[2]) });
+    // The Flow tab draws the same entry as a flow again.
+    await controls({ tab: 'flow' });
+    await waitForFlow('the flow again on the Flow tab', state => state.drawnView === 'flow' && state.view?.flowRequestId === state.requestId && selectedTab(state) === 'flow');
+  });
+
+  test('Sequence on a file without a symbol says so once, draws nothing and leaves the view mode', async () => {
+    const before = await flowState();
+    const mode = await getContextKey('graph-it-live.viewMode');
+    await openAt('bench-permanent/src/module0.ts', 0);
+    window.answer = 'sequence';
+    await vscode.commands.executeCommand('graph-it-live.showDiagram');
+    assert.deepStrictEqual(window.messages, ['Graph-It-Live: bench-permanent/src/module0.ts has no symbol to draw a sequence from.']);
+    assert.strictEqual(await getContextKey('graph-it-live.viewMode'), mode);
+    assert.strictEqual((await flowState()).requestId, before.requestId);
   });
 
   test('keyboard only: Tab enters the first step, ArrowRight follows the call, Escape returns to the tabs, Enter opens', async () => {

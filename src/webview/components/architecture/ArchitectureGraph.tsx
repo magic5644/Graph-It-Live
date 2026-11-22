@@ -37,6 +37,7 @@ import {
   type DiagramTab,
   type FlowDiagramMessage,
   type FlowDiagramStateMessage,
+  type SymbolDiagramView,
 } from "../../../shared/architecture-types";
 import { buildArchitectureStylesheet } from "../cytoscape/CytoscapeTheme";
 import {
@@ -366,9 +367,13 @@ const levelKey = (unit: string | null, folder: string | undefined) => `${unit ??
 /** The drawn level as a graph or as its dependency structure matrix. */
 type View = "graph" | "matrix";
 
-/** The selected diagram tab: Flow when shown, else derived from the view and the drawn level. */
-function tabOf(flowShown: boolean, view: View, unit: string | null): DiagramTab {
-  if (flowShown) return "flow";
+/** The tab of the symbol diagram: the one a loading state takes, else the drawn one's, else the state's. */
+const symbolViewOf = ({ flow, status }: FlowState): SymbolDiagramView =>
+  (status?.status === "loading" ? status.view : flow?.view ?? status?.view) ?? "flow";
+
+/** The selected diagram tab: Flow or Sequence when shown, else derived from the view and the drawn level. */
+function tabOf(flowShown: boolean, flow: FlowState, view: View, unit: string | null): DiagramTab {
+  if (flowShown) return symbolViewOf(flow);
   if (view === "matrix") return "matrix";
   return unit === null ? "units" : "folder";
 }
@@ -774,7 +779,7 @@ function GraphControls(props: Readonly<GraphControlsProps>) {
           value={query}
           onChange={(event) => onQuery(event.target.value)}
           // Shrinks beside the diagram tabs on a narrow view rather than wrapping to a row of its own (#426); max-content keeps its native width on a wide one.
-          style={{ flex: "1 1 30px", minWidth: 0, maxWidth: "max-content" }}
+          style={{ flex: "1 1 0", minWidth: 16, maxWidth: "max-content" }}
         />
         {view === "graph" && (
         <label>
@@ -1867,10 +1872,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     flowShownRef.current = shown;
     setFlowShown(shown);
   };
-  /** A tab click: Flow, the Matrix of the drawn level, the units, or the last folder level drawn. */
+  /** A tab click: Flow or Sequence (the entry drawn again as that view), the Matrix of the drawn level, the units, or the last folder level drawn. */
   const selectTab = (tab: DiagramTab) => {
-    showFlow(tab === "flow");
-    if (tab === "flow") return;
+    showFlow(tab === "flow" || tab === "sequence");
+    if (tab === "flow" || tab === "sequence") {
+      if (tab !== symbolViewOf(flowStateRef.current)) postFlow((requestId) => ({ command: "flowRefresh", requestId, view: tab }));
+      return;
+    }
     switchView(tab === "matrix" ? "matrix" : "graph");
     const target = tab === "units" ? { unit: null, folders: [] } : lastFolder;
     if (target && (target.unit !== unitRef.current || target.folders.join("\0") !== foldersRef.current.join("\0"))) goTo(target.unit, target.folders);
@@ -1881,8 +1889,10 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   };
   const toggleFollow = (enabled: boolean) => {
     updateFollow(enabled);
-    const tab = tabOf(flowShownRef.current, viewRef.current, unitRef.current);
-    post({ command: "diagramFollow", enabled, ...(tab === "flow" || tab === "folder" ? { tab } : {}) });
+    const tab = tabOf(flowShownRef.current, flowStateRef.current, viewRef.current, unitRef.current);
+    // Follow on Sequence redraws the entry at the cursor as Flow does, in the view drawn.
+    const followTab = tab === "sequence" ? "flow" : tab;
+    post({ command: "diagramFollow", enabled, ...(followTab === "flow" || followTab === "folder" ? { tab: followTab } : {}) });
   };
   /** A breadcrumb click re-scopes by hand: Follow turns off. */
   const unfollow = () => {
@@ -2371,12 +2381,12 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const actionTarget = view === "matrix" ? rowSelection(drawn, focusId, unitsLevel) : selection;
   const shownPanel = shownPanelOf(panel, evidence !== null, dependents !== null);
   const tabs = evidence && dependents && shownPanel ? <PanelTabs panel={shownPanel} onPanel={setPanel} /> : undefined;
-  const tab = tabOf(flowShown, view, unit);
+  const tab = tabOf(flowShown, flowState, view, unit);
   const tabState = { hasWorkspace, folderEntered: lastFolder !== null, flowAvailable: flowState.flow !== null || flowState.status !== null };
   const tabStrip = (
     <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
       <DiagramTabs tab={tab} state={tabState} onTab={(next) => actionsRef.current.selectTab(next)} />
-      {(tab === "flow" || tab === "folder") && <FollowToggle follow={follow} onFollow={(enabled) => actionsRef.current.toggleFollow(enabled)} />}
+      {(tab === "flow" || tab === "sequence" || tab === "folder") && <FollowToggle follow={follow} onFollow={(enabled) => actionsRef.current.toggleFollow(enabled)} />}
     </span>
   );
   /** The Units, Folder or Matrix diagram is shown (not Flow, not a build state). */
