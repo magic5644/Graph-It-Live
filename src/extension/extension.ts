@@ -89,7 +89,8 @@ export function activate(context: vscode.ExtensionContext) {
         workspaceRoot: () => provider.getWorkspaceRoot(),
         diagramTheme: () => diagramThemeFor(vscode.window.activeColorTheme.kind),
         notify: (message, level) => {
-            void (level === 'error' ? vscode.window.showErrorMessage(message) : vscode.window.showInformationMessage(message));
+            if (level === 'error') vscode.window.showErrorMessage(message);
+            else vscode.window.showInformationMessage(message);
         },
         pickDiagramFile: async (defaultPath) => (await vscode.window.showSaveDialog({
             defaultUri: vscode.Uri.file(defaultPath),

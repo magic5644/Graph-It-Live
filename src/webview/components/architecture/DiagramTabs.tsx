@@ -37,16 +37,16 @@ const ARROW_STEP: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1 };
 
 /** `role="tablist"`: a disabled tab stays focusable (aria-disabled) so its tooltip says why; arrows move between tabs. */
 export function DiagramTabs({ tab, state, onTab }: Readonly<{ tab: DiagramTab; state: DiagramTabState; onTab: (tab: DiagramTab) => void }>) {
-  const moveFocus = (event: React.KeyboardEvent<HTMLDivElement>) => {
+  const moveFocus = (event: React.KeyboardEvent<HTMLButtonElement>) => {
     const step = ARROW_STEP[event.key];
     if (step === undefined) return;
     event.preventDefault();
-    const tabs = Array.from(event.currentTarget.querySelectorAll<HTMLElement>('[role="tab"]'));
-    const at = tabs.indexOf(document.activeElement as HTMLElement);
+    const tabs = Array.from(event.currentTarget.parentElement?.querySelectorAll<HTMLElement>('[role="tab"]') ?? []);
+    const at = tabs.indexOf(event.currentTarget);
     tabs[(at + step + tabs.length) % tabs.length]?.focus();
   };
   return (
-    <div role="tablist" aria-label="Diagram tabs" onKeyDown={moveFocus} style={{ display: "inline-flex" }}>
+    <div role="tablist" aria-label="Diagram tabs" style={{ display: "inline-flex" }}>
       <style>{DIAGRAM_CSS}</style>
       {DIAGRAM_TABS.map((name) => {
         const reason = disabledReason(name, state);
@@ -54,7 +54,7 @@ export function DiagramTabs({ tab, state, onTab }: Readonly<{ tab: DiagramTab; s
           <button
             key={name} type="button" role="tab" data-tab={name} className={DIAGRAM_FOCUS_CLASS}
             aria-selected={tab === name} aria-disabled={reason ? true : undefined} title={reason}
-            tabIndex={tab === name ? 0 : -1}
+            tabIndex={tab === name ? 0 : -1} onKeyDown={moveFocus}
             onClick={() => { if (!reason && name !== tab) onTab(name); }}
             // Compact: four tabs and the find box share one row on a 229px-wide view (#426).
             style={{ fontWeight: tab === name ? 600 : undefined, font: "inherit", padding: "1px 2px" }}

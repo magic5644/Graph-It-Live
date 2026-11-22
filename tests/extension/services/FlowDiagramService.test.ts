@@ -407,7 +407,8 @@ describe("FlowDiagramService", () => {
     const helper = flow.nodes.findIndex((node) => node.file === "../lib/x.ts");
     expect(helper).toBeGreaterThan(0);
     await service.handleWebviewMessage({ command: "flowOpenLocation", requestId: flow.requestId, target: { kind: "node", index: helper } });
-    expect(opened).toEqual([{ file: path.join(root, "loose/lib/x.ts"), line: 1 }]);
+    // rootDir is normalized (lower-case drive letter on Windows): compare both sides normalized.
+    expect(opened.map(({ file, line }) => ({ file: normalizePath(file), line }))).toEqual([{ file: normalizePath(path.join(root, "loose/lib/x.ts")), line: 1 }]);
     // Without a folder, an export is refused: exports are written inside the workspace.
     await service.handleWebviewMessage({ command: "flowExportDiagram", requestId: flow.requestId, target: "file" });
     service.setControls({ exportDiagram: { target: "clipboard" } });

@@ -66,7 +66,7 @@ export function nextFlowNode(flow: Pick<FlowDiagramMessage, "nodes" | "edges">, 
   if (!row) return undefined;
   const x = centreX(node);
   return row.reduce((best, candidate) =>
-    (Math.abs(centreX(flow.nodes[candidate]) - x) < Math.abs(centreX(flow.nodes[best]) - x) ? candidate : best));
+    (Math.abs(centreX(flow.nodes[candidate]) - x) < Math.abs(centreX(flow.nodes[best]) - x) ? candidate : best), row[0]);
 }
 
 /**
@@ -161,10 +161,10 @@ export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, on
       {flow && status?.status !== "empty" && (
         <figure style={{ position: "relative", margin: 0 }}>
           <img
-            ref={imageRef} role="img" data-request-id={flow.requestId} src={flowDataUrl(flow.svg)} alt={`${flow.title}. ${flow.caption}. ${flow.counts}.`}
+            ref={imageRef} data-request-id={flow.requestId} src={flowDataUrl(flow.svg)} alt={`${flow.title}. ${flow.caption}. ${flow.counts}.`}
             style={{ display: "block", width: "100%", maxWidth: flow.width }}
           />
-          <div role="group" aria-label="Flow steps">
+          <fieldset aria-label="Flow steps" style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
             {flow.nodes.map((node, index) => (
               <button
                 key={node.id} type="button" data-flow-node={index} className={DIAGRAM_FOCUS_CLASS}
@@ -173,8 +173,8 @@ export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, on
                 style={{ ...hitStyle, left: node.x * scale, top: node.y * scale, width: node.width * scale, height: node.height * scale }}
               />
             ))}
-          </div>
-          <div role="group" aria-label="Flow calls">
+          </fieldset>
+          <fieldset aria-label="Flow calls" style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
             {flow.edges.map((edge, index) => {
               const halfWidth = (edge.label.text.length * LABEL_CHAR_WIDTH) / 2 + 4;
               return (
@@ -188,7 +188,7 @@ export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, on
                 />
               );
             })}
-          </div>
+          </fieldset>
         </figure>
       )}
       {status?.status === "loading" && (

@@ -296,7 +296,10 @@ export const controls = (value: Record<string, unknown>) => vscode.commands.exec
 
 export async function waitForFlow(what: string, accept: (state: FlowE2EState) => boolean, timeoutMs = 120_000): Promise<FlowE2EState> {
   let last = await flowState();
-  await waitUntil(async () => accept((last = await flowState())), `${what} (last: ${JSON.stringify({ ...last, nodes: last.nodes.length })})`, timeoutMs);
+  await waitUntil(async () => {
+    last = await flowState();
+    return accept(last);
+  }, `${what} (last: ${JSON.stringify({ ...last, nodes: last.nodes.length })})`, timeoutMs);
   return last;
 }
 
