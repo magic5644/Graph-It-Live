@@ -70,6 +70,12 @@ export interface InterfaceMemberInfo {
   name: string;
   kind: 'property' | 'method' | 'index';
   type: string;
+  /**
+   * A property whose type resolves, in its own file, to literals only (`Exclude<Tab, "flow">`): those literals,
+   * sorted. Two spellings of one set (`Exclude<Tab, "flow">` and `Exclude<Tab, "flow" | "sequence">` once Tab
+   * gained "sequence") are the same type. Undefined when any part is not a literal (an unresolved import included).
+   */
+  literals?: string;
   isOptional: boolean;
   isReadonly: boolean;
 }
@@ -147,6 +153,19 @@ interface MovedDeclaration extends ReexportedModule {
 /**
  * SignatureAnalyzer extracts and compares signatures to detect breaking changes.
  */
+/** The sorted literal members a node's type resolves to (string, number, boolean literals, null, undefined), or undefined. */
+function literalSet(node: Node): string | undefined {
+  try {
+    const type = node.getType();
+    const parts = type.isUnion() ? type.getUnionTypes() : [type];
+    if (!parts.every((part) => part.isLiteral() || part.isBooleanLiteral() || part.isUndefined() || part.isNull())) return undefined;
+    return parts.map((part) => part.getText()).toSorted().join(' | ');
+  } catch {
+    // A type the in-memory project cannot resolve compares by its text.
+    return undefined;
+  }
+}
+
 export class SignatureAnalyzer {
   private readonly project: Project;
   /** The two versions of the file whose functions are compared: where a parameter type's names are declared. */
@@ -259,6 +278,7 @@ export class SignatureAnalyzer {
         name: prop.getName(),
         kind: 'property',
         type: this.safeGetTypeNodeText(prop.getTypeNode(), 'unknown'),
+        literals: literalSet(prop),
         isOptional: prop.hasQuestionToken(),
         isReadonly: prop.isReadonly(),
       });
@@ -507,11 +527,15 @@ export class SignatureAnalyzer {
     newMember: InterfaceMemberInfo,
     breakingChanges: BreakingChange[],
   ): void {
-    if (oldMember.type !== newMember.type) {
+    // Two literal sets decide by their members (one spelling may change meaning, two spellings may agree); else the text.
+    const literalSets = oldMember.literals !== undefined && newMember.literals !== undefined;
+    const changed = literalSets ? oldMember.literals !== newMember.literals : oldMember.type !== newMember.type;
+    if (changed) {
+      const shown = (member: InterfaceMemberInfo) => (literalSets && oldMember.type === newMember.type ? `${member.type} (${member.literals})` : member.type);
       breakingChanges.push({
         type: 'member-type-changed',
         symbolName: `${interfaceName}.${newMember.name}`,
-        description: `Type of member '${newMember.name}' changed from '${oldMember.type}' to '${newMember.type}'`,
+        description: `Type of member '${newMember.name}' changed from '${shown(oldMember)}' to '${shown(newMember)}'`,
         severity: 'error',
         oldValue: oldMember.type,
         newValue: newMember.type,
@@ -949,8 +973,10 @@ export class SignatureAnalyzer {
     newContent: string,
     results: SignatureComparisonResult[]
   ): void {
-    const oldInterfaces = this.extractInterfaceMembers(`${filePath}.old`, oldContent);
-    const newInterfaces = this.extractInterfaceMembers(`${filePath}.new`, newContent);
+    // The file's own extension, so the type checker resolves each member's type (literalSet); a .vue keeps its names.
+    const versioned = (version: string) => (this.isVueFile(filePath) ? `${filePath}.${version}` : `${filePath}.${version}${path.extname(filePath)}`);
+    const oldInterfaces = this.extractInterfaceMembers(versioned("old"), oldContent);
+    const newInterfaces = this.extractInterfaceMembers(versioned("new"), newContent);
 
     for (const [name, oldMembers] of oldInterfaces) {
       const newMembers = newInterfaces.get(name);

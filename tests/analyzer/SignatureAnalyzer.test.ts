@@ -499,6 +499,24 @@ describe('SignatureAnalyzer', () => {
       expect(typeChange).toBeDefined();
     });
 
+    // #810: a member retyped to another spelling of the same literal set is not a change.
+    it('compares a member whose type resolves to literals by those literals, not by its spelling', () => {
+      const before = 'export const TABS = ["units", "flow"] as const;\ntype Tab = (typeof TABS)[number];\nexport interface Scope { tab: Exclude<Tab, "flow">; }\n';
+      const after = 'export const TABS = ["units", "flow", "sequence"] as const;\ntype Tab = (typeof TABS)[number];\nexport type View = Extract<Tab, "flow" | "sequence">;\nexport interface Scope { tab: Exclude<Tab, View>; }\n';
+      const breaking = (from: string, to: string) => analyzer.analyzeBreakingChanges('/x.ts', from, to).flatMap(result => result.breakingChanges).map(change => change.type);
+      expect(breaking(before, after)).toEqual([]);
+      // The literals differ: a change, both ways, even under one spelling (Tab gained "sequence").
+      const widened = after.replace('Exclude<Tab, View>', 'Exclude<Tab, "flow">');
+      expect(breaking(before, widened)).toEqual(['member-type-changed']);
+      // (and View leaves the exports)
+      expect(breaking(widened, before)).toContain('member-type-changed');
+      const [same] = analyzer.analyzeBreakingChanges('/x.ts', before, widened).flatMap(result => result.breakingChanges);
+      expect(same.description).toBe(`Type of member 'tab' changed from 'Exclude<Tab, "flow"> ("units")' to 'Exclude<Tab, "flow"> ("sequence" | "units")'`);
+      // An imported type resolves to nothing in the analyzer's project: compared by its text, never assumed equal.
+      const imported = (name: string) => `import type { ${name} } from "./tabs";\nexport interface Scope { tab: ${name}; }\n`;
+      expect(breaking(imported('A'), imported('B'))).toEqual(['member-type-changed']);
+    });
+
     it('should detect new required member as breaking', () => {
       const oldMembers: InterfaceMemberInfo[] = [
         { name: 'id', kind: 'property', type: 'string', isOptional: false, isReadonly: false },
