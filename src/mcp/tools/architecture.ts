@@ -16,9 +16,9 @@ import { checkWorkspaceArchitecture } from "../../analyzer/architecture/architec
 import { folderLevel } from "../../analyzer/architecture/architectureUnits";
 import { loadWorkspaceUnits } from "../../analyzer/architecture/workspaceUnits";
 import { defaultDiagramFile, diagramLevel } from "../../analyzer/diagram/diagramStyle";
-import { readDiagramSpec, specFlowRequest, specLevel, type LoadedSpec } from "../../analyzer/diagram/diagramSpecImport";
+import { readDiagramSpec, specFlowRequest, specLevel, specSequenceRequest, type LoadedSpec } from "../../analyzer/diagram/diagramSpecImport";
 import type { FlowModelSources } from "../../analyzer/diagram/flowModel";
-import { renderFlowDiagram, renderWorkspaceDiagram } from "../../analyzer/diagram/workspaceDiagram";
+import { MERMAID_SEQUENCE_ONLY, renderFlowDiagram, renderSequenceDiagram, renderWorkspaceDiagram } from "../../analyzer/diagram/workspaceDiagram";
 import { getRelativePath, normalizePath } from "../../shared/path";
 import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { workerState } from "../shared/state";
@@ -91,10 +91,10 @@ export interface FlowSources {
 }
 
 /**
- * The static architecture diagram (or with view flow, one entry symbol's flow), inline when it fits
+ * The static architecture diagram (or with view flow or sequence, one entry symbol's flow or calls), inline when it fits
  * the cap and no output is asked for, else written under the workspace and returned as a
  * workspace-relative path. Shared by the MCP tool, the CLI and the VS Code language model tool;
- * `flow` opens the call graph only when view flow asks for it.
+ * `flow` opens the call graph only when view flow or sequence asks for it.
  */
 export async function exportArchitectureDiagram(
   rootDir: string,
@@ -118,7 +118,7 @@ export async function exportArchitectureDiagram(
 
   // Validated too: a symbolic link at the default name must not lead outside the workspace.
   let view = params.view;
-  if (spec !== undefined) view = spec.kind === "flow" ? "flow" : undefined;
+  if (spec !== undefined) view = spec.kind === "architecture" ? undefined : spec.kind;
   const file = target ?? validateWorkspacePath(defaultDiagramFile(format, view), rootDir);
   await fs.promises.mkdir(nodePath.dirname(file), { recursive: true });
   await fs.promises.writeFile(file, markup);
@@ -135,21 +135,9 @@ async function renderDiagram(
 ) {
   const format = params.diagramFormat ?? "svg";
   const theme = params.theme ?? "light";
-  if (spec?.kind === "flow") {
-    const rulesParam = (["rules", "config", "baseline"] as const).find((key) => params[key] !== undefined);
-    if (rulesParam !== undefined) throw new Error(`${rulesParam} applies to an architecture spec, not a flow spec.`);
-    if (flow === undefined) throw new Error("a flow spec needs the call graph index");
-    const { db, extractor } = await flow();
-    return renderFlowDiagram(db, { rootDir, extractor }, specFlowRequest(spec, rootDir), { format, theme, spec });
-  }
-  if (params.view === "flow") {
-    const { filePath, symbolName, startLine, maxSteps } = params;
-    if (filePath === undefined || symbolName === undefined) throw new Error("view flow draws one symbol's flow: pass filePath and symbolName");
-    if (flow === undefined) throw new Error("view flow needs the call graph index");
-    // Resolved against the workspace and refused outside it (CWE-22), whichever surface called.
-    const request = { filePath: validateWorkspacePath(filePath, rootDir), symbolName, startLine, maxSteps };
-    const { db, extractor } = await flow();
-    return renderFlowDiagram(db, { rootDir, extractor }, request, { format, theme });
+  if (format === "mermaid" && (spec === undefined ? params.view !== "sequence" : spec.kind !== "sequence")) throw new Error(MERMAID_SEQUENCE_ONLY);
+  if ((spec !== undefined && spec.kind !== "architecture") || params.view === "flow" || params.view === "sequence") {
+    return renderSymbolDiagram(rootDir, params, flow, spec);
   }
   return renderWorkspaceDiagram(rootDir, analyze, {
     ...(spec === undefined ? diagramLevel(params.view, params.folder) : specLevel(spec)),
@@ -161,6 +149,33 @@ async function renderDiagram(
     indexedAt: new Date().toISOString(),
     signal,
   });
+}
+
+/** The flow or sequence of one entry symbol, named by the parameters or by a flow or sequence spec. */
+async function renderSymbolDiagram(rootDir: string, params: ExportArchitectureDiagramParams, flow?: () => Promise<FlowSources>, spec?: LoadedSpec) {
+  const options = { format: params.diagramFormat ?? "svg", theme: params.theme ?? "light", spec };
+  if (spec !== undefined) {
+    const rulesParam = (["rules", "config", "baseline"] as const).find((key) => params[key] !== undefined);
+    if (rulesParam !== undefined) throw new Error(`${rulesParam} applies to an architecture spec, not a ${spec.kind} spec.`);
+    const { db, extractor } = await callGraph(flow, `a ${spec.kind} spec`);
+    return spec.kind === "flow"
+      ? renderFlowDiagram(db, { rootDir, extractor }, specFlowRequest(spec, rootDir), options)
+      : renderSequenceDiagram(db, { rootDir, extractor }, specSequenceRequest(spec, rootDir), options);
+  }
+  const { view, filePath, symbolName, startLine } = params;
+  if (filePath === undefined || symbolName === undefined) throw new Error(`view ${view} draws one symbol's ${view === "flow" ? "flow" : "calls"}: pass filePath and symbolName`);
+  // Resolved against the workspace and refused outside it (CWE-22), whichever surface called.
+  const entry = { filePath: validateWorkspacePath(filePath, rootDir), symbolName, startLine };
+  const { db, extractor } = await callGraph(flow, `view ${view}`);
+  if (view === "flow") return renderFlowDiagram(db, { rootDir, extractor }, { ...entry, maxSteps: params.maxSteps }, options);
+  const { depth, maxMessages, participants } = params;
+  return renderSequenceDiagram(db, { rootDir, extractor }, { ...entry, depth, maxMessages, participants }, options);
+}
+
+/** The call graph a symbol's view reads; `what` names that view in the error when none is available. */
+async function callGraph(flow: (() => Promise<FlowSources>) | undefined, what: string): Promise<FlowSources> {
+  if (flow === undefined) throw new Error(`${what} needs the call graph index`);
+  return flow();
 }
 
 /** The call graph of the MCP worker or the CLI, indexed on first use (restored from the cache when warm). */

@@ -13,7 +13,9 @@ import * as nodePath from "node:path";
 import { z } from "zod/v4";
 import { COMMUNITY_MODES } from "../shared/graph-types";
 import type { CycleKind } from "../shared/cycleUtils";
-import { defaultDiagramFile, DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel, MAX_FLOW_STEPS } from "../analyzer/diagram/diagramStyle";
+import {
+  DEFAULT_SEQUENCE_DEPTH, DEFAULT_SEQUENCE_MESSAGES, defaultDiagramFile, DIAGRAM_FORMATS, DIAGRAM_THEMES, DIAGRAM_VIEWS, diagramLevel, MAX_FLOW_STEPS, MAX_SEQUENCE_MESSAGES,
+} from "../analyzer/diagram/diagramStyle";
 import type { Dependency, DependencyType } from "../analyzer/types";
 import type { ReviewGateResult } from "../analyzer/ReviewGateAnalyzer";
 import { DEAD_CODE_CONFIDENCES, type DeadCodeConfidence, type UnusedSymbol } from "../analyzer/deadcode/deadCodeConfidence";
@@ -812,26 +814,36 @@ export const CheckArchitectureParamsSchema = z.object({
 }).strict();
 export type CheckArchitectureParams = z.infer<typeof CheckArchitectureParamsSchema>;
 
-/** The parameters of view flow, and those of the architecture levels a flow refuses. */
-const FLOW_DIAGRAM_PARAMS = ["filePath", "symbolName", "startLine", "maxSteps"] as const;
+/** The parameters of one symbol's views (flow, sequence), of each, and those of the architecture levels they refuse. */
+const ENTRY_DIAGRAM_PARAMS = ["filePath", "symbolName", "startLine"] as const;
+const FLOW_DIAGRAM_PARAMS = ["maxSteps"] as const;
+const SEQUENCE_DIAGRAM_PARAMS = ["depth", "maxMessages", "participants"] as const;
 const LEVEL_DIAGRAM_PARAMS = ["folder", "rules", "config", "baseline"] as const;
 /** What `spec` names itself: its view, level or entry symbol. */
-const SPEC_REPLACED_PARAMS = ["view", "folder", ...FLOW_DIAGRAM_PARAMS] as const;
+const SPEC_REPLACED_PARAMS = ["view", "folder", ...ENTRY_DIAGRAM_PARAMS, ...FLOW_DIAGRAM_PARAMS, ...SEQUENCE_DIAGRAM_PARAMS] as const;
+/** The refusal of diagramFormat mermaid for any diagram but a sequence. */
+const MERMAID_ISSUE = "diagramFormat mermaid writes view sequence only: use svg, html or diagram-spec for this view.";
 
 export const ExportArchitectureDiagramParamsSchema = z.object({
   view: z.enum(DIAGRAM_VIEWS).optional()
-    .describe("'units' (default): every unit; 'folder': the groups of the unit or folder named by folder (default when folder is set); 'matrix': the dependency structure matrix of that level; 'flow': the call flow of one entry symbol (filePath + symbolName), from the call graph index"),
+    .describe("'units' (default): every unit; 'folder': the groups of the unit or folder named by folder (default when folder is set); 'matrix': the dependency structure matrix of that level; 'flow': the call flow of one entry symbol (filePath + symbolName), from the call graph index; 'sequence': that symbol's calls in order as a sequence diagram (lifelines, activations, alt / opt / loop / catch fragments)"),
   folder: z.string().min(1).max(1024).optional()
     .describe("Unit or folder key, '/'-separated as explore_architecture returns it (e.g. 'src/analyzer')"),
   filePath: FilePathSchema.optional()
-    .describe("With view flow: file of the entry symbol, workspace-relative or absolute, inside the workspace"),
-  symbolName: SymbolNameSchema.optional().describe("With view flow: name of the entry symbol (a function, method or class)"),
+    .describe("With view flow or sequence: file of the entry symbol, workspace-relative or absolute, inside the workspace"),
+  symbolName: SymbolNameSchema.optional().describe("With view flow or sequence: name of the entry symbol (a function, method or class)"),
   startLine: z.number().int().min(1, "startLine is 1-based (the editor line): the first line is 1").optional()
-    .describe("With view flow: declaration line of the entry symbol, 1-based (the editor line); selects one of several same-name symbols"),
+    .describe("With view flow or sequence: declaration line of the entry symbol, 1-based (the editor line); selects one of several same-name symbols"),
   maxSteps: z.number().int().min(1).max(MAX_FLOW_STEPS).optional()
     .describe(`With view flow: most steps drawn, 1 to ${MAX_FLOW_STEPS} (default: 8); a step is one file's symbols the flow enters`),
+  depth: z.number().int().min(1).optional()
+    .describe(`With view sequence: deepest call level drawn, at least 1 (default: ${DEFAULT_SEQUENCE_DEPTH}); the entry's own calls are level 1`),
+  maxMessages: z.number().int().min(1).max(MAX_SEQUENCE_MESSAGES).optional()
+    .describe(`With view sequence: most messages drawn, 1 to ${MAX_SEQUENCE_MESSAGES} (default: ${DEFAULT_SEQUENCE_MESSAGES}); one message per call`),
+  participants: z.enum(["file", "class"]).optional()
+    .describe("With view sequence: one lifeline per file (default), or per class for methods (a free function stays on its file's)"),
   diagramFormat: z.enum(DIAGRAM_FORMATS).optional()
-    .describe("'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme; 'diagram-spec': the level's (or the flow's) data as JSON (schemas/diagram-spec.schema.json) for a diagram skill"),
+    .describe("'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme; 'diagram-spec': the level's (or the flow's, or the sequence's) data as JSON (schemas/diagram-spec.schema.json) for a diagram skill; 'mermaid': view sequence only, a Mermaid sequenceDiagram text that GitHub renders"),
   theme: z.enum(DIAGRAM_THEMES).optional().describe("Colours of the SVG (default: light); svg only"),
   rules: z.boolean().optional()
     .describe("Draw the violations of graphit.architecture.json in the error colour, and the baseline's accepted ones dashed"),
@@ -839,18 +851,18 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
   baseline: RulesFileSchema.optional()
     .describe("Accepted violations with rules, relative to the workspace (default: graphit.architecture.baseline.json when it exists)"),
   output: RulesFileSchema.optional()
-    .describe("File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec; flow.<diagramFormat> for view flow or a flow spec)"),
+    .describe("File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec; flow.<diagramFormat> for view flow or a flow spec, sequence.<diagramFormat> for view sequence or a sequence spec, .mmd for mermaid)"),
   spec: RulesFileSchema.optional()
-    .describe("Annotated diagram-spec JSON written by diagramFormat 'diagram-spec', relative to the workspace: draws its rewritten texts (flow: node title and subtitle, edge label, caption title and caption; architecture: node label, caption title and caption) on the current index; any other difference is an error naming its JSON path. The spec names its view, level or entry symbol, so view, folder, filePath, symbolName, startLine and maxSteps are refused with it; rules, config and baseline apply to an architecture spec"),
+    .describe("Annotated diagram-spec JSON written by diagramFormat 'diagram-spec', relative to the workspace: draws its rewritten texts (flow: node title and subtitle, edge label, caption title and caption; sequence: lifeline title, message label, operand guard, caption title and caption; architecture: node label, caption title and caption) on the current index; any other difference is an error naming its JSON path. The spec names its view, level or entry symbol, so view, folder, filePath, symbolName, startLine, maxSteps, depth, maxMessages and participants are refused with it; rules, config and baseline apply to an architecture spec"),
 }).strict().superRefine((params, context) => {
   for (const message of diagramViewIssues(params)) context.addIssue({ code: "custom", message });
   if (params.theme !== undefined && (params.diagramFormat ?? "svg") !== "svg") {
     context.addIssue({ code: "custom", message: "theme sets the colours of diagramFormat svg; the HTML page follows the reader's scheme and a spec has none" });
   }
   const format = params.diagramFormat ?? "svg";
-  const extension = nodePath.extname(defaultDiagramFile(format));
-  if (params.output !== undefined && nodePath.extname(params.output).toLowerCase() !== extension) {
-    context.addIssue({ code: "custom", message: `output must end with ${extension} for diagramFormat ${format}; got ${params.output}` });
+  const extensions = format === "mermaid" ? [".mmd", ".mermaid"] : [nodePath.extname(defaultDiagramFile(format))];
+  if (params.output !== undefined && !extensions.includes(nodePath.extname(params.output).toLowerCase())) {
+    context.addIssue({ code: "custom", message: `output must end with ${extensions.join(" or ")} for diagramFormat ${format}; got ${params.output}` });
   }
 });
 
@@ -858,6 +870,7 @@ export const ExportArchitectureDiagramParamsSchema = z.object({
 function diagramViewIssues(params: {
   view?: (typeof DIAGRAM_VIEWS)[number]; folder?: string; rules?: boolean; config?: string; baseline?: string;
   filePath?: string; symbolName?: string; startLine?: number; maxSteps?: number; spec?: string;
+  depth?: number; maxMessages?: number; participants?: string; diagramFormat?: string;
 }): string[] {
   const rulesIssues = !params.rules && (params.config !== undefined || params.baseline !== undefined)
     ? ["config and baseline apply to the rules overlay: add rules: true."]
@@ -868,18 +881,30 @@ function diagramViewIssues(params: {
       ...rulesIssues,
     ];
   }
-  if (params.view === "flow") {
-    return [
-      ...(["filePath", "symbolName"] as const).filter((key) => params[key] === undefined).map((key) => `view flow draws one symbol's flow: pass ${key}.`),
-      ...LEVEL_DIAGRAM_PARAMS.filter((key) => params[key] !== undefined).map((key) => `${key} applies to view units, folder or matrix, not flow.`),
-    ];
-  }
-  const issues = FLOW_DIAGRAM_PARAMS.filter((key) => params[key] !== undefined).map((key) => `${key} applies to view flow only.`);
+  if (params.view === "flow" || params.view === "sequence") return entryViewIssues(params, params.view);
+  const issues = [
+    ...ENTRY_DIAGRAM_PARAMS.filter((key) => params[key] !== undefined).map((key) => `${key} applies to view flow or sequence only.`),
+    ...FLOW_DIAGRAM_PARAMS.filter((key) => params[key] !== undefined).map((key) => `${key} applies to view flow only.`),
+    ...SEQUENCE_DIAGRAM_PARAMS.filter((key) => params[key] !== undefined).map((key) => `${key} applies to view sequence only.`),
+    ...(params.diagramFormat === "mermaid" ? [MERMAID_ISSUE] : []),
+  ];
   const { folder } = params;
   const { view } = diagramLevel(params.view, folder);
   if (view === "folder" && folder === undefined) issues.push("view folder draws the groups of one unit or folder: pass folder.");
   if (view === "units" && folder !== undefined) issues.push("view units draws every unit: drop folder, or use view folder.");
   return [...issues, ...rulesIssues];
+}
+
+/** The issues of view flow or sequence: the entry symbol missing, or a parameter of the levels or of the other view. */
+function entryViewIssues(params: Parameters<typeof diagramViewIssues>[0], view: "flow" | "sequence"): string[] {
+  const other = view === "flow" ? SEQUENCE_DIAGRAM_PARAMS : FLOW_DIAGRAM_PARAMS;
+  return [
+    ...(["filePath", "symbolName"] as const).filter((key) => params[key] === undefined)
+      .map((key) => `view ${view} draws one symbol's ${view === "flow" ? "flow" : "calls"}: pass ${key}.`),
+    ...LEVEL_DIAGRAM_PARAMS.filter((key) => params[key] !== undefined).map((key) => `${key} applies to view units, folder or matrix, not ${view}.`),
+    ...other.filter((key) => params[key] !== undefined).map((key) => `${key} applies to view ${view === "flow" ? "sequence" : "flow"}, not ${view}.`),
+    ...(view === "flow" && params.diagramFormat === "mermaid" ? [MERMAID_ISSUE] : []),
+  ];
 }
 export type ExportArchitectureDiagramParams = z.infer<typeof ExportArchitectureDiagramParamsSchema>;
 

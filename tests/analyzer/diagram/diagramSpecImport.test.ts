@@ -3,8 +3,9 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { diagramHeader, type DiagramInput } from "@/analyzer/diagram/architectureDiagram";
-import { diagramSpec, flowSpec } from "@/analyzer/diagram/diagramSpec";
-import { annotateSpec, cutNote, MAX_SPEC_BYTES, readDiagramSpec, specFlowRequest, specLevel, type LoadedSpec, type SpecKind } from "@/analyzer/diagram/diagramSpecImport";
+import { diagramSpec, flowSpec, sequenceSpec } from "@/analyzer/diagram/diagramSpec";
+import { annotateSpec, cutNote, MAX_SPEC_BYTES, readDiagramSpec, specFlowRequest, specLevel, specSequenceRequest, type LoadedSpec, type SpecKind } from "@/analyzer/diagram/diagramSpecImport";
+import type { SequenceModel } from "@/analyzer/diagram/sequenceModel";
 import { layoutFlow } from "@/analyzer/diagram/flowDiagram";
 import type { FlowModel } from "@/analyzer/diagram/flowModel";
 import { normalizePath } from "@/shared/path";
@@ -195,7 +196,7 @@ describe("readDiagramSpec (#794)", () => {
     await write("bad.json", "{ nope");
     await write("array.json", "[1]");
     await write("v2.json", JSON.stringify({ ...FLOW_SPEC, version: 2 }));
-    await write("seq.json", JSON.stringify({ ...FLOW_SPEC, kind: "sequence" }));
+    await write("seq.json", JSON.stringify({ ...FLOW_SPEC, kind: "sketch" }));
     await write("big.json", " ".repeat(MAX_SPEC_BYTES + 1));
   });
 
@@ -215,9 +216,87 @@ describe("readDiagramSpec (#794)", () => {
     ["bad.json", "bad.json is not valid JSON ("],
     ["array.json", "array.json is not a diagram spec: expected a JSON object in format diagram-spec."],
     ["v2.json", "v2.json: version 2 is not supported; this graph-it reads diagram-spec version 1."],
-    ["seq.json", 'seq.json: kind "sequence" is not a diagram-spec kind; expected "flow", or no kind for an architecture level.'],
+    ["seq.json", 'seq.json: kind "sketch" is not a diagram-spec kind; expected "flow", "sequence", or no kind for an architecture level.'],
     ["big.json", `Spec file big.json is ${MAX_SPEC_BYTES + 1} bytes; a diagram spec is at most ${MAX_SPEC_BYTES}.`],
   ])("refuses %s", async (file, message) => {
     await expect(readDiagramSpec(root, file)).rejects.toThrow(message);
+  });
+});
+
+const SEQUENCE: SequenceModel = {
+  entry: RUN,
+  entryLine: 2,
+  entryParticipant: "src/a.ts",
+  language: "typescript",
+  fragmentDetection: "detected",
+  participantsBy: "file",
+  depth: 3,
+  maxMessages: 30,
+  participants: [
+    { id: "src/a.ts", title: "a.ts", kind: "file", file: "src/a.ts" },
+    { id: "src/b.ts", title: "b.ts", kind: "file", file: "src/b.ts" },
+  ],
+  messages: [
+    { id: "m1", from: "src/a.ts", to: "src/b.ts", name: "helper", targetFile: "src/b.ts", targetLine: 3, file: "src/a.ts", line: 3, relation: "CALLS", level: 1 },
+    { id: "m2", from: "src/b.ts", to: "src/b.ts", name: "fail", targetFile: "src/b.ts", targetLine: 9, file: "src/b.ts", line: 5, relation: "CALLS", level: 2, parent: "m1" },
+  ],
+  fragments: [{ id: "src/b.ts:4:3", kind: "opt", operands: [{ guard: "!ok", first: "m2", last: "m2" }] }],
+  omitted: { depth: 0, messages: 0, participants: 0 },
+};
+const SEQUENCE_SPEC = sequenceSpec(SEQUENCE, "shop");
+const sequenceWith = (change: (spec: any) => void) => {
+  const spec = structuredClone(SEQUENCE_SPEC) as any;
+  change(spec);
+  return loaded("sequence", spec);
+};
+
+describe("sequence specs (#798 b)", () => {
+  const root = path.resolve("/w/shop");
+
+  it("gives back an untouched sequence spec, and takes its lifeline titles, labels, guards and caption", () => {
+    expect(annotateSpec(loaded("sequence", SEQUENCE_SPEC), SEQUENCE_SPEC)).toEqual({ spec: SEQUENCE_SPEC, cut: [] });
+    const { spec, cut } = annotateSpec(sequenceWith((s) => {
+      s.participants[1].title = "Helpers <b>";
+      s.messages[0].label = "asks the helper for a long and detailed answer";
+      s.fragments[0].operands[0].guard = "when the answer is not ok";
+      s.caption.title = "How run works";
+    }), SEQUENCE_SPEC);
+    expect(spec.participants[1].title).toBe("Helpers <b>");
+    expect(spec.messages[0].label).toBe("asks the helper for a long …");
+    expect(spec.fragments[0].operands[0].guard).toBe("when the answer is not ok");
+    expect(spec.caption.title).toBe("How run works");
+    expect(cut).toEqual(["messages[0].label"]);
+  });
+
+  it.each<[string, (spec: any) => void, string]>([
+    ["an unknown message id", (s) => { s.messages[1].id = "m9"; }, "s.json: messages[1] m9 is not in the current index; lifelines and messages cannot be added or renamed. Closest: m1, m2."],
+    ["a removed lifeline", (s) => { s.participants.pop(); }, "s.json: participants lacks src/b.ts, which the current index has; lifelines and messages cannot be removed. Only the lifeline title, message label, operand guard, caption title and caption may change"],
+    ["a moved message", (s) => { s.messages[1].to = "src/a.ts"; }, 's.json: messages[1].to is "src/a.ts" in the spec, "src/b.ts" in the current index.'],
+    ["a fragment of another kind", (s) => { s.fragments[0].kind = "loop"; }, 's.json: fragments[0].kind is "loop" in the spec, "opt" in the current index.'],
+    ["an empty guard", (s) => { s.fragments[0].operands[0].guard = " "; }, "s.json: fragments[0].operands[0].guard must be a non-empty string"],
+    ["an unknown field", (s) => { s.messages[0].colour = "red"; }, "s.json: messages[0].colour is not a field of a sequence diagram spec."],
+  ])("refuses %s", (_name, change, message) => {
+    expect(() => annotateSpec(sequenceWith(change), SEQUENCE_SPEC)).toThrow(message);
+  });
+
+  it("reads the entry, its line and the bounds a sequence spec names", () => {
+    const request = specSequenceRequest(loaded("sequence", SEQUENCE_SPEC), root);
+    expect({ ...request, filePath: normalizePath(request.filePath) }).toEqual({
+      filePath: normalizePath(path.join(root, "src/a.ts")), symbolName: "run", startLine: 2, depth: 3, maxMessages: 30, participants: "file",
+    });
+    // A name ending in @digits is a name: a sequence entry holds no @line.
+    expect(specSequenceRequest(loaded("sequence", { ...SEQUENCE_SPEC, entry: "src/a#b.ts#on@12" }), root)).toMatchObject({ symbolName: "on@12" });
+  });
+
+  it.each<[object, string]>([
+    [{ entry: "run" }, 's.json: entry must be the entry symbol, file#symbol, not "run"'],
+    [{ entry: "src/a.ts#" }, 's.json: entry must be the entry symbol, file#symbol, not "src/a.ts#"'],
+    [{ entryLine: 0 }, "s.json: entryLine must be the entry's 1-based declaration line, not 0"],
+    [{ depth: 1.5 }, "s.json: depth must be an integer of at least 1, not 1.5"],
+    [{ maxMessages: 61 }, "s.json: maxMessages must be an integer from 1 to 60, not 61"],
+    [{ participantsBy: "module" }, 's.json: participantsBy must be "file" or "class", not "module"'],
+    [{ entry: "../x.ts#run" }, "s.json: entry ../x.ts#run names a file outside workspace."],
+  ])("refuses the sequence request of %j", (change, message) => {
+    expect(() => specSequenceRequest(loaded("sequence", { ...SEQUENCE_SPEC, ...change }), root)).toThrow(message);
   });
 });
