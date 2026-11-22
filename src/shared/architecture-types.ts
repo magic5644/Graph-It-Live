@@ -759,7 +759,8 @@ export interface FlowShowCallGraphCommand {
 /** Breadcrumb click: re-scope to this crumb (turns Follow off). */
 export interface DiagramRescopeCommand {
   command: "diagramRescope";
-  tab: DiagramTab;
+  /** A crumb re-scopes a level or the symbol's file (the extension draws it in the view shown), never by "sequence". */
+  tab: Exclude<DiagramTab, "sequence">;
   crumb: DiagramCrumb;
 }
 
