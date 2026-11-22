@@ -152,6 +152,8 @@ interface WalkState {
   messages: Placed[];
   expanded: Set<string>;
   stack: Set<string>;
+  /** Calls of each callee the depth bound kept from expanding; dropped if a shallower call expands it later. */
+  cutByDepth: Map<string, number>;
   omitted: SequenceModel["omitted"];
 }
 
@@ -178,6 +180,7 @@ export async function buildSequenceModel(db: Database, request: SequenceModelReq
     messages: [],
     expanded: new Set([root.id]),
     stack: new Set([root.id]),
+    cutByDepth: new Map(),
     omitted: { depth: 0, messages: 0, participants: 0 },
   };
   let entryParticipant: SequenceParticipant;
@@ -185,6 +188,7 @@ export async function buildSequenceModel(db: Database, request: SequenceModelReq
     entryParticipant = lifeline(state, root);
     state.participants.set(entryParticipant.id, entryParticipant);
     walk(state, root, 1, undefined);
+    state.omitted.depth = [...state.cutByDepth.values()].reduce((sum, count) => sum + count, 0);
   } finally {
     state.statement.free();
     state.owners.free();
@@ -226,9 +230,10 @@ function walk(state: WalkState, caller: FlowSymbol, level: number, parent: numbe
     state.messages.push({ ...call, from, to: to.id, callerLang: caller.lang, level, parent, ...(recursive ? { recursive } : {}), ...(repeat ? { repeat } : {}) });
     if (recursive || repeat) continue;
     if (level >= state.depth) {
-      state.omitted.depth += calleesOf(state, call.callee).length;
+      state.cutByDepth.set(id, calleesOf(state, call.callee).length);
       continue;
     }
+    state.cutByDepth.delete(id);
     state.expanded.add(id);
     state.stack.add(id);
     walk(state, call.callee, level + 1, index);
@@ -330,13 +335,15 @@ export function framesAt(root: TreeNode, line: string, site: CallSite, file: str
   const start = siteNode(root, line, site);
   let call: TreeNode | null = start;
   while (call && !CALL_NODES.has(call.type)) call = call.parent;
-  const awaited = call?.parent?.type === "await_expression" || call?.parent?.type === "await";
+  let wrapper = call?.parent;
+  while (wrapper?.type === "parenthesized_expression") wrapper = wrapper.parent;
+  const awaited = wrapper?.type === "await_expression" || wrapper?.type === "await";
   const frames: Frame[] = [];
   let child = start;
   for (let parent = child.parent; parent; child = parent, parent = parent.parent) {
     if (SCOPES.has(child.type) && !(ANONYMOUS.has(child.type) && isArgument(child))) break;
     const frame = frameOf(child, parent);
-    if (frame) frames.push({ ...frame, file, row: frame.at.startPosition.row, column: frame.at.startPosition.column, key: `${frame.at.startPosition.row}:${frame.at.startPosition.column}` });
+    if (frame) frames.push({ ...frame, file, row: frame.at.startPosition.row, column: frame.at.startPosition.column, key: `${frame.at.type}:${frame.at.startIndex}:${frame.at.endIndex}` });
   }
   return { frames: frames.toReversed(), awaited };
 }
@@ -401,6 +408,8 @@ function ternaryFrame(child: TreeNode, parent: TreeNode): FrameHit | null {
 function caseFrame(child: TreeNode, parent: TreeNode): FrameHit | null {
   const value = parent.childForFieldName("value");
   if (value?.id === child.id) return null;
+  // A Python case's pattern and guard run before the case is chosen: only its body is the operand.
+  if (parent.type === "case_clause" && parent.childForFieldName("consequence")?.id !== child.id) return null;
   const construct = parent.parent?.parent;
   if (!construct) return null;
   const head = value ? `case ${value.text}` : clauseHead(parent.text);
@@ -441,7 +450,8 @@ function toModel(state: WalkState, context: ModelContext): SequenceModel {
       relation: placed.relation,
       level: placed.level,
       ...(placed.parent === undefined ? {} : { parent: id(placed.parent) }),
-      ...(site?.awaited ? { await: true as const } : {}),
+      // A reference sits inside the call it is passed to: that call's await is not its own.
+      ...(site?.awaited && placed.relation === "CALLS" ? { await: true as const } : {}),
       ...(placed.repeat ? { repeat: true as const } : {}),
       ...(placed.recursive ? { recursive: true as const } : {}),
     };
