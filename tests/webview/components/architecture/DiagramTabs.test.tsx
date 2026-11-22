@@ -11,7 +11,7 @@ const all = { hasWorkspace: true, folderEntered: true, flowAvailable: true };
 
 describe("disabledReason", () => {
   it("enables every tab with a workspace, an entered folder and a flow", () => {
-    expect(DIAGRAM_TABS.map((tab) => disabledReason(tab, all))).toEqual([undefined, undefined, undefined, undefined]);
+    expect(DIAGRAM_TABS.map((tab) => disabledReason(tab, all))).toEqual([undefined, undefined, undefined, undefined, undefined]);
   });
 
   it("says why each tab is disabled", () => {
@@ -20,6 +20,7 @@ describe("disabledReason", () => {
       "Open a folder to see the Units diagram",
       "Open a folder to see the Folder diagram",
       "Open a folder to see the Matrix diagram",
+      "Right-click a function in the editor and run Show Flow Diagram",
       "Right-click a function in the editor and run Show Flow Diagram",
     ]);
     expect(disabledReason("folder", { ...all, folderEntered: false }))
@@ -34,7 +35,9 @@ describe("DiagramTabs", () => {
     const onTab = vi.fn();
     render(<DiagramTabs tab="units" state={{ ...all, flowAvailable: false }} onTab={onTab} />);
     const tabs = screen.getAllByRole("tab");
-    expect(tabs.map((tab) => tab.textContent)).toEqual(["Units", "Folder", "Matrix", "Flow"]);
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Units", "Folder", "Matrix", "Flow", "Seq"]);
+    // Seq is short for the narrow view: its accessible name and tooltip say Sequence.
+    expect(screen.getByRole("tab", { name: "Sequence" }).textContent).toBe("Seq");
     expect(tabs.map((tab) => tab.dataset.tab)).toEqual([...DIAGRAM_TABS]);
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
     expect(tabs[3].getAttribute("aria-disabled")).toBe("true");
@@ -50,13 +53,13 @@ describe("DiagramTabs", () => {
   it("moves the focus with the arrows, wrapping around; other keys do nothing", () => {
     render(<DiagramTabs tab="matrix" state={all} onTab={vi.fn()} />);
     const tabs = screen.getAllByRole("tab");
-    tabs[3].focus();
-    fireEvent.keyDown(tabs[3], { key: "ArrowRight" });
+    tabs[4].focus();
+    fireEvent.keyDown(tabs[4], { key: "ArrowRight" });
     expect(document.activeElement).toBe(tabs[0]);
     fireEvent.keyDown(tabs[0], { key: "ArrowLeft" });
-    expect(document.activeElement).toBe(tabs[3]);
-    fireEvent.keyDown(tabs[3], { key: "a" });
-    expect(document.activeElement).toBe(tabs[3]);
+    expect(document.activeElement).toBe(tabs[4]);
+    fireEvent.keyDown(tabs[4], { key: "a" });
+    expect(document.activeElement).toBe(tabs[4]);
     focusSelectedTab();
     expect(document.activeElement).toBe(tabs[2]);
   });

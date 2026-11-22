@@ -1,11 +1,13 @@
 /**
- * The diagram tabs of the Architecture mode (`Units | Folder | Matrix | Flow`, the CLI
+ * The diagram tabs of the Architecture mode (`Units | Folder | Matrix | Flow | Sequence`, the CLI
  * `graph-it diagram --view` names), the Follow cursor toggle and the Units cap banner.
  */
 import React from "react";
 import { DIAGRAM_TABS, type ArchitectureSummaryMessage, type DiagramShownCommand, type DiagramTab } from "../../../shared/architecture-types";
 
-const TAB_LABELS: Record<DiagramTab, string> = { units: "Units", folder: "Folder", matrix: "Matrix", flow: "Flow" };
+const TAB_LABELS: Record<DiagramTab, string> = { units: "Units", folder: "Folder", matrix: "Matrix", flow: "Flow", sequence: "Sequence" };
+/** Shorter text shown on a tab, its full name kept as accessible name and tooltip: five tabs fit one row of a 229px-wide view (#426). */
+const TAB_TEXT: Partial<Record<DiagramTab, string>> = { sequence: "Seq" };
 
 /** The focus ring of every diagram control: the theme's focus border, keyboard focus only. */
 export const DIAGRAM_FOCUS_CLASS = "diagram-focus";
@@ -22,7 +24,8 @@ export interface DiagramTabState {
 
 /** Why a tab cannot be selected now, or undefined when it can: the tooltip of the disabled tab. */
 export function disabledReason(tab: DiagramTab, { hasWorkspace, folderEntered, flowAvailable }: DiagramTabState): string | undefined {
-  if (tab === "flow") return flowAvailable ? undefined : "Right-click a function in the editor and run Show Flow Diagram";
+  // Sequence draws the Flow's entry: both wait for a symbol.
+  if (tab === "flow" || tab === "sequence") return flowAvailable ? undefined : "Right-click a function in the editor and run Show Flow Diagram";
   if (!hasWorkspace) return `Open a folder to see the ${TAB_LABELS[tab]} diagram`;
   if (tab === "folder" && !folderEntered) return "Double-click a unit, or right-click a folder in the Explorer, to see its Folder diagram";
   return undefined;
@@ -53,13 +56,14 @@ export function DiagramTabs({ tab, state, onTab }: Readonly<{ tab: DiagramTab; s
         return (
           <button
             key={name} type="button" role="tab" data-tab={name} className={DIAGRAM_FOCUS_CLASS}
-            aria-selected={tab === name} aria-disabled={reason ? true : undefined} title={reason}
+            aria-selected={tab === name} aria-disabled={reason ? true : undefined} title={reason ?? (TAB_TEXT[name] && TAB_LABELS[name])}
+            aria-label={TAB_TEXT[name] && TAB_LABELS[name]}
             tabIndex={tab === name ? 0 : -1} onKeyDown={moveFocus}
             onClick={() => { if (!reason && name !== tab) onTab(name); }}
-            // Compact: four tabs and the find box share one row on a 229px-wide view (#426).
-            style={{ fontWeight: tab === name ? 600 : undefined, font: "inherit", padding: "1px 2px" }}
+            // Compact: the tabs and the find box share one row on a 229px-wide view (#426).
+            style={{ fontWeight: tab === name ? 600 : undefined, font: "inherit", padding: "1px" }}
           >
-            {TAB_LABELS[name]}
+            {TAB_TEXT[name] ?? TAB_LABELS[name]}
           </button>
         );
       })}

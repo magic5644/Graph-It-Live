@@ -538,7 +538,7 @@ describe("ArchitectureGraph", () => {
       expect(helpers.highlightFocus.mock.lastCall?.[1].empty()).toBe(true);
       expect(lastOf(postMessage, "architectureInteracted")).toEqual(interacted);
       // Escape moved the focus to the tab strip: the E2E report says so.
-      expect(lastOf(postMessage, "diagramShown")).toMatchObject({ focused: "units", tabs: [{ tab: "units", selected: true }, {}, {}, {}] });
+      expect(lastOf(postMessage, "diagramShown")).toMatchObject({ focused: "units", tabs: [{ tab: "units", selected: true }, {}, {}, {}, {}] });
     });
 
     it("stops listening to Escape once unmounted", () => {
@@ -1268,8 +1268,9 @@ describe("ArchitectureGraph", () => {
       await setup(unseen());
       const find = screen.getByRole("searchbox", { name: "Find group" });
       // Shrinks beside the diagram tabs rather than wrapping to a row of its own, never wider than its native width.
-      expect(find.style.flex).toBe("1 1 30px");
-      expect(find.style.minWidth).toBe("0");
+      // Basis 0: the five diagram tabs and the box share one row (#798 c); 16px keeps a caret visible.
+      expect(find.style.flex).toBe("1 1 0px");
+      expect(find.style.minWidth).toBe("16px");
       expect(find.style.maxWidth).toBe("max-content");
       // The 40% cap includes the legend's padding and border: the overlay ends inside the canvas.
       const legend = screen.getByRole("list", { name: "Units" }).closest("details")!;
@@ -1762,7 +1763,7 @@ describe("ArchitectureGraph", () => {
 
     describe("diagram tabs, Flow and scope", () => {
       const flow: FlowDiagramMessage = {
-        type: "flowDiagram", requestId: 2, svg: "<svg/>", width: 400, height: 200, title: "run", caption: "Call flow", counts: "2 steps",
+        type: "flowDiagram", view: "flow", requestId: 2, svg: "<svg/>", width: 400, height: 200, title: "run", caption: "Call flow", counts: "2 steps",
         crumbs: [
           { kind: "workspace", label: "ws" }, { kind: "folder", label: "src", key: "src" },
           { kind: "file", label: "a.ts", key: "src/a.ts" }, { kind: "symbol", label: "run", key: "src/a.ts:run" },
@@ -1792,6 +1793,31 @@ describe("ArchitectureGraph", () => {
         fireEvent.click(tabOf("Flow"));
         expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");
         expect(screen.getByRole("button", { name: flow.nodes[1].name })).toBeTruthy();
+      });
+
+      // #798 c: the Sequence tab draws the same entry; the extension answers with a sequence message.
+      it("the Sequence tab draws the entry again as a sequence, which selects it; Follow and Flow go back to the extension", async () => {
+        const postMessage = await setup();
+        drawFlow();
+        fireEvent.click(tabOf("Sequence"));
+        expect(lastOf(postMessage, "flowRefresh")).toEqual({ command: "flowRefresh", requestId: 2, view: "sequence" });
+        send({ type: "flowDiagramState", view: "sequence", requestId: 3, status: "loading" });
+        expect(tabOf("Sequence").getAttribute("aria-selected")).toBe("true");
+        const lifelines = flow.nodes.map((node, index) => ({ ...node, name: `Lifeline ${index + 1} of 2: ${node.title}, ${node.file}:${node.line}` }));
+        send({ ...flow, view: "sequence", requestId: 4, title: "Sequence · run", nodes: lifelines });
+        expect(tabOf("Sequence").getAttribute("aria-selected")).toBe("true");
+        expect(screen.getByRole("group", { name: "Sequence lifelines" })).toBeTruthy();
+        fireEvent.click(screen.getByRole("button", { name: lifelines[1].name }));
+        expect(lastOf(postMessage, "flowOpenLocation")).toEqual({ command: "flowOpenLocation", requestId: 4, target: { kind: "node", index: 1 } });
+        // Follow on Sequence follows the cursor as Flow does.
+        fireEvent.click(screen.getByRole("button", { name: "Follow cursor" }));
+        expect(lastOf(postMessage, "diagramFollow")).toEqual({ command: "diagramFollow", enabled: true, tab: "flow" });
+        // Selecting the tab already drawn asks nothing; Flow draws the flow again.
+        postMessage.mockClear();
+        fireEvent.click(tabOf("Sequence"));
+        expect(lastOf(postMessage, "flowRefresh")).toBeUndefined();
+        fireEvent.click(tabOf("Flow"));
+        expect(lastOf(postMessage, "flowRefresh")).toEqual({ command: "flowRefresh", requestId: 4, view: "flow" });
       });
 
       it("without a workspace: no build spinner, Flow selected, the other tabs disabled with why", () => {
@@ -1910,7 +1936,7 @@ describe("ArchitectureGraph", () => {
         expect(screen.getByRole("img", { name: "run. Call flow. 2 steps." })).toBeTruthy();
         // The E2E report reads the same DOM: Flow selected, the drawn request, its step names, its breadcrumb.
         expect(lastOf(postMessage, "diagramShown")).toMatchObject({
-          tabs: [{ tab: "units", selected: false }, { tab: "folder" }, { tab: "matrix" }, { tab: "flow", selected: true }],
+          tabs: [{ tab: "units", selected: false }, { tab: "folder" }, { tab: "matrix" }, { tab: "flow", selected: true }, { tab: "sequence", selected: false }],
           flowRequestId: 3,
           flowButtons: [...flow.nodes.map((node) => node.name), ...flow.edges.map((edge) => edge.name)],
           crumbs: flow.crumbs.map((crumb) => crumb.label),
@@ -1966,7 +1992,7 @@ describe("ArchitectureGraph", () => {
         // Arrow keys move between tabs.
         tabOf("Units").focus();
         fireEvent.keyDown(tabOf("Units"), { key: "ArrowLeft" });
-        expect(document.activeElement).toBe(tabOf("Flow"));
+        expect(document.activeElement).toBe(tabOf("Sequence"));
       });
 
       it("past the units cap: draws the capped units only, says so, Open matrix and Show list", async () => {

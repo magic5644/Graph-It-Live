@@ -286,6 +286,8 @@ export interface FlowE2EState {
   lastError?: string;
   lastOpened?: { file: string; line: number };
   svgDigest?: string;
+  /** The tab the drawn entry is on: flow or sequence. */
+  drawnView?: string;
   view?: DiagramShown;
 }
 

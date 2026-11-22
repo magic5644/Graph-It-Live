@@ -8,7 +8,9 @@ import type { DiagramTheme } from "@/analyzer/diagram/diagramStyle";
 import { renderDiagramSvg } from "@/analyzer/diagram/diagramSvg";
 import type { FlowLayout } from "@/analyzer/diagram/flowDiagram";
 import type { FlowModel, FlowModelRequest } from "@/analyzer/diagram/flowModel";
-import { renderFlowDiagram } from "@/analyzer/diagram/workspaceDiagram";
+import type { SequenceLayout } from "@/analyzer/diagram/sequenceDiagram";
+import type { SequenceModel } from "@/analyzer/diagram/sequenceModel";
+import { renderFlowDiagram, renderSequenceDiagram } from "@/analyzer/diagram/workspaceDiagram";
 import {
   DIAGRAM_TABS,
   type ArchitectureControlsMessage,
@@ -26,6 +28,7 @@ import {
   type FlowOpenLocationCommand,
   type FlowRefreshCommand,
   type FlowShowCallGraphCommand,
+  type SymbolDiagramView,
 } from "@/shared/architecture-types";
 import { normalizePath } from "@/shared/path";
 import { maskWorkspaceRoot, workspaceExportFile } from "./ArchitectureViewService";
@@ -35,7 +38,11 @@ import { symbolAtLine } from "./CallGraphViewService";
 /** Follow cursor waits this long after the last selection or editor change. */
 export const FOLLOW_DEBOUNCE_MS = 300;
 const SUPPORTED = "Supported: TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, Java, GraphQL.";
-const EXPORT_FORMATS: Readonly<Record<string, "svg" | "html" | "diagram-spec">> = { ".svg": "svg", ".html": "html", ".htm": "html", ".json": "diagram-spec" };
+const EXPORT_FORMATS: Readonly<Record<string, "svg" | "html" | "diagram-spec" | "mermaid">> = {
+  ".svg": "svg", ".html": "html", ".htm": "html", ".json": "diagram-spec", ".mmd": "mermaid", ".mermaid": "mermaid",
+};
+/** The tab name in messages: "Flow diagram", "Sequence diagram". */
+const VIEW_NAMES: Record<SymbolDiagramView, string> = { flow: "Flow", sequence: "Sequence" };
 
 /** The CLI palette of an editor theme: high contrast draws dark, high contrast light draws light (export parity). */
 export function diagramThemeFor(kind: vscode.ColorThemeKind): DiagramTheme {
@@ -66,12 +73,11 @@ export interface FlowDiagramServiceOptions {
   followFolder: (relativeDir: string) => Promise<boolean>;
 }
 
-/** The last flow drawn: what export, refresh, open and the theme re-render read; never a path from the webview. */
+/** The last flow or sequence drawn: what export, refresh, open and the theme re-render read; never a path from the webview. */
 interface DrawnFlow {
   request: FlowModelRequest;
   rootDir: string;
-  layout: FlowLayout;
-  model: FlowModel;
+  layout: FlowLayout | SequenceLayout;
   message: FlowDiagramMessage;
   /** Normalized absolute files of the steps: a save of one marks the flow stale. */
   files: Set<string>;
@@ -102,6 +108,28 @@ export function flowGeometry(model: FlowModel, layout: FlowLayout): { nodes: Flo
     const { from, to, file, line, relation, lane } = model.edges[edge];
     const name = `Call ${titles.get(from) ?? from} → ${titles.get(to) ?? to} at ${file}:${line}, ${lane} lane`;
     return { from, to, file, line, relation, lane, name, label: { x: label.x, y: label.y, text: label.text } };
+  });
+  return { nodes, edges };
+}
+
+/**
+ * The lifelines and messages of a sequence as the Flow tab's overlay buttons: `layout.lifelines[i]` is `model.participants[i]`,
+ * `layout.messages[j]` is `model.messages[j]`. A lifeline opens its class (or its file), a message its call site.
+ */
+export function sequenceGeometry(model: SequenceModel, layout: SequenceLayout): { nodes: FlowDiagramNode[]; edges: FlowDiagramEdge[] } {
+  if (layout.lifelines.length !== model.participants.length || layout.messages.length !== model.messages.length) {
+    throw new Error("internal error: the sequence layout does not match its model");
+  }
+  const total = model.participants.length;
+  const titles = new Map(model.participants.map((participant) => [participant.id, participant.title]));
+  const nodes = model.participants.map(({ id, title, file, line = 1 }, index): FlowDiagramNode => {
+    const { x, y, width, height } = layout.lifelines[index];
+    return { id, title, file, line, lane: "main", name: `Lifeline ${index + 1} of ${total}: ${title}, ${file}:${line}`, x, y, width, height };
+  });
+  const edges = layout.messages.map(({ message, kind, label }): FlowDiagramEdge => {
+    const { from, to, name, file, line, relation } = model.messages[message];
+    const lane = kind === "catch-call" ? "error" : "main";
+    return { from, to, file, line, relation, lane, name: `Call ${titles.get(from) ?? from} → ${name} at ${file}:${line}${lane === "error" ? ", in a catch" : ""}`, label: { x: label.x, y: label.y, text: label.text } };
   });
   return { nodes, edges };
 }
@@ -138,6 +166,8 @@ export class FlowDiagramService implements vscode.Disposable {
   private unseen = false;
   private follow = false;
   private followTab: "flow" | "folder" = "flow";
+  /** The tab the entry is drawn on: a Flow or Sequence tab click draws it again as that view. */
+  private view: SymbolDiagramView = "flow";
   private followSubscriptions: vscode.Disposable[] = [];
   private followTimer: ReturnType<typeof setTimeout> | undefined;
   private lastFollowedFolder: string | undefined;
@@ -152,10 +182,14 @@ export class FlowDiagramService implements vscode.Disposable {
 
   constructor(private readonly options: FlowDiagramServiceOptions) {}
 
-  /** Show Flow Diagram: the symbol at the cursor, else a pick of the file's symbols. False when nothing was drawn (mode unchanged). */
-  async showAtCursor(editor: vscode.TextEditor | undefined, options: { quiet?: boolean } = {}): Promise<boolean> {
+  /**
+   * Show Flow Diagram, or Show Diagram… sequence: the symbol at the cursor, else a pick of the file's symbols.
+   * False when nothing was drawn (mode unchanged). Follow (quiet) keeps the view drawn.
+   */
+  async showAtCursor(editor: vscode.TextEditor | undefined, options: { quiet?: boolean; view?: SymbolDiagramView } = {}): Promise<boolean> {
     const { quiet } = options;
     if (!quiet) this.setFollow(false);
+    if (options.view) this.view = options.view;
     const lang = quiet ? editor && this.options.callGraph.isFlowSupported(editor.document) : this.options.callGraph.activeSourceEditor("Flow Diagram", editor)?.lang;
     if (!editor || !lang) return false;
     const filePath = normalizePath(editor.document.uri.fsPath);
@@ -170,12 +204,13 @@ export class FlowDiagramService implements vscode.Disposable {
   }
 
   /** Explorer, Show Diagram… or a file crumb: a pick of the file's symbols. */
-  async showForFile(uri: vscode.Uri, options: { inView?: boolean } = {}): Promise<boolean> {
+  async showForFile(uri: vscode.Uri, options: { inView?: boolean; view?: SymbolDiagramView } = {}): Promise<boolean> {
     this.setFollow(false);
+    if (options.view) this.view = options.view;
     const filePath = normalizePath(uri.fsPath);
     const lang = this.options.callGraph.isFlowSupported({ uri });
     if (!lang) {
-      this.options.notify(`Graph-It-Live: Flow Diagram is not supported for "${path.extname(filePath) || path.basename(filePath)}". ${SUPPORTED}`, "info");
+      this.options.notify(`Graph-It-Live: ${VIEW_NAMES[this.view]} Diagram is not supported for "${path.extname(filePath) || path.basename(filePath)}". ${SUPPORTED}`, "info");
       return false;
     }
     const symbols = await this.options.callGraph.extractFileSymbols(filePath, lang);
@@ -188,12 +223,12 @@ export class FlowDiagramService implements vscode.Disposable {
   private async pickSymbol(filePath: string, nodes: CallGraphNode[]): Promise<CallGraphNode | undefined> {
     const relative = vscode.workspace.asRelativePath(filePath);
     if (nodes.length === 0) {
-      this.options.notify(`Graph-It-Live: ${relative} has no symbol to draw a flow from.`, "info");
+      this.options.notify(`Graph-It-Live: ${relative} has no symbol to draw a ${this.view} from.`, "info");
       return undefined;
     }
     const picked = await vscode.window.showQuickPick(
       nodes.map((node) => ({ label: node.name, description: `line ${node.startLine + 1}`, node })),
-      { placeHolder: `Pick the symbol of ${relative} to draw its flow` },
+      { placeHolder: `Pick the symbol of ${relative} to draw its ${this.view}` },
     );
     return picked?.node;
   }
@@ -208,19 +243,23 @@ export class FlowDiagramService implements vscode.Disposable {
     this.cancelNext = false;
     const request: FlowModelRequest = { filePath, symbolName: node.name, startLine: node.startLine + 1 };
     const previousEntry = this.entry;
+    const previousView = this.drawn?.message.view ?? this.view;
     this.entry = { filePath, symbolName: node.name, startLine: node.startLine + 1, key: `${filePath}#${node.id}` };
     const crumbs = flowCrumbs(symbols.rootDir, filePath, node.name);
     // The view switches to the Flow tab on it; a cancelled or abandoned draw tells it to go back.
     this.send({ type: "flowDiagramState", status: "loading", crumbs });
     const run = async () => {
       const drawn = await this.render(drawId, request, symbols, crumbs, origin, source.token);
-      if (drawn === undefined) this.entry = previousEntry;
+      if (drawn === undefined) {
+        this.entry = previousEntry;
+        this.view = previousView;
+      }
       return drawn === true;
     };
     try {
       if (origin.quiet || origin.inView) return await run();
       return await vscode.window.withProgress(
-        { location: vscode.ProgressLocation.Notification, title: "Graph-It-Live: drawing the flow diagram…", cancellable: true },
+        { location: vscode.ProgressLocation.Notification, title: `Graph-It-Live: drawing the ${this.view} diagram…`, cancellable: true },
         (_progress, token) => {
           token.onCancellationRequested(() => source.cancel());
           return run();
@@ -251,21 +290,21 @@ export class FlowDiagramService implements vscode.Disposable {
     try {
       const indexed = await this.options.callGraph.indexForFlow({ filePath: request.filePath, edges: symbols.edges, rootDir }, { token, expectActiveFile: origin.expectActiveFile });
       if (!indexed || token.isCancellationRequested || drawId !== this.drawCount) return abandon();
-      const result = await renderFlowDiagram(indexed.db, { rootDir, extractor: indexed.extractor }, request, { format: "svg", theme: this.options.diagramTheme() });
+      const source = { db: indexed.db, extractor: indexed.extractor };
+      const drawing = await this.drawing(source, rootDir, request);
       if (token.isCancellationRequested || drawId !== this.drawCount) return abandon();
-      if (result.model.edges.length === 0) {
+      if (drawing.geometry.edges.length === 0) {
         this.drawn = null;
         this.send({ type: "flowDiagramState", status: "empty", message: request.symbolName, crumbs });
         return true;
       }
-      const { layout, model } = result;
+      const { layout, entry, geometry, files } = drawing;
       const message: FlowDiagramMessage = {
-        type: "flowDiagram", requestId: 0, svg: result.markup, width: layout.width, height: layout.height,
+        type: "flowDiagram", view: this.view, requestId: 0, svg: drawing.markup, width: layout.width, height: layout.height,
         title: layout.text.title, caption: layout.text.caption, counts: layout.text.counts,
-        crumbs, entry: model.entry, ...flowGeometry(model, layout), stale: false,
+        crumbs, entry, ...geometry, stale: false,
       };
-      const files = new Set(model.nodes.map((step) => normalizePath(path.resolve(rootDir, step.file))));
-      this.drawn = { request, rootDir, layout, model, message, files, source: { db: indexed.db, extractor: indexed.extractor } };
+      this.drawn = { request, rootDir, layout, message, files: new Set(files.map((file) => normalizePath(path.resolve(rootDir, file)))), source };
       this.lastState = null;
       this.lastError = undefined;
       this.send(message);
@@ -281,15 +320,27 @@ export class FlowDiagramService implements vscode.Disposable {
     }
   }
 
+  /** The entry drawn as the current view: its SVG, layout, overlay geometry and the workspace-relative files it shows. */
+  private async drawing(source: DrawnFlow["source"], rootDir: string, request: FlowModelRequest) {
+    const options = { format: "svg", theme: this.options.diagramTheme() } as const;
+    if (this.view === "sequence") {
+      const { markup, layout, model } = await renderSequenceDiagram(source.db, { rootDir, extractor: source.extractor }, request, options);
+      const files = [...model.participants.map((participant) => participant.file), ...model.messages.map((item) => item.file)];
+      return { markup, layout, entry: model.entry, geometry: sequenceGeometry(model, layout), files };
+    }
+    const { markup, layout, model } = await renderFlowDiagram(source.db, { rootDir, extractor: source.extractor }, request, options);
+    return { markup, layout, entry: model.entry, geometry: flowGeometry(model, layout), files: model.nodes.map((step) => step.file) };
+  }
+
   /** Posts a flow or a state under a new requestId, the one the view's next commands echo; keeps it for a remount. */
-  private send(message: FlowDiagramMessage | Omit<FlowDiagramStateMessage, "requestId">): void {
+  private send(message: FlowDiagramMessage | Omit<FlowDiagramStateMessage, "requestId" | "view">): void {
     this.current = ++this.requestCount;
     if (message.type === "flowDiagram") {
       this.drawn!.message = { ...message, requestId: this.current };
       this.options.post(this.drawn!.message);
       return;
     }
-    const state = { ...message, requestId: this.current };
+    const state = { ...message, view: this.view, requestId: this.current };
     // A cancel replays the flow the view already had: nothing new for it to take the tab with.
     if (state.status === "loading" || state.status === "cancelled") this.unseen = state.status === "loading";
     // A loading or cancelled state is never replayed: the draw it announces posts its own outcome.
@@ -314,14 +365,16 @@ export class FlowDiagramService implements vscode.Disposable {
         return this.rescope(message);
       case "diagramShown":
         this.shown = message;
-        if (message.tabs?.some((tab) => tab.tab === "flow" && tab.selected)) this.unseen = false;
+        if (message.tabs?.some((tab) => (tab.tab === "flow" || tab.tab === "sequence") && tab.selected)) this.unseen = false;
         return Promise.resolve();
       case "flowOpenLocation":
         return this.isCurrent(message.requestId) ? this.openLocation(message.target) : Promise.resolve();
       case "flowExportDiagram":
         return this.isCurrent(message.requestId) ? this.exportDiagram(message.target) : Promise.resolve();
       case "flowRefresh":
-        return this.entry && this.isLatest(message.requestId) ? this.refresh(this.entry) : Promise.resolve();
+        if (!this.entry || !this.isLatest(message.requestId)) return Promise.resolve();
+        if (message.view) this.view = message.view;
+        return this.refresh(this.entry);
       case "flowShowCallGraph":
         return this.entry && this.isLatest(message.requestId) ? this.options.showCallGraphAt(this.entry.filePath, this.entry.startLine) : Promise.resolve();
     }
@@ -352,7 +405,7 @@ export class FlowDiagramService implements vscode.Disposable {
     // No containment check: a loose file's call site may lie in ../lib, and it was drawn from the index.
     const absolutePath = path.resolve(rootDir, file);
     if (!fs.existsSync(absolutePath)) {
-      this.options.notify(`Graph-It-Live: ${file} no longer exists; Refresh the flow.`, "error");
+      this.options.notify(`Graph-It-Live: ${file} no longer exists; Refresh the ${message.view}.`, "error");
       return;
     }
     await this.options.openLocation(absolutePath, line);
@@ -380,28 +433,34 @@ export class FlowDiagramService implements vscode.Disposable {
     this.exportOutput = undefined;
     const workspaceRoot = this.options.workspaceRoot();
     if (workspaceRoot === undefined) {
-      this.options.notify("Graph-It-Live: Open a folder to export the Flow diagram: exports are written inside the workspace.", "info");
+      this.options.notify(`Graph-It-Live: Open a folder to export the ${VIEW_NAMES[this.view]} diagram: exports are written inside the workspace.`, "info");
       return;
     }
-    const { request, rootDir, source } = this.drawn!;
+    const { request, rootDir, source, message } = this.drawn!;
+    const name = VIEW_NAMES[message.view];
     try {
       const file = target === "file"
-        ? await workspaceExportFile(output, workspaceRoot, () => this.options.pickDiagramFile(path.join(workspaceRoot, `${request.symbolName}-flow.svg`)))
+        ? await workspaceExportFile(output, workspaceRoot, () => this.options.pickDiagramFile(path.join(workspaceRoot, `${request.symbolName}-${message.view}.svg`)))
         : undefined;
       if (target === "file" && file === undefined) return;
       const format = file === undefined ? "svg" : EXPORT_FORMATS[path.extname(file).toLowerCase()];
-      if (format === undefined) throw new Error(`${path.basename(file!)}: save as .svg, .html or .json`);
-      const { markup } = await renderFlowDiagram(source.db, { rootDir, extractor: source.extractor }, request, { format, theme: this.options.diagramTheme() });
+      // Mermaid is a sequence's only: a flow file named .mmd is refused by the renderer with the CLI's message.
+      if (format === undefined) throw new Error(`${path.basename(file!)}: save as .svg, .html or .json${message.view === "sequence" ? ", or .mmd for Mermaid" : ""}`);
+      const options = { format, theme: this.options.diagramTheme() };
+      const sources = { rootDir, extractor: source.extractor };
+      const { markup } = message.view === "sequence"
+        ? await renderSequenceDiagram(source.db, sources, request, options)
+        : await renderFlowDiagram(source.db, sources, request, options);
       if (file === undefined) {
         await this.options.writeClipboard(markup);
-        this.options.notify("Flow diagram copied as SVG.", "info");
+        this.options.notify(`${name} diagram copied as SVG.`, "info");
         return;
       }
       await fs.promises.writeFile(file, markup);
-      this.options.notify(`Flow diagram saved to ${path.basename(file)}.`, "info");
+      this.options.notify(`${name} diagram saved to ${path.basename(file)}.`, "info");
     } catch (error) {
       const reason = maskWorkspaceRoot(error instanceof Error ? error.message : String(error), workspaceRoot);
-      this.options.notify(`Could not export the Flow diagram: ${reason}`, "error");
+      this.options.notify(`Could not export the ${name} diagram: ${reason}`, "error");
     }
   }
 
@@ -518,6 +577,8 @@ export class FlowDiagramService implements vscode.Disposable {
       state: this.lastState?.status,
       lastError: this.lastError,
       lastOpened: this.lastOpened,
+      /** The tab the drawn entry is on. */
+      drawnView: message?.view,
       /** SHA-256 of the drawn SVG: compared with the CLI's output for the same theme. */
       svgDigest: message && createHash("sha256").update(message.svg).digest("hex"),
       view: this.shown,

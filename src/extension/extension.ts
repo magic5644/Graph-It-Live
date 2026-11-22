@@ -94,8 +94,8 @@ export function activate(context: vscode.ExtensionContext) {
         },
         pickDiagramFile: async (defaultPath) => (await vscode.window.showSaveDialog({
             defaultUri: vscode.Uri.file(defaultPath),
-            filters: { SVG: ['svg'], HTML: ['html'], 'Diagram spec': ['json'] },
-            title: 'Export Flow Diagram',
+            filters: { SVG: ['svg'], HTML: ['html'], 'Diagram spec': ['json'], 'Mermaid (Sequence tab)': ['mmd'] },
+            title: 'Export Flow or Sequence Diagram',
         }))?.fsPath,
         writeClipboard: (text) => Promise.resolve(vscode.env.clipboard.writeText(text)),
         openLocation: async (absolutePath, line) => {

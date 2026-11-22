@@ -72,7 +72,7 @@ suite('Without a folder (#770)', function () {
       editor.selection = new vscode.Selection(3, 4, 3, 4);
       window.messages.length = 0;
       await vscode.commands.executeCommand('graph-it-live.showDiagram');
-      assert.deepStrictEqual(window.picks.map(pick => pick.labels), [['flow']], 'only Flow without a folder');
+      assert.deepStrictEqual(window.picks.map(pick => pick.labels), [['flow', 'sequence']], 'only Flow and Sequence without a folder');
       await vscode.commands.executeCommand('graph-it-live.showFolderDiagram');
       assert.deepStrictEqual(window.messages, ['Graph-It-Live: Open a folder to see the Folder diagram.']);
       assert.strictEqual(await getContextKey('graph-it-live.viewMode'), 'file');
@@ -86,6 +86,13 @@ suite('Without a folder (#770)', function () {
       assert.deepStrictEqual(shown.view?.tabs.filter(tab => tab.disabled).map(tab => tab.disabled), [
         'Open a folder to see the Units diagram', 'Open a folder to see the Folder diagram', 'Open a folder to see the Matrix diagram',
       ]);
+      // #798 c: the loose file's entry as a sequence, on the Sequence tab.
+      await controls({ tab: 'sequence' });
+      const sequence = await waitForFlow('the loose file sequence', state =>
+        state.drawnView === 'sequence' && state.view?.flowRequestId === state.requestId && selectedTab(state) === 'sequence', 30_000);
+      assert.match(sequence.nodes[0], /^Lifeline 1 of \d+: main\.ts, main\.ts:1$/);
+      await controls({ tab: 'flow' });
+      await waitForFlow('the loose file flow again', state => state.drawnView === 'flow' && state.view?.flowRequestId === state.requestId && selectedTab(state) === 'flow', 30_000);
 
       window.messages.length = 0;
       await controls({ exportDiagram: { target: 'file', output: 'flow.svg' } });
