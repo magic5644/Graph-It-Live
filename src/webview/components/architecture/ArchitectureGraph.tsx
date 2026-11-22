@@ -2523,6 +2523,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onOpen={(kind, index) => actionsRef.current.openFlow(kind, index)}
             onRefresh={() => actionsRef.current.postFlow((requestId) => ({ command: "flowRefresh", requestId }))}
             onShowCallGraph={() => actionsRef.current.postFlow((requestId) => ({ command: "flowShowCallGraph", requestId }))}
+            onDrawCandidate={(index) => actionsRef.current.postFlow((requestId) => ({ command: "flowDrawCandidate", requestId, index }))}
             onEscape={focusSelectedTab}
           />
         )}

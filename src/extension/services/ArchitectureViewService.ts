@@ -482,6 +482,7 @@ export class ArchitectureViewService {
       case "flowExportDiagram":
       case "flowRefresh":
       case "flowShowCallGraph":
+      case "flowDrawCandidate":
       case "diagramRescope":
       case "diagramFollow":
       case "diagramShown":

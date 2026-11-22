@@ -1900,6 +1900,9 @@ describe("ArchitectureGraph", () => {
         expect(screen.getByText(/No calls found from `run`\./)).toBeTruthy();
         fireEvent.click(screen.getByRole("button", { name: "Show call graph" }));
         expect(lastOf(postMessage, "flowShowCallGraph")).toEqual({ command: "flowShowCallGraph", requestId: 1 });
+        send({ type: "flowDiagramState", requestId: 1, status: "empty", message: "Cart", candidates: [{ name: "save", line: 4, calls: 2 }] });
+        fireEvent.click(screen.getByRole("button", { name: "save" }));
+        expect(lastOf(postMessage, "flowDrawCandidate")).toEqual({ command: "flowDrawCandidate", requestId: 1, index: 0 });
 
         send(flow);
         send({ type: "flowDiagramState", requestId: 2, status: "error", message: "Graph-It-Live: no symbol run in src/a.ts." });
