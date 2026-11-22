@@ -264,10 +264,12 @@ Examples:
   graph-it init --focus apps/api --output architecture-report
   graph-it init --yes --format json
 `,
-  diagram: `graph-it diagram — Write a static architecture diagram, or the call flow of one symbol
+  diagram: `graph-it diagram — Write a static architecture diagram, or the call flow or sequence of one symbol
 
 Usage: graph-it diagram [dir] [options]
        graph-it diagram --view flow <file#symbol> [--maxSteps N] [--startLine N] [options]
+       graph-it diagram --view sequence <file#symbol> [--depth N] [--maxMessages N]
+                        [--participants file|class] [--startLine N] [options]
        graph-it diagram --spec <file.json> [options]
 
 Draws one level of the architecture as the Architecture view lays it out: the units (layers
@@ -279,39 +281,56 @@ URL: drop it in a README, a wiki or a pull request. At most 60 units or groups a
 step in call order (a step is one file's symbols), one row per lane (main, alternative,
 error) read from the call sites of TypeScript, JavaScript and Python.
 
+--view sequence draws the same calls in order: one lifeline per file (or per class), one
+message per call depth-first, activation bars from each call to its last sub-call, and the
+alt / opt / loop / catch fragments read from the call sites of TypeScript, JavaScript and
+Python. --format mermaid writes it as a Mermaid sequenceDiagram that GitHub renders. Not
+drawn: calls through dynamic dispatch or a library callback, code in node_modules, and
+return values.
+
 --spec redraws a spec written by --format diagram-spec after an agent or a person rewrote
 its texts. Only these may change: in a flow spec, node title and subtitle, edge label,
-caption.title and caption.caption; in an architecture spec, node label, caption.title and
-caption.caption. Everything else (ids, nodes, edges, lanes, files, lines, counts) must still
-match the current index, or the command stops with the JSON path that differs: export the
-spec again when the code changed. The spec says what it draws (kind "flow": its entry symbol
-and maxSteps; else its level and scope), so --spec takes no --view, --folder, dir,
-file#symbol, --maxSteps or --startLine. Texts longer than their box are cut with "…" and
-the output names them.
+caption.title and caption.caption; in a sequence spec, participant title, message label,
+operand guard, caption.title and caption.caption; in an architecture spec, node label,
+caption.title and caption.caption. Everything else (ids, nodes, edges, lanes, files, lines,
+counts) must still match the current index, or the command stops with the JSON path that
+differs: export the spec again when the code changed. The spec says what it draws (kind
+"flow": its entry symbol and maxSteps; kind "sequence": its entry symbol, depth,
+maxMessages and participantsBy; else its level and scope), so --spec takes no --view,
+--folder, dir, file#symbol, --maxSteps, --depth, --maxMessages, --participants or
+--startLine. Texts longer than their box are cut with "…" and the output names them.
 
 Arguments:
   dir                Workspace directory whose level is drawn, as --folder draws its key
                      (a unit root: the unit's groups); . draws the units
-  file#symbol        With --view flow: the entry symbol and its file, in the workspace
+  file#symbol        With --view flow or sequence: the entry symbol and its file, in the
+                     workspace
 
 Options:
-  --view VIEW        units|folder|matrix|flow (default: units, or folder with dir or
-                     --folder); matrix draws the units, or with --folder that folder's
-                     groups; flow draws the call flow of file#symbol
+  --view VIEW        units|folder|matrix|flow|sequence (default: units, or folder with dir
+                     or --folder); matrix draws the units, or with --folder that folder's
+                     groups; flow draws the call flow of file#symbol, sequence its calls
   --maxSteps N       With --view flow: most steps drawn, 1 to 12 (default: 8); a note
                      counts the callees left out
-  --startLine N      With --view flow: declaration line of the symbol, 1-based (the
-                     editor line), to pick one of several same-name symbols
+  --depth N          With --view sequence: deepest call level drawn, at least 1
+                     (default: 3); a note counts the calls left out
+  --maxMessages N    With --view sequence: most messages drawn, 1 to 60 (default: 30)
+  --participants BY  With --view sequence: file|class, one lifeline per file (default) or
+                     per class for methods; at most 12 lifelines are drawn
+  --startLine N      With --view flow or sequence: declaration line of the symbol, 1-based
+                     (the editor line), to pick one of several same-name symbols
   --folder KEY       Unit or folder key, as graph-it architecture --folder takes it
   --spec FILE        Annotated diagram-spec JSON in the workspace: draw its texts on the
                      current index (see above); --rules, --config and --baseline apply to
                      an architecture spec, as at its export
-  --format, -f       html|svg|diagram-spec (default: html, or svg when --output ends with .svg);
-                     the HTML page follows the reader's light or dark scheme
+  --format, -f       html|svg|diagram-spec|mermaid (default: html, or svg when --output ends
+                     with .svg, mermaid when it ends with .mmd); the HTML page follows the
+                     reader's light or dark scheme; mermaid with --view sequence only
   --theme THEME      light|dark colours of --format svg (default: light)
   --output FILE      File in the workspace, relative to its root (default:
                      architecture.html or architecture.svg, flow.html or flow.svg for
-                     --view flow or a flow spec); - writes to stdout
+                     --view flow or a flow spec, sequence.html, sequence.svg or
+                     sequence.mmd for --view sequence or a sequence spec); - writes to stdout
   --rules            Draw the violations of graphit.architecture.json in the error
                      colour, their rule names in the legend
   --config FILE      Rules file in the workspace, with --rules
@@ -331,6 +350,8 @@ Examples:
   graph-it diagram --view flow src/app.ts#start --startLine 42 --maxSteps 12
   graph-it diagram --view flow src/app.ts#start --format diagram-spec --output start.json
   graph-it diagram --spec start.json --format svg --output docs/start-flow.svg
+  graph-it diagram --view sequence src/cli/index.ts#main --format svg --output docs/main.svg
+  graph-it diagram --view sequence src/app.ts#start --depth 2 --participants class --format mermaid --output -
 `,
   check: `graph-it check — Find unused exported symbols in the workspace, a folder or a file
 

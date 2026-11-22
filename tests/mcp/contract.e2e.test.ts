@@ -84,7 +84,7 @@ const INVALID_VALUE: Record<string, { args: Args; message: string }> = {
   graph_context: { args: { detail: "huge" }, message: '"detail" must be one of compact, standard, full; got "huge".' },
   explore_architecture: { args: { level: "x" }, message: '"level" must be one of groups, units; got "x".' },
   check_architecture: { args: { limit: 0 }, message: '"limit" must be >= 1; got 0.' },
-  export_architecture_diagram: { args: { diagramFormat: "png" }, message: '"diagramFormat" must be one of svg, html, diagram-spec; got "png".' },
+  export_architecture_diagram: { args: { diagramFormat: "png" }, message: '"diagramFormat" must be one of svg, html, diagram-spec, mermaid; got "png".' },
   query_natural_language: { args: { depth: 9 }, message: '"depth" must be <= 5; got 9.' },
   generate_wiki: { args: { topHubsLimit: 0 }, message: '"topHubsLimit" must be >= 1; got 0.' },
   get_session_stats: { args: { response_format: "csv" }, message: '"response_format" must be one of toon, json, markdown; got "csv".' },
@@ -231,8 +231,37 @@ describe.skipIf(!distExists)("MCP user contract (E2E)", { timeout: TIMEOUT_MS },
     expectReadableError(await call("export_architecture_diagram", { view: "flow", filePath: "src/a.ts" }), "view flow draws one symbol's flow: pass symbolName.");
     expectReadableError(await call("export_architecture_diagram", { ...flow, symbolName: "rnu" }), "Symbol 'rnu' not found in src/a.ts. Did you mean: run?");
     expectReadableError(await call("export_architecture_diagram", { ...flow, folder: "src" }), "folder applies to view units, folder or matrix, not flow.");
-    expectReadableError(await call("export_architecture_diagram", { filePath: "src/a.ts", symbolName: "run" }), "filePath applies to view flow only.");
+    expectReadableError(await call("export_architecture_diagram", { filePath: "src/a.ts", symbolName: "run" }), "filePath applies to view flow or sequence only.");
     expectReadableError(await call("export_architecture_diagram", { ...flow, filePath: "src/nope.ts" }), "File not found: src/nope.ts.");
+  });
+
+  it("draws a sequence (#798 b) in every format, as the CLI does, and refuses each malformed request", async () => {
+    const sequence = { view: "sequence", filePath: "src/a.ts", symbolName: "run" };
+    const data = async (args: Args) => JSON.parse((await call("export_architecture_diagram", { ...args, response_format: "json" })).content[0].text).data;
+    expect(await data(sequence)).toMatchObject({ format: "svg", counts: "3 lifelines · 2 calls · 0 references · 0 fragments" });
+    expect(JSON.parse((await data({ ...sequence, diagramFormat: "diagram-spec" })).markup)).toMatchObject({ kind: "sequence", entry: "src/a.ts#run", entryLine: 2 });
+    expect((await data({ ...sequence, diagramFormat: "html" })).markup).toMatch(/^<!doctype html>/);
+    const mermaid = (await data({ ...sequence, diagramFormat: "mermaid" })).markup;
+    expect(mermaid).toMatch(/^sequenceDiagram\n/);
+    expect(mermaid).toContain("  P1->>P2: helper");
+    const rows: [Args, string][] = [
+      [{ ...sequence, bogusParam: 1 }, 'Unknown parameter "bogusParam".'],
+      [{ view: "sequence", filePath: "src/a.ts" }, "view sequence draws one symbol's calls: pass symbolName."],
+      [{ ...sequence, symbolName: "rnu" }, "Symbol 'rnu' not found in src/a.ts. Did you mean: run?"],
+      [{ ...sequence, startLine: 9 }, "No symbol 'run' starts at line 9 in src/a.ts. Candidates: run (function, line 2)."],
+      [{ ...sequence, filePath: "src/nope.ts" }, "File not found: src/nope.ts."],
+      [{ ...sequence, filePath: "../x.ts" }, "outside"],
+      [{ ...sequence, depth: 0 }, "depth"],
+      [{ ...sequence, maxMessages: 61 }, "maxMessages"],
+      [{ ...sequence, participants: "module" }, "participants"],
+      [{ ...sequence, maxSteps: 3 }, "maxSteps applies to view flow, not sequence."],
+      [{ ...sequence, folder: "src" }, "folder applies to view units, folder or matrix, not sequence."],
+      [{ ...sequence, output: "../x.svg" }, "outside"],
+      [{ diagramFormat: "mermaid" }, "diagramFormat mermaid writes view sequence only"],
+      [{ view: "matrix", diagramFormat: "mermaid" }, "diagramFormat mermaid writes view sequence only"],
+      [{ depth: 2 }, "depth applies to view sequence only."],
+    ];
+    for (const [args, message] of rows) expectReadableError(await call("export_architecture_diagram", args), message);
   });
 
   // #794: the spec parameter, as the CLI's --spec.

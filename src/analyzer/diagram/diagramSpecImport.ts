@@ -15,16 +15,18 @@ import { validateWorkspacePath } from "../../shared/pathSecurity";
 import { closestNames, closestPathsHint } from "../utils/SymbolLookup";
 import { fitLabel, sanitizeText } from "./architectureDiagram";
 import { DIAGRAM_SPEC_VERSION } from "./diagramSpec";
-import { MAX_FLOW_STEPS, SIZES } from "./diagramStyle";
+import { MAX_FLOW_STEPS, MAX_SEQUENCE_MESSAGES, SIZES } from "./diagramStyle";
 import { FLOW_LABEL_CHARS, FLOW_SUBTITLE_CHARS } from "./flowDiagram";
 import type { FlowModelRequest } from "./flowModel";
+import { SEQUENCE_GUARD_CHARS, SEQUENCE_LABEL_CHARS, SEQUENCE_TITLE_CHARS } from "./sequenceDiagram";
+import type { SequenceModelRequest } from "./sequenceModel";
 
 /** A spec file larger than this is refused unread: an architecture spec of thousands of units stays far below. */
 export const MAX_SPEC_BYTES = 8 * 1024 * 1024;
 /** Most cells kept of an annotated title or caption line: the canvas widens to fit it. */
 const CAPTION_CHARS = 96;
 
-export type SpecKind = "flow" | "architecture";
+export type SpecKind = "flow" | "sequence" | "architecture";
 type Json = Record<string, unknown>;
 
 /** A spec read from disk: its kind and its JSON object, not yet compared with the index. */
@@ -46,14 +48,22 @@ const EDITABLE: Record<SpecKind, Record<string, number>> = {
     "caption.title": CAPTION_CHARS,
     "caption.caption": CAPTION_CHARS,
   },
+  sequence: {
+    "participants[].title": SEQUENCE_TITLE_CHARS,
+    "messages[].label": SEQUENCE_LABEL_CHARS,
+    "fragments[].operands[].guard": SEQUENCE_GUARD_CHARS,
+    "caption.title": CAPTION_CHARS,
+    "caption.caption": CAPTION_CHARS,
+  },
   architecture: { "nodes[].label": SIZES.maxLabelChars, "caption.title": CAPTION_CHARS, "caption.caption": CAPTION_CHARS },
 };
 /** Optional texts: removing one draws none. */
 const OPTIONAL = new Set(["nodes[].subtitle"]);
 /** Not compared: the day of the index (a rescan changes it, the revision does not). */
-const IGNORED: Record<SpecKind, ReadonlySet<string>> = { flow: new Set(), architecture: new Set(["date"]) };
+const IGNORED: Record<SpecKind, ReadonlySet<string>> = { flow: new Set(), sequence: new Set(), architecture: new Set(["date"]) };
 const EDITABLE_WORDS: Record<SpecKind, string> = {
   flow: "node title and subtitle, edge label, caption title and caption",
+  sequence: "lifeline title, message label, operand guard, caption title and caption",
   architecture: "node label, caption title and caption",
 };
 
@@ -88,9 +98,9 @@ function specKind(data: unknown, file: string): SpecKind {
   if (data.version !== DIAGRAM_SPEC_VERSION) {
     throw new Error(`${file}: version ${show(data.version)} is not supported; this graph-it reads diagram-spec version ${DIAGRAM_SPEC_VERSION}.`);
   }
-  if (data.kind === "flow") return "flow";
+  if (data.kind === "flow" || data.kind === "sequence") return data.kind;
   if (data.kind === undefined) return "architecture";
-  throw new Error(`${file}: kind ${show(data.kind)} is not a diagram-spec kind; expected "flow", or no kind for an architecture level.`);
+  throw new Error(`${file}: kind ${show(data.kind)} is not a diagram-spec kind; expected "flow", "sequence", or no kind for an architecture level.`);
 }
 
 function schemaError(spec: LoadedSpec, at: string, expected: string): never {
@@ -131,49 +141,75 @@ export function specFlowRequest(spec: LoadedSpec, rootDir: string): FlowModelReq
   if (typeof line !== "number" || !Number.isInteger(line) || line < 1) {
     throw new Error(`${spec.file}: nodes must hold the entry step ${entry} with its 1-based line (schemas/diagram-spec.schema.json).`);
   }
-  let filePath: string;
-  try {
-    filePath = validateWorkspacePath(path.resolve(rootDir, file), rootDir);
-  } catch {
-    throw new Error(`${spec.file}: entry ${entry} names a file outside workspace.`);
-  }
-  return { filePath, symbolName, startLine: line, maxSteps };
+  return { filePath: entryFile(spec, rootDir, file), symbolName, startLine: line, maxSteps };
 }
 
-/** The field naming a node of each kind. */
-const ID_FIELD: Record<SpecKind, string> = { flow: "id", architecture: "key" };
+/** The entry's file, resolved in the workspace and refused outside it. */
+function entryFile(spec: LoadedSpec, rootDir: string, file: string): string {
+  try {
+    return validateWorkspacePath(path.resolve(rootDir, file), rootDir);
+  } catch {
+    throw new Error(`${spec.file}: entry ${String(spec.data.entry)} names a file outside workspace.`);
+  }
+}
+
+const isCount = (value: unknown, max = Infinity): value is number => typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= max;
+
+/**
+ * The entry symbol and bounds a sequence spec draws: its entry (`file#symbol`), entryLine, which tells apart a
+ * homonym, depth, maxMessages and participantsBy.
+ */
+export function specSequenceRequest(spec: LoadedSpec, rootDir: string): SequenceModelRequest {
+  const { entry, entryLine, depth, maxMessages, participantsBy } = spec.data;
+  // A sequence entry has no `@line` (entryLine holds it): the name is all after the last "#".
+  const hash = typeof entry === "string" ? entry.lastIndexOf("#") : -1;
+  const [file, symbolName] = hash > 0 ? [(entry as string).slice(0, hash), (entry as string).slice(hash + 1)] : [];
+  if (!file || !symbolName) schemaError(spec, "entry", `the entry symbol, file#symbol, not ${show(entry)}`);
+  if (!isCount(entryLine)) schemaError(spec, "entryLine", `the entry's 1-based declaration line, not ${show(entryLine)}`);
+  if (!isCount(depth)) schemaError(spec, "depth", `an integer of at least 1, not ${show(depth)}`);
+  if (!isCount(maxMessages, MAX_SEQUENCE_MESSAGES)) schemaError(spec, "maxMessages", `an integer from 1 to ${MAX_SEQUENCE_MESSAGES}, not ${show(maxMessages)}`);
+  if (participantsBy !== "file" && participantsBy !== "class") schemaError(spec, "participantsBy", `"file" or "class", not ${show(participantsBy)}`);
+  return { filePath: entryFile(spec, rootDir, file), symbolName, startLine: entryLine, depth, maxMessages, participants: participantsBy };
+}
+
+/** The lists whose items a spec may not add, remove or rename, and the field naming an item of each. */
+const ID_LISTS: Record<SpecKind, readonly { list: string; field: string }[]> = {
+  flow: [{ list: "nodes", field: "id" }, { list: "edges", field: "from/to" }],
+  sequence: [{ list: "participants", field: "id" }, { list: "messages", field: "id" }],
+  architecture: [{ list: "nodes", field: "key" }, { list: "edges", field: "from/to" }],
+};
+const ITEM_WORDS: Record<SpecKind, string> = { flow: "nodes and edges", sequence: "lifelines and messages", architecture: "nodes and edges" };
 const firstFive = (items: readonly string[]) => items.slice(0, 5).join(", ") + (items.length > 5 ? ", …" : "");
 
-/** Id of a node or edge in the messages: a flow step's id, a level node's key, an edge's ends. */
-function itemId(kind: SpecKind, list: "nodes" | "edges", item: Json): string | undefined {
-  if (list === "edges") return typeof item.from === "string" && typeof item.to === "string" ? `${item.from} -> ${item.to}` : undefined;
-  const id = kind === "flow" ? item.id : item.key;
+/** Id of an item in the messages: its id or key field, or an edge's ends. */
+function itemId(field: string, item: Json): string | undefined {
+  if (field === "from/to") return typeof item.from === "string" && typeof item.to === "string" ? `${item.from} -> ${item.to}` : undefined;
+  const id = item[field];
   return typeof id === "string" ? id : undefined;
 }
 
-/** Refuses an unknown, added or removed node or edge, by id, before any field-by-field difference. */
-function compareIds(spec: LoadedSpec, list: "nodes" | "edges", rebuilt: Json[]) {
+/** Refuses an unknown, added or removed item, by id, before any field-by-field difference. */
+function compareIds(spec: LoadedSpec, list: string, field: string, rebuilt: Json[]) {
   const given = spec.data[list];
   if (!Array.isArray(given)) schemaError(spec, list, "an array");
-  const field = list === "edges" ? "from/to" : ID_FIELD[spec.kind];
-  const known = rebuilt.map((item) => itemId(spec.kind, list, item)!);
+  const known = rebuilt.map((item) => itemId(field, item)!);
   const knownIds = new Set(known);
   const seen = new Set<string>();
   given.forEach((item: unknown, index) => {
     if (!isObject(item)) schemaError(spec, `${list}[${index}]`, "an object");
-    const id = itemId(spec.kind, list, item);
+    const id = itemId(field, item);
     if (id === undefined) schemaError(spec, `${list}[${index}].${field}`, "a string");
     if (!knownIds.has(id)) {
       const near = closestNames(known, id);
       const candidates = near.length > 0 ? ` Closest: ${near.join(", ")}.` : ` Known: ${firstFive(known)}.`;
-      throw new Error(`${spec.file}: ${list}[${index}] ${id} is not in the current index; nodes and edges cannot be added or renamed.${candidates}`);
+      throw new Error(`${spec.file}: ${list}[${index}] ${id} is not in the current index; ${ITEM_WORDS[spec.kind]} cannot be added or renamed.${candidates}`);
     }
     if (seen.has(id)) throw new Error(`${spec.file}: ${list}[${index}] ${id} is listed twice.`);
     seen.add(id);
   });
   const missing = known.find((id) => !seen.has(id));
   if (missing !== undefined) {
-    throw new Error(`${spec.file}: ${list} lacks ${missing}, which the current index has; nodes and edges cannot be removed. ${staleHint(spec.kind)}`);
+    throw new Error(`${spec.file}: ${list} lacks ${missing}, which the current index has; ${ITEM_WORDS[spec.kind]} cannot be removed. ${staleHint(spec.kind)}`);
   }
 }
 
@@ -245,7 +281,7 @@ export function annotateSpec<T extends object>(spec: LoadedSpec, rebuilt: T): { 
         "Pass the rules, config and baseline of its export, or export the spec again in format diagram-spec and redo its annotations.",
     );
   }
-  for (const list of ["nodes", "edges"] as const) compareIds(spec, list, fresh[list] as Json[]);
+  for (const { list, field } of ID_LISTS[spec.kind]) compareIds(spec, list, field, fresh[list] as Json[]);
   const walk: Walk = { spec, cut: [] };
   return { spec: merge(walk, "", spec.data, fresh) as T, cut: walk.cut };
 }

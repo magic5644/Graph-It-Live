@@ -9,6 +9,7 @@
 import { drawnKinds, edgeLegendKind, legendLayout, legendNotes, nodeTitle, roleTitle, sanitizeText, type DiagramLayout, type DiagramText, type LegendOptions, type PlacedEdge } from "./architectureDiagram";
 import type { MatrixLayout } from "./diagramMatrix";
 import type { FlowLayout, Point } from "./flowDiagram";
+import type { SequenceLayout } from "./sequenceDiagram";
 import { edgeStyle, FONT_MONO, LEGEND, LEGEND_KINDS, legendDash, PALETTES, SIZES, type DiagramTheme, type LegendKind, type Palette } from "./diagramStyle";
 
 const ENTITIES: Record<string, string> = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
@@ -45,6 +46,9 @@ const CLASSES = [
   `.cycle-title{fill:var(--cycle);font-size:${SIZES.meta}px;paint-order:stroke;stroke:var(--bg);stroke-width:3px}`,
   `.edge-label{fill:var(--muted);font-size:${SIZES.meta}px;paint-order:stroke;stroke:var(--bg);stroke-width:3px}`,
   ".entry{stroke-width:2px}",
+  `.lifeline{stroke:var(--line);stroke-width:${SIZES.hairline}px;stroke-dasharray:4 4}`,
+  `.activation{fill:var(--surface);stroke:var(--line);stroke-width:${SIZES.hairline}px}`,
+  `.fragment{fill:none;stroke:var(--line);stroke-width:${SIZES.hairline}px}.operand{stroke-dasharray:4 3}`,
 ].join("");
 
 const markers = LEGEND_KINDS.map((kind) =>
@@ -137,12 +141,36 @@ function flowMarkup(layout: FlowLayout): string[] {
     legendMarkup(layout, layout.legend),
   ];
 }
-
+/** The sequence: fragment frames, lifelines, activation bars, the boxes, then the messages, the guards and the labels on top. */
+function sequenceMarkup(layout: SequenceLayout): string[] {
+  const pad = SIZES.nodePaddingX;
+  const frames = layout.fragments.map((fragment) =>
+    `<g class="fragment-${fragment.kind}"><rect class="fragment" x="${fragment.x}" y="${fragment.y}" width="${fragment.width}" height="${fragment.height}"/>` +
+    fragment.separators.map(({ y }) => `<path class="fragment operand" d="M${fragment.x} ${y}L${fragment.x + fragment.width} ${y}"/>`).join("") + "</g>");
+  // Guards go over the bars and lifelines they cross, their halo keeping them readable.
+  const guards = layout.fragments.flatMap((fragment) => [fragment.label, ...fragment.separators.map(({ label }) => label)])
+    .map((label) => text(label.x, label.y, "edge-label", label.text));
+  const boxes = layout.lifelines.map((lifeline) =>
+    `<g><title>${escapeXml(lifeline.title)}</title>` +
+    `<rect class="node${lifeline.entry ? " entry" : ""}" x="${lifeline.x}" y="${lifeline.y}" width="${lifeline.width}" height="${lifeline.height}" rx="${SIZES.radius}"/>` +
+    `${text(lifeline.x + pad, lifeline.y + 18, "label", lifeline.text)}${text(lifeline.x + pad, lifeline.y + 34, "meta", lifeline.meta)}</g>`);
+  return [
+    ...frames,
+    ...layout.lifelines.map((lifeline) => `<path class="lifeline" d="M${lifeline.centre} ${lifeline.y + lifeline.height}L${lifeline.centre} ${lifeline.bottom}"/>`),
+    ...layout.activations.map((bar) => `<rect class="activation" x="${bar.x}" y="${bar.y}" width="${bar.width}" height="${bar.height}"/>`),
+    ...boxes,
+    ...layout.messages.map((message) => pathMarkup(message.kind, message.points, SIZES.hairline, message.title)),
+    ...guards,
+    ...layout.messages.map(({ label }) => text(label.x, label.y, "edge-label", label.text)),
+    legendMarkup(layout, layout.legend),
+  ];
+}
 
 /** Every layout the SVG and HTML renderers draw. */
-type AnyLayout = DiagramLayout | MatrixLayout | FlowLayout;
+type AnyLayout = DiagramLayout | MatrixLayout | FlowLayout | SequenceLayout;
 function bodyMarkup(layout: AnyLayout): string[] {
   if ("cells" in layout) return matrixMarkup(layout);
+  if ("lifelines" in layout) return sequenceMarkup(layout);
   return "lanes" in layout ? flowMarkup(layout) : graphMarkup(layout);
 }
 

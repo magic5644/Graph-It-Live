@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { run as checkArchitecture } from "@/cli/commands/checkArchitecture";
-import { readDiagramOptions, readDirectory, readFlowOptions, run } from "@/cli/commands/diagram";
+import { readDiagramOptions, readDirectory, readFlowOptions, readSequenceOptions, run } from "@/cli/commands/diagram";
 import { classifyError, ExitCode } from "@/cli/errors";
 import type { CliRuntime } from "@/cli/runtime";
 import { workerState } from "@/mcp/shared/state";
@@ -64,12 +64,25 @@ describe("graph-it diagram options", () => {
     expect(() => readDiagramOptions(["src", "--view", "units"], "text", "src")).toThrow("--view units draws every unit: drop the directory or --folder");
   });
 
-  it.each(["json", "toon", "markdown", "mermaid", "csv", "sarif"] as const)("refuses --format %s as an unsupported format", (format) => {
+  it.each(["json", "toon", "markdown", "csv", "sarif"] as const)("refuses --format %s as an unsupported format", (format) => {
     try {
       readDiagramOptions([], format);
       expect.unreachable();
     } catch (error) {
-      expect(classifyError(error)).toEqual({ message: `graph-it diagram writes --format svg, html or diagram-spec, not "${format}".`, exitCode: ExitCode.UNSUPPORTED_FORMAT });
+      expect(classifyError(error)).toEqual({ message: `graph-it diagram writes --format svg, html, diagram-spec or mermaid, not "${format}".`, exitCode: ExitCode.UNSUPPORTED_FORMAT });
+    }
+  });
+
+  it.each([
+    [[], "mermaid"],
+    [["--view", "matrix"], "mermaid"],
+    [["--output", "units.mmd"], "text"],
+  ] as const)("refuses Mermaid for an architecture level: %j --format %s (exit 4)", (args, format) => {
+    try {
+      readDiagramOptions([...args], format);
+      expect.unreachable();
+    } catch (error) {
+      expect(classifyError(error)).toEqual({ message: "--format mermaid writes --view sequence only: use --format svg, html or diagram-spec for this view.", exitCode: ExitCode.UNSUPPORTED_FORMAT });
     }
   });
 });
@@ -110,8 +123,54 @@ describe("graph-it diagram --view flow options (#793)", () => {
 
   it("refuses the flow options without --view flow, and a file#symbol positional as a directory", () => {
     expect(() => readDiagramOptions(["--maxSteps", "3"], "text")).toThrow("--maxSteps applies to --view flow");
-    expect(() => readDiagramOptions(["--startLine", "3"], "svg")).toThrow("--startLine applies to --view flow");
-    expect(() => readDirectory([REF], ROOT)).toThrow(`a file#symbol positional needs --view flow: ${REF}`);
+    expect(() => readDiagramOptions(["--startLine", "3"], "svg")).toThrow("--startLine applies to --view flow or sequence");
+    expect(() => readDirectory([REF], ROOT)).toThrow(`a file#symbol positional needs --view flow or sequence: ${REF}`);
+  });
+});
+
+describe("graph-it diagram --view sequence options (#798 b)", () => {
+  const ROOT = path.resolve(__dirname, "../..");
+  const REF = "src/cli/commands/diagram.ts#run";
+
+  it("reads the entry symbol, its startLine, depth, message cap, lifelines and sequence.<format>", () => {
+    const options = readSequenceOptions([REF, "--view", "sequence", "--depth", "2", "--maxMessages", "60", "--participants", "class", "--startLine", "1"], "svg", ROOT);
+    expect(options).toMatchObject({ format: "svg", file: "sequence.svg", theme: "light", request: { symbolName: "run", startLine: 1, depth: 2, maxMessages: 60, participants: "class" } });
+    expect(options.request.filePath).toBe(path.join(ROOT, "src/cli/commands/diagram.ts"));
+    expect(readSequenceOptions([REF], "text", ROOT)).toMatchObject({ format: "html", file: "sequence.html", request: { depth: undefined, maxMessages: undefined, participants: undefined } });
+    expect(readSequenceOptions([REF], "mermaid", ROOT)).toMatchObject({ format: "mermaid", file: "sequence.mmd" });
+    // Without --format, an --output ending in .mmd or .mermaid writes Mermaid.
+    expect(readSequenceOptions([REF, "--output", "docs/Run.MMD"], "text", ROOT)).toMatchObject({ format: "mermaid", file: "docs/Run.MMD" });
+    expect(readSequenceOptions([REF, "--output", "run.mermaid"], "mermaid", ROOT)).toMatchObject({ format: "mermaid" });
+    expect(readSequenceOptions([REF, "--output", "-"], "diagram-spec", ROOT)).toMatchObject({ format: "diagram-spec", file: "-" });
+  });
+
+  it.each([
+    [[], "--view sequence draws one symbol's calls: pass <file#symbol>", ExitCode.GENERAL_ERROR],
+    [["src/cli/commands/diagram.ts"], "--view sequence draws one symbol's calls: pass <file#symbol>", ExitCode.GENERAL_ERROR],
+    [[REF, "--folder", "src"], "--folder applies to --view units, folder or matrix, not sequence", ExitCode.GENERAL_ERROR],
+    [[REF, "--rules"], "--rules applies to --view units, folder or matrix, not sequence", ExitCode.GENERAL_ERROR],
+    [[REF, "--maxSteps", "3"], "--maxSteps applies to --view flow, not sequence", ExitCode.GENERAL_ERROR],
+    [[REF, "--depth", "0"], '--depth must be an integer >= 1, got "0"', ExitCode.GENERAL_ERROR],
+    [[REF, "--maxMessages", "61"], '--maxMessages must be an integer between 1 and 60, got "61"', ExitCode.GENERAL_ERROR],
+    [[REF, "--participants", "module"], '--participants must be file or class, got "module"', ExitCode.GENERAL_ERROR],
+    [[REF, "--theme", "dark", "--output", "a.mmd"], "--theme sets the colours of --format svg", ExitCode.GENERAL_ERROR],
+    [[REF, "--output", "a.svg", "--format", "mermaid"], "--output a.svg does not match --format mermaid: name it *.mmd", ExitCode.GENERAL_ERROR],
+    [["../outside.ts#run"], "resolves outside workspace", ExitCode.SECURITY_VIOLATION],
+  ] as const)("refuses %j", (args, message, exitCode) => {
+    try {
+      const format = args.includes("--format") ? "mermaid" : "text";
+      readSequenceOptions(args.filter((arg) => arg !== "--format" && arg !== "mermaid"), format, ROOT);
+      expect.unreachable();
+    } catch (error) {
+      expect(classifyError(error)).toMatchObject({ message: expect.stringContaining(message), exitCode });
+    }
+  });
+
+  it("refuses the sequence options outside --view sequence, and Mermaid with --view flow", () => {
+    expect(() => readDiagramOptions(["--depth", "2"], "text")).toThrow("--depth applies to --view sequence");
+    expect(() => readDiagramOptions(["--participants", "class"], "svg")).toThrow("--participants applies to --view sequence");
+    expect(() => readFlowOptions([REF, "--maxMessages", "3"], "text", ROOT)).toThrow("--maxMessages applies to --view sequence, not flow");
+    expect(() => readFlowOptions([REF], "mermaid", ROOT)).toThrow(expect.objectContaining({ exitCode: ExitCode.UNSUPPORTED_FORMAT }));
   });
 });
 

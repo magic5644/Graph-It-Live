@@ -37,6 +37,7 @@ describe("diagramLevel", () => {
     expect(defaultDiagramFile("diagram-spec", "matrix")).toBe("architecture.diagram-spec.json");
     expect(defaultDiagramFile("html", "flow")).toBe("flow.html");
     expect(defaultDiagramFile("diagram-spec", "flow")).toBe("flow.diagram-spec.json");
+    expect(defaultDiagramFile("mermaid", "sequence")).toBe("sequence.mmd");
   });
 });
 
@@ -51,6 +52,10 @@ describe("export_architecture_diagram schema", () => {
     [{ rules: true, config: "rules/a.json", baseline: "rules/b.json", output: "docs/a.svg" }],
     [{ view: "flow", filePath: "src/a.ts", symbolName: "run" }],
     [{ view: "flow", filePath: "/repo/src/a.ts", symbolName: "run", startLine: 1, maxSteps: 12, diagramFormat: "html", output: "docs/flow.html" }],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run" }],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run", startLine: 2, depth: 5, maxMessages: 60, participants: "class", diagramFormat: "mermaid", output: "docs/run.mmd" }],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run", diagramFormat: "mermaid", output: "docs/run.mermaid" }],
+    [{ spec: "s.json", diagramFormat: "mermaid" }],
   ])("accepts %j", (params) => {
     expect(ExportArchitectureDiagramParamsSchema.safeParse(params).success).toBe(true);
   });
@@ -81,8 +86,24 @@ describe("export_architecture_diagram schema", () => {
     [{ view: "flow", filePath: "src/a.ts", symbolName: "run", maxSteps: 0 }, "maxSteps"],
     [{ view: "flow", filePath: "src/a.ts", symbolName: "run", startLine: 0 }, "startLine is 1-based"],
     [{ view: "flow", filePath: "a\0b", symbolName: "run" }, "null bytes"],
-    [{ filePath: "src/a.ts", symbolName: "run" }, "filePath applies to view flow only."],
-    [{ view: "matrix", startLine: 3 }, "startLine applies to view flow only."],
+    [{ filePath: "src/a.ts", symbolName: "run" }, "filePath applies to view flow or sequence only."],
+    [{ view: "matrix", startLine: 3 }, "startLine applies to view flow or sequence only."],
+    [{ depth: 2 }, "depth applies to view sequence only."],
+    [{ view: "units", participants: "class" }, "participants applies to view sequence only."],
+    [{ diagramFormat: "mermaid" }, "diagramFormat mermaid writes view sequence only: use svg, html or diagram-spec for this view."],
+    [{ view: "matrix", diagramFormat: "mermaid" }, "diagramFormat mermaid writes view sequence only"],
+    [{ view: "flow", filePath: "src/a.ts", symbolName: "run", diagramFormat: "mermaid" }, "diagramFormat mermaid writes view sequence only"],
+    [{ view: "flow", filePath: "src/a.ts", symbolName: "run", maxMessages: 3 }, "maxMessages applies to view sequence, not flow."],
+    [{ view: "sequence" }, "view sequence draws one symbol's calls: pass filePath."],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run", folder: "src" }, "folder applies to view units, folder or matrix, not sequence."],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run", rules: true }, "rules applies to view units, folder or matrix, not sequence."],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run", maxSteps: 3 }, "maxSteps applies to view flow, not sequence."],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run", depth: 0 }, "depth"],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run", maxMessages: 61 }, "maxMessages"],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run", participants: "module" }, "participants"],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run", diagramFormat: "mermaid", theme: "dark" }, "theme sets the colours of diagramFormat svg"],
+    [{ view: "sequence", filePath: "src/a.ts", symbolName: "run", diagramFormat: "mermaid", output: "x.svg" }, "output must end with .mmd or .mermaid for diagramFormat mermaid; got x.svg"],
+    [{ spec: "s.json", depth: 2 }, "drop depth."],
     [{ maxSteps: 3 }, "maxSteps applies to view flow only."],
     [{ spec: "s.json", view: "units" }, "view: spec draws the view, level or symbol written in the spec; drop view."],
     [{ spec: "s.json", folder: "src" }, "drop folder."],
@@ -324,5 +345,52 @@ describe.skipIf(!wasmBuilt)("export_architecture_diagram view flow", { timeout: 
     await expect(exportArchitectureDiagram(root, analyze, { view: "flow", filePath: "src/app.ts" })).rejects.toThrow("pass filePath and symbolName");
     await expect(exportArchitectureDiagram(root, analyze, flow)).rejects.toThrow("view flow needs the call graph index");
     expect(analyze).not.toHaveBeenCalled();
+  });
+
+  // #798 b: the same entry's calls in order, as a sequence diagram.
+  const sequence = { view: "sequence" as const, filePath: "src/app.ts", symbolName: "run" };
+
+  it("draws the same sequence as graph-it diagram --view sequence in every format, its fragments from the call sites", async () => {
+    const result = await executeExportArchitectureDiagram(sequence);
+    expect(result).toMatchObject({ format: "svg", counts: "5 lifelines · 4 calls · 0 references · 2 fragments" });
+    expect(result.markup).toContain('<title id="diagram-title">Sequence · run</title>');
+    expect(result.markup).toContain(">opt [data.length === 0]<");
+    expect(result.markup).toMatch(/class="edge s-catch-call"/);
+    expect(result.markup).not.toContain(root.replaceAll("\\", "/"));
+    const cli = (format: "svg" | "html" | "diagram-spec" | "mermaid", ...args: string[]) => runDiagram(["src/app.ts#run", "--view", "sequence", ...args, "--output", "-"], runtime, format);
+    expect(result.markup).toBe(await cli("svg"));
+    expect((await executeExportArchitectureDiagram({ ...sequence, diagramFormat: "html" })).markup).toBe(await cli("html"));
+    const mermaid = await executeExportArchitectureDiagram({ ...sequence, diagramFormat: "mermaid" });
+    expect(mermaid.markup).toMatch(/^sequenceDiagram\n/);
+    expect(mermaid.markup).toContain("  break catch (error)");
+    expect(mermaid.markup).toBe(await cli("mermaid"));
+    const spec = await executeExportArchitectureDiagram({ ...sequence, diagramFormat: "diagram-spec", depth: 1, maxMessages: 2, participants: "class" });
+    expect(JSON.parse(spec.markup!)).toMatchObject({ kind: "sequence", entry: "src/app.ts#run", entryLine: 6, depth: 1, maxMessages: 2, participantsBy: "class", omitted: { messages: 2 } });
+    expect(spec.markup).toBe(await cli("diagram-spec", "--depth", "1", "--maxMessages", "2", "--participants", "class"));
+  });
+
+  it("writes sequence.<format> past the inline cap or to output, and names the candidates of a wrong symbol", async () => {
+    expect(await executeExportArchitectureDiagram({ ...sequence, diagramFormat: "mermaid", output: "docs/run.mmd" })).toMatchObject({ path: "docs/run.mmd" });
+    expect(await runDiagram(["src/app.ts#run", "--view", "sequence"], runtime, "mermaid")).toBe("Diagram written to sequence.mmd: 5 lifelines · 4 calls · 0 references · 2 fragments.");
+    expect(fs.readFileSync(path.join(root, "sequence.mmd"), "utf8")).toBe((await executeExportArchitectureDiagram({ ...sequence, diagramFormat: "mermaid" })).markup);
+    const twins = { view: "sequence" as const, filePath: "src/twins.ts", symbolName: "go" };
+    await expect(executeExportArchitectureDiagram(twins)).rejects.toThrow("Symbol 'go' is ambiguous in src/twins.ts: go (method, line 1), go (method, line 2). Pass startLine to select one.");
+    await expect(executeExportArchitectureDiagram({ ...sequence, symbolName: "rnu" })).rejects.toThrow("Symbol 'rnu' not found in src/app.ts. Did you mean: run?");
+    await expect(executeExportArchitectureDiagram({ ...sequence, filePath: "src/missing.ts" })).rejects.toThrow("File 'src/missing.ts' is not in the call graph index.");
+    await expect(executeExportArchitectureDiagram({ ...sequence, filePath: "../outside.ts" })).rejects.toThrow("outside workspace");
+  });
+
+  it("redraws a sequence spec as the CLI does, a homonym's included, and refuses Mermaid for any other spec", async () => {
+    fs.writeFileSync(path.join(root, "seq.json"), (await executeExportArchitectureDiagram({ ...sequence, diagramFormat: "diagram-spec", depth: 2 })).markup!);
+    expect(await executeExportArchitectureDiagram({ spec: "seq.json" })).toEqual(await executeExportArchitectureDiagram({ ...sequence, depth: 2 }));
+    expect((await executeExportArchitectureDiagram({ spec: "seq.json", diagramFormat: "mermaid" })).markup).toBe(await runDiagram(["--spec", "seq.json", "--output", "-"], runtime, "mermaid"));
+    const twins = { view: "sequence" as const, filePath: "src/twins.ts", symbolName: "go", startLine: 2 };
+    fs.writeFileSync(path.join(root, "twin-seq.json"), (await executeExportArchitectureDiagram({ ...twins, diagramFormat: "diagram-spec" })).markup!);
+    expect((await executeExportArchitectureDiagram({ spec: "twin-seq.json" })).markup).toBe((await executeExportArchitectureDiagram(twins)).markup);
+    await expect(executeExportArchitectureDiagram({ spec: "seq.json", rules: true })).rejects.toThrow("rules applies to an architecture spec, not a sequence spec.");
+    await expect(executeExportArchitectureDiagram({ spec: "run.json", diagramFormat: "mermaid" })).rejects.toThrow("format mermaid writes a sequence diagram only");
+    const { exportArchitectureDiagram } = await import("@/mcp/tools/architecture");
+    await expect(exportArchitectureDiagram(root, vi.fn(), sequence)).rejects.toThrow("view sequence needs the call graph index");
+    await expect(exportArchitectureDiagram(root, vi.fn(), { spec: "seq.json" })).rejects.toThrow("a sequence spec needs the call graph index");
   });
 });

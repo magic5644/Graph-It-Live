@@ -25,10 +25,7 @@ import {
   type FlowSymbol,
 } from "./flowModel";
 
-export const DEFAULT_SEQUENCE_DEPTH = 3;
-export const DEFAULT_SEQUENCE_MESSAGES = 30;
-export const MAX_SEQUENCE_MESSAGES = 60;
-export const MAX_SEQUENCE_PARTICIPANTS = 12;
+import { DEFAULT_SEQUENCE_DEPTH, DEFAULT_SEQUENCE_MESSAGES, MAX_SEQUENCE_MESSAGES, MAX_SEQUENCE_PARTICIPANTS } from "./diagramStyle";
 
 export type SequenceParticipants = "file" | "class";
 export type SequenceFragmentKind = "alt" | "opt" | "loop" | "catch";
@@ -88,6 +85,8 @@ export interface SequenceFragment {
 export interface SequenceModel {
   /** Symbol id of the entry: workspace-relative file and name (`src/a.ts#run`). */
   entry: string;
+  /** 1-based declaration line of the entry: tells apart a homonym when a spec is drawn again. */
+  entryLine: number;
   /** Lifeline of the entry, the first participant. */
   entryParticipant: string;
   language: string;
@@ -458,6 +457,7 @@ function toModel(state: WalkState, context: ModelContext): SequenceModel {
   });
   return {
     entry: `${relativeTo(rootDir, context.root.path)}#${context.root.name}`,
+    entryLine: context.root.startLine + 1,
     entryParticipant: context.entryParticipant.id,
     language: context.root.lang,
     fragmentDetection: context.fragmentDetection,

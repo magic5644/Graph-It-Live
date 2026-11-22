@@ -14,11 +14,13 @@ import type { Database } from "sql.js";
 import { architectureDiagramInput, layoutDiagram, workspaceName, type DiagramInput, type DiagramInputOptions, type DrawOptions } from "./architectureDiagram";
 import { layoutMatrix } from "./diagramMatrix";
 import type { DIAGRAM_FORMATS, DiagramTheme, DiagramView } from "./diagramStyle";
-import { diagramSpec, flowSpec } from "./diagramSpec";
+import { diagramSpec, flowSpec, sequenceSpec } from "./diagramSpec";
 import { annotateSpec, type LoadedSpec } from "./diagramSpecImport";
 import { renderDiagramHtml, renderDiagramSvg } from "./diagramSvg";
 import { layoutFlow } from "./flowDiagram";
 import { buildFlowModel, type FlowModel, type FlowModelRequest, type FlowModelSources } from "./flowModel";
+import { layoutSequence, sequenceMermaid } from "./sequenceDiagram";
+import { buildSequenceModel, type SequenceModel, type SequenceModelRequest } from "./sequenceModel";
 
 export interface WorkspaceDiagramOptions {
   view: DiagramView;
@@ -69,6 +71,7 @@ export async function renderSourceDiagram(
   workspaceRoot: string,
   options: Pick<WorkspaceDiagramOptions, "view" | "folder" | "format" | "theme" | "spec"> & Omit<DiagramInputOptions, "folder"> & { draw?: DrawOptions },
 ) {
+  if (options.format === "mermaid") throw new Error(MERMAID_SEQUENCE_ONLY);
   const level = architectureDiagramInput(source, workspaceRoot, options);
   const { input, cut } = options.spec === undefined ? { input: level, cut: [] } : annotateLevel(options.spec, level);
   if (options.format === "diagram-spec") {
@@ -94,16 +97,48 @@ export async function renderFlowDiagram(
 ) {
   const { spec } = options;
   const workspace = workspaceName(sources.rootDir);
-  const built = await buildFlowModel(db, request, sources).catch((error: unknown) => {
-    if (spec === undefined || !(error instanceof Error)) throw error;
-    throw new Error(`${spec.file} is stale: ${error.message} Export the spec again in format diagram-spec.`, { cause: error });
-  });
+  const built = await buildFlowModel(db, request, sources).catch(staleSpec(spec));
   // An annotated spec is a model too: the same steps and calls, with its texts.
   const { spec: model, cut }: { spec: FlowModel; cut: string[] } = spec === undefined ? { spec: built, cut: [] } : annotateSpec(spec, flowSpec(built, workspace));
   const layout = layoutFlow(model, sources.rootDir);
   if (options.format === "diagram-spec") {
     return { markup: `${JSON.stringify(flowSpec(model, workspace), null, 2)}\n`, counts: layout.text.counts, cut, layout, model };
   }
+  if (options.format === "mermaid") throw new Error(MERMAID_SEQUENCE_ONLY);
   const markup = options.format === "svg" ? renderDiagramSvg(layout, options.theme) : renderDiagramHtml(layout);
   return { markup, counts: layout.text.counts, cut, layout, model };
+}
+
+/** The one-line refusal of format mermaid for a diagram that is not a sequence. */
+export const MERMAID_SEQUENCE_ONLY = "format mermaid writes a sequence diagram only: use view sequence, or format svg, html or diagram-spec.";
+
+/** A model the spec names that the index no longer builds: the spec is stale. */
+const staleSpec = (spec: LoadedSpec | undefined) => (error: unknown): never => {
+  if (spec === undefined || !(error instanceof Error)) throw error;
+  throw new Error(`${spec.file} is stale: ${error.message} Export the spec again in format diagram-spec.`, { cause: error });
+};
+
+/**
+ * The sequence diagram of one entry symbol from the call graph index `db` (SVG, HTML, Mermaid text or its spec) and
+ * its counts line ("4 lifelines · 9 calls · …"), with the layout it drew and the model it laid out (the annotated one
+ * with `options.spec`): `layout.messages[i]` is `model.messages[i]`.
+ */
+export async function renderSequenceDiagram(
+  db: Database,
+  sources: FlowModelSources,
+  request: SequenceModelRequest,
+  options: Pick<WorkspaceDiagramOptions, "format" | "theme" | "spec">,
+) {
+  const { spec } = options;
+  const workspace = workspaceName(sources.rootDir);
+  const built = await buildSequenceModel(db, request, sources).catch(staleSpec(spec));
+  // An annotated spec is a model too: the same lifelines, messages and fragments, with its texts.
+  const { spec: model, cut }: { spec: SequenceModel; cut: string[] } =
+    spec === undefined ? { spec: built, cut: [] } : annotateSpec(spec, sequenceSpec(built, workspace));
+  const layout = layoutSequence(model, sources.rootDir);
+  const counts = layout.text.counts;
+  if (options.format === "diagram-spec") return { markup: `${JSON.stringify(sequenceSpec(model, workspace), null, 2)}\n`, counts, cut, layout, model };
+  if (options.format === "mermaid") return { markup: sequenceMermaid(model, sources.rootDir), counts, cut, layout, model };
+  const markup = options.format === "svg" ? renderDiagramSvg(layout, options.theme) : renderDiagramHtml(layout);
+  return { markup, counts, cut, layout, model };
 }

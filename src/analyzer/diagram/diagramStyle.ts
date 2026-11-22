@@ -40,23 +40,33 @@ export const CYCLE_PADDING = "[top=28,left=12,bottom=12,right=12]";
 /** Most steps a flow diagram draws: past it the boxes no longer fit a screen (#793). */
 export const MAX_FLOW_STEPS = 12;
 
+/** Bounds of a sequence diagram (#798): its default depth and messages, and the most messages and lifelines it draws. */
+export const DEFAULT_SEQUENCE_DEPTH = 3;
+export const DEFAULT_SEQUENCE_MESSAGES = 30;
+export const MAX_SEQUENCE_MESSAGES = 60;
+export const MAX_SEQUENCE_PARTICIPANTS = 12;
+
 /** The diagram choices of the CLI, MCP and LM tool; kept here, free of elkjs, for the MCP schemas. */
-/** `flow`: the call flow of one entry symbol (flowDiagram.ts); the others draw one architecture level. */
-export const DIAGRAM_VIEWS = ["units", "folder", "matrix", "flow"] as const;
-/** `diagram-spec`: the level's data as JSON (diagramSpec.ts), for an agent diagram skill. */
-export const DIAGRAM_FORMATS = ["svg", "html", "diagram-spec"] as const;
+/**
+ * `flow`: the call flow of one entry symbol (flowDiagram.ts); `sequence`: its calls in order (sequenceDiagram.ts);
+ * the others draw one architecture level.
+ */
+export const DIAGRAM_VIEWS = ["units", "folder", "matrix", "flow", "sequence"] as const;
+/** `diagram-spec`: the level's data as JSON (diagramSpec.ts), for an agent diagram skill; `mermaid`: a sequence only. */
+export const DIAGRAM_FORMATS = ["svg", "html", "diagram-spec", "mermaid"] as const;
 
 /** The file a diagram goes to when none is named. */
 export function defaultDiagramFile(format: (typeof DIAGRAM_FORMATS)[number], view?: DiagramRequestView) {
-  const name = view === "flow" ? "flow" : "architecture";
-  return format === "diagram-spec" ? `${name}.diagram-spec.json` : `${name}.${format}`;
+  const name = view === "flow" || view === "sequence" ? view : "architecture";
+  if (format === "diagram-spec") return `${name}.diagram-spec.json`;
+  return format === "mermaid" ? `${name}.mmd` : `${name}.${format}`;
 }
 export const DIAGRAM_THEMES = ["light", "dark"] as const;
 
 export type DiagramTheme = (typeof DIAGRAM_THEMES)[number];
 export type DiagramRequestView = (typeof DIAGRAM_VIEWS)[number];
-/** The architecture levels: every view but flow. */
-export type DiagramView = Exclude<DiagramRequestView, "flow">;
+/** The architecture levels: every view but flow and sequence. */
+export type DiagramView = Exclude<DiagramRequestView, "flow" | "sequence">;
 
 /** The level a request names: a folder alone means its groups, and keys use "/" on every OS (a Windows user may type app\core). */
 export function diagramLevel(view: DiagramView | undefined, folder: string | undefined) {
@@ -122,6 +132,9 @@ export const LEGEND = {
   alternative: { colour: "line", dash: "6 3", text: "alternative lane" },
   "error-path": { colour: "error", text: "error lane" },
   reference: { colour: "line", dash: "1 3", text: "reference" },
+  // The sequence diagram (#798): its calls, those made in a catch or except clause.
+  call: { colour: "line", text: "call" },
+  "catch-call": { colour: "error", text: "call in a catch" },
 } as const satisfies Record<string, { colour: keyof Palette; dash?: string; text: string }>;
 
 export type LegendKind = keyof typeof LEGEND;

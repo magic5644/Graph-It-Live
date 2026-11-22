@@ -190,7 +190,7 @@
       "description": "The calls of one entry symbol (#798), depth-first in call order: lifelines (files, or classes), one message per call, and the alt / opt / loop / catch fragments the calls sit in.",
       "type": "object",
       "additionalProperties": false,
-      "required": ["$schema", "version", "kind", "workspace", "entry", "entryParticipant", "language", "fragmentDetection", "participantsBy", "depth", "maxMessages", "caption", "participants", "messages", "fragments", "omitted"],
+      "required": ["$schema", "version", "kind", "workspace", "entry", "entryLine", "entryParticipant", "language", "fragmentDetection", "participantsBy", "depth", "maxMessages", "caption", "participants", "messages", "fragments", "omitted"],
       "properties": {
         "$schema": { "type": "string" },
         "version": { "const": 1, "description": "Bumped when a field changes meaning or goes away" },
@@ -204,6 +204,7 @@
         },
         "workspace": { "type": "string", "description": "Workspace folder name, never an absolute path" },
         "entry": { "type": "string", "description": "Entry symbol: workspace-relative file and name (src/a.ts#run)" },
+        "entryLine": { "type": "integer", "minimum": 1, "description": "1-based declaration line of the entry symbol: selects one of several same-name symbols" },
         "entryParticipant": { "type": "string", "description": "Id of the entry's lifeline, the first participant" },
         "language": { "type": "string", "description": "Language of the entry symbol" },
         "fragmentDetection": {

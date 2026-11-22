@@ -54,11 +54,12 @@ export const COMMAND_SPECS: Readonly<Record<string, CommandSpec>> = {
     maxPositionals: 0,
   },
   diagram: {
-    formats: ["html", "svg", "diagram-spec"],
+    formats: ["html", "svg", "diagram-spec", "mermaid"],
     options: {
       "--view": "value", "--folder": "value", "--theme": "value", "--output": "value",
       "--rules": "flag", "--config": "value", "--baseline": "optional-value",
       "--maxSteps": "value", "--startLine": "value", "--spec": "value",
+      "--depth": "value", "--maxMessages": "value", "--participants": "value",
     },
     maxPositionals: 1,
   },

@@ -39,7 +39,8 @@ function validArgs(command: string, format: CliOutputFormat): string[] {
     architecture: format === "csv" ? ["--matrix"] : [],
     "check-architecture": [],
     init: ["--dry-run"],
-    diagram: ["--output", "-"],
+    // Mermaid draws a sequence only.
+    diagram: format === "mermaid" ? ["--view", "sequence", "src/a.ts#run", "--output", "-"] : ["--output", "-"],
     check: [],
     "review-pr": ["--base", "HEAD"],
     tool: format === "mermaid" ? ["crawl_dependency_graph", `--entryFile=${path.join(root, "src/a.ts")}`] : ["get_index_status"],
@@ -65,7 +66,7 @@ const INVALID_VALUE: Record<string, { args: string[]; message: string }> = {
   architecture: { args: ["--level", "foo"], message: '--level must be groups or units, got "foo"' },
   "check-architecture": { args: ["--config"], message: "--config needs a value" },
   init: { args: ["--focus"], message: "--focus needs a value" },
-  diagram: { args: ["--view", "nope"], message: '--view must be units or folder or matrix or flow, got "nope"' },
+  diagram: { args: ["--view", "nope"], message: '--view must be units or folder or matrix or flow or sequence, got "nope"' },
   check: { args: ["--minConfidence", "x"], message: "--minConfidence" },
   "review-pr": { args: ["--base", "HEAD", "--depth", "99"], message: '--depth must be an integer between 1 and 10, got "99"' },
   serve: { args: ["--format"], message: "--format needs a value" },
@@ -110,7 +111,7 @@ function expectView(command: string, format: CliOutputFormat, stdout: string): v
   // The generic diagram drew one G<n> node per JSON key (`G1["workspaceRoot: …"]`).
   expect(stdout).not.toMatch(/\bG\d+\["/);
   if (format === "json" || format === "sarif" || format === "diagram-spec") expect(() => JSON.parse(stdout)).not.toThrow();
-  if (format === "mermaid") expect(stdout).toMatch(/^graph (TD|LR)\n/);
+  if (format === "mermaid") expect(stdout).toMatch(command === "diagram" ? /^sequenceDiagram\n/ : /^graph (TD|LR)\n/);
   if (format === "csv") expect(stdout.split("\n")[0]).toContain(",");
   if (format === "svg") expect(stdout).toMatch(/^<svg /);
   if (format === "html") expect(stdout).toMatch(/^<!DOCTYPE html>/i);
@@ -240,7 +241,7 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
   // #793: the flow of one entry symbol, in each format, and every way to ask for it wrongly.
   it("diagram --view flow writes svg, html and diagram-spec, and refuses each malformed request", () => {
     const flow = ["diagram", "--view", "flow", "src/a.ts#run", "--output", "-"];
-    for (const format of COMMAND_SPECS.diagram.formats) {
+    for (const format of COMMAND_SPECS.diagram.formats.filter((item) => item !== "mermaid")) {
       const result = cli([...flow, "--format", format]);
       expect(result.status, result.stderr).toBe(0);
       expectView("diagram", format, result.stdout);
@@ -253,8 +254,8 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     const rows: [string[], number, string][] = [
       [["--view", "flow"], 1, "--view flow draws one symbol's flow: pass <file#symbol>"],
       [["--view", "flow", "src/a.ts"], 1, "--view flow draws one symbol's flow: pass <file#symbol>"],
-      [["src/a.ts#run"], 1, "a file#symbol positional needs --view flow: src/a.ts#run"],
-      [["--view", "units", "src/a.ts#run"], 1, "a file#symbol positional needs --view flow"],
+      [["src/a.ts#run"], 1, "a file#symbol positional needs --view flow or sequence: src/a.ts#run"],
+      [["--view", "units", "src/a.ts#run"], 1, "a file#symbol positional needs --view flow or sequence"],
       [["--view", "flow", "src/a.ts#rnu"], 1, "Symbol 'rnu' not found in src/a.ts. Did you mean: run?"],
       [["--view", "flow", "src/c.ts#run"], 1, "File not found: src/c.ts."],
       [["--view", "flow", "../x.ts#run"], 5, "resolves outside workspace"],
@@ -268,10 +269,61 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
       [["--view", "flow", "src/a.ts#run", "--config", "c.json"], 1, "--config applies to --view units, folder or matrix, not flow"],
       [["--view", "flow", "src/a.ts#run", "--baseline"], 1, "--baseline applies to --view units, folder or matrix, not flow"],
       [["--maxSteps", "3"], 1, "--maxSteps applies to --view flow"],
-      [["--startLine", "3"], 1, "--startLine applies to --view flow"],
+      [["--startLine", "3"], 1, "--startLine applies to --view flow or sequence"],
       [["--view", "flow", "src/a.ts#run", "--format", "csv"], 4, "graph-it diagram does not write --format csv"],
+      [["--view", "flow", "src/a.ts#run", "--format", "mermaid"], 4, "--format mermaid writes --view sequence only"],
       [["--view", "flow", "src/a.ts#run", "--output", "../x.svg"], 5, "Refusing to write ../x.svg"],
       [["--view", "flow", "src/a.ts#run", "--theme", "dark", "--format", "html"], 1, "--theme sets the colours of --format svg"],
+    ];
+    for (const [args, status, message] of rows) {
+      const result = cli(["diagram", ...args]);
+      expect(result.status, args.join(" ")).toBe(status);
+      expect(result.stdout, args.join(" ")).toBe("");
+      expect(result.stderr, args.join(" ")).toContain(message);
+    }
+  });
+
+  // #798 b: the calls of one entry symbol in order, in each format, and every way to ask for them wrongly.
+  it("diagram --view sequence writes svg, html, diagram-spec and mermaid, and refuses each malformed request", () => {
+    const sequence = ["diagram", "--view", "sequence", "src/a.ts#run", "--output", "-"];
+    for (const format of COMMAND_SPECS.diagram.formats) {
+      const result = cli([...sequence, "--format", format]);
+      expect(result.status, result.stderr).toBe(0);
+      expectView("diagram", format, result.stdout);
+      expect(result.stdout).not.toContain(root);
+    }
+    expect(JSON.parse(cli([...sequence, "--format", "diagram-spec"]).stdout)).toMatchObject({ kind: "sequence", entry: "src/a.ts#run", entryLine: 2 });
+    const mermaid = cli([...sequence, "--format", "mermaid"]).stdout;
+    expect(mermaid).toContain("  P1->>P2: helper");
+    expect(cli(["diagram", "--view", "sequence", "src/a.ts#run", "--output", "-", "--format", "svg", "--maxMessages", "1"]).stdout)
+      .toContain("at least 1 call past 1 messages left out: rerun with --maxMessages 2");
+    const written = cli(["diagram", "--view", "sequence", "src/a.ts#run", "--output", "docs/run.mmd"]);
+    expect(written.stdout).toBe("Diagram written to docs/run.mmd: 3 lifelines · 2 calls · 0 references · 0 fragments.\n");
+    expect(fs.readFileSync(path.join(root, "docs/run.mmd"), "utf8")).toBe(mermaid);
+    fs.rmSync(path.join(root, "docs"), { recursive: true });
+    const rows: [string[], number, string][] = [
+      [["--view", "sequence"], 1, "--view sequence draws one symbol's calls: pass <file#symbol>"],
+      [["--view", "sequence", "src/a.ts"], 1, "--view sequence draws one symbol's calls: pass <file#symbol>"],
+      [["--view", "sequence", "src/a.ts#rnu"], 1, "Symbol 'rnu' not found in src/a.ts. Did you mean: run?"],
+      [["--view", "sequence", "src/a.ts#run", "--startLine", "9"], 1, "No symbol 'run' starts at line 9 in src/a.ts. Candidates: run (function, line 2)."],
+      [["--view", "sequence", "src/c.ts#run"], 1, "File not found: src/c.ts."],
+      [["--view", "sequence", "../x.ts#run"], 5, "resolves outside workspace"],
+      [["--view", "sequence", "src/a.ts#run", "--depth", "0"], 1, '--depth must be an integer >= 1, got "0"'],
+      [["--view", "sequence", "src/a.ts#run", "--maxMessages", "61"], 1, '--maxMessages must be an integer between 1 and 60, got "61"'],
+      [["--view", "sequence", "src/a.ts#run", "--participants", "module"], 1, '--participants must be file or class, got "module"'],
+      [["--view", "sequence", "src/a.ts#run", "--maxSteps", "3"], 1, "--maxSteps applies to --view flow, not sequence"],
+      [["--view", "sequence", "src/a.ts#run", "--folder", "src"], 1, "--folder applies to --view units, folder or matrix, not sequence"],
+      [["--view", "sequence", "src/a.ts#run", "--rules"], 1, "--rules applies to --view units, folder or matrix, not sequence"],
+      [["--view", "sequence", "src/a.ts#run", "--theme", "dark", "--format", "mermaid"], 1, "--theme sets the colours of --format svg"],
+      [["--view", "sequence", "src/a.ts#run", "--format", "mermaid", "--output", "run.svg"], 1, "--output run.svg does not match --format mermaid: name it *.mmd"],
+      [["--view", "sequence", "src/a.ts#run", "--output", "../x.mmd"], 5, "Refusing to write ../x.mmd"],
+      [["--depth", "2"], 1, "--depth applies to --view sequence"],
+      [["--maxMessages", "2"], 1, "--maxMessages applies to --view sequence"],
+      [["--participants", "class"], 1, "--participants applies to --view sequence"],
+      [["--format", "mermaid"], 4, "--format mermaid writes --view sequence only"],
+      [["--view", "units", "--format", "mermaid"], 4, "--format mermaid writes --view sequence only"],
+      [["--view", "folder", "src", "--format", "mermaid"], 4, "--format mermaid writes --view sequence only"],
+      [["--view", "matrix", "--format", "mermaid"], 4, "--format mermaid writes --view sequence only"],
     ];
     for (const [args, status, message] of rows) {
       const result = cli(["diagram", ...args]);
@@ -293,10 +345,24 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     const units = JSON.parse(out(["--format", "diagram-spec"]));
     write("flow.json", flow);
     write("units.json", units);
+    const sequence = JSON.parse(out(["--view", "sequence", "src/a.ts#run", "--format", "diagram-spec"]));
+    write("sequence.json", sequence);
     for (const format of ["svg", "html", "diagram-spec"]) {
       expect(out(["--spec", "flow.json", "--format", format]), format).toBe(out(["--view", "flow", "src/a.ts#run", "--format", format]));
       expect(out(["--spec", "units.json", "--format", format]), format).toBe(out(["--format", format]));
     }
+    for (const format of ["svg", "html", "diagram-spec", "mermaid"]) {
+      expect(out(["--spec", "sequence.json", "--format", format]), format).toBe(out(["--view", "sequence", "src/a.ts#run", "--format", format]));
+    }
+    write("sequence-annotated.json", {
+      ...sequence,
+      participants: sequence.participants.map((item: object, index: number) => (index === 1 ? { ...item, title: "Helpers" } : item)),
+      messages: sequence.messages.map((item: object, index: number) => (index === 0 ? { ...item, label: "asks for help" } : item)),
+    });
+    const drawn = out(["--spec", "sequence-annotated.json", "--format", "mermaid"]);
+    expect(drawn).toContain("participant P2 as Helpers");
+    expect(drawn).toContain("P1->>P2: asks for help");
+    write("sequence-unknown.json", { ...sequence, messages: sequence.messages.map((item: object, index: number) => (index === 0 ? { ...item, id: "m9" } : item)) });
     write("annotated.json", {
       ...flow,
       caption: { ...flow.caption, title: "How run works" },
@@ -323,7 +389,7 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
     write("other-symbol.json", { ...flow, entry: "src/a.ts#gone", nodes: flow.nodes.map((node: object, index: number) => (index === 0 ? { ...node, id: "src/a.ts#gone" } : node)) });
     write("other-entry.json", { ...flow, entry: "src/b.ts#helper2" });
     write("version.json", { ...flow, version: 2 });
-    write("kind.json", { ...flow, kind: "sequence" });
+    write("kind.json", { ...flow, kind: "sketch" });
     write("extra.json", { ...flow, nodes: flow.nodes.map((node: object) => ({ ...node, colour: "red" })) });
     write("empty-title.json", { ...flow, nodes: flow.nodes.map((node: object) => ({ ...node, title: " " })) });
     write("bad.json", "{ nope");
@@ -337,7 +403,7 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
       [["--spec", "other-symbol.json"], 1, "other-symbol.json is stale: Symbol 'gone' not found in src/a.ts. No symbol with a similar name is declared in this file. Export the spec again"],
       [["--spec", "other-entry.json"], 1, "other-entry.json: nodes must hold the entry step src/b.ts#helper2 with its 1-based line"],
       [["--spec", "version.json"], 1, "version.json: version 2 is not supported; this graph-it reads diagram-spec version 1."],
-      [["--spec", "kind.json"], 1, 'kind.json: kind "sequence" is not a diagram-spec kind'],
+      [["--spec", "kind.json"], 1, 'kind.json: kind "sketch" is not a diagram-spec kind'],
       [["--spec", "extra.json"], 1, "extra.json: nodes[0].colour is not a field of a flow diagram spec."],
       [["--spec", "empty-title.json"], 1, "empty-title.json: nodes[0].title must be a non-empty string (schemas/diagram-spec.schema.json)."],
       [["--spec", "bad.json"], 1, "bad.json is not valid JSON ("],
@@ -353,6 +419,10 @@ describe.skipIf(!distExists)("CLI user contract (E2E)", { timeout: TIMEOUT_MS },
       [["--spec", "flow.json", "--rules"], 1, "--rules applies to an architecture spec, not a flow spec"],
       [["--spec", "flow.json", "--format", "diagram-spec", "--output", "flow.json"], 1, "--output flow.json would replace the spec it reads"],
       [["--spec", "flow.json", "--format", "csv"], 4, "graph-it diagram does not write --format csv"],
+      [["--spec", "flow.json", "--format", "mermaid"], 4, "--format mermaid writes --view sequence only"],
+      [["--spec", "sequence-unknown.json"], 1, "sequence-unknown.json: messages[0] m9 is not in the current index; lifelines and messages cannot be added or renamed."],
+      [["--spec", "sequence.json", "--depth", "2"], 1, "drop --depth"],
+      [["--spec", "sequence.json", "--rules"], 1, "--rules applies to an architecture spec, not a sequence spec"],
       [["--spec"], 1, "--spec"],
     ];
     for (const [args, status, message] of rows) {

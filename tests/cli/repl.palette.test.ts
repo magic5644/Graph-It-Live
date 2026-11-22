@@ -103,7 +103,7 @@ describe('Ink slash palette', () => {
     expect(text).toContain('Navigate');
     expect(text).toContain('/scope <directory>');
     expect(text).toContain('/check-architecture [--config <file>] [--baseline <file>] [--update-baseline]');
-    expect(text).toContain('/diagram [dir | <file#symbol> --view flow [--maxSteps N] [--startLine N] | --spec <file.json>] [--view units|folder|matrix|flow] [--folder <key>]');
+    expect(text).toContain('/diagram [dir | <file#symbol> --view flow [--maxSteps N] [--startLine N] | <file#symbol> --view sequence [--depth N] [--maxMessages N] [--participants file|class] [--startLine N] | --spec <file.json>] [--view units|folder|matrix|flow|sequence] [--folder <key>]');
     expect(text).toContain('/path → /scope');
     expect(text).toContain('/deps-in → /check-dependencies');
     expect(lines.some((line) => line.trimStart().startsWith('/command'))).toBe(false);

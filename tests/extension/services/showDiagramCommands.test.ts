@@ -20,7 +20,10 @@ vi.mock("vscode", () => ({
 }));
 
 import * as vscode from "vscode";
-import { DIAGRAM_VIEWS } from "@/analyzer/diagram/diagramStyle";
+import { DIAGRAM_VIEWS as CLI_VIEWS } from "@/analyzer/diagram/diagramStyle";
+
+// shortcut: the VS Code Sequence tab comes with #810; drop this filter there, so the tabs match every CLI view again.
+const DIAGRAM_VIEWS = CLI_VIEWS.filter((view) => view !== "sequence");
 import { diagramChoices, showArchitectureDiagram, showDiagram, showFlowDiagram, type ShowDiagramDeps } from "@/extension/services/showDiagramCommands";
 import { DIAGRAM_TABS } from "@/shared/architecture-types";
 

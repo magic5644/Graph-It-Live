@@ -1864,18 +1864,19 @@
         "displayName": "Graph-It-Live: Export Architecture Diagram",
         "icon": "$(type-hierarchy)",
         "userDescription": "Draw a static architecture diagram of the workspace as SVG or self-contained HTML",
-        "modelDescription": "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix), or the call flow of one entry symbol, as SVG or self-contained HTML, or returns its data as a diagram spec.\n\nWHEN: \"draw the architecture\", \"give me a diagram for the README / the PR / the design doc\", or to share as a picture the structure that graph-it architecture reports as data. For a polished or branded diagram drawn by a diagram skill, use diagramFormat 'diagram-spec' and draw only the nodes and edges it lists.\nWHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.\nRETURNS: format, counts (one line, e.g. '7 units · 3 layers · 1 cycle · 0 violations', covering the whole level), cut (with spec, the annotated texts cut to fit), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>, architecture.diagram-spec.json for a spec) with its size in characters. A diagram-spec is JSON (schemas/diagram-spec.schema.json): every node with label, layer, file count and role, layers, weighted edges with kind and broken rules, cycles, violations and the caption lines.\nLIMITS: import relations only (static analysis); at most 60 nodes drawn (a spec lists them all), the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.\nFLOW: view 'flow' with filePath (workspace-relative or absolute, inside the workspace) and symbolName draws the call flow of that entry symbol from the call graph index: one column per step in call order (a step is one file's symbols), rows for the main, alternative and error lanes read from the call sites (TypeScript, JavaScript, Python; other languages put every step on main). startLine (1-based, the editor line) selects one of several same-name symbols; maxSteps caps the steps (1 to 12, default 8) and a note counts the callees left out. Default file flow.<diagramFormat> (flow.diagram-spec.json for a spec, kind 'flow'). An unknown, ambiguous or unindexed symbol is an error naming the candidates; folder, rules, config and baseline do not apply to a flow.\nSPEC: spec (a workspace JSON file written by diagramFormat 'diagram-spec', then annotated) draws the same diagram with its rewritten texts: flow node title and subtitle, edge label, caption title and caption; architecture node label, caption title and caption. Nodes, edges, lanes, lines and counts stay those of the current index: an unknown, added or removed node or edge, any other changed field, an architecture spec of another revision, invalid JSON, an unknown version or kind is an error naming the JSON path, and a spec outside the workspace is refused. The spec names its view, level or entry symbol, so view, folder, filePath, symbolName, startLine and maxSteps are refused with it; rules, config and baseline apply to an architecture spec as at its export. Texts longer than their box end with '…' and cut lists their JSON paths; an output equal to the spec is refused.\nPARAMETERS: view, folder, filePath, symbolName, startLine, maxSteps, diagramFormat, theme, rules, config, baseline, output, spec, response_format.",
+        "modelDescription": "Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix), or the call flow or call sequence of one entry symbol, as SVG or self-contained HTML (a sequence also as Mermaid text), or returns its data as a diagram spec.\n\nWHEN: \"draw the architecture\", \"give me a diagram for the README / the PR / the design doc\", or to share as a picture the structure that graph-it architecture reports as data. For a polished or branded diagram drawn by a diagram skill, use diagramFormat 'diagram-spec' and draw only the nodes and edges it lists.\nWHY: the same diagram as graph-it diagram and the VS Code Architecture view: layers top to bottom (layer 0 at the bottom), cycle members in one block, stroke widths by file-pair count; with rules, the violations of graphit.architecture.json in the error colour and the baseline's accepted ones dashed. Deterministic: one index revision gives one geometry, with no network and no absolute path in the output.\nRETURNS: format, counts (one line, e.g. '7 units · 3 layers · 1 cycle · 0 violations', covering the whole level), cut (with spec, the annotated texts cut to fit), and either markup (the SVG or HTML, inline up to 60,000 characters) or path (workspace-relative file written, when output is set or the diagram is over the cap; default architecture.<diagramFormat>, architecture.diagram-spec.json for a spec) with its size in characters. A diagram-spec is JSON (schemas/diagram-spec.schema.json): every node with label, layer, file count and role, layers, weighted edges with kind and broken rules, cycles, violations and the caption lines.\nLIMITS: import relations only (static analysis); at most 60 nodes drawn (a spec lists them all), the largest kept and a note counting the others, so draw one folder at a time on large levels; output must stay inside the workspace and an existing file there is replaced; analyses every source file on each call.\nFLOW: view 'flow' with filePath (workspace-relative or absolute, inside the workspace) and symbolName draws the call flow of that entry symbol from the call graph index: one column per step in call order (a step is one file's symbols), rows for the main, alternative and error lanes read from the call sites (TypeScript, JavaScript, Python; other languages put every step on main). startLine (1-based, the editor line) selects one of several same-name symbols; maxSteps caps the steps (1 to 12, default 8) and a note counts the callees left out. Default file flow.<diagramFormat> (flow.diagram-spec.json for a spec, kind 'flow'). An unknown, ambiguous or unindexed symbol is an error naming the candidates; folder, rules, config and baseline do not apply to a flow.\nSEQUENCE: view 'sequence' with filePath and symbolName (startLine as for a flow) draws that symbol's calls in order as a sequence diagram: one lifeline per file, or per class with participants 'class' (at most 12 lifelines), one message per call depth-first (references dotted, calls in a catch clause in the error colour), activation bars from each call to its last sub-call, and the alt / opt / loop / catch fragments read from the call sites (TypeScript, JavaScript, Python). depth (at least 1, default 3) and maxMessages (1 to 60, default 30) bound it, and notes count the calls left out. diagramFormat 'mermaid' (view sequence only) returns a Mermaid sequenceDiagram text that GitHub renders. Default file sequence.<diagramFormat> (sequence.mmd for mermaid, sequence.diagram-spec.json for a spec, kind 'sequence'). Not drawn: calls through dynamic dispatch or a library callback, code in node_modules, return values. maxSteps applies to a flow only; depth, maxMessages and participants to a sequence only.\nSPEC: spec (a workspace JSON file written by diagramFormat 'diagram-spec', then annotated) draws the same diagram with its rewritten texts: flow node title and subtitle, edge label, caption title and caption; sequence lifeline title, message label, operand guard, caption title and caption; architecture node label, caption title and caption. Nodes, edges, lanes, lines and counts stay those of the current index: an unknown, added or removed node or edge, any other changed field, an architecture spec of another revision, invalid JSON, an unknown version or kind is an error naming the JSON path, and a spec outside the workspace is refused. The spec names its view, level or entry symbol, so view, folder, filePath, symbolName, startLine, maxSteps, depth, maxMessages and participants are refused with it; rules, config and baseline apply to an architecture spec as at its export. Texts longer than their box end with '…' and cut lists their JSON paths; an output equal to the spec is refused.\nPARAMETERS: view, folder, filePath, symbolName, startLine, maxSteps, depth, maxMessages, participants, diagramFormat, theme, rules, config, baseline, output, spec, response_format.",
         "inputSchema": {
           "type": "object",
           "properties": {
             "view": {
-              "description": "'units' (default): every unit; 'folder': the groups of the unit or folder named by folder (default when folder is set); 'matrix': the dependency structure matrix of that level; 'flow': the call flow of one entry symbol (filePath + symbolName), from the call graph index",
+              "description": "'units' (default): every unit; 'folder': the groups of the unit or folder named by folder (default when folder is set); 'matrix': the dependency structure matrix of that level; 'flow': the call flow of one entry symbol (filePath + symbolName), from the call graph index; 'sequence': that symbol's calls in order as a sequence diagram (lifelines, activations, alt / opt / loop / catch fragments)",
               "type": "string",
               "enum": [
                 "units",
                 "folder",
                 "matrix",
-                "flow"
+                "flow",
+                "sequence"
               ]
             },
             "folder": {
@@ -1885,17 +1886,17 @@
               "maxLength": 1024
             },
             "filePath": {
-              "description": "With view flow: file of the entry symbol, workspace-relative or absolute, inside the workspace",
+              "description": "With view flow or sequence: file of the entry symbol, workspace-relative or absolute, inside the workspace",
               "type": "string",
               "maxLength": 1024
             },
             "symbolName": {
-              "description": "With view flow: name of the entry symbol (a function, method or class)",
+              "description": "With view flow or sequence: name of the entry symbol (a function, method or class)",
               "type": "string",
               "maxLength": 500
             },
             "startLine": {
-              "description": "With view flow: declaration line of the entry symbol, 1-based (the editor line); selects one of several same-name symbols",
+              "description": "With view flow or sequence: declaration line of the entry symbol, 1-based (the editor line); selects one of several same-name symbols",
               "type": "integer",
               "minimum": 1,
               "maximum": 9007199254740991
@@ -1906,13 +1907,34 @@
               "minimum": 1,
               "maximum": 12
             },
+            "depth": {
+              "description": "With view sequence: deepest call level drawn, at least 1 (default: 3); the entry's own calls are level 1",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 9007199254740991
+            },
+            "maxMessages": {
+              "description": "With view sequence: most messages drawn, 1 to 60 (default: 30); one message per call",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 60
+            },
+            "participants": {
+              "description": "With view sequence: one lifeline per file (default), or per class for methods (a free function stays on its file's)",
+              "type": "string",
+              "enum": [
+                "file",
+                "class"
+              ]
+            },
             "diagramFormat": {
-              "description": "'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme; 'diagram-spec': the level's (or the flow's) data as JSON (schemas/diagram-spec.schema.json) for a diagram skill",
+              "description": "'svg' (default): a bare SVG; 'html': one self-contained page following the reader's light or dark scheme; 'diagram-spec': the level's (or the flow's, or the sequence's) data as JSON (schemas/diagram-spec.schema.json) for a diagram skill; 'mermaid': view sequence only, a Mermaid sequenceDiagram text that GitHub renders",
               "type": "string",
               "enum": [
                 "svg",
                 "html",
-                "diagram-spec"
+                "diagram-spec",
+                "mermaid"
               ]
             },
             "theme": {
@@ -1940,13 +1962,13 @@
               "maxLength": 1024
             },
             "output": {
-              "description": "File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec; flow.<diagramFormat> for view flow or a flow spec)",
+              "description": "File to write, relative to the workspace and inside it; without it, a diagram over the inline cap goes to architecture.<diagramFormat> (architecture.diagram-spec.json for a spec; flow.<diagramFormat> for view flow or a flow spec, sequence.<diagramFormat> for view sequence or a sequence spec, .mmd for mermaid)",
               "type": "string",
               "minLength": 1,
               "maxLength": 1024
             },
             "spec": {
-              "description": "Annotated diagram-spec JSON written by diagramFormat 'diagram-spec', relative to the workspace: draws its rewritten texts (flow: node title and subtitle, edge label, caption title and caption; architecture: node label, caption title and caption) on the current index; any other difference is an error naming its JSON path. The spec names its view, level or entry symbol, so view, folder, filePath, symbolName, startLine and maxSteps are refused with it; rules, config and baseline apply to an architecture spec",
+              "description": "Annotated diagram-spec JSON written by diagramFormat 'diagram-spec', relative to the workspace: draws its rewritten texts (flow: node title and subtitle, edge label, caption title and caption; sequence: lifeline title, message label, operand guard, caption title and caption; architecture: node label, caption title and caption) on the current index; any other difference is an error naming its JSON path. The spec names its view, level or entry symbol, so view, folder, filePath, symbolName, startLine, maxSteps, depth, maxMessages and participants are refused with it; rules, config and baseline apply to an architecture spec",
               "type": "string",
               "minLength": 1,
               "maxLength": 1024
