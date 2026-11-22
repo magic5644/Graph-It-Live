@@ -1,4 +1,5 @@
 import * as assert from 'node:assert';
+import { createRequire } from 'node:module';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 
@@ -230,11 +231,15 @@ export interface WindowCapture {
 }
 
 /**
- * Records the extension's toasts and answers its quick picks (E2E cannot read or click either). The test
- * files live in the extension folder, so they share its `vscode` API object; `restore()` puts it back.
+ * Records the extension's toasts and answers its quick picks (E2E cannot read or click either); `restore()` puts them back.
+ * VS Code gives each extension its own `vscode` object, picked by the requiring file's folder: required from the
+ * extension's folder, it is the extension's one, also when the tests run from the test host against the installed VSIX.
  */
 export function captureWindow(): WindowCapture {
-  const window = vscode.window as unknown as Record<string, unknown>;
+  const extension = vscode.extensions.getExtension('magic5644.graph-it-live');
+  assert.ok(extension, 'the extension under test');
+  const api = createRequire(path.join(extension.extensionPath, 'package.json'))('vscode') as typeof vscode;
+  const window = api.window as unknown as Record<string, unknown>;
   const names = ['showInformationMessage', 'showWarningMessage', 'showErrorMessage', 'showQuickPick'];
   const saved = Object.fromEntries(names.map(name => [name, window[name]]));
   const labelOf = (item: string | vscode.QuickPickItem) => (typeof item === 'string' ? item : item.label);
@@ -253,7 +258,7 @@ export function captureWindow(): WindowCapture {
       return list.find(item => labelOf(item) === capture.answer);
     },
   });
-  assert.strictEqual(vscode.window.showQuickPick, window.showQuickPick, 'vscode.window could not be captured');
+  assert.strictEqual(api.window.showQuickPick, window.showQuickPick, 'vscode.window could not be captured');
   return capture;
 }
 
