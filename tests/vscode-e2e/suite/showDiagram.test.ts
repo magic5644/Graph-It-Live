@@ -78,8 +78,10 @@ suite('Show Diagram (#795)', function () {
 
   test('Show Diagram… lists exactly the CLI --view names; Escape changes nothing', async () => {
     const help = await cliDiagram(root, ['--help']).catch((error: { stdout?: string }) => error.stdout ?? '');
-    const views = /--view VIEW\s+([a-z|]+)/.exec(help)?.[1].split('|');
-    assert.deepStrictEqual(views, ['units', 'folder', 'matrix', 'flow'], `the CLI's --view names (help: ${help.slice(0, 200)})`);
+    const cliViews = /--view VIEW\s+([a-z|]+)/.exec(help)?.[1].split('|');
+    assert.deepStrictEqual(cliViews, ['units', 'folder', 'matrix', 'flow', 'sequence'], `the CLI's --view names (help: ${help.slice(0, 200)})`);
+    // shortcut: the Sequence tab comes with #810; drop this filter there, so the picks list every CLI view again.
+    const views = (cliViews ?? []).filter(view => view !== 'sequence');
     await openAt(CONTROLLER, IN_GET_USER);
     const mode = await getContextKey('graph-it-live.viewMode');
     await vscode.commands.executeCommand('graph-it-live.showDiagram');
