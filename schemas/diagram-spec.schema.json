@@ -186,7 +186,115 @@
         }
       }
     },
+    "sequence": {
+      "description": "The calls of one entry symbol (#798), depth-first in call order: lifelines (files, or classes), one message per call, and the alt / opt / loop / catch fragments the calls sit in.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["$schema", "version", "kind", "workspace", "entry", "entryParticipant", "language", "fragmentDetection", "participantsBy", "depth", "maxMessages", "caption", "participants", "messages", "fragments", "omitted"],
+      "properties": {
+        "$schema": { "type": "string" },
+        "version": { "const": 1, "description": "Bumped when a field changes meaning or goes away" },
+        "kind": { "const": "sequence" },
+        "caption": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["title", "caption", "counts"],
+          "description": "Header lines of the generated diagram; title and caption may be rewritten before graph-it diagram --spec draws them",
+          "properties": { "title": { "type": "string" }, "caption": { "type": "string" }, "counts": { "type": "string" } }
+        },
+        "workspace": { "type": "string", "description": "Workspace folder name, never an absolute path" },
+        "entry": { "type": "string", "description": "Entry symbol: workspace-relative file and name (src/a.ts#run)" },
+        "entryParticipant": { "type": "string", "description": "Id of the entry's lifeline, the first participant" },
+        "language": { "type": "string", "description": "Language of the entry symbol" },
+        "fragmentDetection": {
+          "enum": ["detected", "unsupported"],
+          "description": "unsupported: fragments are not read for this language, messages come in call order only"
+        },
+        "participantsBy": { "enum": ["file", "class"], "description": "file: one lifeline per file; class: one per class for methods, one per file for free functions" },
+        "depth": { "type": "integer", "minimum": 1, "description": "Deepest call level drawn; the entry's own calls are level 1" },
+        "maxMessages": { "type": "integer", "minimum": 1, "maximum": 60 },
+        "omitted": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["depth", "messages", "participants"],
+          "description": "Calls left out: past depth, past maxMessages, or into a lifeline past the 12-lifeline cap",
+          "properties": { "depth": { "$ref": "#/$defs/count" }, "messages": { "$ref": "#/$defs/count" }, "participants": { "$ref": "#/$defs/count" } }
+        },
+        "participants": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 12,
+          "description": "Lifelines in order of first appearance, the entry's first",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "title", "kind", "file"],
+            "properties": {
+              "id": { "type": "string", "description": "Stable id: workspace-relative file (src/a.ts), or file and class (src/a.ts#Cart); messages refer to it" },
+              "title": { "type": "string", "description": "File or class name; may be rewritten before graph-it diagram --spec draws it" },
+              "kind": { "enum": ["file", "class"] },
+              "file": { "type": "string", "description": "Workspace-relative file" },
+              "line": { "type": "integer", "minimum": 1, "description": "1-based declaration line of the class" }
+            }
+          }
+        },
+        "messages": {
+          "type": "array",
+          "maxItems": 60,
+          "description": "One message per call, depth-first in call order: a callee's calls follow the message that calls it. No return messages",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "from", "to", "name", "targetFile", "targetLine", "file", "line", "relation", "level", "label"],
+            "properties": {
+              "id": { "type": "string", "description": "Stable id: m1, m2… in call order; fragments refer to it" },
+              "from": { "type": "string", "description": "Caller's participant id" },
+              "to": { "type": "string", "description": "Callee's participant id, the same as from for a self-message" },
+              "name": { "type": "string", "description": "Called symbol" },
+              "targetFile": { "type": "string", "description": "Workspace-relative file of the called symbol" },
+              "targetLine": { "type": "integer", "minimum": 1, "description": "1-based declaration line of the called symbol" },
+              "file": { "type": "string", "description": "Workspace-relative file of the call site" },
+              "line": { "type": "integer", "minimum": 1, "description": "1-based line of the call site" },
+              "relation": { "enum": ["CALLS", "REFERENCES"], "description": "REFERENCES: passed or rendered, not called" },
+              "level": { "type": "integer", "minimum": 1, "description": "Call depth: 1 for the entry's own calls" },
+              "parent": { "type": "string", "description": "Id of the message whose callee makes this call" },
+              "await": { "const": true },
+              "repeat": { "const": true, "description": "The callee was expanded by an earlier message: drawn without its calls" },
+              "recursive": { "const": true, "description": "The callee is already on the call stack: drawn, not expanded" },
+              "label": { "type": "string", "description": "Text drawn on the message: the called name, ref and await marked; may be rewritten before graph-it diagram --spec draws it" }
+            }
+          }
+        },
+        "fragments": {
+          "type": "array",
+          "description": "By first message, an enclosing fragment before the ones it holds",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "kind", "operands"],
+            "properties": {
+              "id": { "type": "string", "description": "Workspace-relative file, 1-based line and column of the construct (src/a.ts:12:5)" },
+              "kind": { "enum": ["alt", "opt", "loop", "catch"], "description": "alt: if / else, ternary or switch branches; opt: an if with no else; loop: a loop body or an iterator callback; catch: a catch / except clause" },
+              "operands": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["guard", "first", "last"],
+                  "properties": {
+                    "guard": { "type": "string", "description": "The condition, else, the case, the loop head or the catch clause; may be rewritten before graph-it diagram --spec draws it" },
+                    "first": { "type": "string", "description": "Id of the operand's first message" },
+                    "last": { "type": "string", "description": "Id of the operand's last message, its callees' messages included" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "count": { "type": "integer", "minimum": 0 }
   },
-  "oneOf": [{ "$ref": "#/$defs/architecture" }, { "$ref": "#/$defs/flow" }]
+  "oneOf": [{ "$ref": "#/$defs/architecture" }, { "$ref": "#/$defs/flow" }, { "$ref": "#/$defs/sequence" }]
 }
