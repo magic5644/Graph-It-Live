@@ -74,7 +74,8 @@ function editDistance(a: string, b: string): number {
 export function closestPathsHint(absolutePath: string, workspaceRoot: string): string {
   const folder = path.dirname(absolutePath);
   const names = fs.statSync(folder, { throwIfNoEntry: false })?.isDirectory() ? fs.readdirSync(folder) : [];
-  const near = closestNames(names, path.basename(absolutePath)).map((name) => path.join(folder, name));
+  // The file itself is never a suggestion: it exists, so the caller's problem lies elsewhere.
+  const near = closestNames(names.filter((name) => name !== path.basename(absolutePath)), path.basename(absolutePath)).map((name) => path.join(folder, name));
   // A mistyped folder holds no close name: look for the file name anywhere in the workspace.
   const close = near.length > 0 ? near : sameNameFiles(workspaceRoot, path.basename(absolutePath));
   const relative = (file: string) => normalizePath(path.relative(workspaceRoot, file));

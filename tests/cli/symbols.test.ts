@@ -158,6 +158,8 @@ describe("parseTargetRef (#767)", () => {
     expect(closestPathsHint(path.join(root, "src", "qqqqqqqqq.ts"), root)).toBe("");
     expect(closestPathsHint(path.join(root, "missing", "a.ts"), root)).toBe("");
     expect(closestPathsHint(path.join(root, "src", "servic.ts"), root)).toMatch(/^ Did you mean: src\/service\.ts, /);
+    // An existing file is never its own suggestion.
+    expect(closestPathsHint(path.join(root, "src", "service.ts"), root)).not.toContain("src/service.ts");
   });
 
   it("finds the file name in another folder when the folder is mistyped, never in node_modules or dot folders", () => {

@@ -215,6 +215,26 @@ describe("sequenceMermaid (#798 b)", () => {
     expect(single).toContain("  Note over P1: 2 calls past depth 3 left out");
   });
 
+  it("closes nested fragments sharing their first and last message inner first, after the bars they hold", () => {
+    const nested: SequenceModel = {
+      ...MODEL,
+      messages: [message("m1", A, B, "load"), message("m2", B, B, "parse", { level: 2, parent: "m1" })],
+      fragments: [
+        { id: "a:1:1", kind: "alt", operands: [{ guard: "ok", first: "m1", last: "m2" }] },
+        { id: "a:2:3", kind: "opt", operands: [{ guard: "ready", first: "m1", last: "m2" }] },
+      ],
+      omitted: { depth: 0, messages: 0, participants: 0 },
+    };
+    const lines = sequenceMermaid(nested, "/w/shop").split("\n").slice(5, -1);
+    expect(lines).toEqual([
+      "  alt ok", "  opt ready",
+      "  P1->>P2: load", "  activate P2", "  P2->>P2: parse", "  activate P2", "  deactivate P2", "  deactivate P2",
+      "  end", "  end",
+    ]);
+    const [outer, inner] = layoutSequence(nested, "/w/shop").fragments;
+    expect(inside(outer, inner)).toBe(true);
+  });
+
   it("names its default file sequence.mmd", () => {
     expect(defaultDiagramFile("mermaid", "sequence")).toBe("sequence.mmd");
     expect(defaultDiagramFile("svg", "sequence")).toBe("sequence.svg");

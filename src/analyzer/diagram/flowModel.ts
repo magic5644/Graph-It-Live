@@ -7,6 +7,7 @@
  */
 
 import fs from "node:fs/promises";
+import fsSync from "node:fs";
 import path from "node:path";
 import type { Database, Statement } from "sql.js";
 import type { Node as TreeNode } from "web-tree-sitter";
@@ -151,7 +152,13 @@ export async function buildFlowModel(db: Database, request: FlowModelRequest, so
 export function findEntry(db: Database, request: FlowModelRequest, rootDir: string): FlowSymbol {
   const label = relativeTo(rootDir, request.filePath);
   const indexed = db.exec("SELECT 1 FROM file_index WHERE path = ?", [normalizePath(request.filePath)]);
-  if (!indexed[0]) throw new Error(`File '${label}' is not in the call graph index.${closestPathsHint(request.filePath, rootDir)}`);
+  if (!indexed[0]) {
+    // An existing file the call graph skips: its language has no call graph, or the analysis excludes it.
+    const reason = fsSync.statSync(request.filePath, { throwIfNoEntry: false })?.isFile()
+      ? " Its language has no call graph, or the analysis excludes it: pick a symbol of a source file."
+      : closestPathsHint(request.filePath, rootDir);
+    throw new Error(`File '${label}' is not in the call graph index.${reason}`);
+  }
   const lookup = lookupCallGraphSymbol(db, request);
   if (lookup.symbol) {
     const { id, name, filePath, startLine, lang } = lookup.symbol;
