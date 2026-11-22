@@ -373,6 +373,11 @@ function tabOf(flowShown: boolean, view: View, unit: string | null): DiagramTab 
   return unit === null ? "units" : "folder";
 }
 
+/** The units cap banner: on the Units tab, and on the Matrix a large unit cycle opened at the units level. */
+function showsUnitCap(tab: DiagramTab, unit: string | null, summary: ArchitectureSummaryMessage): boolean {
+  return tab === "units" || (tab === "matrix" && unit === null && largeUnitCycle(summary) > 0);
+}
+
 /** Key of a level's matrix: its revision (a folder's covers the folder), the entered unit and folder. */
 const matrixKey = (revision: string, unit: string | null | undefined, folder: string | undefined) => `${revision}|${unit ?? ""}|${folder ?? ""}`;
 
@@ -2434,7 +2439,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             view={view}
             />}
           />
-          {(tab === "units" || (tab === "matrix" && unit === null && largeUnitCycle(summary) > 0)) && summary.unitCap && (
+          {showsUnitCap(tab, unit, summary) && summary.unitCap && (
             <UnitCapBanner unitCap={summary.unitCap} cycle={largeUnitCycle(summary)} onMatrix={() => actionsRef.current.selectTab("matrix")} onList={showUnitList} />
           )}
         </>
