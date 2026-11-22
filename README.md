@@ -228,6 +228,14 @@ To see what one function does step by step, draw its call flow: `graph-it diagra
 
 *`graph-it diagram --view flow` on this repository: one step per column, one lane per row.*
 
+For the order of the calls, draw a sequence diagram: `graph-it diagram --view sequence src/cli/commands/diagram.ts#run --depth 2 --format svg`. One lifeline per file (or per class with `--participants class`), one message per call, activation bars, and the `alt` / `opt` / `loop` / `catch` fragments with their guards. `--depth`, `--maxMessages` (up to 60) and `--startLine` bound it, and a note names what was left out. `--format mermaid` writes a `sequenceDiagram` that GitHub renders in a pull request or a README; the MCP tool takes `view: "sequence"` and `diagramFormat: "mermaid"`. Not drawn: dynamic dispatch, library callbacks, `node_modules`, return values.
+
+<div align="center">
+<img src="media/cli-diagram-sequence.png" alt="Sequence diagram of the diagram command's run function: lifelines for its files, activation bars, opt and alt fragments with their guards, and the notes counting the calls left out" width="900"/>
+</div>
+
+*`graph-it diagram --view sequence` on this repository: one lifeline per file, one message per call in order.*
+
 ### Architecture rules
 
 Declare your intended architecture in `graphit.architecture.json` at the workspace root: `elements` name sets of files, `rules` say what each may import, and `roles` declare what each unit is. The view lists each rule with its violations; `graph-it check-architecture` exits with 1 on a new `error` violation, so it can gate CI, with SARIF output for code scanning and a baseline for existing code. On existing code, `graph-it init` writes the config from today's imports, so only new drift fails, and reports quick wins and the reading of the dependency matrix. See [the config file](docs/architecture.md#the-config-file) for a complete example.
