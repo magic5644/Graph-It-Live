@@ -1128,7 +1128,7 @@ Writes a static architecture diagram: one level of the Architecture view as a ba
 Every diagram draws from one legend, shared with the `init` page, and lists only the styles it uses: dependency, upward, runtime cycle, type-only cycle (dotted: every import between its units is type-only), lazy cycle (dashed: it closes only through `import()`), cell to cut (matrix), rule broken, accepted in the baseline (dashed). A cycle block takes the style of its cycle and is titled with its kind; a broken rule outranks the cycle style of an edge. Edge and cell tooltips count the type-only file pairs. A [diagram spec](#diagram-spec) gives each cycle edge its `cycleKind` (`runtime`, `type-only`, `lazy`) and `typeOnlyEdgeCount` when some pairs are type-only.
 
 ```bash
-graph-it diagram [<dir>] [--view units|folder|matrix|flow] [--folder <key>] [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
+graph-it diagram [<dir>] [--view units|folder|matrix|flow|sequence] [--folder <key>] [--format svg|html|diagram-spec|mermaid] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
 graph-it diagram --spec <file.json> [options]
 ```
 
@@ -1137,9 +1137,9 @@ graph-it diagram --spec <file.json> [options]
 | Option | Default | Meaning |
 |--------|---------|---------|
 | `<dir>` | — | Workspace directory, relative to its root (`\` is read as `/`), drawn as `--folder` draws its key: a unit root draws the unit's groups, a folder its own (an element's folder draws the element; an umbrella folder such as `src` is its unit). `.` draws the units. Comes first; not with `--folder` |
-| `--view` | `units` (`folder` with `--folder` or `<dir>`) | `units`: the units in layers (layer 0 at the bottom), cycles outlined, stroke width = file pairs. `folder`: the groups below one unit or folder. `matrix`: the dependency structure matrix of the units, or with `--folder` of that folder's groups, in the [`architecture --matrix`](#architecture) order. `flow`: the calls of one symbol, see [Flow of one symbol](#flow-of-one-symbol) |
+| `--view` | `units` (`folder` with `--folder` or `<dir>`) | `units`: the units in layers (layer 0 at the bottom), cycles outlined, stroke width = file pairs. `folder`: the groups below one unit or folder. `matrix`: the dependency structure matrix of the units, or with `--folder` of that folder's groups, in the [`architecture --matrix`](#architecture) order. `flow`: the calls of one symbol, see [Flow of one symbol](#flow-of-one-symbol). `sequence`: the same calls in order, see [Sequence of one symbol](#sequence-of-one-symbol) |
 | `--folder <key>` | — | Unit or folder key, as [`architecture --folder`](#architecture) takes it; `\` is read as `/` |
-| `--format` | `html` (`svg` when `--output` ends with `.svg`) | `html`: one page that follows the reader's light or dark scheme. `svg`: a bare SVG in one theme. `diagram-spec`: the data of `--view units` or `folder` as JSON (`--view matrix` with it exits 4) |
+| `--format` | `html` (`svg` when `--output` ends with `.svg`) | `html`: one page that follows the reader's light or dark scheme. `svg`: a bare SVG in one theme. `diagram-spec`: the data of `--view units` or `folder` as JSON (`--view matrix` with it exits 4). `mermaid`: `--view sequence` only (any other view with it exits 4) |
 | `--theme` | `light` | `light` or `dark` colours, `--format svg` only |
 | `--output <file>` | `architecture.html` / `architecture.svg` / `architecture.diagram-spec.json` | File in the workspace, relative to its root; missing folders are created. Its extension matches the format (`.html` or `.htm`, `.svg`, `.json`). `-` writes to stdout |
 | `--rules` | off | Draws the violations of `graphit.architecture.json` in the error colour; the legend names the broken rules |
@@ -1183,6 +1183,36 @@ graph-it diagram --view flow <file#symbol> [--maxSteps <n>] [--startLine <n>] [-
 
 **MCP and VS Code**: `export_architecture_diagram` takes `view: "flow"` with `filePath` (workspace-relative or absolute, inside the workspace), `symbolName`, `startLine` (1-based) and `maxSteps` (1 to 12), and returns the same markup as the CLI (default file `flow.<diagramFormat>`). `folder`, `rules`, `config` and `baseline` are refused with a flow, and the flow parameters without it. The VS Code language model tool reads the index of the Call Graph panel; without one it answers `Call graph index not available. Open the Call Graph panel (graph-it-live.showCallGraph) first to build the index.`
 
+#### Sequence of one symbol
+
+`--view sequence <file#symbol>` draws the same calls as a UML sequence diagram: one lifeline per file (or per class with `--participants class`), one message per call, depth-first in call order, an activation bar from each call to its last sub-call (a self-call nests its bar), and the `alt`, `opt`, `loop` and `catch` fragments the calls sit in, each with its guard (the condition, `else`, the case, the loop head or the catch clause). A reference (a function passed, not called) is a dotted message; a call inside a `catch` / `except` is drawn in the error colour. Fragments are read from the call sites of TypeScript, JavaScript and Python; in another language the messages come in call order and a note says so.
+
+```bash
+graph-it diagram --view sequence <file#symbol> [--depth <n>] [--maxMessages <n>] [--participants file|class] [--startLine <n>] [--format svg|html|diagram-spec|mermaid] [--theme light|dark] [--output <file>]
+```
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `<file#symbol>` | — | Entry symbol and its file, relative to the workspace root |
+| `--depth <n>` | `3` | Deepest call level drawn, at least 1; the entry's own calls are level 1 |
+| `--maxMessages <n>` | `30` | Most messages drawn, 1 to 60 |
+| `--participants` | `file` | `file`: one lifeline per file. `class`: one per class for methods, a free function stays on its file's. At most 12 lifelines |
+| `--startLine <n>` | — | Declaration line of the symbol, 1-based, to pick one of several same-name symbols in the file |
+| `--format` | `html` (`svg` when `--output` ends with `.svg`, `mermaid` when it ends with `.mmd` or `.mermaid`) | `mermaid`: a Mermaid `sequenceDiagram` text that GitHub renders in a ```` ```mermaid ```` block, with the same lifelines, messages, activations and fragments (a catch is a `break` block) and the notes as a `Note` over every lifeline |
+| `--output <file>` | `sequence.html` / `sequence.svg` / `sequence.mmd` / `sequence.diagram-spec.json` | As for the other views |
+
+Past a bound, a note under the diagram counts the calls left out and gives the option that draws them: `19 calls past depth 3 left out: rerun with --depth 4`, `at least 21 calls past 30 messages left out: rerun with --maxMessages 51`, `2 calls into lifelines past 12 left out: rerun with --participants file`. A callee called twice is expanded under its first message only. Not drawn: calls through dynamic dispatch or a library callback, code in `node_modules`, and return values. Labels are escaped in SVG and HTML; in Mermaid text, `;`, `#`, `<`, `>`, `%`, `&`, quotes, backticks, brackets and control characters are replaced with spaces.
+
+`--format diagram-spec` writes the sequence model as JSON (`kind: "sequence"`): `entry` and `entryLine`, `participants`, `messages` (caller and callee lifelines, called symbol and its file and line, call site, relation, level, parent message, `await`, `repeat`, `recursive` and the `label` drawn), `fragments` with their operands' guards and first and last messages, and `omitted`. A warm run restores the call graph from `.graph-it/cache/` and re-extracts only the files that changed.
+
+<img src="../media/cli-diagram-sequence.svg" alt="graph-it diagram --view sequence on src/cli/commands/diagram.ts#run at depth 2: lifelines for diagram.ts, options.ts, errors.ts and the modules it calls, activation bars, opt and alt fragments with their guards, and the notes counting the calls left out" width="1000"/>
+
+*`graph-it diagram --view sequence src/cli/commands/diagram.ts#run --depth 2 --format svg` on this repository.*
+
+**Exit code**: 1 for `--view sequence` without a `<file#symbol>`, an unknown symbol (the closest ones named), an ambiguous one or a `--startLine` no symbol of that name starts at (both list the candidates with their lines), a missing file (with the closest paths), a `--depth` below 1, a `--maxMessages` outside 1–60, a `--participants` other than `file` or `class`, `--maxSteps`, `--folder`, `--rules`, `--config` or `--baseline` with `--view sequence`, and `--depth`, `--maxMessages` or `--participants` without it. A `<file#symbol>` or `--output` outside the workspace exits 5. `--format mermaid` with `--view units`, `folder`, `matrix` or `flow` exits 4, as any other `--format` does.
+
+**MCP and VS Code**: `export_architecture_diagram` takes `view: "sequence"` with `filePath`, `symbolName`, `startLine`, `depth`, `maxMessages` and `participants`, and `diagramFormat: "mermaid"`; it returns the same markup as the CLI (default file `sequence.<diagramFormat>`, `sequence.mmd` for Mermaid). `maxSteps`, `folder`, `rules`, `config` and `baseline` are refused with a sequence, `depth`, `maxMessages` and `participants` without it, and `diagramFormat: "mermaid"` with any other view.
+
 #### Diagram spec
 
 `--format diagram-spec` writes the exact data of the level as JSON, valid against [`schemas/diagram-spec.schema.json`](../schemas/diagram-spec.schema.json), so that a drawing skill (for example `diagram-design`) draws a hand-crafted or branded diagram without guessing the architecture. It lists every node, with no 60-node cap, sorted by key; the same revision gives the same document.
@@ -1219,7 +1249,7 @@ graph-it diagram --view flow <file#symbol> [--maxSteps <n>] [--startLine <n>] [-
 
 #### Annotated spec (`--spec`)
 
-`--spec <file.json>` draws a spec written by `--format diagram-spec` (a flow or an architecture level) again, after an agent or a person rewrote its texts in plain language. Graph-It-Live stays the source of truth: the command rebuilds the same spec from the current index, compares the two field by field, and takes only these texts from the file.
+`--spec <file.json>` draws a spec written by `--format diagram-spec` (a flow, a sequence or an architecture level) again, after an agent or a person rewrote its texts in plain language. Graph-It-Live stays the source of truth: the command rebuilds the same spec from the current index, compares the two field by field, and takes only these texts from the file.
 
 ```bash
 graph-it diagram --spec <file.json> [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
@@ -1228,11 +1258,12 @@ graph-it diagram --spec <file.json> [--format svg|html|diagram-spec] [--theme li
 | Spec | Texts that may change | Everything else |
 |------|-----------------------|-----------------|
 | Flow (`kind: "flow"`) | `nodes[].title`, `nodes[].subtitle` (also added or removed), `edges[].label`, `caption.title`, `caption.caption` | Ids, order, lanes, files, lines, relations, conditions, counts, `entry`, `maxSteps` must match the index |
+| Sequence (`kind: "sequence"`) | `participants[].title`, `messages[].label`, `fragments[].operands[].guard`, `caption.title`, `caption.caption` | Lifeline and message ids, their order, files, lines, relations, levels, fragments, counts, `entry`, `entryLine`, `depth`, `maxMessages`, `participantsBy` must match the index |
 | Architecture level | `nodes[].label`, `caption.title`, `caption.caption` | Keys, layers, edges, cycles, counts, violations and `revision` must match; `date` is not compared |
 
-The spec says what it draws: a flow its entry step (`entry`, the entry step's `line` and `maxSteps`), an architecture spec its `level` and `scope`. So `--spec` takes no `--view`, `--folder`, `<dir>`, `<file#symbol>`, `--maxSteps` or `--startLine`. For an architecture spec exported with `--rules`, pass the same `--rules`, `--config` and `--baseline`; they are refused with a flow spec.
+The spec says what it draws: a flow its entry step (`entry`, the entry step's `line` and `maxSteps`), a sequence its entry (`entry`, `entryLine`, `depth`, `maxMessages`, `participantsBy`), an architecture spec its `level` and `scope`. So `--spec` takes no `--view`, `--folder`, `<dir>`, `<file#symbol>`, `--maxSteps`, `--depth`, `--maxMessages`, `--participants` or `--startLine`. For an architecture spec exported with `--rules`, pass the same `--rules`, `--config` and `--baseline`; they are refused with a flow or sequence spec. A sequence spec is also drawn with `--format mermaid`; another spec with it exits 4.
 
-An untouched spec draws the same bytes as the direct command (`--view flow <file#symbol>`, or the level), in SVG, HTML and diagram-spec. Texts are sanitized (control characters replaced, markup escaped) and cut with "…" to what their box holds: 32 cells for a node title or label, 40 for a subtitle, 20 for an edge label, 96 for a caption line. The output names every rewritten text that was cut:
+An untouched spec draws the same bytes as the direct command (`--view flow <file#symbol>`, `--view sequence <file#symbol>`, or the level), in SVG, HTML and diagram-spec (and Mermaid for a sequence). Texts are sanitized (control characters replaced, markup escaped) and cut with "…" to what their box holds: 32 cells for a node title or label, 40 for a subtitle, 20 for an edge label, 24 for a lifeline title, 28 for a message label, 40 for a guard, 96 for a caption line. The output names every rewritten text that was cut:
 
 ```bash
 graph-it diagram --view flow src/cli/commands/diagram.ts#run --format diagram-spec --output run.json
@@ -1245,16 +1276,16 @@ With `--output -` the markup goes to stdout and the cut note to stderr.
 
 **Exit code**: 1, with one line naming the file and the JSON path, for:
 
-- invalid JSON, a document that is not a JSON object, a `version` other than `1`, or a `kind` other than `"flow"` (none for an architecture level);
-- an unknown node or edge id (`nodes[3] src/x.ts#nope is not in the current index …`, with the closest ids), an added, removed or duplicated node or edge;
+- invalid JSON, a document that is not a JSON object, a `version` other than `1`, or a `kind` other than `"flow"` or `"sequence"` (none for an architecture level);
+- an unknown node, edge, lifeline or message id (`nodes[3] src/x.ts#nope is not in the current index …`, `messages[0] m9 is not in the current index; lifelines and messages cannot be added or renamed …`, with the closest ids), an added, removed or duplicated one;
 - any other changed field (`nodes[2].lane is "error" in the spec, "main" in the current index …`), an unknown field, or an empty or non-string text;
 - a stale spec: an architecture spec of another revision (or drawn with other rules), or a flow whose entry symbol moved or is gone (`run.json is stale: No symbol 'run' starts at line 12 …`); export the spec again and redo its annotations;
 - a missing file (with the closest paths), a file over 8 MB;
-- `--spec` with `--view`, `--folder`, `<dir>`, `<file#symbol>`, `--maxSteps` or `--startLine`, `--rules`, `--config` or `--baseline` with a flow spec, and an `--output` that is the spec itself.
+- `--spec` with `--view`, `--folder`, `<dir>`, `<file#symbol>`, `--maxSteps`, `--depth`, `--maxMessages`, `--participants` or `--startLine`, `--rules`, `--config` or `--baseline` with a flow or sequence spec, and an `--output` that is the spec itself.
 
 A spec outside the workspace exits 5; any other `--format` exits 4.
 
-**MCP and VS Code**: `export_architecture_diagram` takes `spec` (a workspace-relative JSON file) with the same rules: `view`, `folder`, `filePath`, `symbolName`, `startLine` and `maxSteps` are refused with it, `rules`, `config` and `baseline` apply to an architecture spec. The result adds `cut`, the JSON paths of the rewritten texts that were cut, when there is one. In the REPL, `/diagram --spec <file>` resolves the file against the `/scope` directory and draws the spec's own level, not the scope.
+**MCP and VS Code**: `export_architecture_diagram` takes `spec` (a workspace-relative JSON file) with the same rules: `view`, `folder`, `filePath`, `symbolName`, `startLine`, `maxSteps`, `depth`, `maxMessages` and `participants` are refused with it, `rules`, `config` and `baseline` apply to an architecture spec. The result adds `cut`, the JSON paths of the rewritten texts that were cut, when there is one. In the REPL, `/diagram --spec <file>` resolves the file against the `/scope` directory and draws the spec's own level, not the scope.
 
 ### check
 

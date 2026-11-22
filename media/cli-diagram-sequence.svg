@@ -1,0 +1,140 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2532" height="1724" viewBox="0 0 2532 1724" role="img" aria-labelledby="diagram-title diagram-desc">
+<title id="diagram-title">Sequence · run</title>
+<desc id="diagram-desc">Graph-It-Live · src/cli/commands/diagram.ts · typescript. 9 lifelines · 30 calls · 0 references · 10 fragments.</desc>
+<style>svg{--bg:#ffffff;--surface:#f6f7f9;--text:#1f2328;--muted:#656d76;--line:#8c959f;--accent:#d4560b;--cycle:#8250df;--error:#cf222e}svg{font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace}.bg{fill:var(--bg)}.node{fill:var(--surface);stroke:var(--line);stroke-width:1px}.label{fill:var(--text);font-size:12px}.meta{fill:var(--muted);font-size:11px}.title{fill:var(--text);font-size:16px;font-weight:600}.caption{fill:var(--muted);font-size:12px}.edge{fill:none;stroke-linejoin:round}.s-down{stroke:var(--line)}.head-down{fill:var(--line)}.s-upward{stroke:var(--accent)}.head-upward{fill:var(--accent)}.s-cycle{stroke:var(--cycle)}.head-cycle{fill:var(--cycle)}.s-type-only{stroke:var(--cycle);stroke-dasharray:2 3}.head-type-only{fill:var(--cycle)}.s-lazy{stroke:var(--cycle);stroke-dasharray:8 4}.head-lazy{fill:var(--cycle)}.s-cut{stroke:var(--cycle)}.head-cut{fill:var(--cycle)}.s-error{stroke:var(--error)}.head-error{fill:var(--error)}.s-accepted{stroke:var(--error);stroke-dasharray:4 3}.head-accepted{fill:var(--error)}.s-dead{stroke:var(--muted);stroke-dasharray:4 3}.head-dead{fill:var(--muted)}.s-inferred-role{stroke:var(--line);stroke-dasharray:3 3}.head-inferred-role{fill:var(--line)}.s-entry{stroke:var(--line)}.head-entry{fill:var(--line)}.s-main{stroke:var(--line)}.head-main{fill:var(--line)}.s-alternative{stroke:var(--line);stroke-dasharray:6 3}.head-alternative{fill:var(--line)}.s-error-path{stroke:var(--error)}.head-error-path{fill:var(--error)}.s-reference{stroke:var(--line);stroke-dasharray:1 3}.head-reference{fill:var(--line)}.s-call{stroke:var(--line)}.head-call{fill:var(--line)}.s-catch-call{stroke:var(--error)}.head-catch-call{fill:var(--error)}.cell{fill:var(--surface);stroke-width:1px}.diagonal{fill:var(--line);fill-opacity:0.18}.frame{fill:none;stroke:var(--line);stroke-width:1px}.cycle{fill:none;stroke-width:1px}.cut{fill:none;stroke-width:2px}.cycle-title{fill:var(--cycle);font-size:11px;paint-order:stroke;stroke:var(--bg);stroke-width:3px}.edge-label{fill:var(--muted);font-size:11px;paint-order:stroke;stroke:var(--bg);stroke-width:3px}.entry{stroke-width:2px}.lifeline{stroke:var(--line);stroke-width:1px;stroke-dasharray:4 4}.activation{fill:var(--surface);stroke:var(--line);stroke-width:1px}.fragment{fill:none;stroke:var(--line);stroke-width:1px}.operand{stroke-dasharray:4 3}</style>
+<defs><marker id="arrow-down" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-down" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-upward" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-upward" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-cycle" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-cycle" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-type-only" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-type-only" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-lazy" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-lazy" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-cut" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-cut" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-error" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-error" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-accepted" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-accepted" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-dead" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-dead" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-inferred-role" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-inferred-role" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-entry" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-entry" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-main" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-main" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-alternative" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-alternative" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-error-path" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-error-path" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-reference" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-reference" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-call" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-call" d="M0 0L8 4L0 8z"/></marker><marker id="arrow-catch-call" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto"><path class="head-catch-call" d="M0 0L8 4L0 8z"/></marker></defs>
+<rect class="bg" width="2532" height="1724"/>
+<text class="title" x="24" y="40">Sequence · run</text>
+<text class="caption" x="24" y="60">Graph-It-Live · src/cli/commands/diagram.ts · typescript</text>
+<text class="caption" x="24" y="78">9 lifelines · 30 calls · 0 references · 10 fragments</text>
+<g class="fragment-opt"><rect class="fragment" x="412" y="196" width="328" height="64"/></g>
+<g class="fragment-opt"><rect class="fragment" x="136" y="260" width="2260" height="848"/></g>
+<g class="fragment-opt"><rect class="fragment" x="144" y="332" width="588" height="64"/></g>
+<g class="fragment-opt"><rect class="fragment" x="144" y="428" width="247.88" height="80"/></g>
+<g class="fragment-alt"><rect class="fragment" x="144" y="556" width="1140" height="64"/></g>
+<g class="fragment-opt"><rect class="fragment" x="144" y="652" width="1968" height="176"/></g>
+<g class="fragment-opt"><rect class="fragment" x="144" y="828" width="1968" height="96"/></g>
+<g class="fragment-opt"><rect class="fragment" x="136" y="1172" width="1984" height="304"/></g>
+<g class="fragment-alt"><rect class="fragment" x="144" y="1292" width="1140" height="64"/></g>
+<g class="fragment-opt"><rect class="fragment" x="136" y="1476" width="186.5" height="128"/></g>
+<path class="lifeline" d="M162 148L162 1620"/>
+<path class="lifeline" d="M438 148L438 1620"/>
+<path class="lifeline" d="M714 148L714 1620"/>
+<path class="lifeline" d="M990 148L990 1620"/>
+<path class="lifeline" d="M1266 148L1266 1620"/>
+<path class="lifeline" d="M1542 148L1542 1620"/>
+<path class="lifeline" d="M1818 148L1818 1620"/>
+<path class="lifeline" d="M2094 148L2094 1620"/>
+<path class="lifeline" d="M2370 148L2370 1620"/>
+<rect class="activation" x="157" y="176" width="10" height="1414"/>
+<rect class="activation" x="433" y="184" width="10" height="62"/>
+<rect class="activation" x="709" y="240" width="10" height="8"/>
+<rect class="activation" x="161" y="316" width="10" height="778"/>
+<rect class="activation" x="709" y="376" width="10" height="8"/>
+<rect class="activation" x="985" y="416" width="10" height="8"/>
+<rect class="activation" x="165" y="484" width="10" height="10"/>
+<rect class="activation" x="165" y="540" width="10" height="10"/>
+<rect class="activation" x="1261" y="600" width="10" height="8"/>
+<rect class="activation" x="1537" y="640" width="10" height="8"/>
+<rect class="activation" x="1813" y="696" width="10" height="8"/>
+<rect class="activation" x="985" y="728" width="10" height="8"/>
+<rect class="activation" x="2089" y="760" width="10" height="8"/>
+<rect class="activation" x="165" y="804" width="10" height="10"/>
+<rect class="activation" x="985" y="872" width="10" height="8"/>
+<rect class="activation" x="2089" y="904" width="10" height="8"/>
+<rect class="activation" x="985" y="944" width="10" height="8"/>
+<rect class="activation" x="165" y="988" width="10" height="10"/>
+<rect class="activation" x="2365" y="1024" width="10" height="8"/>
+<rect class="activation" x="2089" y="1056" width="10" height="8"/>
+<rect class="activation" x="2365" y="1088" width="10" height="8"/>
+<rect class="activation" x="433" y="1128" width="10" height="38"/>
+<rect class="activation" x="709" y="1160" width="10" height="8"/>
+<rect class="activation" x="161" y="1228" width="10" height="234"/>
+<rect class="activation" x="165" y="1276" width="10" height="10"/>
+<rect class="activation" x="1261" y="1336" width="10" height="8"/>
+<rect class="activation" x="1813" y="1376" width="10" height="8"/>
+<rect class="activation" x="2089" y="1408" width="10" height="8"/>
+<rect class="activation" x="165" y="1452" width="10" height="10"/>
+<rect class="activation" x="161" y="1532" width="10" height="58"/>
+<rect class="activation" x="165" y="1580" width="10" height="10"/>
+<g><title>src/cli/commands/diagram.ts (file)</title><rect class="node entry" x="68" y="104" width="188" height="44" rx="4"/><text class="label" x="80" y="122">diagram.ts</text><text class="meta" x="80" y="138">src/cli…mands/diagram.ts</text></g>
+<g><title>src/cli/options.ts (file)</title><rect class="node" x="364" y="104" width="148" height="44" rx="4"/><text class="label" x="376" y="122">options.ts</text><text class="meta" x="376" y="138">src/cli/options.ts</text></g>
+<g><title>src/cli/errors.ts (file)</title><rect class="node" x="644" y="104" width="140" height="44" rx="4"/><text class="label" x="656" y="122">errors.ts</text><text class="meta" x="656" y="138">src/cli/errors.ts</text></g>
+<g><title>src/analyzer/diagram/diagramSpecImport.ts (file)</title><rect class="node" x="896" y="104" width="188" height="44" rx="4"/><text class="label" x="908" y="122">diagramSpecImport.ts</text><text class="meta" x="908" y="138">src/ana…ramSpecImport.ts</text></g>
+<g><title>src/cli/workspaceFiles.ts (file)</title><rect class="node" x="1172" y="104" width="188" height="44" rx="4"/><text class="label" x="1184" y="122">workspaceFiles.ts</text><text class="meta" x="1184" y="138">src/cli…orkspaceFiles.ts</text></g>
+<g><title>src/shared/path.ts (file)</title><rect class="node" x="1468" y="104" width="148" height="44" rx="4"/><text class="label" x="1480" y="122">path.ts</text><text class="meta" x="1480" y="138">src/shared/path.ts</text></g>
+<g><title>src/mcp/tools/architecture.ts (file)</title><rect class="node" x="1724" y="104" width="188" height="44" rx="4"/><text class="label" x="1736" y="122">architecture.ts</text><text class="meta" x="1736" y="138">src/mcp…/architecture.ts</text></g>
+<g><title>src/analyzer/diagram/workspaceDiagram.ts (file)</title><rect class="node" x="2000" y="104" width="188" height="44" rx="4"/><text class="label" x="2012" y="122">workspaceDiagram.ts</text><text class="meta" x="2012" y="138">src/ana…kspaceDiagram.ts</text></g>
+<g><title>src/cli/runtime.ts (file)</title><rect class="node" x="2296" y="104" width="148" height="44" rx="4"/><text class="label" x="2308" y="122">runtime.ts</text><text class="meta" x="2308" y="138">src/cli/runtime.ts</text></g>
+<path class="edge s-call" d="M167 184L433 184" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/options.ts: readStringOption, src/cli/commands/diagram.ts:227 (CALLS, level 1)</title></path>
+<path class="edge s-call" d="M443 240L709 240" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/options.ts → src/cli/errors.ts: CliError, src/cli/options.ts:45 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M167 304L194 304L194 320L171 320" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/commands/diagram.ts: runSpec, src/cli/commands/diagram.ts:228 (CALLS, level 1)</title></path>
+<path class="edge s-call" d="M171 376L709 376" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/errors.ts: CliError, src/cli/commands/diagram.ts:193 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 416L985 416" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/analyzer/diagram/diagramSpecImport.ts: readDiagramSpec, src/cli/commands/diagram.ts:195 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 472L198 472L198 488L175 488" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/commands/diagram.ts: refuseFlags, src/cli/commands/diagram.ts:196 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 528L198 528L198 544L175 544" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/commands/diagram.ts: readMarkupOptions, src/cli/commands/diagram.ts:197 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 600L1261 600" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/workspaceFiles.ts: resolveInWorkspace, src/cli/commands/diagram.ts:198 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 640L1537 640" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/shared/path.ts: normalizePath, src/cli/commands/diagram.ts:199 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 696L1813 696" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/mcp/tools/architecture.ts: workerFlowSources, src/cli/commands/diagram.ts:203 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 728L985 728" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/analyzer/diagram/diagramSpecImport.ts: specFlowRequest, src/cli/commands/diagram.ts:204 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 760L2089 760" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/analyzer/diagram/workspaceDiagram.ts: renderFlowDiagram, src/cli/commands/diagram.ts:204 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 792L198 792L198 808L175 808" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/commands/diagram.ts: writeDiagram, src/cli/commands/diagram.ts:205 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 872L985 872" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/analyzer/diagram/diagramSpecImport.ts: specSequenceRequest, src/cli/commands/diagram.ts:209 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 904L2089 904" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/analyzer/diagram/workspaceDiagram.ts: renderSequenceDiagram, src/cli/commands/diagram.ts:209 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 944L985 944" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/analyzer/diagram/diagramSpecImport.ts: specLevel, src/cli/commands/diagram.ts:212 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 976L198 976L198 992L175 992" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/commands/diagram.ts: readRules, src/cli/commands/diagram.ts:213 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 1024L2365 1024" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/runtime.ts: ensureIndexed, src/cli/commands/diagram.ts:214 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 1056L2089 1056" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/analyzer/diagram/workspaceDiagram.ts: renderWorkspaceDiagram, src/cli/commands/diagram.ts:215 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 1088L2365 1088" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/runtime.ts: loadState, src/cli/commands/diagram.ts:220 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M167 1128L433 1128" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/options.ts: readChoiceOption, src/cli/commands/diagram.ts:229 (CALLS, level 1)</title></path>
+<path class="edge s-call" d="M443 1160L709 1160" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/options.ts → src/cli/errors.ts: CliError, src/cli/options.ts:60 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M167 1216L194 1216L194 1232L171 1232" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/commands/diagram.ts: runFlow, src/cli/commands/diagram.ts:230 (CALLS, level 1)</title></path>
+<path class="edge s-call" d="M171 1264L198 1264L198 1280L175 1280" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/commands/diagram.ts: readFlowOptions, src/cli/commands/diagram.ts:247 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 1336L1261 1336" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/workspaceFiles.ts: resolveInWorkspace, src/cli/commands/diagram.ts:248 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 1376L1813 1376" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/mcp/tools/architecture.ts: workerFlowSources, src/cli/commands/diagram.ts:249 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 1408L2089 1408" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/analyzer/diagram/workspaceDiagram.ts: renderFlowDiagram, src/cli/commands/diagram.ts:250 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M171 1440L198 1440L198 1456L175 1456" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/commands/diagram.ts: writeDiagram, src/cli/commands/diagram.ts:251 (CALLS, level 2)</title></path>
+<path class="edge s-call" d="M167 1520L194 1520L194 1536L171 1536" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/commands/diagram.ts: runSequence, src/cli/commands/diagram.ts:231 (CALLS, level 1)</title></path>
+<path class="edge s-call" d="M171 1568L198 1568L198 1584L175 1584" stroke-width="1" marker-end="url(#arrow-call)"><title>src/cli/commands/diagram.ts → src/cli/commands/diagram.ts: readSequenceOptions, src/cli/commands/diagram.ts:257 (CALLS, level 2)</title></path>
+<text class="edge-label" x="418" y="211">opt [value === undefined || value.start…</text>
+<text class="edge-label" x="142" y="275">opt [spec !== undefined]</text>
+<text class="edge-label" x="150" y="347">opt [replaced !== undefined]</text>
+<text class="edge-label" x="150" y="443">opt [spec.kind !== &quot;architecture&quot;]</text>
+<text class="edge-label" x="150" y="571">alt [else]</text>
+<text class="edge-label" x="150" y="667">opt [spec.kind === &quot;flow&quot;]</text>
+<text class="edge-label" x="150" y="843">opt [spec.kind === &quot;sequence&quot;]</text>
+<text class="edge-label" x="142" y="1187">opt [view === &quot;flow&quot;]</text>
+<text class="edge-label" x="150" y="1307">alt [else]</text>
+<text class="edge-label" x="142" y="1491">opt [view === &quot;sequence&quot;]</text>
+<text class="edge-label" x="173" y="178">readStringOption</text>
+<text class="edge-label" x="449" y="234">CliError</text>
+<text class="edge-label" x="200" y="300">runSpec</text>
+<text class="edge-label" x="177" y="370">CliError</text>
+<text class="edge-label" x="177" y="410">await readDiagramSpec</text>
+<text class="edge-label" x="204" y="468">refuseFlags</text>
+<text class="edge-label" x="204" y="524">readMarkupOptions</text>
+<text class="edge-label" x="177" y="594">resolveInWorkspace</text>
+<text class="edge-label" x="177" y="634">normalizePath</text>
+<text class="edge-label" x="177" y="690">await workerFlowSources</text>
+<text class="edge-label" x="177" y="722">specFlowRequest</text>
+<text class="edge-label" x="177" y="754">await renderFlowDiagram</text>
+<text class="edge-label" x="204" y="788">writeDiagram</text>
+<text class="edge-label" x="177" y="866">specSequenceRequest</text>
+<text class="edge-label" x="177" y="898">await renderSequenceDiagram</text>
+<text class="edge-label" x="177" y="938">specLevel</text>
+<text class="edge-label" x="204" y="972">readRules</text>
+<text class="edge-label" x="177" y="1018">await ensureIndexed</text>
+<text class="edge-label" x="177" y="1050">await renderWorkspaceDiagram</text>
+<text class="edge-label" x="177" y="1082">loadState</text>
+<text class="edge-label" x="173" y="1122">readChoiceOption</text>
+<text class="edge-label" x="449" y="1154">CliError</text>
+<text class="edge-label" x="200" y="1212">runFlow</text>
+<text class="edge-label" x="204" y="1260">readFlowOptions</text>
+<text class="edge-label" x="177" y="1330">resolveInWorkspace</text>
+<text class="edge-label" x="177" y="1370">await workerFlowSources</text>
+<text class="edge-label" x="177" y="1402">await renderFlowDiagram</text>
+<text class="edge-label" x="204" y="1436">writeDiagram</text>
+<text class="edge-label" x="200" y="1516">runSequence</text>
+<text class="edge-label" x="204" y="1564">readSequenceOptions</text>
+<g class="legend"><text class="caption" x="24" y="1648">58 calls past depth 2 left out: rerun with --depth 3</text><text class="caption" x="24" y="1668">at least 11 calls past 30 messages left out: rerun with --maxMessages 41</text><path class="edge s-entry" d="M24 1684L48 1684" stroke-width="2"/><text class="caption" x="56" y="1688">thick border: entry</text><path class="edge s-call" d="M216 1684L240 1684" stroke-width="1"/><text class="caption" x="248" y="1688">call</text></g>
+</svg>
