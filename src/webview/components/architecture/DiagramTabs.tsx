@@ -61,8 +61,8 @@ export function DiagramTabs({ tab, state, onTab }: Readonly<{ tab: DiagramTab; s
             aria-label={TAB_TEXT[name] && TAB_LABELS[name]}
             tabIndex={tab === name ? 0 : -1} onKeyDown={moveFocus}
             onClick={() => { if (!reason && name !== tab) onTab(name); }}
-            // Compact: the tabs and the find box share one row on a 229px-wide view (#426).
-            style={{ fontWeight: tab === name ? 600 : undefined, font: "inherit", padding: "1px" }}
+            // Compact: five tabs and the find box share one row on a 229px-wide view (#426), Linux fonts included.
+            style={{ fontWeight: tab === name ? 600 : undefined, font: "inherit", fontSize: 11, padding: "1px", borderWidth: 1 }}
           >
             {TAB_TEXT[name] ?? TAB_LABELS[name]}
           </button>

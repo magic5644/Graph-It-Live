@@ -404,6 +404,9 @@ describe("FlowDiagramService", () => {
     vs.quickPick.mockResolvedValueOnce(undefined);
     expect(await service.showAtCursor(editorAt("src/order.ts", 0), { view: "sequence" })).toBe(false);
     expect(vs.quickPick.mock.calls.at(-1)?.[1]).toMatchObject({ placeHolder: "Pick the symbol of src/order.ts to draw its sequence" });
+    // Each symbol says how many calls it makes: one with none would draw an empty diagram.
+    expect(vs.quickPick.mock.calls.at(-1)?.[0].map((item: { label: string; description: string }) => `${item.label}: ${item.description}`))
+      .toEqual(["placeOrder: line 2 · 2 calls", "validate: line 6 · no calls", "lonely: line 9 · no calls"]);
     expect(await service.showForFile({ fsPath: path.join(root, "notes.md") } as vscode.Uri, { view: "sequence" })).toBe(false);
     expect(notices.at(-1)?.message).toMatch(/^Graph-It-Live: Sequence Diagram is not supported for "\.md"\./);
     // The stale Refresh (no view) draws what is shown: the flow.
@@ -419,10 +422,18 @@ describe("FlowDiagramService", () => {
     expect(states().at(-1)).toMatchObject({ status: "stale", view: "sequence" });
     service.onThemeChanged();
     expect(flows().at(-1)).toMatchObject({ view: "sequence", stale: true });
-    // Follow on another symbol keeps the view: lonely calls nothing, so its sequence is the empty state.
+    // Follow on another symbol keeps the view: lonely calls nothing, so its sequence is the empty state, which
+    // offers the file's symbols that make calls; one drawn by index, a bad or old index ignored.
     expect(await service.showAtCursor(editorAt("src/order.ts", 9), { quiet: true })).toBe(true);
-    expect(states().at(-1)).toMatchObject({ status: "empty", view: "sequence", message: "lonely" });
+    const empty = states().at(-1)!;
+    expect(empty).toMatchObject({ status: "empty", view: "sequence", message: "lonely", candidates: [{ name: "placeOrder", line: 2, calls: 2 }] });
     expect(service.getE2EState().drawnView).toBeUndefined();
+    const before = flows().length;
+    for (const index of [-1, 1, 1.5]) await service.handleWebviewMessage({ command: "flowDrawCandidate", requestId: empty.requestId, index });
+    await service.handleWebviewMessage({ command: "flowDrawCandidate", requestId: empty.requestId - 1, index: 0 });
+    expect(flows()).toHaveLength(before);
+    await service.handleWebviewMessage({ command: "flowDrawCandidate", requestId: empty.requestId, index: 0 });
+    expect(flows().at(-1)).toMatchObject({ view: "sequence", entry: "src/order.ts#placeOrder" });
   });
 
   it("a cancelled switch to the Sequence tab keeps the flow, and the next refresh draws the flow", async () => {

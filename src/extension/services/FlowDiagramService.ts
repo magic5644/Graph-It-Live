@@ -27,6 +27,7 @@ import {
   type FlowExportDiagramCommand,
   type FlowOpenLocationCommand,
   type FlowRefreshCommand,
+  type FlowDrawCandidateCommand,
   type FlowShowCallGraphCommand,
   type SymbolDiagramView,
 } from "@/shared/architecture-types";
@@ -50,6 +51,7 @@ export function diagramThemeFor(kind: vscode.ColorThemeKind): DiagramTheme {
 }
 
 export type FlowWebviewCommand =
+  | FlowDrawCandidateCommand
   | FlowOpenLocationCommand
   | FlowExportDiagramCommand
   | FlowRefreshCommand
@@ -91,6 +93,23 @@ interface DrawOrigin {
   quiet?: boolean;
   inView?: boolean;
   expectActiveFile?: string;
+}
+
+/** Most symbols an empty state offers: a file of many functions lists the first ones that make calls. */
+const MAX_CANDIDATES = 8;
+
+/** Calls and references each symbol of a file makes, by node id: what tells an entry that draws something from one that draws nothing. */
+function callCounts(symbols: FileSymbols): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const edge of symbols.edges) {
+    if (edge.typeRelation === "CALLS" || edge.typeRelation === "REFERENCES") counts.set(edge.sourceId, (counts.get(edge.sourceId) ?? 0) + 1);
+  }
+  return counts;
+}
+
+function callsText(count: number): string {
+  if (count === 0) return "no calls";
+  return count === 1 ? "1 call" : `${count} calls`;
 }
 
 const isIndex = (value: unknown, length: number): value is number => Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) < length;
@@ -179,6 +198,8 @@ export class FlowDiagramService implements vscode.Disposable {
   private exportOutput: string | undefined;
   private lastError: string | undefined;
   private lastOpened: { file: string; line: number } | undefined;
+  /** The symbols the empty state offers (index = the view's candidate index), with the file they come from. */
+  private candidates: { filePath: string; symbols: FileSymbols; nodes: CallGraphNode[] } | null = null;
   /** What the view last reported it shows (E2E observability only). */
   private shown: DiagramShownCommand | undefined;
 
@@ -201,7 +222,7 @@ export class FlowDiagramService implements vscode.Disposable {
     const atCursor = symbolAtLine(symbols.nodes, editor.selection.active.line);
     // Follow: between symbols, or on the flow already drawn, nothing changes.
     if (quiet && (!atCursor || this.entry?.key === `${filePath}#${atCursor.id}`)) return false;
-    const node = atCursor ?? (await this.pickSymbol(filePath, symbols.nodes, view));
+    const node = atCursor ?? (await this.pickSymbol(filePath, symbols, view));
     if (!node) return false;
     return this.draw(filePath, symbols, node, { view, quiet, inView: quiet, expectActiveFile: filePath });
   }
@@ -218,19 +239,21 @@ export class FlowDiagramService implements vscode.Disposable {
     }
     const symbols = await this.options.callGraph.extractFileSymbols(filePath, lang);
     if (!symbols) return false;
-    const node = await this.pickSymbol(filePath, symbols.nodes, view);
+    const node = await this.pickSymbol(filePath, symbols, view);
     return node ? this.draw(filePath, symbols, node, { view, inView: options.inView }) : false;
   }
 
   /** The symbol the user picks; a file without symbols is told. Escape: undefined, silently. */
-  private async pickSymbol(filePath: string, nodes: CallGraphNode[], view: SymbolDiagramView): Promise<CallGraphNode | undefined> {
+  private async pickSymbol(filePath: string, { nodes, ...symbols }: FileSymbols, view: SymbolDiagramView): Promise<CallGraphNode | undefined> {
     const relative = vscode.workspace.asRelativePath(filePath);
     if (nodes.length === 0) {
       this.options.notify(`Graph-It-Live: ${relative} has no symbol to draw a ${view} from.`, "info");
       return undefined;
     }
+    // The calls each symbol makes: one with none draws an empty diagram.
+    const counts = callCounts({ nodes, ...symbols });
     const picked = await vscode.window.showQuickPick(
-      nodes.map((node) => ({ label: node.name, description: `line ${node.startLine + 1}`, node })),
+      nodes.map((node) => ({ label: node.name, description: `line ${node.startLine + 1} · ${callsText(counts.get(node.id) ?? 0)}`, node })),
       { placeHolder: `Pick the symbol of ${relative} to draw its ${view}` },
     );
     return picked?.node;
@@ -299,9 +322,15 @@ export class FlowDiagramService implements vscode.Disposable {
       if (token.isCancellationRequested || drawId !== this.drawCount) return abandon();
       if (drawing.geometry.edges.length === 0) {
         this.drawn = null;
-        this.send({ type: "flowDiagramState", status: "empty", message: request.symbolName, crumbs });
+        // The file's symbols that make calls, the entry aside: what the user can draw instead.
+        const counts = callCounts(symbols);
+        const nodes = symbols.nodes.filter((node) => node.name !== request.symbolName && (counts.get(node.id) ?? 0) > 0).slice(0, MAX_CANDIDATES);
+        this.candidates = { filePath: request.filePath, symbols, nodes };
+        const candidates = nodes.map((node) => ({ name: node.name, line: node.startLine + 1, calls: counts.get(node.id) ?? 0 }));
+        this.send({ type: "flowDiagramState", status: "empty", message: request.symbolName, crumbs, candidates });
         return true;
       }
+      this.candidates = null;
       const { layout, entry, geometry, files } = drawing;
       const message: FlowDiagramMessage = {
         type: "flowDiagram", view: this.view, requestId: 0, svg: drawing.markup, width: layout.width, height: layout.height,
@@ -381,6 +410,11 @@ export class FlowDiagramService implements vscode.Disposable {
       case "flowRefresh":
         if (!this.entry || !this.isLatest(message.requestId)) return Promise.resolve();
         return this.refresh(this.entry, message.view ?? this.view);
+      case "flowDrawCandidate": {
+        const node = this.candidates?.nodes[message.index];
+        if (!this.candidates || !node || !isIndex(message.index, this.candidates.nodes.length) || !this.isLatest(message.requestId)) return Promise.resolve();
+        return this.draw(this.candidates.filePath, this.candidates.symbols, node, { view: this.view, inView: true }).then(() => undefined);
+      }
       case "flowShowCallGraph":
         return this.entry && this.isLatest(message.requestId) ? this.options.showCallGraphAt(this.entry.filePath, this.entry.startLine) : Promise.resolve();
     }

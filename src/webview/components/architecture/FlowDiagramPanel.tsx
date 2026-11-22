@@ -95,12 +95,14 @@ export interface FlowDiagramPanelProps {
   onOpen: (kind: "node" | "edge", index: number) => void;
   onRefresh: () => void;
   onShowCallGraph: () => void;
+  /** Empty state: draws the candidate of this index (a symbol of the file that makes calls). */
+  onDrawCandidate: (index: number) => void;
   /** Escape: back to the tab strip. */
   onEscape: () => void;
   panelRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-function FlowStatus({ state, onRefresh, onShowCallGraph }: Readonly<Pick<FlowDiagramPanelProps, "state" | "onRefresh" | "onShowCallGraph">>) {
+function FlowStatus({ state, onRefresh, onShowCallGraph, onDrawCandidate }: Readonly<Pick<FlowDiagramPanelProps, "state" | "onRefresh" | "onShowCallGraph" | "onDrawCandidate">>) {
   const { flow, status } = state;
   if (status?.status === "error") {
     return <output role="alert" data-flow-line style={{ display: "block", color: "var(--vscode-errorForeground)" }}>{status.message}</output>;
@@ -109,6 +111,21 @@ function FlowStatus({ state, onRefresh, onShowCallGraph }: Readonly<Pick<FlowDia
     return (
       <output data-flow-line style={{ display: "block" }}>
         No calls found from `{status.message}`.{" "}
+        {status.candidates?.length ? (
+          <>
+            Symbols of this file that make calls:{" "}
+            {status.candidates.map((candidate, index) => (
+              <React.Fragment key={`${candidate.name}:${candidate.line}`}>
+                <button
+                  type="button" data-flow-candidate={index} className={DIAGRAM_FOCUS_CLASS} onClick={() => onDrawCandidate(index)}
+                  title={`Line ${candidate.line}, ${candidate.calls} call${candidate.calls === 1 ? "" : "s"}`}
+                >
+                  {candidate.name}
+                </button>{" "}
+              </React.Fragment>
+            ))}
+          </>
+        ) : "No symbol of this file makes a call. "}
         <button type="button" className={DIAGRAM_FOCUS_CLASS} onClick={onShowCallGraph}>Show call graph</button>
       </output>
     );
@@ -125,7 +142,7 @@ function FlowStatus({ state, onRefresh, onShowCallGraph }: Readonly<Pick<FlowDia
   return null;
 }
 
-export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, onEscape, panelRef }: Readonly<FlowDiagramPanelProps>) {
+export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, onDrawCandidate, onEscape, panelRef }: Readonly<FlowDiagramPanelProps>) {
   const { flow, status } = state;
   const imageRef = useRef<HTMLImageElement>(null);
   const nodeRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -157,7 +174,7 @@ export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, on
   };
   return (
     <div ref={panelRef} data-testid="flow-diagram" aria-busy={status?.status === "loading"} style={{ position: "absolute", inset: 0, overflow: "auto", padding: "4px 10px", fontSize: 12 }}>
-      <FlowStatus state={state} onRefresh={onRefresh} onShowCallGraph={onShowCallGraph} />
+      <FlowStatus state={state} onRefresh={onRefresh} onShowCallGraph={onShowCallGraph} onDrawCandidate={onDrawCandidate} />
       {flow && status?.status !== "empty" && (
         <figure style={{ position: "relative", margin: 0 }}>
           <img

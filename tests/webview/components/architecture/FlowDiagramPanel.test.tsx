@@ -106,7 +106,7 @@ describe("flowDataUrl", () => {
 describe("FlowDiagramPanel", () => {
   afterEach(cleanup);
   const renderPanel = (current: FlowState) => {
-    const props = { onOpen: vi.fn(), onRefresh: vi.fn(), onShowCallGraph: vi.fn(), onEscape: vi.fn() };
+    const props = { onOpen: vi.fn(), onRefresh: vi.fn(), onShowCallGraph: vi.fn(), onDrawCandidate: vi.fn(), onEscape: vi.fn() };
     const view = render(<FlowDiagramPanel state={current} {...props} />);
     return { ...props, view };
   };
@@ -177,7 +177,16 @@ describe("FlowDiagramPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Show call graph" }));
     expect(none.onShowCallGraph).toHaveBeenCalledTimes(1);
     expect(screen.getAllByRole("button")).toHaveLength(1);
+    expect(screen.getByText(/No symbol of this file makes a call\./)).toBeTruthy();
     none.view.unmount();
+
+    // A class calls nothing: the file's symbols that make calls are offered, each drawn by its index.
+    const offered = renderPanel(state({ status: "empty", message: "Cart", candidates: [{ name: "save", line: 4, calls: 2 }, { name: "load", line: 9, calls: 1 }] }));
+    expect(screen.getByText(/Symbols of this file that make calls:/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "load" }).title).toBe("Line 9, 1 call");
+    fireEvent.click(screen.getByRole("button", { name: "save" }));
+    expect(offered.onDrawCandidate).toHaveBeenCalledWith(0);
+    offered.view.unmount();
 
     const failed = renderPanel(state({ status: "error", message: "Graph-It-Live: x" }));
     expect(screen.getByRole("alert").textContent).toBe("Graph-It-Live: x");
@@ -196,7 +205,7 @@ describe("pressFlowKeys", () => {
 
   it("Tab enters the first step then the next button, Enter clicks, arrows go to the focused button", () => {
     const onOpen = vi.fn();
-    const { container } = render(<FlowDiagramPanel state={state()} onOpen={onOpen} onRefresh={vi.fn()} onShowCallGraph={vi.fn()} onEscape={vi.fn()} />);
+    const { container } = render(<FlowDiagramPanel state={state()} onOpen={onOpen} onRefresh={vi.fn()} onShowCallGraph={vi.fn()} onDrawCandidate={vi.fn()} onEscape={vi.fn()} />);
     pressFlowKeys(container, ["Tab"]);
     expect(document.activeElement?.getAttribute("aria-label")).toBe(flow.nodes[0].name);
     pressFlowKeys(container, ["Tab", "ArrowLeft", "Enter"]);
@@ -209,7 +218,7 @@ describe("pressFlowKeys", () => {
   it("does nothing without a panel or with the focus outside it", () => {
     expect(() => pressFlowKeys(null, ["Tab"])).not.toThrow();
     const onOpen = vi.fn();
-    const { container } = render(<FlowDiagramPanel state={state()} onOpen={onOpen} onRefresh={vi.fn()} onShowCallGraph={vi.fn()} onEscape={vi.fn()} />);
+    const { container } = render(<FlowDiagramPanel state={state()} onOpen={onOpen} onRefresh={vi.fn()} onShowCallGraph={vi.fn()} onDrawCandidate={vi.fn()} onEscape={vi.fn()} />);
     (document.activeElement as HTMLElement | null)?.blur();
     pressFlowKeys(container, ["Enter", "ArrowRight"]);
     expect(onOpen).not.toHaveBeenCalled();

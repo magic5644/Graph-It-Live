@@ -368,6 +368,8 @@ export interface FlowDiagramStateMessage {
   status: "loading" | "empty" | "error" | "stale" | "cancelled";
   /** empty: the entry symbol name; error: the one-line message. */
   message?: string;
+  /** empty: the symbols of the entry's file that make calls (file order, at most 8): each draws when clicked. */
+  candidates?: { name: string; line: number; calls: number }[];
   crumbs?: DiagramCrumb[];
 }
 
@@ -750,6 +752,13 @@ export interface FlowRefreshCommand {
   view?: SymbolDiagramView;
 }
 
+/** Empty-state action: draw a symbol of the entry's file that makes calls, by index in the state's candidates (never a path). */
+export interface FlowDrawCandidateCommand {
+  command: "flowDrawCandidate";
+  requestId: number;
+  index: number;
+}
+
 /** Empty-state action: Show Call Graph on the entry symbol. */
 export interface FlowShowCallGraphCommand {
   command: "flowShowCallGraph";
@@ -819,6 +828,7 @@ export type ArchitectureWebviewCommand =
   | FlowExportDiagramCommand
   | FlowRefreshCommand
   | FlowShowCallGraphCommand
+  | FlowDrawCandidateCommand
   | DiagramRescopeCommand
   | DiagramFollowCommand
   | DiagramShownCommand;
