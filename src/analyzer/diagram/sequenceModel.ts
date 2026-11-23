@@ -11,7 +11,10 @@ import type { Database, Statement } from "sql.js";
 import type { Node as TreeNode } from "web-tree-sitter";
 import type { SupportedLang } from "@/shared/callgraph-types";
 import {
+  ANONYMOUS,
+  CALL_NODES,
   CALLEES_SQL,
+  callOrder,
   CATCHES,
   clauseHead,
   findEntry,
@@ -20,6 +23,7 @@ import {
   relativeTo,
   SCOPES,
   siteNode,
+  type CallOrder,
   type CallSite,
   type FlowModelSources,
   type FlowSymbol,
@@ -142,6 +146,7 @@ interface Placed extends Call {
 interface WalkState {
   statement: Statement;
   owners: Statement;
+  order: CallOrder;
   depth: number;
   maxMessages: number;
   participantsBy: SequenceParticipants;
@@ -170,6 +175,7 @@ export async function buildSequenceModel(db: Database, request: SequenceModelReq
   const state: WalkState = {
     statement: db.prepare(CALLEES_SQL),
     owners: db.prepare(OWNER_SQL),
+    order: callOrder(sources),
     depth,
     maxMessages,
     participantsBy,
@@ -186,18 +192,19 @@ export async function buildSequenceModel(db: Database, request: SequenceModelReq
   try {
     entryParticipant = lifeline(state, root);
     state.participants.set(entryParticipant.id, entryParticipant);
-    walk(state, root, 1, undefined);
+    await walk(state, root, 1, undefined);
     state.omitted.depth = [...state.cutByDepth.values()].reduce((sum, count) => sum + count, 0);
   } finally {
     state.statement.free();
     state.owners.free();
+    await state.order.dispose();
   }
   const fragmentDetection = LANE_LANGUAGES.has(root.lang) ? "detected" : "unsupported";
   const frames = fragmentDetection === "detected" ? await readFrames(state.messages, sources) : new Map<CallSite, SiteFrames>();
   return toModel(state, { root, entryParticipant, fragmentDetection, frames });
 }
 
-/** The callees of `caller` in call-line order. */
+/** The callees of `caller` in index order: call line, then target id. */
 function calleesOf(state: WalkState, caller: FlowSymbol): Call[] {
   const calls: Call[] = [];
   state.statement.bind([caller.id]);
@@ -217,9 +224,10 @@ function calleesOf(state: WalkState, caller: FlowSymbol): Call[] {
  * Draws the calls of `caller` depth-first: each callee is expanded under its first call only, a callee on the call
  * stack is a recursive message, never expanded. Past a bound, the calls left out are counted, never walked.
  */
-function walk(state: WalkState, caller: FlowSymbol, level: number, parent: number | undefined): void {
+async function walk(state: WalkState, caller: FlowSymbol, level: number, parent: number | undefined): Promise<void> {
   const from = lifeline(state, caller).id;
-  for (const call of calleesOf(state, caller)) {
+  // Run order: the first call of a callee is the one expanded, so calls sharing a line are ordered first (#823).
+  for (const call of await state.order.sort(caller, calleesOf(state, caller))) {
     const to = admit(state, call);
     if (!to) continue;
     const id = call.callee.id;
@@ -235,7 +243,8 @@ function walk(state: WalkState, caller: FlowSymbol, level: number, parent: numbe
     state.cutByDepth.delete(id);
     state.expanded.add(id);
     state.stack.add(id);
-    walk(state, call.callee, level + 1, index);
+    // eslint-disable-next-line no-await-in-loop -- depth-first: a callee's messages come before its caller's next call
+    await walk(state, call.callee, level + 1, index); // NOSONAR: sequential by design
     state.stack.delete(id);
   }
 }
@@ -298,8 +307,6 @@ interface SiteFrames {
 const MAX_GUARD = 60;
 const LOOPS = new Set(["for_statement", "for_in_statement", "while_statement", "do_statement"]);
 const COMPREHENSIONS = new Set(["list_comprehension", "set_comprehension", "dictionary_comprehension", "generator_expression"]);
-const CALL_NODES = new Set(["call_expression", "call", "new_expression"]);
-const ANONYMOUS = new Set(["arrow_function", "function_expression", "function", "lambda"]);
 const ITERATORS = new Set(["map", "flatMap", "forEach", "filter", "reduce", "reduceRight", "some", "every", "find", "findIndex", "findLast", "findLastIndex"]);
 
 /** The frames and await of every drawn call site, each caller file parsed once. */

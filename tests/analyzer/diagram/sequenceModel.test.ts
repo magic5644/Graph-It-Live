@@ -375,3 +375,37 @@ describe("sequenceSpec", () => {
     expect(sequenceText(model, "ws").hidden).toEqual(["at least 5 calls past 60 messages left out: 60 messages is the most a sequence draws: rerun with a smaller --depth"]);
   });
 });
+
+// #823: the index keeps one line per call, so calls sharing a line came in target-id order.
+describe("buildSequenceModel — calls sharing a line, in run order", () => {
+  const names = (model: SequenceModel) => model.messages.map((message) => `${"  ".repeat(message.level - 1)}${message.name}`);
+
+  it("runs a call's arguments and callee chain before it, left to right otherwise", async () => {
+    const source = "function toNumber(v: unknown): number { return Number(v); }\n"
+      + "export function mathFix(v: unknown): number { return toNumber(v); }\n"
+      + "function a(): { b(): number } { return { b: () => 1 }; }\n"
+      + "function first(): number { return 1; }\n"
+      + "function second(): number { return 2; }\n"
+      + "export function format(v: unknown): string { return String(mathFix(toNumber(v))) + a().b() + first() + second(); }\n";
+    const model = await sequenceOf({ "maths.ts": source }, { file: "maths.ts", symbolName: "format" });
+    // toNumber runs first, so it is the call expanded; mathFix's own call to it is a repeat.
+    expect(names(model)).toEqual(["toNumber", "mathFix", "  toNumber", "a", "first", "second"]);
+    expect(model.messages[2].repeat).toBe(true);
+  });
+
+  it("runs a callback after the call it is passed to, and a callback of an argument before the outer call", async () => {
+    const source = "function each(items: number[], fn: (n: number) => void): void { items.forEach(fn); }\n"
+      + "function save(n: number): void { void n; }\n"
+      + "function wrap(fn: () => void): number { fn(); return 1; }\n"
+      + "function outer(n: number): void { void n; }\n"
+      + "export function run(items: number[]): void { each(items, (n) => save(n)); outer(wrap(() => save(1))); }\n";
+    const model = await sequenceOf({ "run.ts": source }, { file: "run.ts", symbolName: "run" });
+    expect(model.messages.filter((message) => message.level === 1).map((message) => message.name)).toEqual(["each", "save", "wrap", "outer"]);
+  });
+
+  it("orders Python calls sharing a line the same way", async () => {
+    const source = "def to_number(v):\n    return float(v)\n\ndef math_fix(v):\n    return round(v, 2)\n\ndef fmt(v):\n    return str(math_fix(to_number(v)))\n";
+    const model = await sequenceOf({ "maths.py": source }, { file: "maths.py", symbolName: "fmt" });
+    expect(model.messages.map((message) => message.name)).toEqual(["to_number", "math_fix"]);
+  });
+});
