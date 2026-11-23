@@ -17,6 +17,7 @@ vi.mock("vscode", () => ({
   workspace: {
     getConfiguration: () => ({ get: (_key: string, fallback?: unknown) => fallback }),
     workspaceFolders: undefined,
+    getWorkspaceFolder: () => undefined,
     asRelativePath: (p: string) => p.replace("/repo/", ""),
     onDidSaveTextDocument: () => ({ dispose: vi.fn() }),
   },
