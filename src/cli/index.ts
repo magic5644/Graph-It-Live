@@ -36,6 +36,7 @@
  */
 
 import { parseArgs } from "node:util";
+import { applyWasmTiering } from "../analyzer/languages/wasmTiering";
 import { flushSession } from "../analyzer/stats/statsPersistence";
 import { closestNames } from "../analyzer/utils/SymbolLookup";
 import { sessionStats } from "../shared/sessionStats";
@@ -444,6 +445,8 @@ function writeFailingReport(err: unknown, format: CliOutputFormat, workspaceRoot
 }
 
 async function main(): Promise<void> {
+  const tieringWarning = applyWasmTiering();
+  if (tieringWarning) process.stderr.write(`${tieringWarning}\n`);
   let parsedArgs: ReturnType<typeof parseArgs>;
 
   try {

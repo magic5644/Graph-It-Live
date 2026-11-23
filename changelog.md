@@ -19,6 +19,9 @@
   - `generate_wiki` and `graph-it wiki`: the symbol `Line` column and the caller/callee call-site line.
   - Symbol ids that embed a line (`file:name:line` in `query_call_graph`, `symbol:file:name:line` in `graph_context`) show the same 1-based line: an id copied from a result still selects its symbol, an id from an older result is reported as `stale_selector`.
 
+### Changed
+- **CLI and MCP server on Node.js 24 use a third to a quarter of the memory when they parse with tree-sitter** (#800): tree-sitter's WebAssembly now stays on V8's baseline compiler (Liftoff), as with `node --liftoff-only`. A cold `graph-it tool query_call_graph` on this repository drops from 3.9 GB to 1.2 GB of resident memory, and an MCP server session from 4.1 GB to 1.4 GB; a run that builds the call graph from scratch takes 15 to 35 % longer. On Node.js 22 nothing changes (no memory gain there). `GRAPH_IT_WASM_TIERING=default` or `liftoff` forces either choice (see [docs/CLI.md](docs/CLI.md#webassembly-tiering)). The VS Code extension host is unchanged.
+
 ### Fixed
 - **`(root)` warning cleared once the moved units are named** (#790): since v1.25.5, a `graphit.architecture.json` naming `(root)` warns that the files outside every project moved to per-folder units. The warning stayed after those units were named in the same element `unit` selector (or matched by a wildcard or the element's `role`), or by other `roles` keys. It now lists only the moved units the selector does not cover, and disappears when it covers them all.
 - REPL `/diagram` reads its positional wherever it sits among the options, as the command line does, so `/diagram --view flow <file#symbol>` works; unknown options are refused before drawing.
