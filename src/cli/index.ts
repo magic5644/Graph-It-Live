@@ -444,6 +444,13 @@ function writeFailingReport(err: unknown, format: CliOutputFormat, workspaceRoot
   if (err instanceof CliError && err.output) process.stdout.write(renderCliOutput(err.output, format, workspaceRoot));
 }
 
+/** serve's MCP server child applies (and warns about) its own tiering; parsing compiles no WebAssembly before this. */
+function applyCliWasmTiering(command: string | undefined): void {
+  if (command === "serve") return;
+  const warning = applyWasmTiering();
+  if (warning) process.stderr.write(`${warning}\n`);
+}
+
 async function main(): Promise<void> {
   let parsedArgs: ReturnType<typeof parseArgs>;
 
@@ -462,11 +469,7 @@ async function main(): Promise<void> {
   const { values, positionals } = parsedArgs;
 
   const [command, ...commandArgs] = positionals;
-  // serve's MCP server child applies (and warns about) its own tiering; parsing compiles no WebAssembly before this.
-  if (command !== "serve") {
-    const tieringWarning = applyWasmTiering();
-    if (tieringWarning) process.stderr.write(`${tieringWarning}\n`);
-  }
+  applyCliWasmTiering(command);
 
   // --help/-h is a global flag recognized regardless of position, so
   // `graph-it <command> --help` must resolve to per-command help, not the
