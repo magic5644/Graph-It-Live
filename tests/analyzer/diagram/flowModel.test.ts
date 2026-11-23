@@ -300,10 +300,10 @@ describe("buildFlowModel (#792)", () => {
       + "export function mathFix(v: unknown): number { return toNumber(v); }\n"
       + "export function format(v: unknown): string { return String(mathFix(toNumber(v))); }\n";
     await expect(flowOf({ "maths/index.ts": source }, { file: "maths/index.ts", symbolName: "format" })).rejects.toThrow(
-      "format calls 2 symbols, all in maths/index.ts: a Flow step is one file, so no call joins two steps. Use view sequence to see them.",
+      "format makes 3 calls, all inside maths/index.ts: a Flow step is one file, so no call joins two steps. Use view sequence to see them.",
     );
     await expect(flowOf({ "maths/index.ts": source }, { file: "maths/index.ts", symbolName: "mathFix" })).rejects.toThrow(
-      "mathFix calls 1 symbol, all in maths/index.ts:",
+      "mathFix makes 1 call, all inside maths/index.ts:",
     );
   });
 

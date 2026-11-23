@@ -28,7 +28,9 @@ export function receiveFlow(current: FlowState, message: FlowDiagramMessage | Fl
   // Only a draw the user asked for (announced by loading) takes the Flow tab; the flow replayed when the view mounts waits on its tab.
   const answersLoading = current.status?.status === "loading";
   if (message.type === "flowDiagramState") {
-    return { next: { flow: current.flow, status: message }, selects: message.status === "loading" || (answersLoading && message.status !== "stale") };
+    // An empty or failed draw of the other view is that view's answer: keeping the drawn one would show it on that tab (#823).
+    const otherView = (message.status === "empty" || message.status === "error") && current.flow !== null && message.view !== current.flow.view;
+    return { next: { flow: otherView ? null : current.flow, status: message }, selects: message.status === "loading" || (answersLoading && message.status !== "stale") };
   }
   return { next: { flow: message, status: null }, selects: answersLoading };
 }

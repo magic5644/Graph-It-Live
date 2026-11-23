@@ -142,9 +142,9 @@ export async function buildFlowModel(db: Database, request: FlowModelRequest, so
   if (!Number.isInteger(maxSteps) || maxSteps < 1) throw new Error(`maxSteps must be an integer of at least 1, got ${maxSteps}.`);
   const walk = walkCallees(db, root, maxSteps);
   // A step is one file: calls that all stay in the entry's file join no two steps, which an empty flow would hide (#823).
-  if (walk.edges.length === 0 && walk.omittedSteps === 0 && walk.visits.length > 1) {
-    const callees = walk.visits.length - 1;
-    throw new Error(`${root.name} calls ${callees} symbol${callees === 1 ? "" : "s"}, all in ${relativeTo(sources.rootDir, root.path)}: a Flow step is one file, so no call joins two steps. Use view sequence to see them.`);
+  if (walk.edges.length === 0 && walk.omittedSteps === 0 && walk.calls.length > 0) {
+    const calls = walk.calls.length;
+    throw new Error(`${root.name} makes ${calls} call${calls === 1 ? "" : "s"}, all inside ${relativeTo(sources.rootDir, root.path)}: a Flow step is one file, so no call joins two steps. Use view sequence to see them.`);
   }
   const lanes = LANE_LANGUAGES.has(root.lang) ? "detected" : "unsupported";
   const readFile = sources.readFile ?? ((file: string) => fs.readFile(file, "utf8"));

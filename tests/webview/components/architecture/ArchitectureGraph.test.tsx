@@ -1905,7 +1905,7 @@ describe("ArchitectureGraph", () => {
         expect(lastOf(postMessage, "flowDrawCandidate")).toEqual({ command: "flowDrawCandidate", requestId: 1, index: 0 });
 
         send(flow);
-        send({ type: "flowDiagramState", requestId: 2, status: "error", message: "Graph-It-Live: no symbol run in src/a.ts." });
+        send({ type: "flowDiagramState", view: "flow", requestId: 2, status: "error", message: "Graph-It-Live: no symbol run in src/a.ts." });
         expect(screen.getByRole("alert").textContent).toBe("Graph-It-Live: no symbol run in src/a.ts.");
         // The previous diagram stays under an error.
         expect(screen.getByRole("img", { name: "run. Call flow. 2 steps." })).toBeTruthy();
