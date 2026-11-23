@@ -80,8 +80,9 @@ async function runSuiteInWindow(options: LaunchOptions, suite: string, target?: 
 /** One report per separate-launch window (`e2e.xml` → `e2e.multiRoot.xml`): they would overwrite each other's. */
 function reportFileFor(env: NodeJS.ProcessEnv, suite: string): { E2E_MOCHA_REPORT_FILE?: string } {
   const report = env.E2E_MOCHA_REPORT_FILE;
-  const name = /([^/]+)\.launch\.js$/.exec(suite)?.[1];
-  if (!report || !name) return {};
+  const file = path.posix.basename(suite);
+  if (!report || !file.endsWith('.launch.js')) return {};
+  const name = file.slice(0, -'.launch.js'.length);
   const { dir, name: base, ext } = path.parse(report);
   return { E2E_MOCHA_REPORT_FILE: path.join(dir, `${base}.${name}${ext}`) };
 }
