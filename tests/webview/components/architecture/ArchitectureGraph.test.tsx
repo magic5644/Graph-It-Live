@@ -1795,6 +1795,32 @@ describe("ArchitectureGraph", () => {
         expect(screen.getByRole("button", { name: flow.nodes[1].name })).toBeTruthy();
       });
 
+      // #825: nothing drawn, the tab draws the symbol at the cursor in its view; a refusal is retried the same way.
+      it("the Sequence tab with nothing drawn asks for the symbol at the cursor, then shows the extension's answer on that tab", async () => {
+        const postMessage = await setup();
+        fireEvent.click(tabOf("Sequence"));
+        expect(lastOf(postMessage, "flowDrawAtCursor")).toEqual({ command: "flowDrawAtCursor", view: "sequence" });
+        expect(lastOf(postMessage, "flowRefresh")).toBeUndefined();
+        send({ type: "flowDiagramState", view: "sequence", requestId: 1, status: "error", message: "No active editor." });
+        expect(tabOf("Sequence").getAttribute("aria-selected")).toBe("true");
+        expect(screen.getByRole("alert").textContent).toBe("No active editor. Draw symbol at cursor");
+        postMessage.mockClear();
+        fireEvent.click(screen.getByRole("button", { name: "Draw symbol at cursor" }));
+        expect(lastOf(postMessage, "flowDrawAtCursor")).toEqual({ command: "flowDrawAtCursor", view: "sequence" });
+        // An empty answer knows its entry: the other tab draws it again, not the cursor.
+        send({ type: "flowDiagramState", view: "sequence", requestId: 2, status: "empty", message: "a", crumbs: [] });
+        postMessage.mockClear();
+        fireEvent.click(tabOf("Flow"));
+        expect(lastOf(postMessage, "flowDrawAtCursor")).toBeUndefined();
+        expect(lastOf(postMessage, "flowRefresh")).toEqual({ command: "flowRefresh", requestId: 2, view: "flow" });
+        // Once drawn, a tab click draws the same entry again.
+        drawFlow();
+        postMessage.mockClear();
+        fireEvent.click(tabOf("Sequence"));
+        expect(lastOf(postMessage, "flowDrawAtCursor")).toBeUndefined();
+        expect(lastOf(postMessage, "flowRefresh")).toMatchObject({ command: "flowRefresh", view: "sequence" });
+      });
+
       // #798 c: the Sequence tab draws the same entry; the extension answers with a sequence message.
       it("the Sequence tab draws the entry again as a sequence, which selects it; Follow and Flow go back to the extension", async () => {
         const postMessage = await setup();
@@ -1831,8 +1857,8 @@ describe("ArchitectureGraph", () => {
         expect(tabOf("Units").getAttribute("aria-disabled")).toBe("true");
         expect(tabOf("Units").title).toBe("Open a folder to see the Units diagram");
         expect(tabOf("Matrix").title).toBe("Open a folder to see the Matrix diagram");
-        expect(tabOf("Flow").title).toBe("Right-click a function in the editor and run Show Flow Diagram");
-        expect(screen.getByText("Right-click a function in the editor and run Show Flow Diagram.")).toBeTruthy();
+        expect(tabOf("Flow").getAttribute("aria-disabled")).toBeNull();
+        expect(screen.getByRole("button", { name: "Draw symbol at cursor" })).toBeTruthy();
         // A disabled tab does nothing.
         fireEvent.click(tabOf("Units"));
         expect(tabOf("Flow").getAttribute("aria-selected")).toBe("true");

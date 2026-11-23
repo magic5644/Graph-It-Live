@@ -1,6 +1,6 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { captureWindow, controls, shownCallGraph, showCallGraphAndWait, sleep, waitForFlow } from './_helpers';
+import { captureWindow, controls, getContextKey, selectedTab, shownCallGraph, showCallGraphAndWait, sleep, waitForFlow, waitUntil } from './_helpers';
 
 /**
  * #770: run in a two-folder workspace whose `graph-it-live.workspaceFolder` names the second folder
@@ -26,6 +26,39 @@ suite('Multi-root workspace (#770)', function () {
     const names = graph?.nodes.map(node => node.name) ?? [];
     assert.ok(names.includes('beta'), `Root missing: ${JSON.stringify(names)}`);
     assert.ok(names.includes('run'), `Caller from the selected folder missing: ${JSON.stringify(names)}`);
+  });
+
+  // #825: a fresh window has drawn nothing; the Seq tab draws the symbol at the cursor, without the right-click command.
+  test('the Seq tab from the Units tab: no editor says why with its action, then the cursor in a function draws its sequence', async () => {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    const window = captureWindow();
+    try {
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      await waitUntil(async () => {
+        await vscode.commands.executeCommand('graph-it-live.setViewModeArchitecture');
+        return await getContextKey('graph-it-live.viewMode') === 'architecture';
+      }, 'the Architecture mode');
+      await waitForFlow('the Units tab', state => selectedTab(state) === 'units', 90_000);
+
+      await controls({ tab: 'sequence' });
+      const refused = await waitForFlow('the no editor refusal on the Seq tab', state => selectedTab(state) === 'sequence' && state.state === 'error', 90_000);
+      assert.strictEqual(refused.view?.flowLine, 'No active editor: open a source file and put the cursor in a function. Draw symbol at cursor');
+      assert.deepStrictEqual(refused.view?.flowButtons, []);
+
+      await controls({ tab: 'units' });
+      const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(folders[0].uri, 'maths', 'index.ts'));
+      const editor = await vscode.window.showTextDocument(document, { preview: false });
+      editor.selection = new vscode.Selection(2, 20, 2, 20);
+      await controls({ tab: 'sequence' });
+      const shown = await waitForFlow('the sequence of format from the Seq tab', state =>
+        state.drawnView === 'sequence' && state.view?.flowRequestId === state.requestId && selectedTab(state) === 'sequence', 90_000);
+      assert.deepStrictEqual(shown.view?.crumbs, ['first', 'maths', 'index.ts', 'format']);
+      assert.ok(shown.edges.length > 0, 'format calls toNumber and mathFix');
+      assert.deepStrictEqual(window.messages, [], 'the tab says it, no toast');
+    } finally {
+      window.restore();
+      await controls({ tab: 'units' });
+    }
   });
 
   // #823: the other folder's file was drawn against the analyzed folder, and the view said "No calls found".

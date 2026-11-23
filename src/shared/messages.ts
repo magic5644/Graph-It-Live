@@ -240,7 +240,6 @@ export type WebviewToExtensionMessage =
   | NavigateToSymbolMessage
   | ReadyMessage
   | SwitchModeMessage
-  | SwitchViewModeMessage
   | WebviewLogMessage
   | CancelExpandNodeMessage
   | EnableUnusedFilterMessage

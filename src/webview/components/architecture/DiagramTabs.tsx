@@ -18,15 +18,12 @@ export interface DiagramTabState {
   hasWorkspace: boolean;
   /** A folder level was entered: the Folder tab returns to it. */
   folderEntered: boolean;
-  /** A flow was drawn or asked for. */
-  flowAvailable: boolean;
 }
 
 /** Why a tab cannot be selected now, or undefined when it can: the tooltip of the disabled tab. */
-export function disabledReason(tab: DiagramTab, { hasWorkspace, folderEntered, flowAvailable }: DiagramTabState): string | undefined {
-  if (tab === "flow") return flowAvailable ? undefined : "Right-click a function in the editor and run Show Flow Diagram";
-  // Sequence draws the Flow's entry: both wait for a symbol.
-  if (tab === "sequence") return flowAvailable ? undefined : "Run Show Diagram… on a function in the editor and pick sequence";
+export function disabledReason(tab: DiagramTab, { hasWorkspace, folderEntered }: DiagramTabState): string | undefined {
+  // Flow and Sequence draw the symbol at the cursor when nothing is drawn (#825).
+  if (tab === "flow" || tab === "sequence") return undefined;
   if (!hasWorkspace) return `Open a folder to see the ${TAB_LABELS[tab]} diagram`;
   if (tab === "folder" && !folderEntered) return "Double-click a unit, or right-click a folder in the Explorer, to see its Folder diagram";
   return undefined;

@@ -7,21 +7,22 @@ import { DIAGRAM_TABS, type DiagramCrumb } from "@/shared/architecture-types";
 import { DiagramBreadcrumb } from "@/webview/components/architecture/DiagramBreadcrumb";
 import { DiagramTabs, disabledReason, focusSelectedTab, FollowToggle, UnitCapBanner, largeUnitCycle, diagramShownReport } from "@/webview/components/architecture/DiagramTabs";
 
-const all = { hasWorkspace: true, folderEntered: true, flowAvailable: true };
+const all = { hasWorkspace: true, folderEntered: true };
 
 describe("disabledReason", () => {
-  it("enables every tab with a workspace, an entered folder and a flow", () => {
+  it("enables every tab with a workspace and an entered folder", () => {
     expect(DIAGRAM_TABS.map((tab) => disabledReason(tab, all))).toEqual([undefined, undefined, undefined, undefined, undefined]);
   });
 
   it("says why each tab is disabled", () => {
-    const none = { hasWorkspace: false, folderEntered: false, flowAvailable: false };
+    const none = { hasWorkspace: false, folderEntered: false };
+    // #825: Flow and Sequence are never disabled: a click draws the symbol at the cursor.
     expect(DIAGRAM_TABS.map((tab) => disabledReason(tab, none))).toEqual([
       "Open a folder to see the Units diagram",
       "Open a folder to see the Folder diagram",
       "Open a folder to see the Matrix diagram",
-      "Right-click a function in the editor and run Show Flow Diagram",
-      "Run Show Diagram… on a function in the editor and pick sequence",
+      undefined,
+      undefined,
     ]);
     expect(disabledReason("folder", { ...all, folderEntered: false }))
       .toBe("Double-click a unit, or right-click a folder in the Explorer, to see its Folder diagram");
@@ -33,21 +34,23 @@ describe("DiagramTabs", () => {
 
   it("names the tabs as the CLI views, selects one, keeps a disabled tab focusable with its tooltip", () => {
     const onTab = vi.fn();
-    render(<DiagramTabs tab="units" state={{ ...all, flowAvailable: false }} onTab={onTab} />);
+    render(<DiagramTabs tab="units" state={{ ...all, folderEntered: false }} onTab={onTab} />);
     const tabs = screen.getAllByRole("tab");
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Units", "Folder", "Matrix", "Flow", "Seq"]);
     // Seq is short for the narrow view: its accessible name and tooltip say Sequence.
     expect(screen.getByRole("tab", { name: "Sequence" }).textContent).toBe("Seq");
     expect(tabs.map((tab) => tab.dataset.tab)).toEqual([...DIAGRAM_TABS]);
     expect(tabs[0].getAttribute("aria-selected")).toBe("true");
-    expect(tabs[3].getAttribute("aria-disabled")).toBe("true");
-    expect((tabs[3] as HTMLButtonElement).disabled).toBe(false);
+    expect(tabs[1].getAttribute("aria-disabled")).toBe("true");
+    expect((tabs[1] as HTMLButtonElement).disabled).toBe(false);
 
-    fireEvent.click(tabs[3]);
+    fireEvent.click(tabs[1]);
     fireEvent.click(tabs[0]);
     expect(onTab).not.toHaveBeenCalled();
     fireEvent.click(tabs[2]);
     expect(onTab).toHaveBeenCalledWith("matrix");
+    fireEvent.click(tabs[4]);
+    expect(onTab).toHaveBeenLastCalledWith("sequence");
   });
 
   it("moves the focus with the arrows, wrapping around; other keys do nothing", () => {
@@ -134,7 +137,7 @@ describe("diagramShownReport", () => {
   it("reads the tabs, a levels breadcrumb, the banner, the focus and the flow from the DOM", () => {
     render(
       <div>
-        <DiagramTabs tab="units" state={{ hasWorkspace: true, folderEntered: false, flowAvailable: false }} onTab={vi.fn()} />
+        <DiagramTabs tab="units" state={{ hasWorkspace: true, folderEntered: false }} onTab={vi.fn()} />
         <nav aria-label="Diagram scope"><span>All units</span><span>{" › "}<span>ui</span><button type="button">×</button></span></nav>
         <output data-unit-cap>Showing 60 of 61 units.</output>
         <img alt="" data-request-id="7" />
@@ -155,7 +158,8 @@ describe("diagramShownReport", () => {
       flowBusy: false,
     });
     expect(report.tabs[0]).toEqual({ tab: "units", selected: true });
-    expect(report.tabs[3]).toEqual({ tab: "flow", selected: false, disabled: "Right-click a function in the editor and run Show Flow Diagram" });
+    expect(report.tabs[1]).toEqual({ tab: "folder", selected: false, disabled: "Double-click a unit, or right-click a folder in the Explorer, to see its Folder diagram" });
+    expect(report.tabs[3]).toEqual({ tab: "flow", selected: false });
   });
 
   it("an empty view reports no crumbs, banner, focus or flow", () => {

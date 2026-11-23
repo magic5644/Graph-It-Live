@@ -4,8 +4,9 @@ type Logger = {
   debug: (message: string, ...args: unknown[]) => void;
 };
 
+/** Every webview command has its route: a missing one is a compile error, not a click that does nothing. */
 type MessageHandlerMap = {
-  [K in WebviewToExtensionMessage['command']]?: (
+  [K in WebviewToExtensionMessage['command']]: (
     message: Extract<WebviewToExtensionMessage, { command: K }>
   ) => Promise<void> | void;
 };

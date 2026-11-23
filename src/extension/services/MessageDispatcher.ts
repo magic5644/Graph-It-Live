@@ -194,6 +194,12 @@ export class MessageDispatcher {
         flowShowCallGraph: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },
+        flowDrawCandidate: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
+        flowDrawAtCursor: async (m) => {
+          await deps.handleArchitectureMessage?.(m);
+        },
         diagramRescope: async (m) => {
           await deps.handleArchitectureMessage?.(m);
         },

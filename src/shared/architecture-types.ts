@@ -752,6 +752,12 @@ export interface FlowRefreshCommand {
   view?: SymbolDiagramView;
 }
 
+/** A Flow or Sequence tab click with nothing drawn, or the empty tab's Draw symbol at cursor: the symbol at the cursor of the active editor, in this view (#825). */
+export interface FlowDrawAtCursorCommand {
+  command: "flowDrawAtCursor";
+  view: SymbolDiagramView;
+}
+
 /** Empty-state action: draw a symbol of the entry's file that makes calls, by index in the state's candidates (never a path). */
 export interface FlowDrawCandidateCommand {
   command: "flowDrawCandidate";
@@ -829,6 +835,7 @@ export type ArchitectureWebviewCommand =
   | FlowRefreshCommand
   | FlowShowCallGraphCommand
   | FlowDrawCandidateCommand
+  | FlowDrawAtCursorCommand
   | DiagramRescopeCommand
   | DiagramFollowCommand
   | DiagramShownCommand;

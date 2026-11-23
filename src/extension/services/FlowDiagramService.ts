@@ -28,6 +28,7 @@ import {
   type FlowOpenLocationCommand,
   type FlowRefreshCommand,
   type FlowDrawCandidateCommand,
+  type FlowDrawAtCursorCommand,
   type FlowShowCallGraphCommand,
   type SymbolDiagramView,
 } from "@/shared/architecture-types";
@@ -52,6 +53,7 @@ export function diagramThemeFor(kind: vscode.ColorThemeKind): DiagramTheme {
 
 export type FlowWebviewCommand =
   | FlowDrawCandidateCommand
+  | FlowDrawAtCursorCommand
   | FlowOpenLocationCommand
   | FlowExportDiagramCommand
   | FlowRefreshCommand
@@ -243,6 +245,36 @@ export class FlowDiagramService implements vscode.Disposable {
     return node ? this.draw(filePath, symbols, node, { view, inView: options.inView }) : false;
   }
 
+  /** A Flow or Sequence tab with nothing drawn: the symbol at the cursor in that view, else the tab says why and what to do (#825). */
+  private async drawAtCursor(requested: unknown): Promise<void> {
+    // From the webview: anything but sequence draws a flow.
+    const view: SymbolDiagramView = requested === "sequence" ? "sequence" : "flow";
+    const refusal = await this.drawAtCursorOrRefuse(view);
+    // The tab shows its Draw symbol at cursor button after the message: the retry.
+    if (refusal) this.send({ type: "flowDiagramState", status: "error", message: refusal, view });
+  }
+
+  /** Draws as Show Flow Diagram does (a pick of the file's symbols between them), or returns why it cannot. */
+  private async drawAtCursorOrRefuse(view: SymbolDiagramView): Promise<string | undefined> {
+    // A tab click is not a command: Follow cursor stays as the user set it.
+    // A webview view keeps the last focused editor active.
+    const editor = vscode.window.activeTextEditor;
+    if (!editor) return "No active editor: open a source file and put the cursor in a function.";
+    const filePath = normalizePath(editor.document.uri.fsPath);
+    const lang = this.options.callGraph.isFlowSupported(editor.document);
+    if (!lang) return `${VIEW_NAMES[view]} Diagram is not supported for "${path.extname(filePath) || path.basename(filePath)}". ${SUPPORTED} Open one of these files.`;
+    // The tab spins while the file is read; the draw announces its own loading state.
+    this.send({ type: "flowDiagramState", status: "loading", view });
+    const symbols = await this.options.callGraph.extractFileSymbols(filePath, lang, { quiet: true });
+    if (!symbols) return "The call graph is re-indexing: wait until it finishes.";
+    const relative = vscode.workspace.asRelativePath(filePath);
+    if (symbols.nodes.length === 0) return `${relative} has no symbol to draw a ${view} from: open a file with a function.`;
+    const node = symbolAtLine(symbols.nodes, editor.selection.active.line) ?? (await this.pickSymbol(filePath, symbols, view));
+    if (!node) return `No symbol picked: put the cursor in a function of ${relative}.`;
+    await this.draw(filePath, symbols, node, { view, inView: true });
+    return undefined;
+  }
+
   /** The symbol the user picks; a file without symbols is told. Escape: undefined, silently. */
   private async pickSymbol(filePath: string, { nodes, ...symbols }: FileSymbols, view: SymbolDiagramView): Promise<CallGraphNode | undefined> {
     const relative = vscode.workspace.asRelativePath(filePath);
@@ -415,6 +447,8 @@ export class FlowDiagramService implements vscode.Disposable {
         if (!this.candidates || !node || !isIndex(message.index, this.candidates.nodes.length) || !this.isLatest(message.requestId)) return Promise.resolve();
         return this.draw(this.candidates.filePath, this.candidates.symbols, node, { view: this.view, inView: true }).then(() => undefined);
       }
+      case "flowDrawAtCursor":
+        return this.drawAtCursor(message.view);
       case "flowShowCallGraph":
         return this.entry && this.isLatest(message.requestId) ? this.options.showCallGraphAt(this.entry.filePath, this.entry.startLine) : Promise.resolve();
     }
