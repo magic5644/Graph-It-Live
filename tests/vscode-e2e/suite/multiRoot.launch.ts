@@ -47,7 +47,7 @@ suite('Multi-root workspace (#770)', function () {
       window.answer = 'sequence';
       await vscode.commands.executeCommand('graph-it-live.showDiagram');
       const shown = await waitForFlow('the sequence of format', state => state.drawnView === 'sequence' && state.view?.flowRequestId === state.requestId, 90_000);
-      assert.deepStrictEqual(shown.edges.map(name => /→ (\w+)/.exec(name)?.[1]), ['mathFix', 'toNumber', 'toNumber'], shown.edges.join(' | '));
+      assert.deepStrictEqual(shown.edges.map(name => /→ (\w+)/.exec(name)?.[1]), ['toNumber', 'mathFix', 'toNumber'], shown.edges.join(' | '));
       assert.deepStrictEqual(shown.view?.crumbs, ['first', 'maths', 'index.ts', 'format']);
 
       // The Flow tab from that sequence: the refusal alone, on the Flow tab, not over the sequence.

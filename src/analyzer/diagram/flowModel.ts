@@ -10,7 +10,7 @@ import fs from "node:fs/promises";
 import fsSync from "node:fs";
 import path from "node:path";
 import type { Database, Statement } from "sql.js";
-import type { Node as TreeNode } from "web-tree-sitter";
+import type { Node as TreeNode, Tree } from "web-tree-sitter";
 import { lookupCallGraphSymbol, symbolNamesInFile, type CallGraphSymbol } from "@/analyzer/callgraph/CallGraphSymbolLookup";
 import type { GraphExtractor } from "@/analyzer/callgraph/GraphExtractor";
 import { closestNames, closestPathsHint, symbolNotFoundMessage } from "@/analyzer/utils/SymbolLookup";
@@ -140,7 +140,8 @@ export async function buildFlowModel(db: Database, request: FlowModelRequest, so
   const root = findEntry(db, request, sources.rootDir);
   const maxSteps = request.maxSteps ?? DEFAULT_FLOW_STEPS;
   if (!Number.isInteger(maxSteps) || maxSteps < 1) throw new Error(`maxSteps must be an integer of at least 1, got ${maxSteps}.`);
-  const walk = walkCallees(db, root, maxSteps);
+  const order = callOrder(sources);
+  const walk = await walkCallees(db, root, maxSteps, order).finally(() => order.dispose());
   // A step is one file: calls that all stay in the entry's file join no two steps, which an empty flow would hide (#823).
   if (walk.edges.length === 0 && walk.omittedSteps === 0 && walk.calls.length > 0) {
     const calls = walk.calls.length;
@@ -189,7 +190,7 @@ const candidateLabel = (symbol: CallGraphSymbol) => `${symbol.name} (${symbol.ty
  * calls before deeper helpers. Past `maxSteps` a callee of another file is counted, never walked: the work stays
  * within the shown steps' files. The model then sorts the steps back into call order.
  */
-function walkCallees(db: Database, root: FlowSymbol, maxSteps: number): Walk {
+async function walkCallees(db: Database, root: FlowSymbol, maxSteps: number, order: CallOrder): Promise<Walk> {
   const statement = db.prepare(CALLEES_SQL);
   const state: WalkState = {
     walk: { visits: [{ symbol: root, step: 0, key: [] }], steps: [0], edges: [], calls: [], omittedSteps: 0 },
@@ -201,10 +202,11 @@ function walkCallees(db: Database, root: FlowSymbol, maxSteps: number): Walk {
     head: 0,
   };
   try {
-    queueCallees(state, statement, 0);
+    await queueCallees(state, statement, 0, order);
     for (let call = nextCall(state); call; call = nextCall(state)) {
       const index = place(state, call, maxSteps);
-      if (index !== undefined) queueCallees(state, statement, index);
+      // eslint-disable-next-line no-await-in-loop -- each visit's callees join the queue the next iteration reads
+      if (index !== undefined) await queueCallees(state, statement, index, order); // NOSONAR: sequential by design
     }
   } finally {
     statement.free();
@@ -272,29 +274,29 @@ function link(state: WalkState, from: number, to: number): void {
   state.walk.edges.push({ from, to });
 }
 
-/** Queues the callees of a visit in call-line order: same-file ones on the front stack, the others at the back. */
-function queueCallees(state: WalkState, statement: Statement, index: number): void {
+/** Queues the callees of a visit in run order: same-file ones on the front stack, the others at the back. */
+async function queueCallees(state: WalkState, statement: Statement, index: number, order: CallOrder): Promise<void> {
   const { visits, steps } = state.walk;
   const caller = visits[index].symbol;
   const stepFile = visits[steps[visits[index].step]].symbol.path;
-  const sameFile: PendingCall[] = [];
-  const queued = state.back.length;
+  const read: PendingCall[] = [];
   statement.bind([caller.id]);
   while (statement.step()) {
-    const rank = sameFile.length + state.back.length - queued;
     const [targetId, name, file, startLine, lang, sourceLine, relation] = statement.get();
-    const call: PendingCall = {
+    read.push({
       callee: { id: String(targetId), name: String(name), path: String(file), startLine: Number(startLine), lang: String(lang) as SupportedLang },
       parent: index,
-      rank,
+      rank: 0,
       sameFile: String(file) === stepFile,
       site: { file: caller.path, row: Number(sourceLine), name: String(name) },
       relation: relation as FlowEdge["relation"],
-    };
-    (call.sameFile ? sameFile : state.back).push(call);
+    });
   }
   statement.reset();
-  state.front.push(...sameFile.toReversed());
+  const sorted = await order.sort(caller, read);
+  sorted.forEach((call, rank) => (call.rank = rank));
+  state.front.push(...sorted.filter((call) => call.sameFile).toReversed());
+  state.back.push(...sorted.filter((call) => !call.sameFile));
 }
 
 export async function readSource(readFile: (file: string) => Promise<string>, file: string, rootDir: string): Promise<string> {
@@ -368,6 +370,78 @@ export function siteNode(root: TreeNode, line: string, site: CallSite): TreeNode
 }
 
 const isWordChar = (char: string | undefined) => char !== undefined && /[\w$]/.test(char);
+
+export const CALL_NODES = new Set(["call_expression", "call", "new_expression"]);
+export const ANONYMOUS = new Set(["arrow_function", "function_expression", "function", "lambda"]);
+
+/** The call expression at a call site, or null when the site is not in one. */
+function callAt(root: TreeNode, line: string, site: CallSite): TreeNode | null {
+  let call: TreeNode | null = siteNode(root, line, site);
+  while (call && !CALL_NODES.has(call.type)) call = call.parent;
+  return call;
+}
+
+/** Whether `inner` sits in a callback passed to `outer` itself: `outer` runs it, so starts first. */
+function inCallback(inner: TreeNode, outer: TreeNode): boolean {
+  for (let node = inner.parent; node && node.id !== outer.id; node = node.parent) {
+    if (!ANONYMOUS.has(node.type)) continue;
+    let owner = node.parent;
+    while (owner && !CALL_NODES.has(owner.type)) owner = owner.parent;
+    if (owner?.id === outer.id) return true;
+  }
+  return false;
+}
+
+const encloses = (outer: TreeNode, inner: TreeNode) => outer.id !== inner.id && outer.startIndex <= inner.startIndex && inner.endIndex <= outer.endIndex;
+
+/**
+ * Two calls of one line in the order they run (#823): a call in another's arguments or callee (`f(g())`, `g().f()`)
+ * runs first, one in a callback passed to it after; otherwise left to right.
+ */
+export function compareSameRow(root: TreeNode, line: string, left: CallSite, right: CallSite): number {
+  const a = callAt(root, line, left);
+  const b = callAt(root, line, right);
+  if (!a || !b) return 0;
+  if (encloses(a, b)) return inCallback(b, a) ? -1 : 1;
+  if (encloses(b, a)) return inCallback(a, b) ? 1 : -1;
+  return a.startIndex - b.startIndex;
+}
+
+/**
+ * Sorts each caller's calls in run order: the index keeps one line per call, so calls sharing a line are ordered
+ * from the caller file's AST, parsed once per model and only when two calls share a line. `dispose()` frees the trees.
+ */
+export function callOrder({ extractor, rootDir, readFile }: FlowModelSources) {
+  const read = readFile ?? ((file: string) => fs.readFile(file, "utf8"));
+  const parsed = new Map<string, Promise<{ tree: Tree; lines: string[] }>>();
+  const parse = (file: string, lang: SupportedLang) => {
+    let entry = parsed.get(file);
+    if (!entry) {
+      entry = (async () => {
+        const source = await readSource(read, file, rootDir);
+        const tree = await extractor.parseTree(file, lang, source);
+        if (!tree) throw new Error(`${relativeTo(rootDir, file)} could not be parsed to order its call sites.`);
+        return { tree, lines: source.split("\n") };
+      })();
+      parsed.set(file, entry);
+    }
+    return entry;
+  };
+  return {
+    async sort<T extends { site: CallSite }>(caller: FlowSymbol, calls: T[]): Promise<T[]> {
+      const shared = calls.some((call, index) => index > 0 && call.site.row === calls[index - 1].site.row);
+      if (!shared || !LANE_LANGUAGES.has(caller.lang)) return calls;
+      const { tree, lines } = await parse(caller.path, caller.lang);
+      return calls.toSorted((left, right) => left.site.row - right.site.row || compareSameRow(tree.rootNode, lines[left.site.row] ?? "", left.site, right.site));
+    },
+    async dispose(): Promise<void> {
+      const trees = await Promise.allSettled(parsed.values());
+      for (const entry of trees) if (entry.status === "fulfilled") entry.value.tree.delete();
+    },
+  };
+}
+
+export type CallOrder = ReturnType<typeof callOrder>;
 
 /** The if / elif / else branch `child` is, with its condition text. */
 function branchOf(child: TreeNode, parent: TreeNode): { body: TreeNode; condition: string } | null {

@@ -307,6 +307,16 @@ describe("buildFlowModel (#792)", () => {
     );
   });
 
+  it("opens the steps of calls sharing a line in run order: the argument's call first", async () => {
+    const files = {
+      "a.ts": 'import { save } from "./save";\nimport { load } from "./zload";\nexport function run(): void { save(load()); }\n',
+      "save.ts": exported("save"),
+      "zload.ts": exported("load"),
+    };
+    const model = await flowOf(files, { file: "a.ts", symbolName: "run" });
+    expect(model.nodes.map((node) => node.id)).toEqual(["a.ts#run", "zload.ts#load", "save.ts#save"]);
+  });
+
   it("keeps an empty flow for an entry with no call, and draws the step of a call into another file", async () => {
     const files = { "a.ts": `import { b } from "./b";\n${exported("idle")}${exported("run", "b(x);")}`, "b.ts": exported("b") };
     expect(await flowOf(files, { file: "a.ts", symbolName: "idle" })).toMatchObject({ nodes: [{ id: "a.ts#idle", symbolCount: 1 }], edges: [] });
