@@ -228,6 +228,14 @@ To see what one function does step by step, draw its call flow: `graph-it diagra
 
 *`graph-it diagram --view flow` on this repository: one step per column, one lane per row.*
 
+In VS Code, right-click a function in the editor and run **Show Flow Diagram (Symbol at Cursor)**, or right-click a file in the Explorer and run **Show Diagram…** to pick a view (**Show Folder Diagram** on a folder). The diagram opens in the *Dependency Graph* view, with the tabs *Units | Folder | Matrix | Flow | Seq* above it, the same views as `graph-it diagram --view`. *Follow cursor* redraws the diagram for the symbol or folder under the cursor; off, it stays pinned. Click a step to open its declaration, or a call label to open its call site.
+
+<div align="center">
+<img src="media/vscode-show-diagram-flow.png" alt="Dependency Graph view in VS Code: the Units, Folder, Matrix and Flow tabs, the Follow cursor toggle and the breadcrumb fixtures, trace, controller.ts, handleGetUser above the flow diagram of handleGetUser, five steps from controller.ts through service.ts, repository.ts and logger.ts to formatter.ts, each edge labelled with its call line" width="900"/>
+</div>
+
+*Show Flow Diagram on `handleGetUser` in the `tests/fixtures/trace` fixture.*
+
 For the order of the calls, draw a sequence diagram: `graph-it diagram --view sequence src/cli/commands/diagram.ts#run --depth 2 --format svg`. One lifeline per file (or per class with `--participants class`), one message per call, activation bars, and the `alt` / `opt` / `loop` / `catch` fragments with their guards. `--depth`, `--maxMessages` (up to 60) and `--startLine` bound it, and a note names what was left out. `--format mermaid` writes a `sequenceDiagram` that GitHub renders in a pull request or a README; the MCP tool takes `view: "sequence"` and `diagramFormat: "mermaid"`. In VS Code, **Show Diagram…** › *sequence*, or the *Seq* tab next to *Flow*, draws the symbol at the cursor: a lifeline opens its file, a call its call site, and Export also writes Mermaid (`.mmd`). An entry is a function or a method that calls something: the symbol pick shows each symbol's call count, and a symbol that calls nothing (a class, a constructor) shows *No calls found* with the file's symbols that do, one click away. Not drawn: dynamic dispatch, library callbacks, `node_modules`, return values.
 
 <div align="center">
