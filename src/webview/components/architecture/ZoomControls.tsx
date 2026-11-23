@@ -46,10 +46,24 @@ export function zoomAt(view: ZoomView, zoom: number, point: { x: number; y: numb
   return { zoom: next, x: point.x - (point.x - view.x) * ratio, y: point.y - (point.y - view.y) * ratio };
 }
 
-/** A toolbar action: Fit the whole diagram, 100%, or one step in or out around the panel's centre. */
+/** Middle of the diagram's part shown on one axis, or of the panel when none is shown. */
+function shownMiddle(start: number, length: number, size: number): number {
+  const from = Math.max(0, start);
+  const to = Math.min(size, start + length);
+  return from < to ? (from + to) / 2 : size / 2;
+}
+
+/**
+ * A toolbar action: Fit the whole diagram, 100%, or one step in or out around the centre of the diagram's shown part.
+ * Not the panel's centre: a fitted diagram sits at the top, so in a taller panel that centre is empty space and
+ * each step would push the diagram out of sight.
+ */
 export function applyZoom(view: ZoomView, action: ZoomAction, content: Size, panel: Size): ZoomView {
   if (action === "fit") return fitView(content, panel);
-  const centre = { x: panel.width / 2, y: panel.height / 2 };
+  const centre = {
+    x: shownMiddle(view.x, content.width * view.zoom, panel.width),
+    y: shownMiddle(view.y, content.height * view.zoom, panel.height),
+  };
   if (action === "reset") return zoomAt(view, 1, centre);
   return zoomAt(view, view.zoom * (action === "in" ? ZOOM_STEP : 1 / ZOOM_STEP), centre);
 }
