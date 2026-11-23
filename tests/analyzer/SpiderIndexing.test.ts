@@ -293,11 +293,14 @@ describe('Spider - Reverse Index Integration', () => {
 
 describe('Spider - Index Performance', () => {
     // Generate a larger fixture for performance testing
-    const perfFixturesPath = path.resolve(process.cwd(), 'tests/fixtures/perf-test');
+    // In the OS temp folder, never under tests/fixtures: that is the VS Code E2E workspace, where a
+    // `perf-test` unit would show up in the architecture view of a run going on at the same time.
+    let perfFixturesPath = '';
     const NUM_FILES = 50;
 
     beforeEach(async () => {
         // Create temporary performance test fixtures
+        perfFixturesPath = await fs.mkdtemp(path.join(os.tmpdir(), 'spider-perf-'));
         await fs.mkdir(path.join(perfFixturesPath, 'src'), { recursive: true });
 
         // Create a "shared" file that will be imported by many files
