@@ -1436,6 +1436,7 @@ export class GraphProvider implements vscode.WebviewViewProvider {
       case "flowRefresh":
       case "flowShowCallGraph":
       case "flowDrawCandidate":
+      case "flowDrawAtCursor":
       case "diagramFollow":
       case "diagramShown":
         return this._flowDiagramService?.handleWebviewMessage(msg);

@@ -12,6 +12,7 @@ import {
   NO_FLOW,
   pressFlowKeys,
   receiveFlow,
+  drawsAtCursor,
 } from "@/webview/components/architecture/FlowDiagramPanel";
 
 const node = (id: string, lane: FlowDiagramNode["lane"], x: number, y: number): FlowDiagramNode => ({
@@ -31,6 +32,18 @@ const flow: FlowDiagramMessage = {
 const state = (status?: Partial<FlowDiagramStateMessage>, drawn: FlowDiagramMessage | null = flow): FlowState => ({
   flow: drawn,
   status: status ? { type: "flowDiagramState", requestId: drawn?.requestId ?? 1, status: "loading", ...status } : null,
+});
+
+describe("drawsAtCursor", () => {
+  it("only without a known entry: nothing asked for, or a refusal before a symbol", () => {
+    expect(drawsAtCursor(NO_FLOW)).toBe(true);
+    expect(drawsAtCursor(state({ status: "error", message: "No active editor." }, null))).toBe(true);
+    // A draw that failed knows its entry (crumbs): a tab click draws it again.
+    expect(drawsAtCursor(state({ status: "error", message: "x", crumbs: [] }, null))).toBe(false);
+    for (const status of ["loading", "empty", "stale"] as const) expect(drawsAtCursor(state({ status }, null))).toBe(false);
+    expect(drawsAtCursor(state())).toBe(false);
+    expect(drawsAtCursor(state({ status: "error", message: "x" }))).toBe(false);
+  });
 });
 
 describe("receiveFlow", () => {
@@ -120,7 +133,7 @@ describe("flowDataUrl", () => {
 describe("FlowDiagramPanel", () => {
   afterEach(cleanup);
   const renderPanel = (current: FlowState) => {
-    const props = { onOpen: vi.fn(), onRefresh: vi.fn(), onShowCallGraph: vi.fn(), onDrawCandidate: vi.fn(), onEscape: vi.fn() };
+    const props = { onOpen: vi.fn(), onRefresh: vi.fn(), onShowCallGraph: vi.fn(), onDrawCandidate: vi.fn(), onDrawAtCursor: vi.fn(), onEscape: vi.fn() };
     const view = render(<FlowDiagramPanel state={current} {...props} />);
     return { ...props, view };
   };
@@ -176,9 +189,21 @@ describe("FlowDiagramPanel", () => {
   });
 
   it("states: nothing drawn yet, loading over the previous image, empty with Show call graph, error, stale with Refresh", () => {
+    // #825: every entry point is named, and the button draws the symbol at the cursor.
     const empty = renderPanel(NO_FLOW);
-    expect(screen.getByText("Right-click a function in the editor and run Show Flow Diagram.")).toBeTruthy();
+    expect(empty.view.container.querySelector("[data-flow-line]")?.textContent).toBe(
+      "Put the cursor in a function of the editor, then click this tab or Draw symbol at cursor; or right-click the function and run Show Flow Diagram (Symbol at Cursor), or Show Diagram… for its sequence. Draw symbol at cursor",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Draw symbol at cursor" }));
+    expect(empty.onDrawAtCursor).toHaveBeenCalledTimes(1);
     empty.view.unmount();
+
+    // A refusal before any symbol (no crumbs): its message, then the button to try again.
+    const refused = renderPanel(state({ status: "error", message: "No active editor." }, null));
+    expect(screen.getByRole("alert").textContent).toBe("No active editor. Draw symbol at cursor");
+    fireEvent.click(screen.getByRole("button", { name: "Draw symbol at cursor" }));
+    expect(refused.onDrawAtCursor).toHaveBeenCalledTimes(1);
+    refused.view.unmount();
 
     const loading = renderPanel(state({ status: "loading" }));
     expect(screen.getByText("Drawing the flow diagram…")).toBeTruthy();
@@ -204,6 +229,7 @@ describe("FlowDiagramPanel", () => {
 
     const failed = renderPanel(state({ status: "error", message: "Graph-It-Live: x" }));
     expect(screen.getByRole("alert").textContent).toBe("Graph-It-Live: x");
+    expect(screen.queryByRole("button", { name: "Draw symbol at cursor" })).toBeNull();
     expect(screen.getByRole("img")).toBeTruthy();
     failed.view.unmount();
 

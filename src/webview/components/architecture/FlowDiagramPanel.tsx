@@ -35,6 +35,12 @@ export function receiveFlow(current: FlowState, message: FlowDiagramMessage | Fl
   return { next: { flow: message, status: null }, selects: answersLoading };
 }
 
+/**
+ * A Flow or Sequence tab click draws the symbol at the cursor when no entry is known: nothing asked for yet,
+ * or the last ask refused before a symbol (an error without crumbs). A known entry is drawn again instead.
+ */
+export const drawsAtCursor = ({ flow, status }: FlowState) => !flow && (!status || (status.status === "error" && !status.crumbs));
+
 /** `data:` URL of the SVG, UTF-8 safe (titles hold arrows and non-Latin names); the CSP allows `img-src data:`. */
 export const flowDataUrl = (svg: string) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 
@@ -99,15 +105,20 @@ export interface FlowDiagramPanelProps {
   onShowCallGraph: () => void;
   /** Empty state: draws the candidate of this index (a symbol of the file that makes calls). */
   onDrawCandidate: (index: number) => void;
+  /** Nothing drawn: the symbol at the cursor, in the tab shown. */
+  onDrawAtCursor: () => void;
   /** Escape: back to the tab strip. */
   onEscape: () => void;
   panelRef?: React.RefObject<HTMLDivElement | null>;
 }
 
-function FlowStatus({ state, onRefresh, onShowCallGraph, onDrawCandidate }: Readonly<Pick<FlowDiagramPanelProps, "state" | "onRefresh" | "onShowCallGraph" | "onDrawCandidate">>) {
+function FlowStatus({ state, onRefresh, onShowCallGraph, onDrawCandidate, onDrawAtCursor }: Readonly<Pick<FlowDiagramPanelProps, "state" | "onRefresh" | "onShowCallGraph" | "onDrawCandidate" | "onDrawAtCursor">>) {
   const { flow, status } = state;
+  const drawAtCursor = drawsAtCursor(state) && (
+    <>{" "}<button type="button" data-flow-draw-at-cursor className={DIAGRAM_FOCUS_CLASS} onClick={onDrawAtCursor}>Draw symbol at cursor</button></>
+  );
   if (status?.status === "error") {
-    return <output role="alert" data-flow-line style={{ display: "block", color: "var(--vscode-errorForeground)" }}>{status.message}</output>;
+    return <output role="alert" data-flow-line style={{ display: "block", color: "var(--vscode-errorForeground)" }}>{status.message}{drawAtCursor}</output>;
   }
   if (status?.status === "empty") {
     return (
@@ -140,11 +151,17 @@ function FlowStatus({ state, onRefresh, onShowCallGraph, onDrawCandidate }: Read
       </output>
     );
   }
-  if (!flow && status?.status !== "loading") return <output data-flow-line style={{ display: "block" }}>Right-click a function in the editor and run Show Flow Diagram.</output>;
+  if (!flow && status?.status !== "loading") {
+    return (
+      <output data-flow-line style={{ display: "block" }}>
+        Put the cursor in a function of the editor, then click this tab or Draw symbol at cursor; or right-click the function and run Show Flow Diagram (Symbol at Cursor), or Show Diagram… for its sequence.{drawAtCursor}
+      </output>
+    );
+  }
   return null;
 }
 
-export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, onDrawCandidate, onEscape, panelRef }: Readonly<FlowDiagramPanelProps>) {
+export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, onDrawCandidate, onDrawAtCursor, onEscape, panelRef }: Readonly<FlowDiagramPanelProps>) {
   const { flow, status } = state;
   const imageRef = useRef<HTMLImageElement>(null);
   const nodeRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -176,7 +193,7 @@ export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, on
   };
   return (
     <div ref={panelRef} data-testid="flow-diagram" aria-busy={status?.status === "loading"} style={{ position: "absolute", inset: 0, overflow: "auto", padding: "4px 10px", fontSize: 12 }}>
-      <FlowStatus state={state} onRefresh={onRefresh} onShowCallGraph={onShowCallGraph} onDrawCandidate={onDrawCandidate} />
+      <FlowStatus state={state} onRefresh={onRefresh} onShowCallGraph={onShowCallGraph} onDrawCandidate={onDrawCandidate} onDrawAtCursor={onDrawAtCursor} />
       {flow && status?.status !== "empty" && (
         <figure style={{ position: "relative", margin: 0 }}>
           <img

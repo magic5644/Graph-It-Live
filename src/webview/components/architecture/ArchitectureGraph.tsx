@@ -86,7 +86,7 @@ import { parseColor, type Rgba, themeKindOf } from "./unitColors";
 import { isExtensionMessageOrigin } from "../../utils/messageOrigin";
 import { DiagramBreadcrumb } from "./DiagramBreadcrumb";
 import { DiagramTabs, diagramShownReport, focusSelectedTab, FollowToggle, largeUnitCycle, UnitCapBanner } from "./DiagramTabs";
-import { FlowDiagramPanel, type FlowState, NO_FLOW, pressFlowKeys, receiveFlow } from "./FlowDiagramPanel";
+import { drawsAtCursor, FlowDiagramPanel, type FlowState, NO_FLOW, pressFlowKeys, receiveFlow } from "./FlowDiagramPanel";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -1876,7 +1876,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const selectTab = (tab: DiagramTab) => {
     showFlow(tab === "flow" || tab === "sequence");
     if (tab === "flow" || tab === "sequence") {
-      if (tab !== symbolViewOf(flowStateRef.current)) postFlow((requestId) => ({ command: "flowRefresh", requestId, view: tab }));
+      // Nothing drawn (none asked for, or the last ask refused): the symbol at the cursor, in that view (#825).
+      if (drawsAtCursor(flowStateRef.current)) post({ command: "flowDrawAtCursor", view: tab });
+      else if (tab !== symbolViewOf(flowStateRef.current)) postFlow((requestId) => ({ command: "flowRefresh", requestId, view: tab }));
       return;
     }
     switchView(tab === "matrix" ? "matrix" : "graph");
@@ -2382,7 +2384,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   const shownPanel = shownPanelOf(panel, evidence !== null, dependents !== null);
   const tabs = evidence && dependents && shownPanel ? <PanelTabs panel={shownPanel} onPanel={setPanel} /> : undefined;
   const tab = tabOf(flowShown, flowState, view, unit);
-  const tabState = { hasWorkspace, folderEntered: lastFolder !== null, flowAvailable: flowState.flow !== null || flowState.status !== null };
+  const tabState = { hasWorkspace, folderEntered: lastFolder !== null };
   const tabStrip = (
     <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
       <DiagramTabs tab={tab} state={tabState} onTab={(next) => actionsRef.current.selectTab(next)} />
@@ -2524,6 +2526,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
             onRefresh={() => actionsRef.current.postFlow((requestId) => ({ command: "flowRefresh", requestId }))}
             onShowCallGraph={() => actionsRef.current.postFlow((requestId) => ({ command: "flowShowCallGraph", requestId }))}
             onDrawCandidate={(index) => actionsRef.current.postFlow((requestId) => ({ command: "flowDrawCandidate", requestId, index }))}
+            onDrawAtCursor={() => actionsRef.current.selectTab(tab)}
             onEscape={focusSelectedTab}
           />
         )}

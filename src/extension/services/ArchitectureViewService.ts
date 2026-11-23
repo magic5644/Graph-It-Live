@@ -483,6 +483,7 @@ export class ArchitectureViewService {
       case "flowRefresh":
       case "flowShowCallGraph":
       case "flowDrawCandidate":
+      case "flowDrawAtCursor":
       case "diagramRescope":
       case "diagramFollow":
       case "diagramShown":

@@ -7,6 +7,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } 
 const vs = vi.hoisted(() => ({
   root: "",
   quickPick: vi.fn(),
+  activeEditor: undefined as unknown,
   withProgress: vi.fn(),
   listeners: { selection: new Set<(event: unknown) => void>(), active: new Set<(editor: unknown) => void>() },
 }));
@@ -37,6 +38,9 @@ vi.mock("vscode", () => {
     ColorThemeKind: { Light: 1, Dark: 2, HighContrast: 3, HighContrastLight: 4 },
     Uri: { file: (fsPath: string) => ({ fsPath }) },
     window: {
+      get activeTextEditor() {
+        return vs.activeEditor;
+      },
       showQuickPick: vs.quickPick,
       withProgress: vs.withProgress,
       onDidChangeTextEditorSelection: subscribe(vs.listeners.selection),
@@ -154,6 +158,7 @@ describe("FlowDiagramService", () => {
     workspace = root;
     rootDir = root;
     vs.quickPick.mockReset();
+    vs.activeEditor = undefined;
     vs.withProgress.mockReset();
     vs.withProgress.mockImplementation((_options, task) => task({ report: () => {} }, { isCancellationRequested: false, onCancellationRequested: () => ({ dispose: () => {} }) }));
     callGraph = {
@@ -226,6 +231,61 @@ describe("FlowDiagramService", () => {
     expect(await service.showAtCursor(editorAt("src/order.ts", 2))).toBe(false);
     expect(notices).toHaveLength(2);
     expect(posted.filter((message) => message.type !== "diagramContext")).toEqual([]);
+  });
+
+  // #825: a Flow or Sequence tab with nothing drawn.
+  it("draws the symbol at the cursor in the view of the tab, inside the view (no progress notification)", async () => {
+    const service = create();
+    vs.activeEditor = editorAt("src/order.ts", 2);
+    await service.handleWebviewMessage({ command: "flowDrawAtCursor", view: "sequence" });
+    expect(states()[0]).toMatchObject({ status: "loading", view: "sequence" });
+    expect(flows()).toHaveLength(1);
+    expect(flows()[0]).toMatchObject({ view: "sequence" });
+    expect(flows()[0].entry).toContain("placeOrder");
+    expect(vs.withProgress).not.toHaveBeenCalled();
+    expect(notices).toEqual([]);
+    // An unknown view is drawn as a flow, never passed on.
+    vs.activeEditor = editorAt("src/order.ts", 2);
+    await service.handleWebviewMessage({ command: "flowDrawAtCursor", view: "matrix" as never });
+    expect(flows().at(-1)).toMatchObject({ view: "flow" });
+  });
+
+  it("between symbols, picks the symbol as the command does; Escape says so on the tab", async () => {
+    const service = create();
+    vs.activeEditor = editorAt("src/order.ts", 11);
+    vs.quickPick.mockImplementationOnce(async (items: { label: string }[]) => items.find((item) => item.label === "placeOrder"));
+    await service.handleWebviewMessage({ command: "flowDrawAtCursor", view: "flow" });
+    expect(vs.quickPick.mock.calls[0][1]).toEqual({ placeHolder: "Pick the symbol of src/order.ts to draw its flow" });
+    expect(flows()).toHaveLength(1);
+    vs.quickPick.mockResolvedValueOnce(undefined);
+    await service.handleWebviewMessage({ command: "flowDrawAtCursor", view: "flow" });
+    expect(states().at(-1)).toMatchObject({
+      status: "error", view: "flow", message: "No symbol picked: put the cursor in a function of src/order.ts.",
+    });
+    expect(states().at(-1)?.crumbs).toBeUndefined();
+  });
+
+  it("says on the tab, never in a toast, why nothing is drawn and what to do next", async () => {
+    const service = create();
+    const refusal = async (editor: unknown) => {
+      vs.activeEditor = editor;
+      await service.handleWebviewMessage({ command: "flowDrawAtCursor", view: "sequence" });
+      const state = states().at(-1)!;
+      expect(state).toMatchObject({ status: "error", view: "sequence" });
+      expect(state.crumbs).toBeUndefined();
+      return state.message;
+    };
+    expect(await refusal(undefined)).toBe("No active editor: open a source file and put the cursor in a function.");
+    expect(await refusal(editorAt("README.md", 0))).toBe(
+      'Sequence Diagram is not supported for ".md". Supported: TypeScript, JavaScript, Vue, Svelte, Python, Rust, C#, Go, Java, GraphQL. Open one of these files.',
+    );
+    callGraph.extractFileSymbols.mockResolvedValueOnce({ nodes: [], edges: [], rootDir: root });
+    expect(await refusal(editorAt("src/empty.ts", 0))).toBe("src/empty.ts has no symbol to draw a sequence from: open a file with a function.");
+    callGraph.extractFileSymbols.mockResolvedValueOnce(undefined);
+    expect(await refusal(editorAt("src/order.ts", 2))).toBe("The call graph is re-indexing: wait until it finishes.");
+    expect(callGraph.extractFileSymbols).toHaveBeenLastCalledWith(ORDER_FILE(), "typescript", { quiet: true });
+    expect(notices).toEqual([]);
+    expect(flows()).toEqual([]);
   });
 
   it("shows the empty state for a symbol that calls nothing", async () => {

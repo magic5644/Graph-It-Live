@@ -101,6 +101,19 @@ describe("MessageDispatcher", () => {
     await dispatcher.handle(showMore);
     const find = { command: "architectureFind" as const, revision: "r1", unit: "apps/web", query: "ui" };
     await dispatcher.handle(find);
+    // #825: the empty Flow tab's buttons reached no handler.
+    const candidate = { command: "flowDrawCandidate" as const, requestId: 3, index: 0 };
+    await dispatcher.handle(candidate);
+    const atCursor = { command: "flowDrawAtCursor" as const, view: "sequence" as const };
+    await dispatcher.handle(atCursor);
+    // The other Architecture commands go the same way, unchanged.
+    const others = [
+      "architectureEnterFolder", "architectureExpandGroup", "architectureEvidence", "architectureRuleEvidence", "architectureOpenFile",
+      "architectureDetailRendered", "architectureRevealInFileGraph", "architectureDependents", "architectureDependentFiles",
+      "architectureDependentsRendered", "architectureExportDiagram", "architectureRasterized", "flowOpenLocation", "flowExportDiagram",
+      "flowRefresh", "flowShowCallGraph", "diagramRescope", "diagramFollow", "diagramShown",
+    ].map((command) => ({ command }) as never);
+    for (const message of others) await dispatcher.handle(message);
 
     expect(handleArchitectureMessage.mock.calls).toEqual([
       [{ command: "architectureMounted" }],
@@ -114,6 +127,9 @@ describe("MessageDispatcher", () => {
       [matrixRendered],
       [showMore],
       [find],
+      [candidate],
+      [atCursor],
+      ...others.map((message) => [message]),
     ]);
   });
 
