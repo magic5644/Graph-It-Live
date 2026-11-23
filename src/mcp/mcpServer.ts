@@ -146,6 +146,7 @@ import {
 } from "./types";
 import type { GraphContextDetail } from "../shared/graph-context-types";
 import { executeGetSessionStats, GetSessionStatsSchema, type GetSessionStatsResult } from "./tools/stats.js";
+import { applyWasmTiering } from "../analyzer/languages/wasmTiering";
 import { startPeriodicFlush } from "../analyzer/stats/statsPersistence";
 import { findProjectRoot } from "../analyzer/utils/workspaceBoundary";
 import { sessionStats } from "../shared/sessionStats";
@@ -848,6 +849,9 @@ server.registerTool(
 
 async function main(): Promise<void> {
   debugLog("[McpServer] Graph-It-Live MCP Server starting...");
+  // stderr only: stdout carries the MCP protocol.
+  const tieringWarning = applyWasmTiering();
+  if (tieringWarning) process.stderr.write(`${tieringWarning}\n`);
   debugLog(
     `[McpServer] Workspace: ${getWorkspaceRoot() || "(not configured - use graphitlive_set_workspace)"}`,
   );

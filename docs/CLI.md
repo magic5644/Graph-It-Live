@@ -225,9 +225,18 @@ delete it at any time.
 | `GRAPH_IT_NO_CACHE=1` | Same as `--no-cache` (any non-empty value) |
 | `GRAPH_IT_DISABLE_UPDATE_CHECK=1` | Skip the new-version notice. The notice is shown only on an interactive terminal |
 | `GRAPH_IT_NO_STATS=1` | Do not persist session stats to `~/.graph-it/stats` (see [`stats`](#stats)) |
+| `GRAPH_IT_WASM_TIERING` | `liftoff` or `default`: how V8 compiles tree-sitter's WebAssembly (see [WebAssembly tiering](#webassembly-tiering)). Unset: `liftoff` on Node.js 24 and later, `default` before. Another value prints a warning and is ignored |
 | `NO_COLOR` | Disable colors in the REPL |
 
 `query` reads LLM provider variables (see [`query`](#query)); `serve` reads its own (see [`serve`](#serve)).
+
+### WebAssembly tiering
+
+The CLI and the MCP server (`graph-it serve`, or `dist/mcpServer.mjs` started by an MCP client or the VS Code extension) parse source files with tree-sitter grammars compiled to WebAssembly. By default V8 compiles that code twice: first with its fast baseline compiler (Liftoff), then with its optimizing compiler (TurboFan) for hot functions. On Node.js 24, the optimized code for the TypeScript/TSX grammars and its compilation memory add 2 to 3 GB of resident memory as soon as the call graph parses files.
+
+On Node.js 24 and later, Graph-It-Live therefore keeps this WebAssembly on Liftoff only: at startup it sets the V8 flags `--no-wasm-tier-up` and `--no-wasm-dynamic-tiering` (what `node --liftoff-only` implies), and worker threads inherit them. A command that builds the call graph from scratch, or an MCP `rebuild_index`, uses a third to a quarter of the memory and takes 15 to 35 % longer. A warm run that re-parses a few files takes 1 to 15 % longer. Commands that do not parse with tree-sitter (`scan`, `init`) are unchanged. On Node.js 22, Liftoff only saves no memory on a cold run and is slower, so V8's default tiering stays.
+
+`GRAPH_IT_WASM_TIERING=default` keeps V8's default tiering on any Node.js, for example for a long-running MCP server on a machine with memory to spare; `GRAPH_IT_WASM_TIERING=liftoff` forces Liftoff only. The VS Code extension's own analysis runs in VS Code's extension host and is not affected.
 
 > Global options can appear before or after the command name (`graph-it --reindex summary` and `graph-it summary --reindex` are equivalent). They are removed from the command's own arguments, so `--workspace <dir>` never becomes part of a `query` question.
 >
