@@ -1626,7 +1626,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     if (!cy) return;
     if (action === "fit") fitAll(cy, true);
     else {
-      const level = action === "reset" ? 1 : cy.zoom() * (action === "in" ? ZOOM_STEP : 1 / ZOOM_STEP);
+      let level = 1;
+      if (action !== "reset") level = cy.zoom() * (action === "in" ? ZOOM_STEP : 1 / ZOOM_STEP);
       cy.zoom({ level: Math.min(cy.maxZoom(), Math.max(cy.minZoom(), level)), renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
     }
     showFocus(cy, pinnedRef.current ?? cy.collection(), post);
