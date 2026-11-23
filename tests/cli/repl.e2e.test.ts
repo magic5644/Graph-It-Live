@@ -382,7 +382,7 @@ describe('REPL command chaining e2e', () => {
 
   it.each([
     ['/diagram --output -', '/diagram writes a file: --output - would print the markup in the terminal.'],
-    ['/diagram --format bogus', 'Unknown format "bogus". /diagram writes svg, html or diagram-spec.'],
+    ['/diagram --format bogus', 'Unknown format "bogus". /diagram writes svg, html, diagram-spec or mermaid.'],
   ])('refuses %s on the REPL error line', async (commandLine, message) => {
     await expect(typedSession(createRuntimeStub(), commandLine)).rejects.toThrow(message);
     expect(mocks.diagramRun).not.toHaveBeenCalled();
@@ -408,6 +408,9 @@ describe('REPL command chaining e2e', () => {
         '/diagram commands',
         '/diagram --folder (root)/cli',
         '/diagram --view units',
+        // A flow or sequence draws one symbol: the scope directory is never passed as its positional.
+        '/diagram --view flow',
+        '/diagram --view sequence',
         // #794: the spec names its level, so the scope adds no directory; its path resolves against the scope.
         String.raw`/diagram --format svg --spec specs\flow.json`,
       );
@@ -419,6 +422,8 @@ describe('REPL command chaining e2e', () => {
         [path.join('src', 'cli', 'commands')],
         ['--folder', '(root)/cli'],
         ['--view', 'units'],
+        ['--view', 'flow'],
+        ['--view', 'sequence'],
         ['--spec', path.join('src', 'cli', 'specs', 'flow.json')],
       ]);
     } finally {

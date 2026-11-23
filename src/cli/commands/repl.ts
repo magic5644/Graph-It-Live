@@ -421,7 +421,7 @@ async function runTypedCommandLine(
 
 /**
  * `/diagram` writes a file and returns one line, not JSON: it runs in its own `--format` (svg,
- * html or diagram-spec), never the session's. The directory resolves against the /scope
+ * html, diagram-spec or mermaid), never the session's. The directory resolves against the /scope
  * directory, as the other path arguments; without one or `--folder`, a narrowed scope is drawn.
  */
 async function runDiagramCommand(
@@ -431,22 +431,22 @@ async function runDiagramCommand(
 ): Promise<ReplActionResult> {
   const { effectiveFormat, cleanedArgs, invalidFormatValue } = extractFormatOverride(rawArgs, 'text');
   if (invalidFormatValue) {
-    throw new CliError(`Unknown format "${sanitizeTerminalText(invalidFormatValue)}". /diagram writes svg, html or diagram-spec.`, ExitCode.UNSUPPORTED_FORMAT);
+    throw new CliError(`Unknown format "${sanitizeTerminalText(invalidFormatValue)}". /diagram writes svg, html, diagram-spec or mermaid.`, ExitCode.UNSUPPORTED_FORMAT);
   }
   if (readStringOption(cleanedArgs, '--output', 'a file of the workspace') === '-') {
     throw new CliError('/diagram writes a file: --output - would print the markup in the terminal. Pass a file name.', ExitCode.GENERAL_ERROR);
   }
-  // As on the command line: the positional (a directory, or file#symbol with --view flow) may sit after the options.
+  // As on the command line: the positional (a directory, or file#symbol with --view flow or sequence) may sit after the options.
   const ordered = parseCommandArgs('diagram', cleanedArgs);
   const [first] = ordered;
   const hasDirectory = first !== undefined && !first.startsWith('-');
   const scoped = state.workspaceRoot !== runtime.workspaceRoot;
-  const view = readStringOption(ordered, '--view', 'units, folder, matrix or flow');
+  const view = readStringOption(ordered, '--view', 'units, folder, matrix, flow or sequence');
   const spec = readStringOption(ordered, '--spec', 'an annotated diagram-spec JSON file');
   let directory: string | undefined;
   if (hasDirectory) directory = path.resolve(state.workspaceRoot, first.replaceAll('\\', '/'));
   // A spec names its own level: the narrowed scope is not added to it.
-  else if (scoped && spec === undefined && view !== 'units' && view !== 'flow' && !ordered.includes('--folder')) directory = state.workspaceRoot;
+  else if (scoped && spec === undefined && view !== 'units' && view !== 'flow' && view !== 'sequence' && !ordered.includes('--folder')) directory = state.workspaceRoot;
   // Relative to the workspace root, so its errors never show an absolute path.
   const relative = (target: string) => path.relative(runtime.workspaceRoot, path.resolve(state.workspaceRoot, target.replaceAll('\\', '/')));
   const withSpec = spec === undefined ? ordered : ordered.map((arg, index) => (ordered[index - 1] === '--spec' ? relative(arg) : arg));
