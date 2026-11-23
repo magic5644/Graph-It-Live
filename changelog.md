@@ -1,5 +1,38 @@
 # Changelog
 
+## v1.26.1
+
+Patch release on the *Flow* and *Seq* tabs of VS Code: they draw the symbol at the cursor on a click, zoom and pan, and no longer say *No calls found* for a symbol that makes calls.
+
+[![The Seq tab with the sequence of handleGetUser: Fit, then + four times enlarges the diagram around its middle, 100% shows the drawn size, − zooms out and Fit shows the whole diagram again](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/vscode-seq-zoom.gif)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/vscode-seq-zoom.gif)
+
+*Zoom on the* Seq *tab: Fit, + four times, 100%, − twice, Fit.*
+
+### Breaking / Behavior changes
+
+- **A flow whose calls all stay in the entry's file is refused** (#823). A Flow step is one file, so calls inside the entry's file join no two steps: `graph-it diagram --view flow` and the MCP tool `export_architecture_diagram` with `view: "flow"` used to return an empty flow with exit 0. They now exit 1 (a tool error over MCP) and say why, with the next step: `format makes 3 calls, all inside maths/index.ts: a Flow step is one file, so no call joins two steps. Use view sequence to see them.` The count is the one the sequence draws. An entry that calls nothing, or whose calls into other files are all past `--maxSteps`, still gives an empty flow.
+
+### Changed
+
+- **The Flow and Seq tabs draw the symbol at the cursor** (#825). Put the cursor in a function and click *Flow* or *Seq* in the *Dependency Graph* view's Architecture mode: no right-click needed. The tabs are never disabled. When the symbol cannot be drawn, the tab says why, never in a toast, with a **Draw symbol at cursor** button: no active editor, unsupported file, a file without symbols, call graph still re-indexing, or Escape in the symbol pick. With the cursor between symbols, the tab shows the same pick of the file's symbols as *Show Flow Diagram (Symbol at Cursor)*. A tab click redraws an entry already shown in the other view, and leaves *Follow cursor* as it was.
+  [![VS Code with the cursor in handleGetUser and the Seq tab drawing its sequence below, with the Fit, 100%, + and − buttons](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/vscode-seq-from-tab.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/vscode-seq-from-tab.png)
+- **Zoom and pan in the Flow and Seq tabs** (#826, #830). The wheel or a pinch zooms around the pointer and a drag pans; a press that does not move still opens the step or call. The buttons at the bottom right are *Fit*, *100%*, *+* and *−*; on a focused step, lifeline or call, *0* fits, *+* (or *=*) zooms in and *-* zooms out. Zoom runs from 10% to 400%, and the buttons zoom around the middle of the diagram's shown part. A new diagram, or another symbol, opens fitted (never above 100%); once you zoom or pan, a redraw of the same symbol on the same tab (theme, *Refresh*, a return to the tab) keeps the zoom and position; a diagram neither zoomed nor panned refits when the panel is resized. The drawing stays sharp and every step, lifeline and call stays clickable at every zoom. Export is unchanged: it writes the CLI's diagram at its drawn size.
+
+- **Dependencies**: `typescript-eslint` 8.74.0. `npm audit`: 0 vulnerabilities.
+
+### Fixed
+
+- **Flow and Seq no longer say *No calls found* for a symbol that makes calls** (#823).
+  - In a multi-root workspace, a file of another folder than the analyzed one was drawn against the analyzed folder, with `../other/…` paths and a breadcrumb naming the wrong folder. It is now drawn against its own folder; the call graph index and its `.graph-it/` cache stay in the analyzed folder. The call graph view gets the same fix, and the file's import targets are indexed in its own folder.
+  - A Flow refusal after a drawn sequence (or the reverse) now shows on its own tab, not over the other diagram.
+- **Calls on one line are drawn in the order they run** (#823), in Flow and Seq, for TypeScript, JavaScript and Python. `String(mathFix(toNumber(v)))` drew `mathFix` before `toNumber`. Now a call in another call's arguments or callee chain (`f(g())`, `g().f()`) comes first, a call in a callback passed to it (`each(xs, x => save(x))`) comes after, otherwise left to right. Other languages keep the index order.
+- **The "Symbols of this file that make calls" buttons** of the Flow empty state did nothing: the message had no route (#825).
+
+### Tests
+
+- The separate-launch E2E suites (no folder, multi-root, unit cap) also run in VSIX mode, so CI runs them, with one xunit report per window, all uploaded (#823).
+- The Spider performance fixture is built in the OS temp folder, no longer in the E2E workspace, where it added a unit to a concurrent E2E run (PR #828).
+
 ## v1.26.0
 
 **Highlight — indexing no longer hangs on a large generated module** (#816). Since v1.21.2, a file embedding a long string or template, such as a ~790 KB base64 WebAssembly payload in `packages/excalidraw/subset/harfbuzz/harfbuzz-wasm.ts` of excalidraw, kept indexing at 100 % CPU for hours: every `graph-it tool`, `graph-it diagram` and the MCP server waited on it. The import/export reader backtracked quadratically over the blanked string; it now runs in linear time with the same matches. On excalidraw, a cold `graph-it tool get_index_status --no-cache` now answers in 1.3 seconds; v1.25.6 was still at 100 % CPU after 4 minutes.
