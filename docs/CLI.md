@@ -244,7 +244,7 @@ On Node.js 24 and later, Graph-It-Live therefore keeps this WebAssembly on Lifto
 >
 > Numeric command options (`--maxDepth`, `--depth`, `--token-budget`, `--maxFiles`, `--top`, ...) must be integers within the documented range. Any other value stops the command with an error and exit code 1. `review-pr` takes `--maxFiles`, like `architecture`, and still accepts `--max-files`.
 >
-> A missing target is an error, never an empty result: a file, symbol, scope, unit or Git ref that does not exist exits with code 1 and the closest names (`File not found: src/servce.ts. Did you mean: src/service.ts?`).
+> A missing target is an error, never an empty result: a file, symbol, scope, unit or Git ref that does not exist exits with code 1 and the closest names (`File not found: src/servce.ts. Did you mean: src/service.ts?`). A file is suggested only with the same extension and a close base name (at most one edit per three characters of the name without its extension, at least one; swapping two adjacent letters counts as one), or under the same name in another folder; `flow.json` never suggests `COM.json`, and with no close file the error names none. The same rule applies to `context` seeds and the MCP `graph_context` `seeds`.
 
 ---
 
@@ -332,7 +332,7 @@ The palette lists canonical commands only, grouped by intent. Aliases still work
 | Workspace | `/scan` | Force a workspace indexing scan |
 | Output | `/format` | Set preferred output format for the session |
 | Output | `/export` | Export dependency graph as standalone HTML (vis.js). Optional `--output <path>` / `-o <path>`. Scope: active file context → workspace scope (set via `/scope`) → full workspace |
-| Output | `/diagram` | Write a static architecture diagram, as [`diagram`](#diagram) with the same flags. `[dir]` resolves against the `/scope` directory (Tab completes it); without it or `--folder`, a narrowed `/scope` is drawn, else the units. Runs in its own `--format` (`html`, `svg` or `diagram-spec`), not the session one; `--output -` is refused |
+| Output | `/diagram` | Write a static architecture diagram, a flow or a sequence of `<file#symbol>` (`--view flow\|sequence`), or redraw an annotated spec (`--spec <file.json>`), as [`diagram`](#diagram) with the same flags. `[dir]` resolves against the `/scope` directory (Tab completes it); without it or `--folder`, a narrowed `/scope` is drawn, else the units. Runs in its own `--format` (`html`, `svg`, `diagram-spec`, or `mermaid` for a sequence), not the session one; `--output -` is refused |
 | Output | `/wiki` | Generate a navigable markdown wiki from the call graph |
 | Session | `/help` | Show REPL command help |
 | Session | `/mouse on\|off` | Turn mouse tracking on or off (off by default, see [Results navigation](#results-navigation)) |
@@ -1261,7 +1261,7 @@ Past a bound, a note under the diagram counts the calls left out and gives the o
 `--spec <file.json>` draws a spec written by `--format diagram-spec` (a flow, a sequence or an architecture level) again, after an agent or a person rewrote its texts in plain language. Graph-It-Live stays the source of truth: the command rebuilds the same spec from the current index, compares the two field by field, and takes only these texts from the file.
 
 ```bash
-graph-it diagram --spec <file.json> [--format svg|html|diagram-spec] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
+graph-it diagram --spec <file.json> [--format svg|html|diagram-spec|mermaid] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
 ```
 
 | Spec | Texts that may change | Everything else |
@@ -2001,7 +2001,7 @@ graph-it export --communities louvain --output - > graph.html
 
 ### tool
 
-Invoke any of the 19 MCP analysis tools by name (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)). The other six MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
+Invoke any of the 20 MCP analysis tools by name (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)). The other five MCP tools have dedicated CLI equivalents or are covered by `--workspace`.
 
 ```
 graph-it tool <name> [--<param>=<value> | --<param> <value>...] [options]
@@ -2015,7 +2015,7 @@ graph-it tool <name> --args '<json>'
 | Argument | Description |
 |----------|-------------|
 | `<name>` | MCP tool name (see `--list`) |
-| `--list` | Print all 22 available tools with one-line descriptions |
+| `--list` | Print all 20 available tools with one-line descriptions |
 
 **Options:**
 
@@ -2056,6 +2056,7 @@ Available MCP tools:
   scan_dead_code               Lists the unused exported symbols across a whole workspace or directory.
   explore_architecture         Explores the workspace architecture step by step: groups, one group's boundary, then the file pairs behind a group edge.
   check_architecture           Checks the workspace imports against the architecture rules declared in graphit.architecture.json.
+  export_architecture_diagram  Draws a static architecture diagram of the workspace (units, one unit or folder's groups, or their dependency matrix), or the call flow or call sequence of one entry symbol, as SVG or self-contained HTML (a sequence also as Mermaid text), or returns its data as a diagram spec.
 ```
 
 **Calling a tool with parameters:**
@@ -2257,7 +2258,7 @@ Requires an active internet connection and `npm` in `PATH`. The versions and pro
 
 ## MCP Tools Reference (via `graph-it tool`)
 
-The `graph-it tool` command invokes the 19 MCP analysis tools by name. The MCP server exposes 25 tools in total; the six that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `export_architecture_diagram` → `diagram`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace` (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
+The `graph-it tool` command invokes the 20 MCP analysis tools by name. The MCP server exposes 25 tools in total; the five that `graph-it tool` does not list have dedicated CLI equivalents: `review_pr` → `review-pr`, `query_natural_language` → `query`, `generate_wiki` → `wiki`, `get_session_stats` → `stats`, and `set_workspace` → `--workspace`. `export_architecture_diagram` is listed too, and [`diagram`](#diagram) is its dedicated command (see [Tool Count: CLI vs MCP](#tool-count-cli-vs-mcp)).
 
 ### Tool Details
 
@@ -2538,6 +2539,8 @@ Pass `--minConfidence=medium` or `--minConfidence=low` to list more than the def
 | `group` | `group` | the group, its `files`, and its `incoming` / `outgoing` group edges |
 | `from` + `to` | `evidence` | the distinct file `pairs` (`source` imports `target`) behind that group edge; empty when the groups are not linked |
 | `level: "units"` + `from` + `to` (unit keys) | `evidence` | the file `pairs` behind that unit edge, sorted by target then source, with the edge `kind`; `page.total` equals its `fileEdgeCount` |
+| `view: "matrix"` | `matrix` | the dependency structure matrix of the level: rows by layer, non-zero cells paged by `offset`/`limit`, per-row `Ce`/`Ca`/instability with their formula, cycles, as [`architecture --matrix`](#architecture) |
+| `view: "coupling"` | `coupling` | `coupledPairs` (`aToB`, `bToA`, `mutual`, heaviest first) and `bridgingFiles` (files importing into 2 or more other rows), each with up to 3 evidence file pairs, as [`architecture --coupling`](#architecture) |
 | `folder` (with any of the above) | as above | the same views one [folder level](#folder-levels) down, plus `folder` and `nestedGroups`; group ids and `revision` belong to that level |
 
 ```bash
@@ -2546,6 +2549,7 @@ graph-it tool explore_architecture --group=analyzer
 graph-it tool explore_architecture --from=mcp --to=analyzer --limit=20 --offset=20
 graph-it tool explore_architecture --communityMode=louvain
 graph-it tool explore_architecture --level=units
+graph-it tool explore_architecture --view=coupling --level=units
 graph-it tool explore_architecture --level=units --from=apps/web --to=packages/core
 graph-it tool explore_architecture --folder='analyzer' --group='analyzer/community'
 ```
@@ -2754,12 +2758,12 @@ graph-it tool verify_dependency_usage \
 
 ## Tool Count: CLI vs MCP
 
-The CLI exposes **19 tools** via `graph-it tool --list`, and the MCP server provides **25 tools** in total. All 19 CLI tools are MCP analysis tools:
+The CLI exposes **20 tools** via `graph-it tool --list`, and the MCP server provides **25 tools** in total. All 20 CLI tools are MCP analysis tools:
 
 | Context | Tool count | Notes |
 |---------|-----------|-------|
-| `graph-it tool --list` | 19 | 19 shared analysis tools |
-| MCP server (`graph-it serve`) | 25 | 19 shared analysis tools + 6 excluded from `tool --list` (see below) |
+| `graph-it tool --list` | 20 | 20 shared analysis tools |
+| MCP server (`graph-it serve`) | 25 | 20 shared analysis tools + 5 excluded from `tool --list` (see below) |
 
 v1.20.0 removed the five transition aliases that v1.17.0 had already dropped from the MCP server. `graph-it tool <alias>` now exits non-zero and names the replacement:
 
@@ -2772,9 +2776,11 @@ v1.20.0 removed the five transition aliases that v1.17.0 had already dropped fro
 
 The VS Code Language Model tools of the same names (`graph-it-live_get_symbol_callers`, …) are unaffected.
 
-The 6 MCP tools excluded from `tool --list` fall into two groups:
+The 5 MCP tools excluded from `tool --list` fall into two groups:
 
 - **`set_workspace`** — a **server management tool**. It tells a running MCP server instance which directory to analyze. In CLI context this is handled by the `--workspace` flag (or auto-detection from `cwd`), so it is intentionally excluded from the CLI tool list.
-- **`review_pr`, `query_natural_language`, `generate_wiki`, `export_architecture_diagram`, `get_session_stats`** — each has a dedicated, first-class CLI command instead of being invoked generically via `tool`: [`review-pr`](#review-pr), [`query`](#query), [`wiki`](#wiki), [`diagram`](#diagram), [`stats`](#stats).
+- **`review_pr`, `query_natural_language`, `generate_wiki`, `get_session_stats`** — each has a dedicated, first-class CLI command instead of being invoked generically via `tool`: [`review-pr`](#review-pr), [`query`](#query), [`wiki`](#wiki), [`stats`](#stats).
 
-**Summary:** The CLI gives you 100% parity with the MCP tools. Nothing in MCP is unreachable from the CLI — `set_workspace` is redundant in CLI context, and the other 5 tools are exposed via friendlier dedicated commands rather than the generic `tool` invocation.
+`export_architecture_diagram` is in `tool --list` since v1.26.0 and also has its dedicated command, [`diagram`](#diagram).
+
+**Summary:** The CLI gives you 100% parity with the MCP tools. Nothing in MCP is unreachable from the CLI — `set_workspace` is redundant in CLI context, and the other 4 tools are exposed via friendlier dedicated commands rather than the generic `tool` invocation.

@@ -81,7 +81,7 @@ relative paths are also resolved. Inventory checked with `graph-it tool --list`:
 `verify_dependency_usage`, `resolve_module_path`, `get_index_status`, `invalidate_files`,
 `rebuild_index`, `get_symbol_graph`, `find_unused_symbols`, `trace_function_execution`,
 `analyze_breaking_changes`, `get_impact_analysis`, `generate_codemap`, `query_call_graph`,
-`scan_dead_code`, `explore_architecture`, `check_architecture`.
+`scan_dead_code`, `explore_architecture`, `check_architecture`, `export_architecture_diagram`.
 
 ```bash
 graph-it tool analyze_dependencies --filePath=/abs/src/a.ts --format toon
@@ -123,7 +123,8 @@ graph-it architecture --maxFiles 300 --format toon             # cap analyzed fi
 
 Step by step instead of the whole graph: `graph-it tool explore_architecture` (summary), then
 `--group=<key>` (files and boundary), then `--from=<key> --to=<key>` (file pairs, paged by
-`--limit`/`--offset`). It returns TOON by default (`--response_format`).
+`--limit`/`--offset`). `--view=matrix` or `--view=coupling` returns the whole level's matrix or
+its most coupled pairs and bridging files. It returns TOON by default (`--response_format`).
 
 When `graphit.architecture.json` declares rules, `graph-it check-architecture --format toon` checks
 every static import. It exits 1 on an `error` violation absent from
@@ -165,13 +166,23 @@ the workspace; `--output -` prints it.
 (1-based) picks one of several homonyms; formats svg, html, diagram-spec (`kind: "flow"`). MCP:
 `export_architecture_diagram` with `view: "flow"`, `filePath`, `symbolName`, `startLine`, `maxSteps`.
 
-To explain a flow or a level in plain language (CLI 1.26.0 or later): export it with
+`graph-it diagram --view sequence <file#symbol>` draws the same calls as a UML sequence: one lifeline
+per file (`--participants class` for one per class), one message per call in call order, activation
+bars, and `alt`/`opt`/`loop`/`catch` fragments with their guards; `--depth` and `--maxMessages`
+(up to 60) bound it, `--startLine` picks a homonym. Formats svg, html, diagram-spec
+(`kind: "sequence"`) and `mermaid` (a `sequenceDiagram` GitHub renders in a PR or README; `mermaid`
+is refused for every other view). MCP: `view: "sequence"`, plus `diagramFormat: "mermaid"`.
+
+To explain a flow, a sequence or a level in plain language (CLI 1.26.0 or later): export it with
 `--format diagram-spec --output x.json`, rewrite only its texts (flow: `nodes[].title`,
-`nodes[].subtitle`, `edges[].label`, `caption.title`, `caption.caption`; level: `nodes[].label`,
+`nodes[].subtitle`, `edges[].label`, `caption.title`, `caption.caption`; sequence:
+`participants[].title`, `messages[].label`, `fragments[].operands[].guard`, `caption.title`,
+`caption.caption`; level: `nodes[].label`,
 `caption.title`, `caption.caption`), then `graph-it diagram --spec x.json --format svg --output y.svg`
 (MCP: `spec`). Never add, remove or rename a node or edge, nor change lanes, lines or counts: the spec
 is compared with the current index and any other change fails with its JSON path. `--spec` takes no
-`--view`, `--folder`, dir, `file#symbol`, `--maxSteps` or `--startLine`; pass the export's `--rules`
+`--view`, `--folder`, dir, `file#symbol`, `--maxSteps`, `--depth`, `--maxMessages`, `--participants`
+or `--startLine`; pass the export's `--rules`
 flags for a level. Keep titles under 32 characters, edge labels under 20: longer ones are cut and named.
 
 For a polished or branded diagram, pass the `diagram-spec` JSON (add `--rules`, `--folder <key>`) to

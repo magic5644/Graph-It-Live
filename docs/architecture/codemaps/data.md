@@ -401,7 +401,7 @@ type McpToolName =
   | "generate_wiki"          // Navigable Markdown wiki from the call graph index
   | "explore_architecture"  // Grouped architecture summary, group boundary, edge evidence
   | "check_architecture"   // Declared architecture rules checked against the imports
-  | "export_architecture_diagram"; // Static architecture diagram as SVG or HTML
+  | "export_architecture_diagram"; // Static architecture, flow or sequence diagram (SVG, HTML, spec, Mermaid)
 
 interface McpToolRequest {
   toolName: McpToolName;

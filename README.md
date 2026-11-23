@@ -330,9 +330,10 @@ graph-it explain <file>               Explain intra-file call flow
 graph-it path <file>                  Show a dependency path
 graph-it check [path]                 Find unused exported symbols
 graph-it architecture --groups        Show the workspace architecture by folder or community
+graph-it architecture --coupling      List the most coupled pairs and the files bridging them
 graph-it init                         Generate graphit.architecture.json from the current code, plus quick wins
 graph-it check-architecture           Check imports against graphit.architecture.json
-graph-it diagram                      Write a static architecture diagram or one symbol's call flow (SVG, HTML or diagram spec)
+graph-it diagram                      Write a static architecture diagram, or one symbol's flow or sequence (SVG, HTML, diagram spec, Mermaid)
 graph-it query "<question>"           Ask a natural-language graph question
 graph-it context "<question>"         Retrieve bounded graph context
 graph-it wiki                         Generate a navigable Markdown wiki
@@ -341,7 +342,7 @@ graph-it export [path]                Export the graph as HTML
 graph-it --help                       Show all commands and options
 ```
 
-Analysis commands support `--format json|toon|markdown`. `trace`, `path` and `architecture` also support `--format mermaid`, `architecture --matrix` supports `--format csv`, `check-architecture` and `review-pr` support `--format sarif`, and `diagram` writes `--format svg|html|diagram-spec` (the last for a diagram skill). Use `--workspace <path>` or `-w` to analyze a project other than the current directory. Outside a project (no `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `*.csproj` or other supported marker at or above the current directory), the CLI exits with code `3`; the MCP server (`graph-it serve`, the plugins) starts without indexing, and its tools ask for `graphitlive_set_workspace` or `WORKSPACE_ROOT`.
+Analysis commands support `--format json|toon|markdown`. `trace`, `path` and `architecture` also support `--format mermaid`, `architecture --matrix` supports `--format csv`, `check-architecture` and `review-pr` support `--format sarif`, and `diagram` writes `--format svg|html|diagram-spec` (the last for a diagram skill), plus `mermaid` for `--view sequence`; `diagram --spec <file.json>` redraws a spec whose texts an agent rewrote. Use `--workspace <path>` or `-w` to analyze a project other than the current directory. Outside a project (no `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, `*.csproj` or other supported marker at or above the current directory), the CLI exits with code `3`; the MCP server (`graph-it serve`, the plugins) starts without indexing, and its tools ask for `graphitlive_set_workspace` or `WORKSPACE_ROOT`.
 
 See the [complete CLI reference](docs/CLI.md), including installation troubleshooting, REPL commands, output formats, and tool details.
 
