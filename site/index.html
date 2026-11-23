@@ -482,12 +482,13 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
     <div class="shot rev rv" style="margin-bottom:64px">
       <div class="shot-txt">
         <h3>See how a function runs, step by step</h3>
-        <p>Right-click a function in the editor and run <em>Show Flow Diagram (Symbol at Cursor)</em>: the Dependency Graph view draws its calls in order, one column per step, one row per lane (main, alternative, error). The <em>Seq</em> tab draws the same calls as a sequence diagram. On the command line, run <code>graph-it diagram --view flow</code> or <code>--view sequence</code> with <code>file#symbol</code>.</p>
+        <p>Put the cursor in a function and click the <em>Flow</em> tab of the Dependency Graph view (or right-click and run <em>Show Flow Diagram (Symbol at Cursor)</em>): it draws its calls in order, one column per step, one row per lane (main, alternative, error). The <em>Seq</em> tab draws the same calls as a sequence diagram. On the command line, run <code>graph-it diagram --view flow</code> or <code>--view sequence</code> with <code>file#symbol</code>.</p>
         <ul>
           <li>Flow lanes read from the call sites: a branch that returns, a <code>catch</code> or a throw</li>
           <li>Sequence lifelines per file or class, activation bars, <code>alt</code>, <code>opt</code>, <code>loop</code> and <code>catch</code> fragments with their guards</li>
           <li><code>--format mermaid</code> for a sequence GitHub renders in a pull request</li>
           <li>Click a step to open its declaration, a call to open its call site; <em>Follow cursor</em> redraws as you move</li>
+          <li>Wheel, pinch and drag to zoom and pan, from 10% to 400%; <em>Fit</em> and <em>100%</em> one click away</li>
           <li><code>graph-it diagram --spec</code> redraws a diagram spec whose texts your agent rewrote in plain language, checked against the index</li>
         </ul>
       </div>
