@@ -125,6 +125,7 @@ export function diagramShownReport(root: ParentNode = document): DiagramShownCom
     banner: textOf(root.querySelector("output[data-unit-cap]")),
     focused: active && active !== document.body ? active.getAttribute("aria-label") ?? (active as HTMLElement).dataset?.tab ?? textOf(active) : undefined,
     flowRequestId: requestId === undefined ? undefined : Number(requestId),
+    flowZoom: Number(root.querySelector<HTMLElement>("figure[data-flow-zoom]")?.dataset.flowZoom) || undefined,
     flowButtons: Array.from(root.querySelectorAll("button[data-flow-node], button[data-flow-edge]"), (element) => element.getAttribute("aria-label") ?? ""),
     flowLine: textOf(root.querySelector("output[data-flow-line]")),
     flowBusy: root.querySelector('[data-testid="flow-diagram"][aria-busy="true"]') !== null,

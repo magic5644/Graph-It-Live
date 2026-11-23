@@ -379,6 +379,7 @@ All options and output fields: [`architecture`](CLI.md#architecture), [`check-ar
 | List an edge's file pairs | Click the edge | — |
 | Selection actions | Action bar (bottom left), or right-click | *Tab* to the action bar |
 | Fit, zoom in, zoom out | Buttons (bottom right) | *0*, *+*, *-* |
+| Zoom and pan *Flow* and *Seq* | Wheel or pinch zooms around the pointer, drag pans; buttons *Fit*, *100%*, *+*, *−* (bottom right) | *0*, *+*, *-* on a focused step, lifeline or call |
 | Switch diagram | Tabs *Units \| Folder \| Matrix \| Flow \| Seq* (sequence); commands *Show Diagram…*, *Show Flow Diagram (Symbol at Cursor)*, *Show Folder Diagram* | Arrow keys between tabs |
 | Move in the matrix | Click a cell or row header | Arrow keys, *Enter* on a row header |
 | Find a group | *Find group* box | — |
@@ -391,6 +392,8 @@ All options and output fields: [`architecture`](CLI.md#architecture), [`check-ar
 The tabs are the `graph-it diagram --view` names. *Units* draws the units; past 60 units it draws the 60 the export draws and says *Showing 60 of N units*, with *Open matrix* and *Show list*. *Folder* returns to the last unit or folder entered (double-click a unit to enter it). *Matrix* is the matrix of the drawn level. *Flow* shows the call flow of one symbol, drawn by the same renderer as `graph-it diagram --view flow`; a tab that cannot be shown yet stays visible, greyed, and its tooltip says why. Without a workspace folder, only *Flow* can be shown.
 
 In *Flow*, *Tab* enters the steps, then the calls; *Right arrow* follows the step's first call, *Left arrow* goes back to its caller, *Down* and *Up* go to the nearest step of the next or previous lane; *Enter* opens the step's file at its line, or a call at its call site; *Escape* returns to the tabs. Each step's name says its lane: the lane is never shown by colour alone. The breadcrumb (*workspace › folder › file › symbol*) re-scopes the diagram. *Follow cursor* (off by default, on the *Flow* and *Folder* tabs) redraws the diagram for the cursor's symbol or folder; a breadcrumb click turns it off.
+
+*Flow* and *Seq* zoom from 10% to 400%. A new diagram, or another symbol, opens fitted: the whole diagram in the panel, never above 100%. A redraw of the same symbol on the same tab (theme change, *Refresh*, a return to the tab) keeps the zoom and position. The steps, lifelines and calls stay clickable at every zoom. The zoom never changes an export (SVG, HTML, PNG, clipboard): it is the CLI's diagram at its drawn size.
 
 A screen reader announces the selected group's name, layer, edges and cycle.
 

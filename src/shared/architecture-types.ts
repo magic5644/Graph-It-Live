@@ -267,8 +267,8 @@ export interface ArchitectureControlsMessage {
   revealFile?: string;
   /** Clears the dependents highlight and panel. */
   clearDependents?: boolean;
-  /** Clicks this zoom control of the canvas overlay. */
-  zoom?: "fit" | "in" | "out";
+  /** Clicks this zoom control of the shown canvas or Flow and Sequence diagram (reset: 100%, Flow and Sequence only). */
+  zoom?: "fit" | "in" | "out" | "reset";
   /** Focuses the canvas, then presses these keys on it, one after the other (keyboard navigation). */
   keys?: string[];
   /** Clicks this unit in the units legend (it is selected and centred). */
@@ -799,6 +799,8 @@ export interface DiagramShownCommand {
   focused?: string;
   /** requestId of the flow drawn on the Flow tab. */
   flowRequestId?: number;
+  /** Zoom of the drawn Flow or Sequence diagram (1 = 100%). */
+  flowZoom?: number;
   /** Accessible names of the Flow tab's step and call buttons, and its one-line state (empty, error, stale). */
   flowButtons: string[];
   flowLine?: string;

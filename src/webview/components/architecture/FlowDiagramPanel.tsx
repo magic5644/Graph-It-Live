@@ -2,12 +2,13 @@
  * The Flow tab: the analyzer's SVG (the CLI's bytes) as an `<img>`, never injected as markup
  * (its `<style>` would leak into the webview), with a transparent button over each step box and
  * each call label. The buttons are the click targets and the keyboard list; their names come
- * from the extension verbatim.
+ * from the extension verbatim. The image and its buttons zoom and pan together (wheel, drag, toolbar, keys).
  */
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { FlowDiagramMessage, FlowDiagramNode, FlowDiagramStateMessage } from "../../../shared/architecture-types";
 import { LoadingState } from "../LoadingState";
 import { DIAGRAM_FOCUS_CLASS } from "./DiagramTabs";
+import { applyZoom, fitView, type Size, wheelZoom, ZOOM_KEYS, type ZoomAction, ZoomControls, type ZoomView } from "./ZoomControls";
 
 export interface FlowState {
   flow: FlowDiagramMessage | null;
@@ -110,6 +111,71 @@ export interface FlowDiagramPanelProps {
   /** Escape: back to the tab strip. */
   onEscape: () => void;
   panelRef?: React.RefObject<HTMLDivElement | null>;
+  /** The zoom of the last entry drawn, kept by the view across tab switches: a redraw of that entry opens with it. */
+  zoomMemory?: React.RefObject<FlowZoomMemory | null>;
+  /** After each zoom or pan (E2E report). */
+  onZoomed?: () => void;
+}
+
+export interface FlowZoomMemory {
+  key: string;
+  view: ZoomView;
+}
+
+/** One entry on one tab: Flow and Sequence of the same symbol are two diagrams. */
+export const flowEntryKey = (flow: Pick<FlowDiagramMessage, "view" | "entry">) => `${flow.view}\n${flow.entry}`;
+
+/** Pointer moves shorter than this, in pixels, stay a click on a step or call. */
+const DRAG_THRESHOLD = 3;
+
+/**
+ * Wheel and pinch zoom around the pointer, a drag pans, 0 + - zoom from a focused step or call, and a fitted
+ * diagram fits again when the panel resizes. `content` is the drawn diagram's size. Returns the detach.
+ */
+export function attachPanZoom(viewport: HTMLElement, setView: React.Dispatch<React.SetStateAction<ZoomView>>, content: () => Size | null): () => void {
+  const panel = () => ({ width: viewport.clientWidth, height: viewport.clientHeight });
+  let drag: { pointer: number; x: number; y: number; moved: boolean } | null = null;
+  const wheel = (event: WheelEvent) => {
+    event.preventDefault();
+    const box = viewport.getBoundingClientRect();
+    setView((view) => wheelZoom(view, event.deltaY, { x: event.clientX - box.left, y: event.clientY - box.top }));
+  };
+  const key = (event: KeyboardEvent) => {
+    const action = ZOOM_KEYS[event.key];
+    const size = content();
+    if (!action || !size || event.ctrlKey || event.metaKey || event.altKey) return;
+    event.preventDefault();
+    setView((view) => applyZoom(view, action, size, panel()));
+  };
+  const down = (event: PointerEvent) => {
+    drag = event.button === 0 ? { pointer: event.pointerId, x: event.clientX, y: event.clientY, moved: false } : null;
+  };
+  const move = (event: PointerEvent) => {
+    if (drag?.pointer !== event.pointerId) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < DRAG_THRESHOLD) return;
+    // Captured, the click that ends the drag goes to the viewport: a pan never opens the step it started on.
+    if (!drag.moved) viewport.setPointerCapture(event.pointerId);
+    drag = { ...drag, x: event.clientX, y: event.clientY, moved: true };
+    setView((view) => ({ zoom: view.zoom, x: view.x + dx, y: view.y + dy }));
+  };
+  const up = () => { drag = null; };
+  const refit = () => setView((view) => {
+    const size = content();
+    return view.fitted && size ? fitView(size, panel()) : view;
+  });
+  const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(refit);
+  observer?.observe(viewport);
+  const listeners: [string, EventListener, AddEventListenerOptions?][] = [
+    ["wheel", wheel as EventListener, { passive: false }], ["keydown", key as EventListener], ["pointerdown", down as EventListener],
+    ["pointermove", move as EventListener], ["pointerup", up], ["pointercancel", up],
+  ];
+  for (const [type, listener, options] of listeners) viewport.addEventListener(type, listener, options);
+  return () => {
+    observer?.disconnect();
+    for (const [type, listener] of listeners) viewport.removeEventListener(type, listener);
+  };
 }
 
 function FlowStatus({ state, onRefresh, onShowCallGraph, onDrawCandidate, onDrawAtCursor }: Readonly<Pick<FlowDiagramPanelProps, "state" | "onRefresh" | "onShowCallGraph" | "onDrawCandidate" | "onDrawAtCursor">>) {
@@ -161,20 +227,38 @@ function FlowStatus({ state, onRefresh, onShowCallGraph, onDrawCandidate, onDraw
   return null;
 }
 
-export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, onDrawCandidate, onDrawAtCursor, onEscape, panelRef }: Readonly<FlowDiagramPanelProps>) {
+export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, onDrawCandidate, onDrawAtCursor, onEscape, panelRef, zoomMemory, onZoomed }: Readonly<FlowDiagramPanelProps>) {
   const { flow, status } = state;
-  const imageRef = useRef<HTMLImageElement>(null);
+  const drawn = flow !== null && status?.status !== "empty";
+  const viewportRef = useRef<HTMLDivElement>(null);
   const nodeRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const [scale, setScale] = useState(1);
-  useEffect(() => {
-    const image = imageRef.current;
-    if (!image || !flow) return;
-    const measure = () => setScale(image.clientWidth > 0 ? image.clientWidth / flow.width : 1);
-    measure();
-    const observer = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
-    observer?.observe(image);
-    return () => observer?.disconnect();
+  const remembered = flow && zoomMemory?.current?.key === flowEntryKey(flow) ? zoomMemory.current.view : null;
+  const [view, setView] = useState<ZoomView>(remembered ?? { zoom: 1, x: 0, y: 0, fitted: true });
+  const keyRef = useRef(remembered && flow ? flowEntryKey(flow) : "");
+  const flowRef = useRef(flow);
+  const onZoomedRef = useRef(onZoomed);
+  onZoomedRef.current = onZoomed;
+  const panelSize = () => ({ width: viewportRef.current?.clientWidth ?? 0, height: viewportRef.current?.clientHeight ?? 0 });
+  // Another entry opens fitted, and so does a redraw the user has not zoomed; a redraw of the same entry keeps the zoom.
+  useLayoutEffect(() => {
+    flowRef.current = flow;
+    if (!flow) return;
+    const key = flowEntryKey(flow);
+    const sameEntry = key === keyRef.current;
+    const fitted = fitView(flow, panelSize());
+    setView((current) => (sameEntry && !current.fitted ? current : fitted));
+    keyRef.current = key;
   }, [flow]);
+  useEffect(() => (viewportRef.current ? attachPanZoom(viewportRef.current, setView, () => flowRef.current) : undefined), [drawn]);
+  useEffect(() => {
+    if (!flow) return;
+    if (zoomMemory) zoomMemory.current = { key: flowEntryKey(flow), view };
+    onZoomedRef.current?.();
+  }, [flow, view, zoomMemory]);
+  const zoom = (action: ZoomAction) => {
+    if (flow) setView((current) => applyZoom(current, action, flow, panelSize()));
+  };
+  const scale = view.zoom;
   const nodeKey = (index: number) => (event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -192,40 +276,47 @@ export function FlowDiagramPanel({ state, onOpen, onRefresh, onShowCallGraph, on
     onEscape();
   };
   return (
-    <div ref={panelRef} data-testid="flow-diagram" aria-busy={status?.status === "loading"} style={{ position: "absolute", inset: 0, overflow: "auto", padding: "4px 10px", fontSize: 12 }}>
+    <div
+      ref={panelRef} data-testid="flow-diagram" aria-busy={status?.status === "loading"}
+      style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", padding: "4px 10px", fontSize: 12 }}
+    >
       <FlowStatus state={state} onRefresh={onRefresh} onShowCallGraph={onShowCallGraph} onDrawCandidate={onDrawCandidate} onDrawAtCursor={onDrawAtCursor} />
-      {flow && status?.status !== "empty" && (
-        <figure style={{ position: "relative", margin: 0 }}>
-          <img
-            ref={imageRef} data-request-id={flow.requestId} src={flowDataUrl(flow.svg)} alt={`${flow.title}. ${flow.caption}. ${flow.counts}.`}
-            style={{ display: "block", width: "100%", maxWidth: flow.width }}
-          />
-          <fieldset aria-label={flow.view === "sequence" ? "Sequence lifelines" : "Flow steps"} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
-            {flow.nodes.map((node, index) => (
-              <button
-                key={node.id} type="button" data-flow-node={index} className={DIAGRAM_FOCUS_CLASS}
-                ref={(element) => { nodeRefs.current[index] = element; }}
-                aria-label={node.name} title={node.name} onClick={() => onOpen("node", index)} onKeyDown={nodeKey(index)}
-                style={{ ...hitStyle, left: node.x * scale, top: node.y * scale, width: node.width * scale, height: node.height * scale }}
-              />
-            ))}
-          </fieldset>
-          <fieldset aria-label={flow.view === "sequence" ? "Sequence calls" : "Flow calls"} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
-            {flow.edges.map((edge, index) => {
-              const halfWidth = (edge.label.text.length * LABEL_CHAR_WIDTH) / 2 + 4;
-              return (
+      {flow && drawn && (
+        <div ref={viewportRef} data-flow-viewport style={{ position: "relative", flex: 1, minHeight: 0, overflow: "hidden", touchAction: "none", cursor: "grab" }}>
+          <figure data-flow-zoom={Math.round(scale * 1000) / 1000} style={{ position: "absolute", left: view.x, top: view.y, margin: 0 }}>
+            {/* Sized, not CSS-scaled: the SVG is drawn again at each zoom and stays sharp. */}
+            <img
+              data-request-id={flow.requestId} src={flowDataUrl(flow.svg)} alt={`${flow.title}. ${flow.caption}. ${flow.counts}.`} draggable={false}
+              style={{ display: "block", width: flow.width * scale, height: flow.height * scale, maxWidth: "none" }}
+            />
+            <fieldset aria-label={flow.view === "sequence" ? "Sequence lifelines" : "Flow steps"} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
+              {flow.nodes.map((node, index) => (
                 <button
-                  key={`${edge.from}>${edge.to}@${edge.line}#${index}`} type="button" data-flow-edge={index} className={DIAGRAM_FOCUS_CLASS}
-                  aria-label={edge.name} title={edge.name} onClick={() => onOpen("edge", index)} onKeyDown={escapeOnly}
-                  style={{
-                    ...hitStyle, left: (edge.label.x - halfWidth) * scale, top: (edge.label.y - LABEL_HALF_HEIGHT) * scale,
-                    width: halfWidth * 2 * scale, height: LABEL_HALF_HEIGHT * 2 * scale,
-                  }}
+                  key={node.id} type="button" data-flow-node={index} className={DIAGRAM_FOCUS_CLASS}
+                  ref={(element) => { nodeRefs.current[index] = element; }}
+                  aria-label={node.name} title={node.name} onClick={() => onOpen("node", index)} onKeyDown={nodeKey(index)}
+                  style={{ ...hitStyle, left: node.x * scale, top: node.y * scale, width: node.width * scale, height: node.height * scale }}
                 />
-              );
-            })}
-          </fieldset>
-        </figure>
+              ))}
+            </fieldset>
+            <fieldset aria-label={flow.view === "sequence" ? "Sequence calls" : "Flow calls"} style={{ border: "none", margin: 0, padding: 0, minWidth: 0 }}>
+              {flow.edges.map((edge, index) => {
+                const halfWidth = (edge.label.text.length * LABEL_CHAR_WIDTH) / 2 + 4;
+                return (
+                  <button
+                    key={`${edge.from}>${edge.to}@${edge.line}#${index}`} type="button" data-flow-edge={index} className={DIAGRAM_FOCUS_CLASS}
+                    aria-label={edge.name} title={edge.name} onClick={() => onOpen("edge", index)} onKeyDown={escapeOnly}
+                    style={{
+                      ...hitStyle, left: (edge.label.x - halfWidth) * scale, top: (edge.label.y - LABEL_HALF_HEIGHT) * scale,
+                      width: halfWidth * 2 * scale, height: LABEL_HALF_HEIGHT * 2 * scale,
+                    }}
+                  />
+                );
+              })}
+            </fieldset>
+          </figure>
+        <ZoomControls onZoom={zoom} noun="diagram" reset />
+        </div>
       )}
       {status?.status === "loading" && (
         <div style={{ position: "absolute", inset: 0 }}><LoadingState message={status.message ?? "Drawing the flow diagram…"} /></div>
