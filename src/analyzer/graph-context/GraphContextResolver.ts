@@ -7,7 +7,7 @@ import type {
   GraphContextSeed,
   GraphContextSnapshot,
 } from '@/shared/graph-context-types';
-import { closestNames } from '../utils/SymbolLookup';
+import { closestFileNames, closestNames } from '../utils/SymbolLookup';
 import { compileFileScope } from './FileScopeMatcher';
 
 const SCORE_EXACT_ID = 1;
@@ -164,17 +164,19 @@ export function unresolvedSeedMessage(seed: GraphContextSeed, snapshot: GraphCon
     filePath === undefined || (node.path !== undefined && normalizeRelativePath(node.path) === filePath);
   let names: string[];
   let wanted: string;
+  let closest: (candidates: string[], target: string) => string[] = closestNames;
   if (seed.symbolName) {
     names = snapshot.nodes.filter(node => isSymbolNode(node) && inFile(node)).map(node => node.name);
     wanted = seed.symbolName;
   } else if (filePath) {
     names = snapshot.nodes.flatMap(node => (node.kind === 'file' && node.path ? [normalizeRelativePath(node.path)] : []));
     wanted = filePath;
+    closest = closestFileNames;
   } else {
     names = snapshot.nodes.map(node => (seed.id ? node.id : node.name));
     wanted = target;
   }
-  const close = closestNames([...new Set(names)], wanted);
+  const close = closest([...new Set(names)], wanted);
   const hint = close.length > 0 ? ` Did you mean: ${close.join(', ')}?` : '';
   return `Seed not found: ${target}.${hint}`;
 }

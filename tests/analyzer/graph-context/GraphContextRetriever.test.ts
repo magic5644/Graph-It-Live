@@ -209,6 +209,11 @@ describe('GraphContextRetriever golden modes', () => {
     await expect(retriever.retrieve(request)).rejects.toThrow(message);
   });
 
+  it('suggests no seed file with another extension (#803)', async () => {
+    await expect(retriever.retrieve({ mode: 'impact', seeds: [{ filePath: 'src/auth/AuthService.js' }] }))
+      .rejects.toThrow(/^Seed not found: src\/auth\/AuthService\.js\.$/);
+  });
+
   it('ranks direct file impact ahead of transitive dependents', async () => {
     const response = await retriever.retrieve({
       question: 'What is the impact of changing AuthService.ts?',
