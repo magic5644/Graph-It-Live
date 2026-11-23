@@ -59,6 +59,20 @@ describe("receiveFlow", () => {
     expect(receiveFlow(state({ requestId: 4 }), { type: "flowDiagramState", requestId: 4, status: "stale" }).selects).toBe(false);
   });
 
+  // #823: a Flow refusal after a sequence showed on the Seq tab, over that sequence.
+  it("an empty or error state of the other view drops the drawn diagram; of the same view, keeps it", () => {
+    const sequence: FlowDiagramMessage = { ...flow, view: "sequence" };
+    const current: FlowState = { flow: sequence, status: null };
+    for (const status of ["empty", "error"] as const) {
+      const other: FlowDiagramStateMessage = { type: "flowDiagramState", view: "flow", requestId: 5, status };
+      expect(receiveFlow(current, other).next).toEqual({ flow: null, status: other });
+      const same: FlowDiagramStateMessage = { ...other, view: "sequence" };
+      expect(receiveFlow(current, same).next).toEqual({ flow: sequence, status: same });
+    }
+    const stale: FlowDiagramStateMessage = { type: "flowDiagramState", view: "flow", requestId: 5, status: "stale" };
+    expect(receiveFlow(current, stale).next.flow).toBe(sequence);
+  });
+
   it("cancelled drops the loading status, keeps the drawn flow (or none) and never selects", () => {
     const cancelled: FlowDiagramStateMessage = { type: "flowDiagramState", requestId: 6, status: "cancelled" };
     expect(receiveFlow(state({ requestId: 5 }), cancelled)).toEqual({ next: { flow, status: null }, selects: false });

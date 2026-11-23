@@ -39,7 +39,7 @@ suite('Multi-root workspace (#770)', function () {
     try {
       await vscode.commands.executeCommand('graph-it-live.showFlowDiagram');
       // The path is relative to the file's own folder, not to the analyzed one (../first/…).
-      const message = 'format calls 2 symbols, all in maths/index.ts: a Flow step is one file, so no call joins two steps. Use view sequence to see them.';
+      const message = 'format makes 3 calls, all inside maths/index.ts: a Flow step is one file, so no call joins two steps. Use view sequence to see them.';
       const flow = await waitForFlow('the flow refusal of format', state => state.state === 'error', 90_000);
       assert.strictEqual(flow.lastError, message);
       assert.deepStrictEqual(window.messages, [`Graph-It-Live: ${message}`], 'said once');
@@ -49,6 +49,12 @@ suite('Multi-root workspace (#770)', function () {
       const shown = await waitForFlow('the sequence of format', state => state.drawnView === 'sequence' && state.view?.flowRequestId === state.requestId, 90_000);
       assert.deepStrictEqual(shown.edges.map(name => /→ (\w+)/.exec(name)?.[1]), ['mathFix', 'toNumber', 'toNumber'], shown.edges.join(' | '));
       assert.deepStrictEqual(shown.view?.crumbs, ['first', 'maths', 'index.ts', 'format']);
+
+      // The Flow tab from that sequence: the refusal alone, on the Flow tab, not over the sequence.
+      await controls({ tab: 'flow' });
+      const refused = await waitForFlow('the refusal on the Flow tab', state =>
+        state.view?.flowLine === message && state.view.tabs.some(tab => tab.tab === 'flow' && tab.selected), 90_000);
+      assert.deepStrictEqual(refused.view?.flowButtons, [], 'no sequence drawn under the refusal');
     } finally {
       window.restore();
       await controls({ tab: 'units' });
