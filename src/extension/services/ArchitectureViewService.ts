@@ -198,7 +198,7 @@ const CANVAS_KEYS = new Set(["Tab", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowR
 function canvasControls(controls: Omit<ArchitectureControlsMessage, "type"> | undefined): Partial<ArchitectureControlsMessage> {
   const { zoom, keys, legendUnit, cycleCount } = controls ?? {};
   return {
-    zoom: zoom === "fit" || zoom === "in" || zoom === "out" ? zoom : undefined,
+    zoom: zoom === "fit" || zoom === "in" || zoom === "out" || zoom === "reset" ? zoom : undefined,
     keys: Array.isArray(keys) ? keys.filter((key) => CANVAS_KEYS.has(key)).slice(0, 20) : undefined,
     legendUnit: typeof legendUnit === "string" ? legendUnit.slice(0, 256) : undefined,
     cycleCount: cycleCount === true ? true : undefined,

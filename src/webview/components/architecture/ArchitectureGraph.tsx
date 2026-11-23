@@ -86,7 +86,8 @@ import { parseColor, type Rgba, themeKindOf } from "./unitColors";
 import { isExtensionMessageOrigin } from "../../utils/messageOrigin";
 import { DiagramBreadcrumb } from "./DiagramBreadcrumb";
 import { DiagramTabs, diagramShownReport, focusSelectedTab, FollowToggle, largeUnitCycle, UnitCapBanner } from "./DiagramTabs";
-import { drawsAtCursor, FlowDiagramPanel, type FlowState, NO_FLOW, pressFlowKeys, receiveFlow } from "./FlowDiagramPanel";
+import { drawsAtCursor, FlowDiagramPanel, type FlowState, type FlowZoomMemory, NO_FLOW, pressFlowKeys, receiveFlow } from "./FlowDiagramPanel";
+import { ZOOM_KEYS, ZOOM_STEP, type ZoomAction, ZoomControls } from "./ZoomControls";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const fcose = require("cytoscape-fcose") as cytoscape.Ext;
 
@@ -541,20 +542,6 @@ function UnitLegend({ summary, onUnit, legendRef, roleFilter, onRole }: Readonly
   );
 }
 
-/** Fit (0), zoom in (+) and out (-), over the canvas's bottom-right corner. */
-function ZoomControls({ onZoom }: Readonly<{ onZoom: (action: ZoomAction) => void }>) {
-  const control = (action: ZoomAction, text: string, label: string) => (
-    <button type="button" data-zoom={action} aria-label={label} title={label} onClick={() => onZoom(action)} style={{ minWidth: 26 }}>{text}</button>
-  );
-  return (
-    <fieldset aria-label="Zoom controls" style={{ position: "absolute", right: 8, bottom: 8, zIndex: 1, display: "flex", gap: 2, margin: 0, padding: 0, border: "none" }}>
-      {control("fit", "Fit", "Fit the graph (0)")}
-      {control("in", "+", "Zoom in (+)")}
-      {control("out", "−", "Zoom out (-)")}
-    </fieldset>
-  );
-}
-
 /** Over the canvas: the zoom controls, the units legend, and why a level without edges draws no line. */
 function CanvasOverlays({ summary, drawn, unitsLevel, view, legendRef, onZoom, onUnit, roleFilter, onRole }: Readonly<{
   summary: ArchitectureSummaryMessage;
@@ -571,7 +558,7 @@ function CanvasOverlays({ summary, drawn, unitsLevel, view, legendRef, onZoom, o
   const noEdges = view === "graph" && drawn.groups.length > 1 && drawn.groupEdges.length === 0;
   return (
     <>
-      <ZoomControls onZoom={onZoom} />
+      <ZoomControls onZoom={onZoom} noun="graph" />
       {unitsLevel && <UnitLegend summary={summary} legendRef={legendRef} onUnit={onUnit} roleFilter={roleFilter} onRole={onRole} />}
       {noEdges && (
         <output style={{ position: "absolute", left: 0, right: 0, bottom: 40, textAlign: "center", fontSize: 12, pointerEvents: "none", color: "var(--vscode-descriptionForeground)" }}>
@@ -581,10 +568,6 @@ function CanvasOverlays({ summary, drawn, unitsLevel, view, legendRef, onZoom, o
     </>
   );
 }
-
-type ZoomAction = "fit" | "in" | "out";
-const ZOOM_KEYS: Record<string, ZoomAction> = { "0": "fit", "+": "in", "=": "in", "-": "out" };
-const ZOOM_STEP = 1.25;
 
 const SEVERITY_COLOR = { error: "var(--vscode-errorForeground)", warning: "var(--vscode-editorWarning-foreground)", off: undefined } as const;
 
@@ -1260,6 +1243,8 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
   /** The last folder level drawn: the Folder tab returns to it. */
   const [lastFolder, setLastFolder] = useState<{ unit: string; folders: readonly string[] } | null>(null);
   const flowPanelRef = useRef<HTMLDivElement>(null);
+  /** The Flow or Sequence zoom of the last entry drawn: kept across tab switches and redraws of that entry. */
+  const flowZoomRef = useRef<FlowZoomMemory | null>(null);
   /** The summary, or the entered folder's level shaped as one. */
   const source = useMemo(() => {
     const level = folder === undefined ? undefined : levelsRef.current.get(folder);
@@ -1635,13 +1620,13 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     cy.fit(block, 30);
     showFocus(cy, block.children(), post);
   };
-  /** Fit the whole level, zoom in or out around the centre. */
+  /** Fit the whole level, 100%, zoom in or out around the centre. */
   const zoom = (action: ZoomAction) => {
     const cy = cyRef.current;
     if (!cy) return;
     if (action === "fit") fitAll(cy, true);
     else {
-      const level = cy.zoom() * (action === "in" ? ZOOM_STEP : 1 / ZOOM_STEP);
+      const level = action === "reset" ? 1 : cy.zoom() * (action === "in" ? ZOOM_STEP : 1 / ZOOM_STEP);
       cy.zoom({ level: Math.min(cy.maxZoom(), Math.max(cy.minZoom(), level)), renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
     }
     showFocus(cy, pinnedRef.current ?? cy.collection(), post);
@@ -1829,7 +1814,9 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
     (unitKey ? Array.from(cyRef.current?.nodes() ?? []).find((node) => node.data("unitKey") === unitKey)?.data("groupId") : undefined);
   /** E2E driver: real clicks on the zoom controls, the legend and the cycle count; keys pressed on the focused canvas. */
   const controlCanvas = ({ zoom: action, keys, legendUnit: key, cycleCount }: ArchitectureControlsMessage) => {
-    if (action) document.querySelector<HTMLButtonElement>(`[aria-label="Zoom controls"] button[data-zoom="${action}"]`)?.click();
+    // The canvas's zoom controls stay in the DOM under the Flow tab: click the shown ones.
+    const zoomScope = flowShownRef.current ? flowPanelRef.current : document;
+    if (action) zoomScope?.querySelector<HTMLButtonElement>(`[aria-label="Zoom controls"] button[data-zoom="${action}"]`)?.click();
     if (key !== undefined) document.querySelector<HTMLButtonElement>(`[aria-label="Units"] button[data-unit="${CSS.escape(key)}"]`)?.click();
     if (cycleCount) document.querySelector<HTMLButtonElement>("button[data-cycle-count]")?.click();
     const container = containerRef.current;
@@ -2521,7 +2508,7 @@ export function ArchitectureGraph({ postMessage }: Readonly<ArchitectureGraphPro
         )}
         {flowShown && (
           <FlowDiagramPanel
-            state={flowState} panelRef={flowPanelRef}
+            state={flowState} panelRef={flowPanelRef} zoomMemory={flowZoomRef} onZoomed={() => reportShownRef.current()}
             onOpen={(kind, index) => actionsRef.current.openFlow(kind, index)}
             onRefresh={() => actionsRef.current.postFlow((requestId) => ({ command: "flowRefresh", requestId }))}
             onShowCallGraph={() => actionsRef.current.postFlow((requestId) => ({ command: "flowShowCallGraph", requestId }))}

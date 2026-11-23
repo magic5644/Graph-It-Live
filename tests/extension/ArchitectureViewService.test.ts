@@ -1093,6 +1093,9 @@ describe("ArchitectureViewService", () => {
     // Canvas controls: zoom actions, navigation keys (at most 20), a legend unit and the cycle count, nothing else.
     service.setControls({ zoom: "fit", keys: ["Tab", "ArrowDown", "Enter", "x", "Delete"], legendUnit: "src", cycleCount: true });
     expect(posted.at(-1)).toMatchObject({ zoom: "fit", keys: ["Tab", "ArrowDown", "Enter"], legendUnit: "src", cycleCount: true });
+    // 100%: the Flow and Sequence diagrams' control.
+    service.setControls({ zoom: "reset" });
+    expect(posted.at(-1)).toMatchObject({ zoom: "reset" });
     service.setControls({ zoom: "spin", keys: "ArrowDown", legendUnit: 3, cycleCount: "yes" } as never);
     expect(posted.at(-1)).toMatchObject({ zoom: undefined, keys: undefined, legendUnit: undefined, cycleCount: undefined });
     service.setControls({ keys: Array.from({ length: 30 }, () => "0") });

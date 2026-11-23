@@ -1893,6 +1893,24 @@ describe("ArchitectureGraph", () => {
         expect(lastOf(postMessage, "flowOpenLocation")).toEqual({ command: "flowOpenLocation", requestId: 3, target: { kind: "node", index: 0 } });
       });
 
+      // #826: the driver's zoom clicks the Flow tab's controls, not the hidden canvas's; the zoom survives a tab switch.
+      it("zooms the shown Flow diagram, reports it, and keeps it across a tab switch", async () => {
+        const postMessage = await setup();
+        drawFlow();
+        cy.instance.zoom.mockClear();
+        send({ type: "architectureControls", zoom: "in" });
+        const figure = () => document.querySelector<HTMLElement>("figure[data-flow-zoom]")!;
+        expect(figure().dataset.flowZoom).toBe("1.25");
+        expect(cy.instance.zoom).not.toHaveBeenCalledWith(expect.objectContaining({ level: expect.any(Number) }));
+        expect(lastOf(postMessage, "diagramShown")).toMatchObject({ flowZoom: 1.25 });
+        fireEvent.click(tabOf("Units"));
+        expect(document.querySelector("figure[data-flow-zoom]")).toBeNull();
+        send({ type: "architectureControls", tab: "flow" });
+        expect(figure().dataset.flowZoom).toBe("1.25");
+        send({ type: "architectureControls", zoom: "reset" });
+        expect(figure().dataset.flowZoom).toBe("1");
+      });
+
       it("the flow breadcrumb re-scopes, turns Follow off, and the workspace step shows the units", async () => {
         const postMessage = await setup();
         send({ type: "diagramContext", hasWorkspace: true, follow: true });

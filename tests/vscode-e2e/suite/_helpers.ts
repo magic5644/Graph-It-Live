@@ -269,6 +269,7 @@ export interface DiagramShown {
   banner?: string;
   focused?: string;
   flowRequestId?: number;
+  flowZoom?: number;
   flowButtons: string[];
   flowLine?: string;
   flowBusy: boolean;

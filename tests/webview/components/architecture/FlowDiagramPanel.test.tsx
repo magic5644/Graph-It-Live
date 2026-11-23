@@ -7,7 +7,9 @@ import type { FlowDiagramMessage, FlowDiagramNode, FlowDiagramStateMessage } fro
 import {
   flowDataUrl,
   FlowDiagramPanel,
+  flowEntryKey,
   type FlowState,
+  type FlowZoomMemory,
   nextFlowNode,
   NO_FLOW,
   pressFlowKeys,
@@ -152,21 +154,24 @@ describe("FlowDiagramPanel", () => {
     expect(onOpen.mock.calls).toEqual([["node", 2], ["edge", 1]]);
   });
 
-  it("places the buttons on the boxes at the image's scale, again on a resize", () => {
+  it("places the buttons on the boxes at the fitted scale, fitted again on a resize", () => {
     const observers: (() => void)[] = [];
     vi.stubGlobal("ResizeObserver", class { constructor(callback: () => void) { observers.push(callback); } observe() {} disconnect() {} });
-    let width = 200;
+    // The panel keeps 8 px around a fitted diagram: 216 px wide fits the 400 px diagram at 50%.
+    let width = 216;
     const spy = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(() => width);
+    const heightSpy = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockImplementation(() => 1000);
     renderPanel(state());
     const step = screen.getByRole("button", { name: flow.nodes[1].name });
     expect([step.style.left, step.style.width]).toEqual(["75px", "50px"]);
-    width = 400;
+    width = 416;
     act(() => observers.forEach((callback) => callback()));
     expect([step.style.left, step.style.width]).toEqual(["150px", "100px"]);
     const call = screen.getByRole("button", { name: flow.edges[1].name });
     // "b()" is 3 characters: 3 × 6 / 2 + 4 = 13 units each side of the anchor.
     expect([call.style.left, call.style.width, call.style.top]).toEqual(["137px", "26px", "12px"]);
     spy.mockRestore();
+    heightSpy.mockRestore();
     vi.unstubAllGlobals();
   });
 
@@ -262,5 +267,138 @@ describe("pressFlowKeys", () => {
     (document.activeElement as HTMLElement | null)?.blur();
     pressFlowKeys(container, ["Enter", "ArrowRight"]);
     expect(onOpen).not.toHaveBeenCalled();
+  });
+});
+
+describe("FlowDiagramPanel zoom and pan (#826)", () => {
+  // A 216 × 1000 px panel fits the 400 × 300 diagram at 50%, 8 px from the left and the top.
+  let restore: (() => void)[] = [];
+  const mockPanel = () => {
+    const width = vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockReturnValue(216);
+    const height = vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(1000);
+    const capture = vi.fn();
+    const original = HTMLElement.prototype.setPointerCapture;
+    HTMLElement.prototype.setPointerCapture = capture;
+    restore = [() => width.mockRestore(), () => height.mockRestore(), () => { HTMLElement.prototype.setPointerCapture = original; }];
+    return capture;
+  };
+  afterEach(() => {
+    cleanup();
+    restore.forEach((undo) => undo());
+  });
+  const props = () => ({ onOpen: vi.fn(), onRefresh: vi.fn(), onShowCallGraph: vi.fn(), onDrawCandidate: vi.fn(), onDrawAtCursor: vi.fn(), onEscape: vi.fn(), onZoomed: vi.fn() });
+  const figure = () => document.querySelector<HTMLElement>("figure[data-flow-zoom]")!;
+  const zoomOf = () => Number(figure().dataset.flowZoom);
+  const viewport = () => document.querySelector<HTMLElement>("[data-flow-viewport]")!;
+  const stepB = () => screen.getByRole("button", { name: flow.nodes[1].name });
+  const click = (action: string) => fireEvent.click(document.querySelector(`[aria-label="Zoom controls"] button[data-zoom="${action}"]`)!);
+
+  it("opens fitted; + and − zoom around the centre, 100% shows the drawn size, Fit fits again; the buttons follow", () => {
+    mockPanel();
+    render(<FlowDiagramPanel state={state()} {...props()} />);
+    expect([zoomOf(), figure().style.left, figure().style.top, stepB().style.left]).toEqual([0.5, "8px", "8px", "75px"]);
+    expect(screen.getByRole("img").style.width).toBe("200px");
+    click("in");
+    expect([zoomOf(), stepB().style.left, stepB().style.width]).toEqual([0.625, "93.75px", "62.5px"]);
+    click("out");
+    expect(zoomOf()).toBe(0.5);
+    click("reset");
+    expect([zoomOf(), stepB().style.left, screen.getByRole("img").style.width]).toEqual([1, "150px", "400px"]);
+    click("fit");
+    expect([zoomOf(), figure().style.left]).toEqual([0.5, "8px"]);
+    expect(screen.getByRole("button", { name: "Actual size (100%)" })).toBeTruthy();
+  });
+
+  it("0, + and - zoom from a focused step; with Ctrl, Alt or Meta, or another key, nothing changes", () => {
+    mockPanel();
+    render(<FlowDiagramPanel state={state()} {...props()} />);
+    stepB().focus();
+    fireEvent.keyDown(stepB(), { key: "+" });
+    expect(zoomOf()).toBe(0.625);
+    fireEvent.keyDown(stepB(), { key: "=" });
+    fireEvent.keyDown(stepB(), { key: "-" });
+    expect(zoomOf()).toBe(0.625);
+    for (const modifier of ["ctrlKey", "altKey", "metaKey"]) fireEvent.keyDown(stepB(), { key: "+", [modifier]: true });
+    fireEvent.keyDown(stepB(), { key: "a" });
+    expect(zoomOf()).toBe(0.625);
+    expect(fireEvent.keyDown(stepB(), { key: "0" })).toBe(false);
+    expect(zoomOf()).toBe(0.5);
+  });
+
+  it("the wheel zooms around the pointer and never scrolls the page", () => {
+    mockPanel();
+    render(<FlowDiagramPanel state={state()} {...props()} />);
+    // The pointer on the diagram's top-left corner (8, 8): the corner stays under it.
+    expect(fireEvent.wheel(viewport(), { deltaY: -500, clientX: 8, clientY: 8 })).toBe(false);
+    expect([zoomOf(), figure().style.left, figure().style.top]).toEqual([1.359, "8px", "8px"]);
+    fireEvent.wheel(viewport(), { deltaY: 100_000, clientX: 8, clientY: 8 });
+    expect(zoomOf()).toBe(0.1);
+  });
+
+  it("a drag pans, from a step too, without opening it; a press without a move still opens it", () => {
+    const capture = mockPanel();
+    const handlers = props();
+    render(<FlowDiagramPanel state={state()} {...handlers} />);
+    fireEvent.pointerDown(stepB(), { pointerId: 1, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(stepB(), { pointerId: 1, clientX: 101, clientY: 101 });
+    fireEvent.pointerUp(stepB(), { pointerId: 1 });
+    fireEvent.click(stepB());
+    expect(handlers.onOpen).toHaveBeenCalledWith("node", 1);
+    expect([figure().style.left, capture.mock.calls.length]).toEqual(["8px", 0]);
+    fireEvent.pointerDown(stepB(), { pointerId: 2, button: 0, clientX: 100, clientY: 100 });
+    fireEvent.pointerMove(viewport(), { pointerId: 3, clientX: 200, clientY: 200 });
+    fireEvent.pointerMove(viewport(), { pointerId: 2, clientX: 130, clientY: 120 });
+    fireEvent.pointerMove(viewport(), { pointerId: 2, clientX: 140, clientY: 120 });
+    expect([figure().style.left, figure().style.top, zoomOf()]).toEqual(["48px", "28px", 0.5]);
+    expect(capture).toHaveBeenCalledOnce();
+    fireEvent.pointerCancel(viewport(), { pointerId: 2 });
+    fireEvent.pointerMove(viewport(), { pointerId: 2, clientX: 300, clientY: 300 });
+    // A right-button press does not pan.
+    fireEvent.pointerDown(viewport(), { pointerId: 4, button: 2, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(viewport(), { pointerId: 4, clientX: 50, clientY: 50 });
+    expect(figure().style.left).toBe("48px");
+  });
+
+  it("a redraw of the same entry keeps the zoom and position; another entry or tab opens fitted", () => {
+    mockPanel();
+    const handlers = props();
+    const view = render(<FlowDiagramPanel state={state()} {...handlers} />);
+    click("in");
+    fireEvent.pointerDown(viewport(), { pointerId: 1, button: 0, clientX: 0, clientY: 0 });
+    fireEvent.pointerMove(viewport(), { pointerId: 1, clientX: 10, clientY: 0 });
+    const kept = [zoomOf(), figure().style.left];
+    view.rerender(<FlowDiagramPanel state={state(undefined, { ...flow, requestId: 5 })} {...handlers} />);
+    expect([zoomOf(), figure().style.left]).toEqual(kept);
+    view.rerender(<FlowDiagramPanel state={state(undefined, { ...flow, requestId: 6, view: "sequence" })} {...handlers} />);
+    expect([zoomOf(), figure().style.left]).toEqual([0.5, "8px"]);
+    // Not zoomed since: a redraw of the same entry at another size fits it again.
+    view.rerender(<FlowDiagramPanel state={state(undefined, { ...flow, requestId: 7, view: "sequence", width: 800 })} {...handlers} />);
+    expect(zoomOf()).toBe(0.25);
+    view.rerender(<FlowDiagramPanel state={state(undefined, { ...flow, requestId: 8, entry: "b" })} {...handlers} />);
+    expect(zoomOf()).toBe(0.5);
+    expect(handlers.onZoomed).toHaveBeenCalled();
+  });
+
+  it("the zoom memory reopens the same entry where the user left it after a tab switch, never another entry", () => {
+    mockPanel();
+    const memory: { current: FlowZoomMemory | null } = { current: null };
+    const first = render(<FlowDiagramPanel state={state()} {...props()} zoomMemory={memory} />);
+    click("reset");
+    expect(memory.current).toEqual({ key: flowEntryKey(flow), view: { zoom: 1, x: expect.any(Number), y: expect.any(Number) } });
+    first.unmount();
+    const again = render(<FlowDiagramPanel state={state()} {...props()} zoomMemory={memory} />);
+    expect(zoomOf()).toBe(1);
+    again.unmount();
+    render(<FlowDiagramPanel state={state(undefined, { ...flow, entry: "b" })} {...props()} zoomMemory={memory} />);
+    expect(zoomOf()).toBe(0.5);
+  });
+
+  it("an empty answer draws no viewport; the diagram that follows opens fitted", () => {
+    mockPanel();
+    const handlers = props();
+    const view = render(<FlowDiagramPanel state={state({ status: "empty", message: "a" })} {...handlers} />);
+    expect(document.querySelector("[data-flow-viewport]")).toBeNull();
+    view.rerender(<FlowDiagramPanel state={state(undefined, { ...flow, requestId: 9 })} {...handlers} />);
+    expect(zoomOf()).toBe(0.5);
   });
 });

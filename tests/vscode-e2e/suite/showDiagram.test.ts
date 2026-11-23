@@ -143,6 +143,29 @@ suite('Show Diagram (#795)', function () {
     await waitForFlow('the flow again on the Flow tab', state => state.drawnView === 'flow' && state.view?.flowRequestId === state.requestId && selectedTab(state) === 'flow');
   });
 
+  // #826: zoom and Fit on a drawn sequence; the call buttons follow the drawing.
+  test('Sequence zoom: + zooms in, a key too, Fit fits again, 100% shows the drawn size; a call still opens its call site', async () => {
+    const flow = await drawFlowAt(CONTROLLER, IN_GET_USER, 'handleGetUser');
+    await controls({ tab: 'sequence' });
+    const shown = await waitForFlow('the sequence drawn', state =>
+      state.drawnView === 'sequence' && state.requestId > flow.requestId && state.view?.flowRequestId === state.requestId && Boolean(state.view.flowZoom));
+    const fitted = shown.view!.flowZoom!;
+    assert.ok(fitted > 0 && fitted <= 1, `a new diagram opens fitted, never above 100%: ${fitted}`);
+    await controls({ zoom: 'in' });
+    await waitForFlow('zoomed in from the toolbar', state => state.view?.flowZoom === Math.round(fitted * 1.25 * 1000) / 1000, 30_000);
+    await controls({ keys: ['Tab', '+'] });
+    await waitForFlow('zoomed in again with + on the focused lifeline', state => (state.view?.flowZoom ?? 0) > fitted * 1.5, 30_000);
+    await controls({ zoom: 'fit' });
+    await waitForFlow('fitted again', state => state.view?.flowZoom === fitted, 30_000);
+    await controls({ zoom: 'reset' });
+    await waitForFlow('100%', state => state.view?.flowZoom === 1, 30_000);
+    assert.deepStrictEqual((await flowState()).view?.flowButtons, [...shown.nodes, ...shown.edges], 'every button stays after the zoom');
+    const site = /at (.+):(\d+)/.exec(shown.edges[0])!;
+    await controls({ flowEdge: 0 });
+    await waitForFlow('call 1 opened at its call site after the zoom', state => state.lastOpened?.file === site[1] && state.lastOpened.line === Number(site[2])
+      && vscode.window.activeTextEditor?.selection.active.line === Number(site[2]) - 1, 30_000);
+  });
+
   test('Sequence on a file without a symbol says so once, draws nothing and leaves the view mode', async () => {
     const before = await flowState();
     const mode = await getContextKey('graph-it-live.viewMode');
