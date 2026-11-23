@@ -249,7 +249,7 @@ Branch Watch adds a native path alongside the existing webview: `BranchWatchServ
 22. `get_session_stats` - TOON vs JSON token savings for the session
 23. `explore_architecture` - Grouped architecture summary, group boundary, edge evidence
 24. `check_architecture` - Check imports against `graphit.architecture.json` rules and baseline
-25. `export_architecture_diagram` - Static architecture diagram as SVG or HTML (inline up to a cap, else a workspace file)
+25. `export_architecture_diagram` - Static architecture, flow or sequence diagram as SVG, HTML, diagram spec or (sequence) Mermaid (inline up to a cap, else a workspace file)
 
 `expand_node`, `parse_imports`, `get_symbol_callers`, `get_symbol_dependents` and `analyze_file_logic` left the MCP server in v1.17.0 and `graph-it tool` in v1.20.0. Only the VS Code Language Model tools of the same names remain.
 

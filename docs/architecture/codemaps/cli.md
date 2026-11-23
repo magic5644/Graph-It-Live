@@ -261,7 +261,7 @@ commands/checkArchitecture.ts
 ```
 commands/diagram.ts
 ├─→ Args: [--view units|folder|matrix] [--folder <key>] [--format svg|html] [--theme light|dark] [--output <file>|-] [--rules [--config <file>] [--baseline [<file>]]]
-├─→ Lays one architecture level out with analyzer/diagram (ELK graph or matrix) and renders SVG or HTML
+├─→ Lays one architecture level out with analyzer/diagram (ELK graph or matrix), or one symbol's flow or sequence, and renders SVG, HTML, a diagram spec or (sequence) Mermaid; --spec redraws an annotated spec
 └─→ Writes inside the workspace only (validateWorkspacePath); --output - prints to stdout
 ```
 

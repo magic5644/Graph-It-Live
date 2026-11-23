@@ -379,7 +379,7 @@ All options and output fields: [`architecture`](CLI.md#architecture), [`check-ar
 | List an edge's file pairs | Click the edge | — |
 | Selection actions | Action bar (bottom left), or right-click | *Tab* to the action bar |
 | Fit, zoom in, zoom out | Buttons (bottom right) | *0*, *+*, *-* |
-| Switch diagram | Tabs *Units \| Folder \| Matrix \| Flow* | Arrow keys between tabs |
+| Switch diagram | Tabs *Units \| Folder \| Matrix \| Flow \| Seq* (sequence); commands *Show Diagram…*, *Show Flow Diagram (Symbol at Cursor)*, *Show Folder Diagram* | Arrow keys between tabs |
 | Move in the matrix | Click a cell or row header | Arrow keys, *Enter* on a row header |
 | Find a group | *Find group* box | — |
 | Hide weak edges | *Min. imports per edge* | — |
