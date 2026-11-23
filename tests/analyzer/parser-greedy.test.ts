@@ -66,3 +66,33 @@ const x = "from 'y'";
         expect(imports).toHaveLength(0);
     });
 });
+
+describe('Parser - long blank runs (masked base64 template)', () => {
+    const parser = new Parser();
+    // A generated module embedding wasm as base64: masking turns the template text into one long blank run.
+    const withBlob = (length: number) => `export default toBinary(\`${'A'.repeat(length)}\`)\nexport { a } from './a'\n`;
+    const timed = (content: string) => {
+        const started = performance.now();
+        const modules = parser.parse(content).map(i => i.module);
+        return { modules, ms: performance.now() - started };
+    };
+
+    it('reads an export ... from after a long template string in linear time', () => {
+        // A regex scan blocks the test timeout, so the check is bounded: 4x the input costs ~4x when linear,
+        // ~16x when quadratic (seconds, not hours, on this size).
+        const small = timed(withBlob(20_000));
+        const large = timed(withBlob(80_000));
+        expect(large.modules).toEqual(['./a']);
+        expect(large.ms).toBeLessThan(8 * small.ms + 50);
+    });
+
+    it('reads an import ... from after a long template string', () => {
+        const content = `import x from './x'\nconst wasm = \`${'A'.repeat(100_000)}\`\nimport\ny from './y'\n`;
+        expect(parser.parse(content).map(i => i.module)).toEqual(['./x', './y']);
+    });
+
+    it('still finds export/import with several blanks and line breaks before from', () => {
+        expect(parser.parse(`export {\n  a,\n  b\n}\n\n   from './ab'`).map(i => i.module)).toEqual(['./ab']);
+        expect(parser.parse(`import a  \t from './a'`).map(i => i.module)).toEqual(['./a']);
+    });
+});

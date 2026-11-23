@@ -26,12 +26,14 @@ export class Parser implements ILanguageAnalyzer {
     // import ... from '...'
     // Simplified pattern: comments are stripped before parsing
     // Matches: import [whitespace] [anything except ; or ' or "] [whitespace] from [whitespace] [quote] [path] [quote]
+    // One `\s` before `from`: the lazy group already takes the other blanks. `\s+from` overlapped it and
+    // backtracked quadratically on a long blank run (a masked 800 KB base64 template string hung indexing).
     importFrom:
-      /import\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/dg, //NOSONAR
+      /import\s(?:[^;'"]|'[^']*'|"[^"]*")*?\sfrom\s+['"]([^'"]+)['"]/dg, //NOSONAR
 
     // export ... from '...'
     exportFrom:
-      /export\s+(?:[^;'"]|'[^']*'|"[^"]*")*?\s+from\s+['"]([^'"]+)['"]/dg, //NOSONAR
+      /export\s(?:[^;'"]|'[^']*'|"[^"]*")*?\sfrom\s+['"]([^'"]+)['"]/dg, //NOSONAR
 
     // require('...')
     require: /require\s*\(\s*['"]([^'"]+)['"]\s*\)/dg,
