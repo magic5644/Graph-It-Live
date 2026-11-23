@@ -72,9 +72,18 @@ async function runSuiteInWindow(options: LaunchOptions, suite: string, target?: 
     cachePath: options.cachePath,
     extensionDevelopmentPath: options.developmentPath,
     extensionTestsPath: options.extensionTestsPath,
-    extensionTestsEnv: { ...options.env, E2E_SUITE_GLOB: suite },
+    extensionTestsEnv: { ...options.env, E2E_SUITE_GLOB: suite, ...reportFileFor(options.env, suite) },
     launchArgs: [...(target ? [target] : []), ...options.profileArgs, ...RENDERING_ARGS],
   });
+}
+
+/** One report per separate-launch window (`e2e.xml` → `e2e.multiRoot.xml`): they would overwrite each other's. */
+function reportFileFor(env: NodeJS.ProcessEnv, suite: string): { E2E_MOCHA_REPORT_FILE?: string } {
+  const report = env.E2E_MOCHA_REPORT_FILE;
+  const name = /([^/]+)\.launch\.js$/.exec(suite)?.[1];
+  if (!report || !name) return {};
+  const { dir, name: base, ext } = path.parse(report);
+  return { E2E_MOCHA_REPORT_FILE: path.join(dir, `${base}.${name}${ext}`) };
 }
 
 /** A glob naming only a separate-launch suite skips the fixtures window, where that suite cannot pass. */
