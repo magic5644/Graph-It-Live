@@ -244,6 +244,20 @@ For the order of the calls, draw a sequence diagram: `graph-it diagram --view se
 
 *`graph-it diagram --view sequence` on this repository: one lifeline per file, one message per call in order.*
 
+<div align="center">
+<img src="media/vscode-seq-from-tab.png" alt="VS Code with the cursor in handleGetUser of controller.ts, and below it the Dependency Graph view on the Seq tab: the sequence of handleGetUser with five lifelines from controller.ts to formatter.ts and four calls, and the Fit, 100%, plus and minus buttons at the bottom right" width="700"/>
+</div>
+
+*Cursor in `handleGetUser` (`tests/fixtures/trace`), then a click on the* Seq *tab: no right-click needed.*
+
+The *Flow* and *Seq* tabs zoom from 10% to 400%: the wheel or a pinch zooms around the pointer, a drag pans, and the buttons at the bottom right are *Fit*, *100%*, *+* and *−* (keys *0*, *+*, *-* on a focused step, lifeline or call). A new diagram opens fitted; a redraw of the same symbol keeps the zoom. Steps, lifelines and calls stay clickable at every zoom, and the drawing stays sharp.
+
+<div align="center">
+<img src="media/vscode-seq-zoom.gif" alt="The Seq tab with the sequence of handleGetUser: Fit, then plus four times enlarges the diagram around its middle up to 186%, 100% shows the drawn size, minus twice zooms out and Fit shows the whole diagram again" width="900"/>
+</div>
+
+*Fit, + four times, 100%, − twice, Fit on the* Seq *tab.*
+
 ### Architecture rules
 
 Declare your intended architecture in `graphit.architecture.json` at the workspace root: `elements` name sets of files, `rules` say what each may import, and `roles` declare what each unit is. The view lists each rule with its violations; `graph-it check-architecture` exits with 1 on a new `error` violation, so it can gate CI, with SARIF output for code scanning and a baseline for existing code. On existing code, `graph-it init` writes the config from today's imports, so only new drift fails, and reports quick wins and the reading of the dependency matrix. See [the config file](docs/architecture.md#the-config-file) for a complete example.
