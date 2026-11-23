@@ -433,6 +433,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
           <li>Double-click a unit to walk down its folders, breadcrumb to come back</li>
           <li>Click an edge for the exact file pairs behind it</li>
           <li>Dependency structure matrix with <code>Ca/Ce · I</code> per row</li>
+          <li>Most coupled pairs and the files bridging them, with <code>graph-it architecture --coupling</code></li>
           <li><em>Dependents by group</em> for any unit, group or file</li>
         </ul>
       </div>
@@ -480,6 +481,24 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
 
     <div class="shot rev rv" style="margin-bottom:64px">
       <div class="shot-txt">
+        <h3>See how a function runs, step by step</h3>
+        <p>Right-click a function in the editor and run <em>Show Flow Diagram (Symbol at Cursor)</em>: the Dependency Graph view draws its calls in order, one column per step, one row per lane (main, alternative, error). The <em>Seq</em> tab draws the same calls as a sequence diagram. On the command line, run <code>graph-it diagram --view flow</code> or <code>--view sequence</code> with <code>file#symbol</code>.</p>
+        <ul>
+          <li>Flow lanes read from the call sites: a branch that returns, a <code>catch</code> or a throw</li>
+          <li>Sequence lifelines per file or class, activation bars, <code>alt</code>, <code>opt</code>, <code>loop</code> and <code>catch</code> fragments with their guards</li>
+          <li><code>--format mermaid</code> for a sequence GitHub renders in a pull request</li>
+          <li>Click a step to open its declaration, a call to open its call site; <em>Follow cursor</em> redraws as you move</li>
+          <li><code>graph-it diagram --spec</code> redraws a diagram spec whose texts your agent rewrote in plain language, checked against the index</li>
+        </ul>
+      </div>
+      <div class="frame">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>Show Diagram</span></div>
+        <img src="media/vscode-show-diagram-flow.png" alt="Dependency Graph view in VS Code: the Units, Folder, Matrix and Flow tabs and the Follow cursor toggle above the flow diagram of handleGetUser in the tests/fixtures/trace fixture, five steps from controller.ts through service.ts, repository.ts and logger.ts to formatter.ts, each edge labelled with its call line" loading="lazy">
+      </div>
+    </div>
+
+    <div class="shot rv" style="margin-bottom:64px">
+      <div class="shot-txt">
         <h3>From file imports down to a single symbol</h3>
         <p>The file graph shows what a file imports and what depends on it, with cycles; a cycle made only of type imports is drawn dotted, apart from runtime ones. Double-click a file: Symbol View turns it into its own little graph — exports, internals, and who calls what.</p>
         <ul>
@@ -495,7 +514,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
     </div>
 
-    <div class="shot rv" style="margin-bottom:64px">
+    <div class="shot rev rv" style="margin-bottom:64px">
       <div class="shot-txt">
         <h3>Follow calls across files</h3>
         <p>The Live Call Graph is built with Tree-sitter and SQLite, and refreshes after you save.</p>
@@ -512,7 +531,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
     </div>
 
-    <div class="shot rev rv" style="margin-bottom:64px">
+    <div class="shot rv" style="margin-bottom:64px">
       <div class="shot-txt">
         <h3>React and Vue components for what they are</h3>
         <p>A rendered component or a passed handler is a reference, not a call. Open a <code>.jsx</code>, <code>.tsx</code> or <code>.vue</code> file, or put the cursor in a Vue template and run <em>Show Call Graph</em>.</p>
@@ -529,7 +548,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
     </div>
 
-    <div class="shot rv" style="margin-bottom:64px">
+    <div class="shot rev rv" style="margin-bottom:64px">
       <div class="shot-txt">
         <h3>Find what nobody uses</h3>
         <p>Hide or dim unused dependencies, then hunt unused exported symbols and dead files before a refactor.</p>
@@ -549,7 +568,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       </div>
     </div>
 
-    <div class="shot rev rv">
+    <div class="shot rv">
       <div class="shot-txt">
         <h3>An architecture report you can explore</h3>
         <p><code>graph-it init --output report</code> writes <code>report.md</code>, SVG diagrams and <code>index.html</code>: one offline page grouped by architecture units, with the report's findings beside the graph.</p>
@@ -580,7 +599,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
       <p>Your assistant stops reading file after file. It asks the graph — who calls this, what breaks, which layer may import which — and gets a short answer with file and line evidence. 25 MCP tools for GitHub Copilot, Claude, Cursor, Windsurf, Antigravity and any MCP client.</p>
     </div>
 
-    <div class="shot rv" style="margin-bottom:48px">
+    <div class="shot rev rv" style="margin-bottom:48px">
       <div class="shot-txt">
         <h3>Half the tokens, same answers</h3>
         <p>MCP tools and the native Copilot tools answer in compact TOON by default; ask for <code>response_format: "json"</code> only when a script parses the result. Run <code>graph-it stats</code> to see your own numbers.</p>
@@ -617,9 +636,9 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
             <tr><td><code>graphitlive_analyze_breaking_changes</code></td><td>Compare file versions for signature changes that break callers.</td></tr>
             <tr><td><code>graphitlive_review_pr</code></td><td>Local Git diff review with risk, impact evidence and limitations.</td></tr>
             <tr><td><code>graphitlive_find_unused_symbols</code></td><td>Unused exported symbols in one file.</td></tr>
-            <tr><td><code>graphitlive_explore_architecture</code></td><td>Step-by-step architecture: groups, one group's boundary, then the file pairs behind a group edge.</td></tr>
+            <tr><td><code>graphitlive_explore_architecture</code></td><td>Step-by-step architecture: groups, one group's boundary, then the file pairs behind a group edge; the matrix or the most coupled pairs of a whole level.</td></tr>
             <tr><td><code>graphitlive_check_architecture</code></td><td>Check every static import against the rules of <code>graphit.architecture.json</code>; new violations against the baseline.</td></tr>
-            <tr><td><code>graphitlive_export_architecture_diagram</code></td><td>Draw the architecture as a static SVG or self-contained HTML diagram, with the rule violations in the error colour.</td></tr>
+            <tr><td><code>graphitlive_export_architecture_diagram</code></td><td>Draw the architecture, or one function's flow or call sequence, as a static SVG, self-contained HTML or Mermaid diagram, with the rule violations in the error colour; redraw a spec an agent annotated.</td></tr>
             <tr><td><code>graphitlive_scan_dead_code</code></td><td>Workspace or scoped unused-export scan; reports file-limit truncation.</td></tr>
             <tr><td><code>graphitlive_query_natural_language</code></td><td>Relevant subgraph for a plain-language question within a token budget.</td></tr>
             <tr><td><code>graphitlive_generate_wiki</code></td><td>Navigable Markdown wiki generated from call-graph relationships.</td></tr>
