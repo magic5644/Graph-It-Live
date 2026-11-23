@@ -77,6 +77,14 @@ async function runMultiRootSuite(options: LaunchOptions): Promise<void> {
     fs.writeFileSync(path.join(first, 'alpha.ts'), 'export function alpha(): number {\n  return 1;\n}\n');
     fs.writeFileSync(path.join(second, 'lib.ts'), 'export function beta(): number {\n  return 2;\n}\n');
     fs.writeFileSync(path.join(second, 'caller.ts'), "import { beta } from './lib';\n\nexport function run(): number {\n  return beta();\n}\n");
+    // #823: a file of the folder not analyzed, whose entry's calls all stay in the file.
+    fs.mkdirSync(path.join(first, 'maths'));
+    fs.writeFileSync(path.join(first, 'maths', 'index.ts'), [
+      "function toNumber(value: unknown): number { return typeof value === 'number' ? value : Number(value); }",
+      'export function mathFix(value: unknown, dec = 2): number { return Number(toNumber(value).toFixed(dec)); }',
+      'export function format(value: unknown): string { return String(mathFix(toNumber(value))); }',
+      '',
+    ].join('\n'));
     const workspaceFile = path.join(root, 'multi.code-workspace');
     fs.writeFileSync(workspaceFile, JSON.stringify({
       folders: [{ path: first }, { path: second }],

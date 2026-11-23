@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   editor: undefined as unknown,
+  folders: [] as string[],
   info: vi.fn(),
 }));
 
@@ -16,6 +17,10 @@ vi.mock("vscode", () => ({
   workspace: {
     getConfiguration: () => ({ get: (_key: string, fallback?: unknown) => fallback }),
     workspaceFolders: undefined,
+    getWorkspaceFolder: (uri: { fsPath: string }) => {
+      const folder = mocks.folders.find((root) => uri.fsPath.startsWith(`${root}/`));
+      return folder === undefined ? undefined : { uri: { fsPath: folder } };
+    },
     asRelativePath: (p: string) => p,
     onDidSaveTextDocument: () => ({ dispose: vi.fn() }),
   },
@@ -82,6 +87,21 @@ describe("CallGraphViewService flow hooks (#795)", () => {
   beforeEach(() => {
     mocks.info.mockReset();
     mocks.editor = undefined;
+    mocks.folders = [];
+  });
+
+  // #823: the first folder as rootDir drew a file of the second one outside its root.
+  it("draws a file of another workspace folder against that folder, and keeps the index on the analyzed one", async () => {
+    mocks.folders = ["/app", "/lib"];
+    const { service, internals } = serviceAt("/app");
+    const symbols = await service.extractFileSymbols("/lib/src/maths/index.ts", "typescript");
+    expect(symbols?.rootDir).toBe("/lib");
+    expect(internals.ensureExtractor).toHaveBeenCalledWith("/app");
+    await service.indexForFlow({ filePath: "/lib/src/maths/index.ts", edges: [], rootDir: "/lib" }, { token: token() as never });
+    expect(internals.indexWorkspace).toHaveBeenCalledWith("/app", expect.anything(), expect.anything(), "/lib/src/maths/index.ts", true);
+    expect(internals.indexImportTargets).toHaveBeenCalledWith([], "/lib", expect.anything(), expect.anything());
+    // A file outside every folder stays drawn against the analyzed folder, as before.
+    expect((await service.extractFileSymbols("/tmp/loose.ts", "typescript"))?.rootDir).toBe("/app");
   });
 
   it("names the feature in its refusals", () => {

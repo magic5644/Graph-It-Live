@@ -361,7 +361,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       this.postMessage({ type: "callGraphIndexing", status: "progress", percent: 5, message: "Parsing current file…" });
       const extracted = await this.extractAndIndexFile(filePath, lang);
       if (!extracted) return;
-      const { nodes, edges, rootDir: workspaceRoot } = extracted;
+      const { nodes, edges, rootDir } = extracted;
+      const workspaceRoot = this.indexRoot(rootDir);
       const indexer = await this.ensureIndexer();
       const extractor = this.ensureExtractor(workspaceRoot);
 
@@ -399,7 +400,8 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
       }
 
       // A lost watcher event (#600) must not hide the active file's imports: index those missing or older than the disk.
-      await this.indexImportTargets(edges, workspaceRoot, indexer, extractor);
+      // The file's own folder: a file of another workspace folder gets its imports too (#823).
+      await this.indexImportTargets(edges, rootDir, indexer, extractor);
       if (this.disposed) return;
 
       // Step 3: Resolve cross-file edges so that symbols from the active file
@@ -446,17 +448,27 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
     return this.trackOperation(this.extractAndIndexFile(normalizePath(filePath), lang));
   }
 
-  /** Without a folder, a loose file is drawn against its own directory: the call graph still works. */
+  /**
+   * `rootDir` is the folder the file is drawn against: its own workspace folder (#823), else the analyzed one,
+   * else (a loose file) its directory. The index stays on the analyzed folder (`indexRoot`).
+   */
   private async extractAndIndexFile(filePath: string, lang: SupportedLang): Promise<FileSymbols | undefined> {
-    const rootDir = normalizePath(this.getWorkspaceRoot() ?? path.dirname(filePath));
+    const folder = vscode.workspace.getWorkspaceFolder(vscode.Uri.file(filePath))?.uri.fsPath;
+    const rootDir = normalizePath(folder ?? this.getWorkspaceRoot() ?? path.dirname(filePath));
     const indexer = await this.ensureIndexer();
     if (this.disposed) return undefined;
-    const extractor = this.ensureExtractor(rootDir);
+    const extractor = this.ensureExtractor(this.indexRoot(rootDir));
     const fileMtime = Date.now();
     const { nodes, edges } = await extractor.extractFile(filePath, lang, fileMtime);
     if (this.disposed) return undefined;
     indexer.indexFile(nodes, edges, filePath, lang, fileMtime);
     return { nodes, edges, rootDir };
+  }
+
+  /** The folder the call graph index walks: the analyzed one; `rootDir` only when none is (a loose file). */
+  private indexRoot(rootDir: string): string {
+    const root = this.getWorkspaceRoot();
+    return root === undefined ? rootDir : normalizePath(root);
   }
 
   /**
@@ -478,8 +490,9 @@ export class CallGraphViewService implements vscode.Disposable, ICallGraphQueryS
   ): Promise<{ db: Database; extractor: GraphExtractor } | undefined> {
     const indexer = await this.ensureIndexer();
     if (this.disposed) return undefined;
-    const extractor = this.ensureExtractor(rootDir);
-    const indexed = await untilCancelled(this.indexWorkspace(rootDir, indexer, extractor, normalizePath(filePath), true), token);
+    const workspaceRoot = this.indexRoot(rootDir);
+    const extractor = this.ensureExtractor(workspaceRoot);
+    const indexed = await untilCancelled(this.indexWorkspace(workspaceRoot, indexer, extractor, normalizePath(filePath), true), token);
     if (!indexed || this.disposed) return undefined;
     if (expectActiveFile !== undefined) {
       const active = vscode.window.activeTextEditor;

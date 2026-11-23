@@ -284,9 +284,38 @@ describe("buildFlowModel (#792)", () => {
 
   it("puts every step on main in call order for a language without lane detection, and says so", async () => {
     const model = await flowOf({
-      "main.go": "package main\n\nfunc Run(ok bool) {\n\tif !ok {\n\t\tpanic(fail())\n\t}\n\tdone()\n}\n\nfunc fail() string { return \"x\" }\n\nfunc done() {}\n",
+      "main.go": "package main\n\nfunc Run(ok bool) {\n\tif !ok {\n\t\tpanic(fail())\n\t}\n\tdone()\n}\n\nfunc fail() string { return \"x\" }\n",
+      "done.go": "package main\n\nfunc done() {}\n",
     }, { file: "main.go", symbolName: "Run" });
-    expect(model).toMatchObject({ language: "go", lanes: "unsupported", nodes: [{ id: "main.go#Run", lane: "main", symbolCount: 3 }], edges: [] });
+    expect(model).toMatchObject({
+      language: "go",
+      lanes: "unsupported",
+      nodes: [{ id: "main.go#Run", lane: "main", symbolCount: 2 }, { id: "done.go#done", lane: "main" }],
+    });
+  });
+
+  // #823: a step is one file, so calls that all stay in the entry's file draw no edge; an empty flow would say "no calls".
+  it("refuses an entry whose calls all stay in its file, naming them and pointing to the sequence view", async () => {
+    const source = "function toNumber(v: unknown): number { return Number(v); }\n"
+      + "export function mathFix(v: unknown): number { return toNumber(v); }\n"
+      + "export function format(v: unknown): string { return String(mathFix(toNumber(v))); }\n";
+    await expect(flowOf({ "maths/index.ts": source }, { file: "maths/index.ts", symbolName: "format" })).rejects.toThrow(
+      "format calls 2 symbols, all in maths/index.ts: a Flow step is one file, so no call joins two steps. Use view sequence to see them.",
+    );
+    await expect(flowOf({ "maths/index.ts": source }, { file: "maths/index.ts", symbolName: "mathFix" })).rejects.toThrow(
+      "mathFix calls 1 symbol, all in maths/index.ts:",
+    );
+  });
+
+  it("keeps an empty flow for an entry with no call, and draws the step of a call into another file", async () => {
+    const files = { "a.ts": `import { b } from "./b";\n${exported("idle")}${exported("run", "b(x);")}`, "b.ts": exported("b") };
+    expect(await flowOf(files, { file: "a.ts", symbolName: "idle" })).toMatchObject({ nodes: [{ id: "a.ts#idle", symbolCount: 1 }], edges: [] });
+    expect((await flowOf(files, { file: "a.ts", symbolName: "run" })).edges).toMatchObject([{ from: "a.ts#run", to: "b.ts#b" }]);
+  });
+
+  it("keeps an empty flow when the step cap leaves out every call into another file", async () => {
+    const files = { "a.ts": `import { b } from "./b";\n${exported("helper")}${exported("run", "helper(x); b(x);")}`, "b.ts": exported("b") };
+    expect(await flowOf(files, { file: "a.ts", symbolName: "run", maxSteps: 1 })).toMatchObject({ omittedSteps: 1, edges: [] });
   });
 
   it("names the closest candidates for an unknown symbol or file, and every candidate with its 1-based line for an ambiguous one", async () => {

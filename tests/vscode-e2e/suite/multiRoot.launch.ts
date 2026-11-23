@@ -1,6 +1,6 @@
 import * as assert from 'node:assert';
 import * as vscode from 'vscode';
-import { shownCallGraph, showCallGraphAndWait, sleep } from './_helpers';
+import { captureWindow, controls, shownCallGraph, showCallGraphAndWait, sleep, waitForFlow } from './_helpers';
 
 /**
  * #770: run in a two-folder workspace whose `graph-it-live.workspaceFolder` names the second folder
@@ -26,5 +26,34 @@ suite('Multi-root workspace (#770)', function () {
     const names = graph?.nodes.map(node => node.name) ?? [];
     assert.ok(names.includes('beta'), `Root missing: ${JSON.stringify(names)}`);
     assert.ok(names.includes('run'), `Caller from the selected folder missing: ${JSON.stringify(names)}`);
+  });
+
+  // #823: the other folder's file was drawn against the analyzed folder, and the view said "No calls found".
+  test('Seq on a file of the other folder draws its calls against that folder; Flow says they stay in the file', async () => {
+    const folders = vscode.workspace.workspaceFolders ?? [];
+    await vscode.extensions.getExtension('magic5644.graph-it-live')?.activate();
+    const document = await vscode.workspace.openTextDocument(vscode.Uri.joinPath(folders[0].uri, 'maths', 'index.ts'));
+    const editor = await vscode.window.showTextDocument(document, { preview: false });
+    editor.selection = new vscode.Selection(2, 20, 2, 20);
+    const window = captureWindow();
+    try {
+      await vscode.commands.executeCommand('graph-it-live.showFlowDiagram');
+      // The path is relative to the file's own folder, not to the analyzed one (../first/…).
+      const message = 'format calls 2 symbols, all in maths/index.ts: a Flow step is one file, so no call joins two steps. Use view sequence to see them.';
+      const flow = await waitForFlow('the flow refusal of format', state => state.state === 'error', 90_000);
+      assert.strictEqual(flow.lastError, message);
+      assert.deepStrictEqual(window.messages, [`Graph-It-Live: ${message}`], 'said once');
+
+      window.answer = 'sequence';
+      await vscode.commands.executeCommand('graph-it-live.showDiagram');
+      const shown = await waitForFlow('the sequence of format', state => state.drawnView === 'sequence' && state.view?.flowRequestId === state.requestId, 90_000);
+      assert.deepStrictEqual(shown.edges.map(name => /→ (\w+)/.exec(name)?.[1]), ['mathFix', 'toNumber', 'toNumber'], shown.edges.join(' | '));
+      assert.deepStrictEqual(shown.view?.crumbs, ['first', 'maths', 'index.ts', 'format']);
+    } finally {
+      window.restore();
+      await controls({ tab: 'units' });
+      await vscode.commands.executeCommand('workbench.action.closeAllEditors');
+      await vscode.commands.executeCommand('graph-it-live.setViewModeFile');
+    }
   });
 });
