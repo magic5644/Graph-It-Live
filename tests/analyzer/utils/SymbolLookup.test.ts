@@ -1,7 +1,12 @@
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
   checkSymbolInFile,
+  closestFileNames,
   closestNames,
+  closestPathsHint,
   symbolNotFoundMessage,
 } from "../../../src/analyzer/utils/SymbolLookup";
 import type { SymbolInfo } from "../../../src/analyzer/types";
@@ -69,6 +74,81 @@ describe("closestNames", () => {
 
   it("returns nothing for an empty list", () => {
     expect(closestNames([], "anything")).toEqual([]);
+  });
+});
+
+describe("closestFileNames (#803)", () => {
+  it("rejects a short name that only shares the extension", () => {
+    expect(closestFileNames(["COM.json"], "flow.json")).toEqual([]);
+  });
+
+  it("tolerates one edit on a short base name, a swap included", () => {
+    expect(closestFileNames(["flow.json", "COM.json"], "flw.json")).toEqual(["flow.json"]);
+    expect(closestFileNames(["flow.json"], "flwo.json")).toEqual(["flow.json"]);
+    expect(closestFileNames(["flow.json"], "fl.json")).toEqual([]);
+  });
+
+  it("suggests only files with the same extension, ignoring its case", () => {
+    expect(closestFileNames(["utils.js", "util.ts"], "utils.ts")).toEqual(["util.ts"]);
+    expect(closestFileNames(["util.TS"], "utils.ts")).toEqual(["util.TS"]);
+  });
+
+  it("still suggests a name that differs only in case", () => {
+    expect(closestFileNames(["README.md"], "Readme.md")).toEqual(["README.md"]);
+  });
+
+  it("allows more edits for a longer base name", () => {
+    expect(closestFileNames(["SymbolLookup.ts"], "SymbloLokup.ts")).toEqual(["SymbolLookup.ts"]);
+    expect(closestFileNames(["ArchitectureExplorer.ts"], "SymbolLookup.ts")).toEqual([]);
+  });
+
+  it("compares names without an extension together", () => {
+    expect(closestFileNames(["Makefile", "Makefile.am"], "Makefle")).toEqual(["Makefile"]);
+  });
+
+  it("measures a workspace-relative path without its extension", () => {
+    expect(closestFileNames(["src/flow.ts", "src/com.ts"], "scr/flow.ts")).toEqual(["src/flow.ts"]);
+    expect(closestFileNames(["a/b/com.ts"], "a/b/flow.ts")).toEqual([]);
+  });
+
+  it("caps the list at three, closest first", () => {
+    expect(closestFileNames(["abcd.ts", "abce.ts", "abcf.ts", "abc.ts", "abcg.ts"], "abc.ts")).toEqual(["abc.ts", "abcd.ts", "abce.ts"]);
+  });
+});
+
+describe("closestPathsHint (#803)", () => {
+  const workspace = (files: string[]): string => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "closest-hint-"));
+    for (const file of files) {
+      fs.mkdirSync(path.dirname(path.join(root, file)), { recursive: true });
+      fs.writeFileSync(path.join(root, file), "");
+    }
+    return root;
+  };
+
+  it("gives no hint when only unrelated files share the extension", () => {
+    const root = workspace(["a/b/2023/COM.json", "a/b/2024/COM.json", "COM.json"]);
+    expect(closestPathsHint(path.join(root, "flow.json"), root)).toBe("");
+  });
+
+  it("suggests the close file in the same folder", () => {
+    const root = workspace(["flow.json", "COM.json"]);
+    expect(closestPathsHint(path.join(root, "flw.json"), root)).toBe(" Did you mean: flow.json?");
+  });
+
+  it("finds a moved file in another folder (#801)", () => {
+    const root = workspace(["docs/flow.json", "other/COM.json"]);
+    expect(closestPathsHint(path.join(root, "specs", "flow.json"), root)).toBe(" Did you mean: docs/flow.json?");
+  });
+
+  it("suggests the same extension only", () => {
+    const root = workspace(["src/utils.js", "src/util.ts"]);
+    expect(closestPathsHint(path.join(root, "src", "utils.ts"), root)).toBe(" Did you mean: src/util.ts?");
+  });
+
+  it("suggests a name that differs only in case", () => {
+    const root = workspace(["README.md"]);
+    expect(closestPathsHint(path.join(root, "Readme.md"), root)).toBe(" Did you mean: README.md?");
   });
 });
 
