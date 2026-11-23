@@ -52,18 +52,39 @@ function runsLaunchSuite(name: RegExp, env: NodeJS.ProcessEnv = process.env): bo
   return !selected || name.test(selected);
 }
 
-type LaunchOptions = { version: string; cachePath: string; extensionTestsPath: string; env: NodeJS.ProcessEnv };
+/**
+ * How a window loads the extension: from source (`--disable-extensions`), or the installed VSIX (its isolated
+ * profile, with the test host as development path) so CI runs the separate-launch suites too (#823).
+ */
+type LaunchOptions = {
+  version: string;
+  cachePath: string;
+  extensionTestsPath: string;
+  env: NodeJS.ProcessEnv;
+  developmentPath: string;
+  profileArgs: string[];
+};
 
 /** Runs one suite in its own window; `target` is a folder or `.code-workspace` file, or nothing for an empty window. */
 async function runSuiteInWindow(options: LaunchOptions, suite: string, target?: string): Promise<void> {
   await runTests({
     version: options.version,
     cachePath: options.cachePath,
-    extensionDevelopmentPath,
+    extensionDevelopmentPath: options.developmentPath,
     extensionTestsPath: options.extensionTestsPath,
     extensionTestsEnv: { ...options.env, E2E_SUITE_GLOB: suite },
-    launchArgs: [...(target ? [target] : []), '--disable-extensions', ...RENDERING_ARGS],
+    launchArgs: [...(target ? [target] : []), ...options.profileArgs, ...RENDERING_ARGS],
   });
+}
+
+/** A glob naming only a separate-launch suite skips the fixtures window, where that suite cannot pass. */
+const runsFixturesWindow = (env: NodeJS.ProcessEnv = process.env) => !env.E2E_SUITE_GLOB?.trim().endsWith('.launch.js');
+
+/** The separate-launch suites the run selects, each in its own window. */
+async function runLaunchSuites(launch: LaunchOptions): Promise<void> {
+  if (runsLaunchSuite(/noFolder/i)) await runSuiteInWindow(launch, NO_FOLDER_SUITE);
+  if (runsLaunchSuite(/multiRoot/i)) await runMultiRootSuite(launch);
+  if (runsLaunchSuite(/unitCap/i)) await runUnitCapSuite(launch);
 }
 
 /** Two folders; the setting selects the second, whose `lib.ts` is called from its `caller.ts`. */
@@ -161,8 +182,7 @@ function debuggingArgs(port = process.env.E2E_CDP_PORT): string[] {
 
 /** The fixtures window, then each separate-launch suite the run selects. */
 async function runFromSource(launch: LaunchOptions, launchArgs: string[]): Promise<void> {
-  // A glob naming only a separate-launch suite skips the fixtures window, where that suite cannot pass.
-  if (!launch.env.E2E_SUITE_GLOB?.trim().endsWith('.launch.js')) {
+  if (runsFixturesWindow(launch.env)) {
     await runTests({
       version: launch.version,
       cachePath: launch.cachePath,
@@ -173,9 +193,7 @@ async function runFromSource(launch: LaunchOptions, launchArgs: string[]): Promi
     });
   }
   if (runsGitWorkspaceSuite()) await runGitWorkspaceSuite(launch);
-  if (runsLaunchSuite(/noFolder/i)) await runSuiteInWindow(launch, NO_FOLDER_SUITE);
-  if (runsLaunchSuite(/multiRoot/i)) await runMultiRootSuite(launch);
-  if (runsLaunchSuite(/unitCap/i)) await runUnitCapSuite(launch);
+  await runLaunchSuites(launch);
 }
 
 async function main() {
@@ -249,26 +267,24 @@ async function main() {
         '--force',
       ], { version: vscodeVersion, cachePath: vscodeCachePath });
 
-      await runTests({
+      const vsixLaunch: LaunchOptions = {
         version: vscodeVersion,
         cachePath: vscodeCachePath,
-        extensionDevelopmentPath: path.resolve(__dirname, 'test-host'),
         extensionTestsPath,
-        extensionTestsEnv: {
-          ...extensionTestsEnv,
-          E2E_EXPECTED_VSIX_EXTENSION_DIR: extensionsDirectory,
-        },
-        launchArgs: [
-          workspaceRoot,
-          ...isolatedProfileArgs,
-          ...RENDERING_ARGS,
-        ],
-      });
+        env: { ...extensionTestsEnv, E2E_EXPECTED_VSIX_EXTENSION_DIR: extensionsDirectory },
+        developmentPath: path.resolve(__dirname, 'test-host'),
+        profileArgs: isolatedProfileArgs,
+      };
+      if (runsFixturesWindow()) await runSuiteInWindow(vsixLaunch, process.env.E2E_SUITE_GLOB ?? '', workspaceRoot);
+      await runLaunchSuites(vsixLaunch);
     } else {
       // Test from source (development mode)
       console.log('🔧 Testing extension from source (development mode)');
       
-      await runFromSource({ version: vscodeVersion, cachePath: vscodeCachePath, extensionTestsPath, env: extensionTestsEnv }, launchArgs);
+      await runFromSource({
+        version: vscodeVersion, cachePath: vscodeCachePath, extensionTestsPath, env: extensionTestsEnv,
+        developmentPath: extensionDevelopmentPath, profileArgs: ['--disable-extensions'],
+      }, launchArgs);
     }
 
     console.log('✅ All tests passed!');
