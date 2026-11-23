@@ -77,5 +77,5 @@ jobs:
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: e2e-test-report-${{ runner.os }}
-          path: ${{ github.workspace }}/test-results/e2e-vscode-${{ runner.os }}.xml
+          path: ${{ github.workspace }}/test-results/e2e-vscode-${{ runner.os }}*.xml
           if-no-files-found: warn
