@@ -48,11 +48,29 @@ describe("applyZoom and wheelZoom", () => {
   const panel = { width: 216, height: 1000 };
   const view = { zoom: 0.5, x: 8, y: 8, fitted: true };
 
-  it("in and out step by 1.25 around the panel centre, reset shows 100%, fit fits", () => {
+  it("in and out step by 1.25 around the centre of the shown diagram, reset shows 100%, fit fits", () => {
     expect(applyZoom(view, "in", content, panel).zoom).toBe(0.5 * ZOOM_STEP);
     expect(applyZoom(view, "out", content, panel).zoom).toBe(0.5 / ZOOM_STEP);
-    expect(applyZoom(view, "reset", content, panel)).toEqual(zoomAt(view, 1, { x: 108, y: 500 }));
+    // The 200 × 150 diagram at (8, 8): its middle (108, 83), not the panel's (108, 500) in the empty space below it.
+    expect(applyZoom(view, "reset", content, panel)).toEqual(zoomAt(view, 1, { x: 108, y: 83 }));
     expect(applyZoom({ zoom: 3, x: -500, y: -40 }, "fit", content, panel)).toEqual(view);
+  });
+
+  it("a fitted diagram in a taller panel stays in sight after zooming in up to 400%", () => {
+    let zoomed = view;
+    while (zoomed.zoom < MAX_ZOOM) zoomed = applyZoom(zoomed, "in", content, panel);
+    expect(zoomed.y).toBeLessThan(panel.height);
+    expect(zoomed.y + content.height * zoomed.zoom).toBeGreaterThan(0);
+    expect(zoomed.x).toBeLessThan(panel.width);
+    expect(zoomed.x + content.width * zoomed.zoom).toBeGreaterThan(0);
+  });
+
+  it("zooms around the shown part of a diagram panned partly out, and around the panel centre once it is out of sight", () => {
+    const panned = { zoom: 1, x: -300, y: -100 };
+    // Shown: x 0..100, y 0..200 of the 216 × 1000 panel.
+    expect(applyZoom(panned, "in", content, panel)).toEqual(zoomAt(panned, ZOOM_STEP, { x: 50, y: 100 }));
+    const gone = { zoom: 1, x: 500, y: 2000 };
+    expect(applyZoom(gone, "out", content, panel)).toEqual(zoomAt(gone, 1 / ZOOM_STEP, { x: 108, y: 500 }));
   });
 
   it("the wheel zooms in on a negative delta, out on a positive one, and nothing on 0", () => {
