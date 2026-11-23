@@ -445,8 +445,6 @@ function writeFailingReport(err: unknown, format: CliOutputFormat, workspaceRoot
 }
 
 async function main(): Promise<void> {
-  const tieringWarning = applyWasmTiering();
-  if (tieringWarning) process.stderr.write(`${tieringWarning}\n`);
   let parsedArgs: ReturnType<typeof parseArgs>;
 
   try {
@@ -464,6 +462,11 @@ async function main(): Promise<void> {
   const { values, positionals } = parsedArgs;
 
   const [command, ...commandArgs] = positionals;
+  // serve's MCP server child applies (and warns about) its own tiering; parsing compiles no WebAssembly before this.
+  if (command !== "serve") {
+    const tieringWarning = applyWasmTiering();
+    if (tieringWarning) process.stderr.write(`${tieringWarning}\n`);
+  }
 
   // --help/-h is a global flag recognized regardless of position, so
   // `graph-it <command> --help` must resolve to per-command help, not the

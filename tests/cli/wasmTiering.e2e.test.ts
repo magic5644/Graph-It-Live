@@ -37,6 +37,10 @@ describe.skipIf(!fs.existsSync(CLI_ENTRY) || !fs.existsSync(MCP_ENTRY))(
       expect(stderrOf(MCP_ENTRY, [], "bogus")).toContain(WARNING);
     });
 
+    it("graph-it serve warns once: its MCP server child warns, the parent CLI leaves it to the child", () => {
+      expect(stderrOf(CLI_ENTRY, ["serve"], "bogus").split(WARNING)).toHaveLength(2);
+    });
+
     it.each(["liftoff", "default"])("neither entry warns for %s", (value) => {
       expect(stderrOf(CLI_ENTRY, ["--version"], value)).not.toContain("GRAPH_IT_WASM_TIERING");
       expect(stderrOf(MCP_ENTRY, [], value)).not.toContain("GRAPH_IT_WASM_TIERING");
