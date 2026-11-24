@@ -373,6 +373,12 @@ Each command result starts with a title row such as `● ▾ $ /check-dependenci
 
 Press `Esc` on an empty command line (or `Shift+Tab` at any time) to move the focus to the results. A highlighted cursor row appears and the view follows it. `Esc`, `i` or `/` (which also starts a command) return to the command line.
 
+<div align="center">
+<img src="../media/repl-results-navigation.gif" alt="graph-it REPL on this repository: two commands run, Esc moves focus into the results, the cursor jumps between result titles, the first result folds, Enter on a file line opens the actions menu, z folds and unfolds every result" width="800"/>
+</div>
+
+*The REPL on this repository: results focus, jumps between results, folding and the actions menu.*
+
 | Key (results focus) | Action |
 | --- | --- |
 | `↑`/`↓`, `k`/`j` | Move one line (the mouse wheel moves the cursor too, unless `/mouse on` is set) |
@@ -1116,7 +1122,31 @@ Units changed in 1.25.4: every folder holding a project manifest of a supported 
 
 **Explorable page.** With `--output`, `init` also writes `index.html`, linked from `report.md` (`Explore:`): one self-contained page, `vis-network` inlined, readable offline, with workspace-relative paths only (the same page as [`export --format html`](#export), grouped differently). Its groups are the units of the report, one per unit (key as label, its file count), collapsed above 200 files: double-click a unit to see its files. Edges are drawn in the styles of the SVG diagrams, from one shared legend: upward, runtime cycle, type-only cycle (dotted) and lazy cycle (dashed) by how their unit cycle runs, a rule broken (accepted in the proposed baseline: dashed); a broken rule outranks the cycle style. The legend lists the styles the page uses; hovering an edge counts its file pairs by style. The **Dependency matrix** panel shows `matrix.svg` itself with the reading guide; clicking a cell (or Enter) lists its file pairs and centres on them. Dead files have a dashed border and a `· dead` label. The **Findings** panel lists the sections and items of `report.md`, in the same order and words, every item; clicking one (or Enter) expands the units of the files it names and centres on those files, or centres on its units when it names no file. With `--focus`, the page holds the units of the focus and their direct neighbours, opens with the focus files expanded (the other files of their units dimmed) and a panel stating its boundary: the units it depends on (orange edges) and the units using it (blue), each with its file pairs counted by style; **◎ Focus** comes back to it. Each path is written once: a file row holds what its path does not share with the previous one, and edges are pairs of file row indexes, colours and labels being rebuilt by the page (1.25.4). On a 12,420-file monorepo the page weighs 2.0 MB, against 8.4 MB in 1.25.3; `vis-network` alone is 0.65 MB.
 
+<div align="center">
+<img src="../media/init-counted-findings.png" alt="index.html written by graph-it init --output on the legacy-shop demo: the Findings panel headings give their counts, Dead files: 2 files in 2 units and Cycles to cut: 3, each unit and cycle with its next command; the graph shows both dead files with a dashed border and the runtime cycle edges in purple" width="800"/>
+</div>
+
+*`graph-it init --output report` on `tests/demo/legacy-shop`. Each heading gives its count; `report.md` and `--format markdown` list every item, the terminal the first 20.*
+
+<div align="center">
+<img src="../media/init-cycle-kinds.png" alt="index.html written by graph-it init --output: the Findings panel lists the dead file and the cycles to cut, each with its next command; the graph groups the files by unit, a runtime cycle as solid purple edges, a type-only cycle dotted, a lazy import() cycle dashed, and the shared legend under the groups" width="800"/>
+</div>
+
+*`graph-it init --output report`, then open `report/index.html`. The legend is the same in the SVG diagrams and on the page.*
+
+<div align="center">
+<img src="../media/init-matrix-panel.png" alt="The Dependency matrix panel of index.html: seven units in layer order, a runtime cycle outlined solid, a type-only cycle dotted and a lazy cycle dashed, the cell to cut in each framed, and under it How to read the matrix with one line per pattern" width="800"/>
+</div>
+
+*Open Findings, then Dependency matrix; click a cell to list its file pairs.*
+
 **Focus.** `--focus <name>` restricts the report and the diagrams to one unit or folder and its direct neighbours (the files importing it or imported by it). The name is a unit or folder key as [`architecture --level units`](#architecture) and `--folder` print them (`apps/web`, `src/cli`), a package name (`@acme/web`), or a workspace directory (`apps/web/src/components`, mapped to its key as [`diagram`](#diagram) maps `<dir>`). It takes one value: pass it once. The summary starts with a `Focus:` line and its totals cover the focus: its files, its units with their neighbours, the unit edges through it, the unit cycles it is in. Kept: the dead files in the focus or importing it; the mutual imports, weak dependencies and unused exports touching its files; the whole `cycle-break` of a unit cycle its unit is in, even when the cut is outside the focus; the matrix findings of its units and of their neighbours. `units.svg` and `matrix.svg` draw those units only, and the first folder diagram is the focus itself. The rules files still cover the whole workspace. An unknown name fails before anything is written, with the closest names (`Did you mean: …`); a directory holding several units asks for one of them. A focus with nothing to report prints zero totals and `Top action: none`.
+
+<div align="center">
+<img src="../media/init-focus.png" alt="index.html with --focus billing: only billing and its neighbour orders, the findings for billing under Cycles to cut: 2 (cycle-break and mutual-import) and Other leads: 1, and a Focus panel listing orders under Depends on and Used by, each with 1 file pair in a runtime cycle" width="800"/>
+</div>
+
+*`graph-it init --focus billing --output report` on `tests/demo/legacy-shop`.*
 
 The dead-code scans take as long as [`graph-it check`](#check) and `graph-it check --unreferencedFiles` on the same workspace. `json` and `toon` list the report files under `reportFiles` (the page also under `page`), apart from the rules files under `written`.
 
@@ -1737,6 +1767,12 @@ When the head has a `graphit.architecture.json` (or the diff edits it or its bas
 
 Without a config at the head and in the diff, no `architecture` field is returned and nothing more is read. An invalid rules file, at either ref, is reported as the limitation `Architecture rules unavailable: <ref>: <reason>`. Markdown adds an "Architecture rules" section (verdict, rules table, new and resolved violations, at most 20 each, rules-file changes); `--format sarif` lists the new violations the baseline does not accept on their importing line, as `check-architecture --format sarif` does (driver `graph-it review-pr`; without a config, a run with no result, so a CI upload step still works).
 
+<div align="center">
+  <img src="../media/review-pr-architecture-rules.png" alt="Rendered review-pr Markdown on the rules test fixture: Architecture rules DEGRADED, one new frontend-not-backend error violation from mfe/checkout to backend, one resolved violation from frontend, two unchanged unit cycles" width="800"/>
+</div>
+
+*`graph-it review-pr --base HEAD --format markdown` on the rules test fixture, rendered as the Review Gate Action posts it: the diff moves a backend import from `frontend` to `mfe/checkout`, so one violation is resolved and one new `error` violation fails the gate; the two existing unit cycles stay unchanged.*
+
 The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `baseRef`, optional `headRef`, `maxDepth`, and `maxFiles`. Omit `headRef` to review the checked-out worktree; provide a local or remote branch ref to compare two committed branch refs. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file, printed in the PR comment as a code span to copy (GitHub strips non-http(s) Markdown links, so it is not clickable); the extension accepts depth 1–5 and validates the path again. Branch Watch's VS Code confidence label is UI context for incomplete local evidence; the CLI and MCP continue to expose the structured limitations and `isPartial` fields instead of that label.
 
 #### GitHub Actions consumer workflow
@@ -1744,6 +1780,8 @@ The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `
 The composite Action has no trigger of its own. Consumer repositories must add a `pull_request` workflow; see [`examples/graph-it-review-gate.yml`](examples/graph-it-review-gate.yml). It installs `@magic5644/graph-it-live@latest` in a temporary prefix and runs `graph-it review-pr --workspace "$GITHUB_WORKSPACE"` against the checked-out consumer repository. It never installs or builds consumer dependencies.
 
 `cli-version` is optional: omit it to use npm `latest`, or supply an npm version, tag, or range. The Action validates the CLI's actual `graph-it-live vX.Y.Z` output, logs it, exposes it as `outputs.cli-version`, and rejects versions below `1.13.0`. It also exposes `risk`, `score` and `architecture-new-errors` outputs.
+
+The Action is informational by default. Set `fail-on-risk: high` or `critical` to gate a pull request. It analyzes the consumer checkout in an isolated temporary directory and sends only a sanitized report to GitHub.
 
 Pin the Action to a release tag, such as `magic5644/Graph-It-Live/.github/actions/graph-it-review-gate@v1.18.0`. Never use `pull_request_target` to inspect untrusted PR code. Set `comment: false` for fork PRs; then grant only `contents: read` rather than `pull-requests: write`.
 
@@ -2151,7 +2189,7 @@ graph-it serve [options]
 
 **What it does:**
 
-Launches the full 22-tool MCP server process on `stdio`. The server:
+Launches the full 25-tool MCP server process on `stdio`. The server:
 - Accepts MCP JSON-RPC messages from stdin
 - Performs dependency analysis on the workspace
 - Returns results on stdout

@@ -12,6 +12,10 @@ Technical documentation for the VS Code extension, the `graph-it` CLI and the MC
 |------|-------------|
 | [CLI.md](CLI.md) | `graph-it` CLI reference: REPL, commands, options, output formats, environment variables, MCP tools via `graph-it tool`, review gate |
 | [architecture.md](architecture.md) | Architecture view, `graphit.architecture.json` rules and roles, `check-architecture`: concepts, tasks, surfaces, limits |
+| [architecture-view.md](architecture-view.md) | Architecture view tour with screenshots: navigation, diagram export, flow and sequence diagrams, rules |
+| [features.md](features.md) | File graph, Symbol View, Live Call Graph, unused dependencies, supported languages (Vue, React, GraphQL) |
+| [ai-integrations.md](ai-integrations.md) | Native Copilot tools, MCP server, portable Agent Plugin per client, agent skill, token savings |
+| [configuration.md](configuration.md) | VS Code settings, Branch Watch, indexing exclusions, performance profiles |
 | [examples/graph-it-review-gate.yml](examples/graph-it-review-gate.yml) | Consumer workflow for the Graph-It Review Gate GitHub Action |
 
 ## Architecture
