@@ -220,8 +220,8 @@ describe("compareStructure", () => {
       const missing = snapshot(sameFiles, undefined, { configFrom: "head" });
       expect(compare(missing, head).warnings[0]).toContain("(base has no graphit.architecture.json: built with the head's)");
       const invalid = snapshot(sameFiles, undefined, { configFrom: "head", configError: "$: not valid JSON" });
-      expect(compare(invalid, head).warnings[0]).toContain("(base graphit.architecture.json is invalid ($: not valid JSON): built with the head's)");
-      expect(compare(invalid, snapshot(sameFiles)).warnings[0]).toContain("invalid ($: not valid JSON): detected projects");
+      expect(compare(invalid, head).warnings[0]).toContain("(base config refused ($: not valid JSON): built with the head's)");
+      expect(compare(invalid, snapshot(sameFiles)).warnings[0]).toContain("base config refused ($: not valid JSON): detected projects");
     });
 
     it("says nothing about the definition when neither side has a config, or both define the same", () => {

@@ -198,7 +198,7 @@ describe("structure diff on a real Git repository", { timeout: 120_000 }, () => 
   it("explains a base built from the head config when the base config is invalid, and fails on an invalid head", async () => {
     const invalidBase = repository({ ...many("a", 3), "graphit.architecture.json": "{ not json" }, (dir) => write(dir, { "graphit.architecture.json": JSON.stringify(CONFIG) }));
     const structure = await structureOf(invalidBase, "feature", ["graphit.architecture.json"]);
-    expect(structure.warnings[0]).toContain("base graphit.architecture.json is invalid (graphit.architecture.json: $: not valid JSON");
+    expect(structure.warnings[0]).toContain("base config refused (graphit.architecture.json: $: not valid JSON");
     expect(structure.verdict).toBe("unchanged");
 
     const invalidHead = repository(many("a", 3), (dir) => write(dir, { "graphit.architecture.json": "{ not json" }));
@@ -213,7 +213,7 @@ describe("structure diff on a real Git repository", { timeout: 120_000 }, () => 
     const trees = await readReviewTrees(host(corruptBase), "main", "feature");
     // Only the baseline is refused: a limitation, the base config (none here) kept, no definition warning.
     expect(trees.limitations.some((line) => line.startsWith("main: graphit.architecture.baseline.json") && line.endsWith("the base baseline is ignored, so its accepted violations count as found at the base."))).toBe(true);
-    expect((await structureOf(corruptBase)).warnings.some((warning) => warning.includes("is invalid"))).toBe(false);
+    expect((await structureOf(corruptBase)).warnings.some((warning) => warning.includes("config refused"))).toBe(false);
   });
 
   it("keeps a valid base config when only the base baseline is refused, and caps a quoted config error", async () => {
@@ -227,7 +227,7 @@ describe("structure diff on a real Git repository", { timeout: 120_000 }, () => 
     const invalidBase = repository({ ...many("a", 2), "graphit.architecture.json": JSON.stringify({ elements: { [longKey]: 1 } }) },
       (dir) => write(dir, { "graphit.architecture.json": config }));
     const [warning] = (await structureOf(invalidBase)).warnings;
-    expect(warning).toContain("is invalid (");
+    expect(warning).toContain("base config refused (");
     expect(warning.length).toBeLessThan(500);
   });
 

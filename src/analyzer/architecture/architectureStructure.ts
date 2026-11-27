@@ -282,7 +282,7 @@ function definitionChanges(base: StructureSnapshot, head: StructureSnapshot): st
 function definitionDetail(base: StructureSnapshot, head: StructureSnapshot): string | undefined {
   const built = head.configFrom === "none" ? "detected projects" : "built with the head's";
   let details: string[] = [];
-  if (base.configError !== undefined) details = [`base graphit.architecture.json is invalid (${base.configError}): ${built}`];
+  if (base.configError !== undefined) details = [`base config refused (${base.configError}): ${built}`];
   else if (base.configFrom === "head") details = ["base has no graphit.architecture.json: built with the head's"];
   else if (base.configFrom === "own") details = head.configFrom === "none" ? ["head has no graphit.architecture.json: detected projects"] : definitionChanges(base, head);
   return details.length === 0 ? undefined : details.join("; ");
