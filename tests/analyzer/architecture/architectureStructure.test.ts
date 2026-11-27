@@ -23,7 +23,7 @@ function level(items: Record<string, string[]>, extra: { edges?: Record<string, 
       ...(extra.roles?.[key] === undefined ? {} : { role: extra.roles[key] }),
     }])),
     fileItem: new Map(Object.entries(items).flatMap(([key, files]) => files.map((file): [string, string] => [file, key]))),
-    edges: new Map(Object.entries(extra.edges ?? {}).map(([pair, pairs]) => [pair.replace(">", "\0"), pairs])),
+    edges: new Map(Object.entries(extra.edges ?? {}).map(([pair, pairs]) => [pair.replaceAll(">", "\0"), pairs])),
     cycles: extra.cycles ?? [],
   };
 }

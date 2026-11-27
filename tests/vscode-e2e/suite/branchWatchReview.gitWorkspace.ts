@@ -5,7 +5,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { branchWatchReact, fixtureGit } from '../fixtures/branchWatch.fixture';
-import { getIndexStatus, sleep, waitUntil } from './_helpers';
+import { getIndexStatus, waitUntil } from './_helpers';
 
 interface SnapshotItem {
   label: string | { label: string };
@@ -138,10 +138,7 @@ suite('Branch Watch review in a Git workspace (#546)', function () {
       fixtureGit(worktree, 'mv', 'typescript', 'typescript-renamed');
       fixtureGit(worktree, '-c', 'user.email=fixture@example.com', '-c', 'user.name=Fixture', 'commit', '-m', 'rename typescript');
 
-      for (const deadline = Date.now() + 120_000; Date.now() < deadline;) {
-        if ((await getIndexStatus<{ isReady?: boolean }>()).isReady) break;
-        await sleep(500);
-      }
+      await waitUntil(async () => (await getIndexStatus<{ isReady?: boolean }>()).isReady === true, 'the index to be ready', 120_000);
       const invoked = await vscode.lm.invokeTool('graph-it-live_review_pr', {
         input: { baseRef: 'main', headRef: 'rename-e2e', response_format: 'json' },
         toolInvocationToken: undefined,
