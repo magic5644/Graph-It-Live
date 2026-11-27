@@ -164,6 +164,11 @@ vite.config.ts.timestamp-*
 .claude/*
 !.claude/rules/
 !.claude/rules/**
+!.claude/agents/
+!.claude/agents/**
+!.claude/commands/
+!.claude/commands/**
+!.claude/FRAMEWORK.md
 docs/AGENT_*
 .github/agents
 .github/prompts
