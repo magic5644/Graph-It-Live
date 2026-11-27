@@ -17,6 +17,31 @@ import type { AnalyzeFile } from './architecture/ArchitectureGraphBuilder';
 import { checkText, MAX_TEXT_FILE_BYTES, readWorkspaceText, resolveRegularFile } from './utils/workspaceText';
 
 const execFileAsync = promisify(execFile);
+
+const CHANGED_FILE_LIST_MAX_BYTES = 64 * 1024 * 1024;
+/** `reason` of a renames() answer cut short by diff.renameLimit. */
+export const RENAME_LIMIT = 'diff.renameLimit';
+
+/** A workspace-relative rename path, undefined when absolute (POSIX or Windows) or leaving the repository: a key, never opened. */
+export function renameKey(file: string): string | undefined {
+  const normalized = normalizePath(file);
+  return path.isAbsolute(normalized) || path.win32.isAbsolute(normalized) || normalized.split('/').includes('..') ? undefined : normalized;
+}
+
+/**
+ * Fills `moves` from `git diff --name-status -z --diff-filter=R` output (`R<score>\0old\0new\0`); entries
+ * `keep` refuses (outside the repository) are dropped. False when a record is not a rename.
+ */
+export function parseRenames(output: string, moves: Map<string, string>, keep: (file: string) => string | undefined): boolean {
+  const fields = output.split('\0');
+  if (fields.pop() !== '') return false;
+  for (let i = 0; i < fields.length; i += 3) {
+    if (!/^R\d+$/.test(fields[i]) || i + 2 >= fields.length) return false;
+    const [from, to] = [keep(fields[i + 1]), keep(fields[i + 2])];
+    if (from !== undefined && to !== undefined) moves.set(from, to);
+  }
+  return true;
+}
 export const BRANCH_WATCH_MAX_FILES = 200;
 /**
  * Kept on purpose: Branch Watch reruns by itself in the extension host after edits and branch
@@ -511,6 +536,30 @@ export class BranchWatchAnalyzer {
     return (await this.git(['merge-base', base, head])).trim();
   }
 
+  /**
+   * Files Git sees renamed from `from` to `to` (the working tree when undefined), base path -> head path
+   * (`git diff -M`, 50 % similarity). Never throws: a failure or a partial answer is `complete: false`
+   * with its `reason`, since renames only refine a comparison.
+   */
+  async renames(from: string, to: string | undefined): Promise<{ moves: Map<string, string>; complete: boolean; reason?: string }> {
+    const moves = new Map<string, string>();
+    try {
+      for (const ref of [from, ...(to === undefined ? [] : [to])]) {
+        if (ref.length === 0 || ref.startsWith('-')) throw new Error('refused a ref that starts with "-"');
+      }
+      const args = ['diff', '--no-ext-diff', '--no-textconv', '-M', '--name-status', '-z', '--diff-filter=R', from, ...(to === undefined ? [] : [to]), '--'];
+      const { stdout, stderr } = await this.run(args, { maxBuffer: CHANGED_FILE_LIST_MAX_BYTES, timeout: 30_000, locale: true });
+      const parsed = parseRenames(stdout, moves, renameKey);
+      // Git 2.56 says "exhaustive rename detection was skipped", older versions "inexact": the pinned wording is the real-git test's.
+      if (/rename detection was skipped|diff\.renameLimit/.test(stderr)) return { moves, complete: false, reason: RENAME_LIMIT };
+      return parsed ? { moves, complete: true } : { moves, complete: false, reason: 'unparseable git output' };
+    } catch (error) {
+      moves.clear();
+      return { moves, complete: false, reason: (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').slice(0, 240) };
+    }
+  }
+
+
   /** Entries of `ref`'s tree that `keep` selects, workspace-relative, with their blob size. */
   private async treeEntries(ref: string, keep: (file: string) => boolean): Promise<TreeEntry[]> {
     // shortcut: git() buffers 4 MiB of listing, about 40 000 files; stream ls-tree when larger repositories need it.
@@ -583,13 +632,17 @@ export class BranchWatchAnalyzer {
   }
 
   private async git(args: string[]): Promise<string> {
+    return (await this.run(args)).stdout;
+  }
+
+  /** `LC_ALL=C` keeps the wording of Git's stderr stable for the callers that read it (renames). */
+  private async run(args: string[], { maxBuffer = 4 * 1024 * 1024, timeout = 10_000, locale = false } = {}): Promise<{ stdout: string; stderr: string }> {
     try {
-      const { stdout } = await execFileAsync(this.gitPath, ['-c', 'core.fsmonitor=false', ...args], {
-        cwd: this.root, encoding: 'utf8', maxBuffer: 4 * 1024 * 1024, timeout: 10_000,
+      return await execFileAsync(this.gitPath, ['-c', 'core.fsmonitor=false', ...args], {
+        cwd: this.root, encoding: 'utf8', maxBuffer, timeout,
         signal: this.abortController.signal,
-        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: '0', ...(locale ? { LC_ALL: 'C' } : {}) },
       });
-      return stdout;
     } catch (error) {
       const typed = error as NodeJS.ErrnoException & { stderr?: string; stdout?: string };
       const code = typed.code;

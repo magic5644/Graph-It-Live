@@ -3,7 +3,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { treeAnalyzer } from "../../src/analyzer/architecture/architectureReview";
+import { ArchitectureReviewError, treeAnalyzer } from "../../src/analyzer/architecture/architectureReview";
+import type { ArchitectureStructureDiff } from "../../src/shared/architecture-model";
 import { addedFileCycles } from "../../src/analyzer/BranchWatchAnalyzer";
 import { createSpiderDependentsProvider } from "../../src/mcp/tools/impact";
 import { mapWithConcurrency } from "../../src/shared/concurrency";
@@ -2511,12 +2512,27 @@ describe("ReviewGateAnalyzer architecture rules", { timeout: GIT_TEST_TIMEOUT },
   const provider = (reviewArchitecture: NonNullable<SymbolDependentsProvider["reviewArchitecture"]>): SymbolDependentsProvider =>
     ({ getSymbolDependents: async () => [], reviewArchitecture });
 
-  it("skips the rules, at no cost, without a config at the head or in the diff", async () => {
+  it("reads the structure without a config at the head or in the diff, and reports no architecture review", async () => {
     const workspace = await createGitWorkspace();
-    const reviewArchitecture = vi.fn();
+    const structure = { verdict: "unchanged", warnings: [] } as unknown as ArchitectureStructureDiff;
+    const reviewArchitecture = vi.fn().mockResolvedValue({ structure, limitations: [] });
     const result = await new ReviewGateAnalyzer(workspace, provider(reviewArchitecture)).analyze({ baseRef: "main" });
-    expect(reviewArchitecture).not.toHaveBeenCalled();
+    expect(reviewArchitecture).toHaveBeenCalledWith(["src/api.ts"], "main", "HEAD");
     expect(result).not.toHaveProperty("architecture");
+    expect(result.structure).toBe(structure);
+    // Informational: neither the score nor the markdown (unchanged, no warning) moves.
+    expect(result.score).toBe((await new ReviewGateAnalyzer(workspace, provider(vi.fn().mockResolvedValue({ limitations: [] }))).analyze({ baseRef: "main" })).score);
+    expect(renderReviewMarkdown(result)).not.toContain("Architecture structure");
+  });
+
+  it("stops the review on an invalid rules file at the head, and keeps any other read error a limitation", async () => {
+    const workspace = await createGitWorkspace();
+    const invalid = vi.fn().mockRejectedValue(new ArchitectureReviewError("HEAD: graphit.architecture.json: $: not valid JSON"));
+    await expect(new ReviewGateAnalyzer(workspace, provider(invalid)).analyze({ baseRef: "main" })).rejects.toThrow("HEAD: graphit.architecture.json: $: not valid JSON");
+    const other = vi.fn().mockRejectedValue(new Error("boom"));
+    const result = await new ReviewGateAnalyzer(workspace, provider(other)).analyze({ baseRef: "main" });
+    expect(result.limitations).toContain("Architecture rules unavailable: boom");
+    expect(result).not.toHaveProperty("structure");
   });
 
   it("raises the risk on a new error violation and renders the architecture section", async () => {

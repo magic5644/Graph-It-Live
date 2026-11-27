@@ -71,16 +71,20 @@ export function collectScalarFields(data: unknown, sections: ToonSection[]): Arr
   }
 
   const encoded = new Set(sections.map(section => section.name));
-  return Object.entries(data as Record<string, unknown>).flatMap(([key, value]): Array<[string, unknown]> => {
-    if (encoded.has(key) || Array.isArray(value) || value === undefined || value === null) {
+  return flattenScalars(data as Record<string, unknown>, "", 0, encoded);
+}
+
+/** Scalars of nested records get dotted keys (`structure.renames.mapped`); arrays are sections, not scalars. */
+function flattenScalars(obj: Record<string, unknown>, prefix: string, depth: number, encoded: Set<string>): Array<[string, unknown]> {
+  return Object.entries(obj).flatMap(([key, value]): Array<[string, unknown]> => {
+    const path = `${prefix}${key}`;
+    if (encoded.has(path) || Array.isArray(value) || value === undefined || value === null) {
       return [];
     }
     if (typeof value === "object") {
-      return Object.entries(value as Record<string, unknown>)
-        .filter(([, nested]) => typeof nested !== "object")
-        .map(([nestedKey, nested]) => [`${key}.${nestedKey}`, nested]);
+      return depth > MAX_NESTED_DEPTH ? [] : flattenScalars(value as Record<string, unknown>, `${path}.`, depth + 1, encoded);
     }
-    return [[key, value]];
+    return [[path, value]];
   });
 }
 
@@ -103,7 +107,9 @@ export function collectToonSections(data: unknown, rootName?: string): ToonSecti
   const obj = data as Record<string, unknown>;
   const topLevel = collectSectionsFrom(obj);
   if (topLevel.length > 0) {
-    return topLevel;
+    // Lists nested in sub-objects (review-pr's `structure` and `architecture`) are
+    // encoded too, named by their dotted path; dropping them was a silent loss.
+    return [...topLevel, ...collectNestedSections(obj, "", 0)];
   }
 
   // check-dependencies splits its two arrays across outgoing/incoming, one level
@@ -123,6 +129,21 @@ export function collectToonSections(data: unknown, rootName?: string): ToonSecti
   }
 
   return [];
+}
+
+const MAX_NESTED_DEPTH = 3;
+
+function collectNestedSections(obj: Record<string, unknown>, prefix: string, depth: number): ToonSection[] {
+  if (depth >= MAX_NESTED_DEPTH) return [];
+  return Object.entries(obj).flatMap(([key, value]): ToonSection[] => {
+    if (!isRecord(value) || Array.isArray(value)) return [];
+    const path = `${prefix}${key}`;
+    const record = value as Record<string, unknown>;
+    return [
+      ...collectSectionsFrom(record).map(section => ({ ...section, name: `${path}.${section.name}` })),
+      ...collectNestedSections(record, `${path}.`, depth + 1),
+    ];
+  });
 }
 
 function collectSectionsFrom(obj: Record<string, unknown>): ToonSection[] {

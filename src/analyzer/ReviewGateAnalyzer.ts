@@ -7,8 +7,9 @@ import { mapWithConcurrency } from "../shared/concurrency";
 import { SUPPORTED_SOURCE_FILE_REGEX } from "../shared/constants";
 import { normalizePath } from "../shared/path";
 import { detectCycles } from "../shared/cycleUtils";
-import { renderArchitectureMarkdown, type ArchitectureReview } from "./architecture/architectureReview";
-import { ARCHITECTURE_BASELINE_FILE, ARCHITECTURE_CONFIG_FILE } from "./architecture/architectureRules";
+import { ArchitectureReviewError, renderArchitectureMarkdown, type ArchitectureReview } from "./architecture/architectureReview";
+import { renderStructureMarkdown } from "./architecture/architectureStructure";
+import type { ArchitectureStructureDiff } from "../shared/architecture-model";
 import { SignatureAnalyzer, type BreakingChange, type ReexportedModule, type SignatureComparisonResult, type SignatureInfo } from "./SignatureAnalyzer";
 import type { SymbolDependency, SymbolInfo } from "./types";
 import { compareVueContracts, readVueContract } from "./sfc/vueContract";
@@ -132,6 +133,8 @@ export interface ReviewGateResult {
   cycles: ReviewCycle[];
   /** What the diff does to the rules of graphit.architecture.json; absent without one. */
   architecture?: ArchitectureReview;
+  /** What the diff does to the units and folder groups; present whenever both trees were read, with or without a rules file. Informational: never changes the score or the gate. */
+  structure?: ArchitectureStructureDiff;
   score: number;
   risk: ReviewRiskLevel;
   isPartial: boolean;
@@ -156,7 +159,7 @@ export interface SymbolDependentsProvider {
   /** Import cycles among `changedFiles` that the diff from `baseRef` to `headRef` adds; absent when the host cannot read the base. */
   findFileCycles?(changedFiles: string[], baseRef: string, headRef: string): Promise<FileCycleAnalysis>;
   /** The architecture rules checked on the base and the head, compared; no review when neither has a config. */
-  reviewArchitecture?(changedFiles: string[], baseRef: string, headRef: string): Promise<{ review?: ArchitectureReview; limitations: string[] }>;
+  reviewArchitecture?(changedFiles: string[], baseRef: string, headRef: string): Promise<{ review?: ArchitectureReview; structure?: ArchitectureStructureDiff; limitations: string[] }>;
 }
 
 type ReviewDependent = Pick<SymbolDependency, "sourceSymbolId"> & Partial<Pick<SymbolDependency, "relation" | "line">>;
@@ -300,6 +303,8 @@ export class ReviewGateAnalyzer {
     }
 
     const architecture = await architecturePromise;
+    // An invalid rules file at the head stops the review: the user can fix it.
+    if (architecture.fatal) throw architecture.fatal;
     // Both checks read the same trees: their reading limitations are reported once.
     limitations.push(...architecture.limitations.filter((limitation) => !fileCycles.limitations.includes(limitation)));
 
@@ -313,6 +318,7 @@ export class ReviewGateAnalyzer {
       symbols,
       cycles: fileCycles.cycles,
       ...(architecture.review ? { architecture: architecture.review } : {}),
+      ...(architecture.structure ? { structure: architecture.structure } : {}),
       score,
       risk: riskForScore(score),
       isPartial: limitations.length > 0,
@@ -331,16 +337,13 @@ export class ReviewGateAnalyzer {
     }
   }
 
-  /** The architecture review, or why it is unavailable; none, at no cost, without a rules file at the head or in the diff. */
-  private async collectArchitecture(changedFiles: string[], baseRef: string, headRef: string): Promise<{ review?: ArchitectureReview; limitations: string[] }> {
+  /** The architecture review and structure diff, or why they are unavailable; settles (never rejects), an invalid head rules file is `fatal`. */
+  private async collectArchitecture(changedFiles: string[], baseRef: string, headRef: string): Promise<{ review?: ArchitectureReview; structure?: ArchitectureStructureDiff; limitations: string[]; fatal?: Error }> {
     if (!this.dependents?.reviewArchitecture) return { limitations: [] };
     try {
-      const rulesFilesChanged = changedFiles.some((file) => file === ARCHITECTURE_CONFIG_FILE || file === ARCHITECTURE_BASELINE_FILE);
-      if (!rulesFilesChanged && await this.readHeadContent(headRef, this.resolveWorkspacePath(ARCHITECTURE_CONFIG_FILE), ARCHITECTURE_CONFIG_FILE) === null) {
-        return { limitations: [] };
-      }
       return await this.dependents.reviewArchitecture(changedFiles, baseRef, headRef);
     } catch (error) {
+      if (error instanceof ArchitectureReviewError) return { limitations: [], fatal: error };
       return { limitations: [`Architecture rules unavailable: ${error instanceof Error ? error.message : String(error)}`] };
     }
   }
@@ -2009,6 +2012,7 @@ export function renderReviewMarkdown(result: ReviewGateResult): string {
     ...(impactEvidence.length > 0 ? ["", "### Impact evidence", ...impactEvidence] : []),
     ...(cycles.length > 0 ? ["", "### Import cycles", ...cycles] : []),
     ...(result.architecture ? renderArchitectureMarkdown(result.architecture, safe) : []),
+    ...(result.structure ? renderStructureMarkdown(result.structure, safe) : []),
     ...(result.limitations.length > 0 ? ["", "### Limitations", ...result.limitations.map((item) => `- ${safe(item)}`)] : []),
   ].join("\n");
 }

@@ -867,3 +867,27 @@ describe("check --unreferencedFiles markdown (#711)", () => {
     expect(formatOutput({ ...result, generatedFiles: 0 }, "markdown", "check")).not.toContain("generated file(s)");
   });
 });
+
+describe("formatOutput - toon keeps the nested lists of a review (#345)", () => {
+  it("shows structure and architecture lists, not only structure.verdict", () => {
+    const review = {
+      changedFiles: ["a.ts"],
+      architecture: { verdict: "unchanged", rules: [{ name: "rule-one", newViolations: 0 }] },
+      structure: {
+        verdict: "changed",
+        warnings: ["a warning"],
+        units: {
+          items: [{ status: "RENAMED", key: "u/b" }],
+          edges: [{ status: "ADDED", from: "u/a", to: "u/b" }],
+          cycles: [{ status: "ADDED", members: ["u/a", "u/b"] }],
+          movedFiles: [{ file: "b/x.ts", from: "u/a", to: "u/b" }],
+        },
+        groups: { items: [{ status: "ADDED", key: "g" }] },
+      },
+    };
+    const out = formatOutput(review, "toon", "review-pr");
+    for (const name of ["architecture.rules", "structure.warnings", "structure.units.items", "structure.units.edges", "structure.units.cycles", "structure.units.movedFiles", "structure.groups.items"]) {
+      expect(out).toContain(`${name}(`);
+    }
+  });
+});

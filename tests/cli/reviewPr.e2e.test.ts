@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import * as fsSync from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
@@ -97,6 +97,34 @@ async function createArchitectureRepository(): Promise<string> {
 
 const runCli = (...args: string[]): string =>
   execFileSync(process.execPath, [cliEntry, ...args], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+
+/** #345: `src/a` is renamed to `src/z` on `rename`; `bad` carries an invalid graphit.architecture.json. */
+async function createFolderRenameRepository(): Promise<string> {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "review-pr-e2e-"));
+  const git = (...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "ignore" });
+  git("init", "--initial-branch=main");
+  git("config", "user.email", "e2e@example.com");
+  git("config", "user.name", "Review PR E2E");
+  await fs.mkdir(path.join(root, "src", "a"), { recursive: true });
+  await fs.mkdir(path.join(root, "src", "b"), { recursive: true });
+  await fs.writeFile(path.join(root, "package.json"), '{ "name": "fx", "version": "0.0.0" }\n');
+  for (let i = 1; i <= 3; i += 1) {
+    await fs.writeFile(path.join(root, "src", "a", `f${i}.ts`), `export const f${i} = ${i};\n`);
+  }
+  await fs.writeFile(path.join(root, "src", "b", "user.ts"), 'import { f1 } from "../a/f1";\nexport const u = f1;\n');
+  git("add", "-A");
+  git("commit", "-m", "base");
+  git("checkout", "-b", "rename");
+  git("mv", "src/a", "src/z");
+  await fs.writeFile(path.join(root, "src", "b", "user.ts"), 'import { f1 } from "../z/f1";\nexport const u = f1;\n');
+  git("add", "-A");
+  git("commit", "-m", "rename a to z");
+  git("checkout", "-b", "bad", "main");
+  await fs.writeFile(path.join(root, "graphit.architecture.json"), "{ nope");
+  git("add", "-A");
+  git("commit", "-m", "bad config");
+  return root;
+}
 
 describe.skipIf(!fsSync.existsSync(cliEntry))("review-pr CLI E2E", () => {
   it("runs the built entry point against a real working-tree diff", async () => {
@@ -200,4 +228,42 @@ describe.skipIf(!fsSync.existsSync(cliEntry))("review-pr CLI E2E", () => {
       await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
     }
   }, 60_000);
+  it("reports the structure diff of a folder rename in every format, the CLI and MCP alike (#345)", async () => {
+    const root = await createFolderRenameRepository();
+    try {
+      runCli("scan", "--workspace", root);
+      const review = (format: string, head = "rename") => runCli("review-pr", "--workspace", root, "--base", "main", "--head", head, "--format", format);
+      const cli = JSON.parse(review("json")) as { structure: { verdict: string; groups: { items: Array<{ status: string; key: string; previousKey?: string }> } } };
+      expect(cli.structure.verdict).toBe("changed");
+      expect(cli.structure.groups.items).toMatchObject([{ status: "RENAMED", previousKey: expect.stringContaining("a") }]);
+
+      const toon = review("toon");
+      expect(toon).toContain("structure.verdict=changed");
+      expect(toon).toContain("structure.groups.items(");
+      expect(toon).toContain("RENAMED");
+      expect(review("markdown")).toContain("src/a -> src/z (3 files)");
+
+      const session = await startMcpSession(cliEntry, root, root);
+      try {
+        const mcp = JSON.parse((await session.callTool("graphitlive_review_pr", { baseRef: "main", headRef: "rename", response_format: "json" })).content[0].text);
+        expect(mcp.data.structure).toEqual(cli.structure);
+        const mcpToon = (await session.callTool("graphitlive_review_pr", { baseRef: "main", headRef: "rename", response_format: "toon" })).content[0].text as string;
+        expect(mcpToon).toContain("structure.groups.items(");
+      } finally {
+        await closeSession(session.child);
+      }
+
+      for (const format of ["json", "toon", "markdown"]) {
+        const unknown = spawnSync(process.execPath, [cliEntry, "review-pr", "--workspace", root, "--base", "nope", "--format", format], { encoding: "utf8" });
+        expect(unknown.status, format).not.toBe(0);
+        expect(unknown.stderr).toContain('Unknown Git ref "nope"');
+        const invalid = spawnSync(process.execPath, [cliEntry, "review-pr", "--workspace", root, "--base", "main", "--head", "bad", "--format", format], { encoding: "utf8" });
+        expect(invalid.status, format).not.toBe(0);
+        expect(invalid.stderr).toContain("graphit.architecture.json");
+        expect(invalid.stdout).toBe("");
+      }
+    } finally {
+      await fs.rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+    }
+  }, 120_000);
 });

@@ -84,13 +84,13 @@ describe('collectToonSections', () => {
 });
 
 describe('formatToonScalarHeader', () => {
-  it('skips encoded, array, nested-object and empty values', () => {
+  it('skips encoded, array and empty values, and flattens nested records', () => {
     const header = formatToonScalarHeader(
       { a: 1, b: null, c: undefined, d: [1], omitted: { nodes: 2, deep: { x: 1 } } },
       [{ name: 'a', items: [] }],
     );
 
-    expect(header).toBe('# omitted.nodes=2\n');
+    expect(header).toBe('# omitted.nodes=2 omitted.deep.x=1\n');
   });
 
   it('returns an empty string for arrays, primitives and empty objects', () => {
@@ -104,11 +104,56 @@ describe('collectScalarFields', () => {
   it('returns unencoded scalars and flattens small scalar records', () => {
     const data = { nodes: [{ id: 'a' }], count: 2, omitted: { nodes: 1, deep: { x: 1 } }, none: null };
 
-    expect(collectScalarFields(data, [{ name: 'nodes', items: [] }])).toEqual([['count', 2], ['omitted.nodes', 1]]);
+    expect(collectScalarFields(data, [{ name: 'nodes', items: [] }])).toEqual([['count', 2], ['omitted.nodes', 1], ['omitted.deep.x', 1]]);
   });
 
   it('returns nothing for arrays and primitives', () => {
     expect(collectScalarFields([{ a: 1 }], [])).toEqual([]);
     expect(collectScalarFields('x', [])).toEqual([]);
+  });
+});
+
+describe('nested lists (review-pr structure and architecture)', () => {
+  const review = {
+    risk: 'low',
+    changedFiles: ['a.ts'],
+    architecture: { verdict: 'unchanged', rules: [{ name: 'r1', newViolations: 0 }] },
+    structure: {
+      verdict: 'changed',
+      files: { before: 3, after: 3 },
+      renames: { mapped: 3, complete: true },
+      warnings: ['git could not map a file'],
+      units: {
+        items: [{ status: 'RENAMED', key: 'u/b' }],
+        edges: [{ status: 'ADDED', from: 'u/a', to: 'u/b' }],
+        cycles: [{ status: 'ADDED', members: ['u/a', 'u/b'] }],
+        movedFiles: [{ file: 'b/x.ts', from: 'u/a', to: 'u/b' }],
+        compared: { items: { before: 1, after: 1 }, unchangedItems: 0 },
+      },
+      groups: { items: [{ status: 'ADDED', key: 'g' }], edges: [], cycles: [], movedFiles: [] },
+    },
+  };
+
+  it('encodes every nested list under its dotted path and every nested scalar in the header', () => {
+    const content = encodeToonSections(review)?.content ?? '';
+
+    for (const name of [
+      'changedFiles', 'architecture.rules', 'structure.warnings', 'structure.units.items', 'structure.units.edges',
+      'structure.units.cycles', 'structure.units.movedFiles', 'structure.groups.items',
+    ]) {
+      expect(content, name).toContain(`\n${name}(`);
+    }
+    expect(content).toContain('[RENAMED,u/b]');
+    expect(content).toContain('[b/x.ts,u/a,u/b]');
+    expect(content).toContain('[git could not map a file]');
+    expect(content).not.toContain('structure.groups.edges(');
+    for (const scalar of ['structure.verdict=changed', 'structure.files.before=3', 'structure.renames.mapped=3', 'structure.renames.complete=true', 'structure.units.compared.items.before=1']) {
+      expect(content.split('\n')[0]).toContain(scalar);
+    }
+    expect(JSON.parse(encodeToonSections(review)?.encodedJson ?? '')).toHaveProperty(['structure.units.edges']);
+  });
+
+  it('leaves payloads without nested lists unchanged', () => {
+    expect(encodeToonSections({ nodes: [{ id: 'a' }], meta: { n: 1 } })?.content).toBe('# meta.n=1\nnodes(id)\n[a]');
   });
 });
