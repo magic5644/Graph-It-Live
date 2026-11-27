@@ -119,6 +119,8 @@ The [portable Agent Plugin](plugins/graph-it-live/) bundles the MCP server and f
 | Windsurf, Antigravity, other MCP clients | MCP server entry running `npx -y @magic5644/graph-it-live@latest serve` |
 | Any agent (skill only) | `npx skills add magic5644/skills/graph-it-live` |
 
+In Claude Code v2.1.331 or later, the MCP server also serves the five skills ([Skills over MCP](docs/ai-integrations.md#skills-over-mcp)).
+
 MCP tools and the native Copilot tools answer in compact TOON by default; `graph-it stats` shows the tokens used against the same answers in JSON.
 
 Full setup, the 25 MCP tools, the native Copilot tools, and ready-to-copy configurations: [AI integrations](docs/ai-integrations.md).

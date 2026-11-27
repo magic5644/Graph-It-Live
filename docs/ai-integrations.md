@@ -59,6 +59,35 @@ For Codex CLI:
 codex mcp add graph-it-live --env WORKSPACE_ROOT=/path/to/project -- graph-it serve
 ```
 
+## Skills over MCP
+
+The MCP server also serves the five agent skills of the [Agent Plugin](#portable-agent-plugin) through the MCP
+[Skills extension](https://modelcontextprotocol.io/extensions/skills/overview) (`io.modelcontextprotocol/skills`).
+A client that supports it loads a skill only when it needs it, and the skills always match the server version
+you run. This applies to `graph-it serve` and to the server the extension starts (`graph-it-live.enableMcpServer`).
+
+| Client | Skills over MCP |
+| --- | --- |
+| Claude Code v2.1.331 or later (public beta) | Yes, as `/<server>:<skill>`, for example `/graph-it-live:pr-review` |
+| Other MCP clients (Copilot, Cursor, Codex, Windsurf) | They use the tools only; install the [Agent Plugin](#portable-agent-plugin) or the [agent skill](#agent-skill) for the workflows |
+
+```bash
+claude mcp add graph-it-live -- npx -y @magic5644/graph-it-live@latest serve
+```
+
+Run `/skills` to see them. Claude Code loads MCP skills only when:
+
+- the connection uses MCP revision `2026-07-28`: `/mcp` shows a **Protocol** row for the server. If it is missing, the
+  server took more than 3 seconds to start: run an installed `graph-it serve` instead of `npx`, then select
+  **Reconnect**;
+- it talks to Anthropic directly: a custom `ANTHROPIC_BASE_URL` (a proxy or gateway) turns MCP skills off;
+- your organization has not turned them off (`disableDirectMcpSkills`).
+
+The skills use the CLI when `graph-it` is on `PATH` and the server's MCP tools otherwise.
+
+To turn them off, start the server with `graph-it serve --no-skills`. The Agent Plugin does this itself, because it
+ships the same skills: each skill appears once, as `graph-it-live:<skill>`.
+
 ## Portable agent plugin
 
 The [`plugins/graph-it-live/`](../plugins/graph-it-live/) directory is the portable Agent Plugin package.

@@ -186,6 +186,17 @@ function copyQueryFiles() {
   stdout(`✓ Query files copied to dist/queries/ (${queryFiles.length} files)`);
 }
 
+/**
+ * Copy the Agent Plugin skills to dist/skills/: the MCP server serves them
+ * (Skills extension), and plugins/ ships in neither the VSIX nor the npm package.
+ */
+function copySkills() {
+  const skillsOutDir = path.join('dist', 'skills');
+  fs.rmSync(skillsOutDir, { recursive: true, force: true });
+  fs.cpSync(path.join('plugins', 'graph-it-live', 'skills'), skillsOutDir, { recursive: true });
+  stdout('✓ Copied agent skills to dist/skills/');
+}
+
 /** Shared esbuild options for all Node.js bundles */
 function nodeBundle(entryPoint, outfile, extra = {}) {
   return {
@@ -229,13 +240,15 @@ function browserBundle(entryPoint, outfile, extra = {}) {
   };
 }
 
+// Aliased imports: the banner shares the bundle's top-level scope, where a bundled
+// module may declare its own `dirname` (the MCP SDK skills extension does).
 const ESM_BANNER = {
-  js: `import { createRequire } from 'module';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
-const require = createRequire(import.meta.url);
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);`,
+  js: `import { createRequire as __bannerCreateRequire } from 'module';
+import { fileURLToPath as __bannerFileURLToPath } from 'url';
+import { dirname as __bannerDirname } from 'path';
+const require = __bannerCreateRequire(import.meta.url);
+const __filename = __bannerFileURLToPath(import.meta.url);
+const __dirname = __bannerDirname(__filename);`,
 };
 
 async function createAllContexts() {
@@ -301,6 +314,7 @@ async function main() {
   copyWasmFiles();
   copyQueryFiles();
   copyVisNetwork();
+  copySkills();
   const ctxs = await createAllContexts();
   if (watch) {
     await watchContexts(ctxs);

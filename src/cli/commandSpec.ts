@@ -74,7 +74,7 @@ export const COMMAND_SPECS: Readonly<Record<string, CommandSpec>> = {
     options: { "--base": "value", "--head": "value", "--depth": "value", "--maxFiles": "value", "--max-files": "value" },
     maxPositionals: 0,
   },
-  serve: { formats: ["text"], options: {}, maxPositionals: 0 },
+  serve: { formats: ["text"], options: { "--no-skills": "flag" }, maxPositionals: 0 },
   tool: { formats: GRAPH, options: { "--list": "flag", "--args": "value" }, maxPositionals: 1, passthrough: true },
   install: { formats: ["text"], options: {}, maxPositionals: 0 },
   update: { formats: ["text"], options: {}, maxPositionals: 0 },

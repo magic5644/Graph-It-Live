@@ -100,7 +100,8 @@ if (DEBUG_MCP_ENABLED) {
   );
 }
 import { McpServer, type ToolAnnotations } from "@modelcontextprotocol/server";
-import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import { attachBundledSkills } from "./bundledSkills";
 import * as path from "node:path";
 import * as z from "zod/v4";
 import { McpWorkerHost } from "./McpWorkerHost";
@@ -863,9 +864,18 @@ async function main(): Promise<void> {
   );
   debugLog(`[McpServer] Max depth: ${currentConfig.maxDepth}`);
 
-  // Connect to stdio transport
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  // `graph-it serve --no-skills`: the Agent Plugin ships the same skills itself.
+  if (process.argv.includes("--no-skills")) {
+    debugLog("[McpServer] Skills not served (--no-skills)");
+  } else {
+    const skills = await attachBundledSkills(server, path.join(__dirname, "skills"), debugLog);
+    if (skills > 0) debugLog(`[McpServer] Serving ${skills} skills`);
+  }
+
+  // serveStdio answers both the 2025 `initialize` handshake and the 2026-07-28
+  // opening; Claude Code loads MCP skills only on a 2026-07-28 connection (#837).
+  // A stdio process has one connection, so the factory runs once.
+  serveStdio(() => server, { onerror: (error) => debugLog(`[McpServer] stdio error: ${error.message}`) });
 
   debugLog("[McpServer] MCP Server connected via stdio");
 

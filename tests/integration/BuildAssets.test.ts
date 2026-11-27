@@ -26,6 +26,7 @@ describe('Build assets', () => {
       fs.writeFileSync(target, source);
     }
     fs.cpSync(path.join(root, 'resources/queries'), path.join(workspace, 'resources/queries'), { recursive: true });
+    fs.cpSync(path.join(root, 'plugins/graph-it-live/skills'), path.join(workspace, 'plugins/graph-it-live/skills'), { recursive: true });
     for (const entry of ['analyzer/IndexerWorker', 'analyzer/ast/AstWorker', 'mcp/mcpServer', 'mcp/McpWorker', 'cli/index']) {
       const target = path.join(workspace, 'src', `${entry}.ts`);
       fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -42,6 +43,8 @@ describe('Build assets', () => {
   it('copies missing assets and replaces stale assets before the first watch build finishes', async () => {
     fs.writeFileSync(path.join(workspace, 'dist/wasm/tree-sitter.wasm'), 'stale');
     fs.writeFileSync(path.join(workspace, 'dist/queries/python.scm'), 'stale');
+    fs.mkdirSync(path.join(workspace, 'dist/skills/removed-skill'), { recursive: true });
+    fs.writeFileSync(path.join(workspace, 'dist/skills/removed-skill/SKILL.md'), 'stale');
     const child = spawn(process.execPath, [path.join(root, 'esbuild.js'), '--cli-only', '--watch'], {
       cwd: workspace,
       timeout: 10_000,
@@ -65,6 +68,11 @@ describe('Build assets', () => {
         expect(fs.readFileSync(path.join(workspace, 'dist/queries', name)))
           .toEqual(fs.readFileSync(path.join(workspace, 'resources/queries', name)));
       }
+      // dist/skills/ mirrors the plugin skills: a skill removed from the plugin is not served (#837).
+      expect(fs.readdirSync(path.join(workspace, 'dist/skills')).sort((a, b) => a.localeCompare(b)))
+        .toEqual(fs.readdirSync(path.join(workspace, 'plugins/graph-it-live/skills')).sort((a, b) => a.localeCompare(b)));
+      expect(fs.readFileSync(path.join(workspace, 'dist/skills/pr-review/references/github-actions-gate.md')))
+        .toEqual(fs.readFileSync(path.join(root, 'plugins/graph-it-live/skills/pr-review/references/github-actions-gate.md')));
     } finally {
       child.kill();
       await closed;

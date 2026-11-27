@@ -43,4 +43,14 @@ describe('requiredAssets', () => {
       'dist/queries/python.scm',
     ]));
   });
+
+  it('lists every bundled skill file under dist/skills, references included (#837)', () => {
+    const skills = requiredAssets().filter((asset) => asset.startsWith('dist/skills/'));
+    expect(skills).toEqual(expect.arrayContaining([
+      'dist/skills/pr-review/SKILL.md',
+      'dist/skills/pr-review/references/github-actions-gate.md',
+      'dist/skills/graph-it-live/references/commands.md',
+    ]));
+    expect(skills.filter((asset) => asset.endsWith('/SKILL.md'))).toHaveLength(5);
+  });
 });

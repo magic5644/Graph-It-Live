@@ -37,6 +37,16 @@ describe("serve command", () => {
     expect(args[0]).toMatch(/mcpServer\.mjs$/);
     expect(options.env.WORKSPACE_ROOT).toBe("/work/project");
     expect(options.stdio).toBe("inherit");
+    expect(args).toHaveLength(1);
+  });
+
+  it("forwards --no-skills to the MCP server (#837)", async () => {
+    const child = fakeChild();
+    const done = run(["--no-skills"], runtime("/work/project"), "text");
+    child.emit("exit", 0);
+
+    await expect(done).resolves.toBe("");
+    expect(mocks.spawn.mock.calls[0][1].slice(1)).toEqual(["--no-skills"]);
   });
 
   it("overrides a WORKSPACE_ROOT inherited from the parent environment", async () => {

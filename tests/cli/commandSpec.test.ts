@@ -46,6 +46,8 @@ describe("parseCommandArgs", () => {
     expect(parseCommandArgs("tool", ["--list"])).toEqual(["--list"]);
     expect(parseCommandArgs("tool", [])).toEqual([]);
     expect(() => parseCommandArgs("tool", ["--lst"])).toThrow("Unknown option --lst for graph-it tool. Did you mean --list?");
+    expect(parseCommandArgs("serve", ["--no-skills"])).toEqual(["--no-skills"]);
+    expect(() => parseCommandArgs("serve", ["--no-skill"])).toThrow("Unknown option --no-skill for graph-it serve. Did you mean --no-skills?");
   });
 });
 
