@@ -365,7 +365,8 @@ const range = (value: StructureCount) => (value.before !== undefined && value.af
 function itemLine(item: StructureItemDiff, safe: (value: string) => string): string {
   const role = item.role?.before !== undefined && item.role.after !== undefined && item.role.before !== item.role.after ? `, role ${safe(item.role.before)} -> ${safe(item.role.after)}` : "";
   const name = item.status === "RENAMED" ? `${safe(item.previousKey!)} -> ${safe(item.key)}` : safe(item.key);
-  return `- ${name} (${range(item.fileCount)} files${role})`;
+  const unit = item.previousUnit === undefined ? "" : `, unit ${safe(item.previousUnit)} -> ${safe(item.unit ?? "")}`;
+  return `- ${name} (${range(item.fileCount)} files${role}${unit})`;
 }
 
 function levelLines(level: StructureLevel, diff: StructureLevelDiff, safe: (value: string) => string): string[] {

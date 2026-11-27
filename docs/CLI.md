@@ -1767,6 +1767,29 @@ When the head has a `graphit.architecture.json` (or the diff edits it or its bas
 
 Without a config at the head and in the diff, no `architecture` field is returned and nothing more is read. An invalid rules file, at either ref, is reported as the limitation `Architecture rules unavailable: <ref>: <reason>`. Markdown adds an "Architecture rules" section (verdict, rules table, new and resolved violations, at most 20 each, rules-file changes); `--format sarif` lists the new violations the baseline does not accept on their importing line, as `check-architecture --format sarif` does (driver `graph-it review-pr`; without a config, a run with no result, so a CI upload step still works).
 
+#### Structure comparison
+
+`structure` is always present, with or without a config; it never changes `architecture`, the score, the risk or the gate. It compares the head with the base at two levels: **units** (the declared elements, else the detected projects) and **groups** (the folders of each unit). Items are matched by file overlap (Dice coefficient of at least `0.5`), not by name, after Git rename detection (`git diff -M`, 50 % similarity), so a renamed folder or unit is one `RENAMED` item, not a removal plus an addition.
+
+- `units` and `groups`, each with: `items` (`ADDED`, `REMOVED`, `RENAMED` or `CHANGED`, with `key`, `previousKey`, `fileCount` before and after, and for units the `role`, for groups the owning `unit` and `previousUnit`), `movedFiles` (`file`, `from`, `to`), `edges` (`ADDED`, `REMOVED`, `CHANGED`, with file `pairs` before and after), `cycles` (`ADDED` appeared, `REMOVED` resolved, sorted `members`) and `compared` (item and edge counts per side, and how many stayed unchanged).
+- `files` (analysed files per side), `renames` (`mapped` files, `complete` when Git read every rename), `verdict` (`changed`; `unchanged`; `empty` when neither side has an analysable file) and `warnings`.
+- Warnings: the unit definitions differ between the base and the head (including a base without a config, or with an invalid one, read with the head config); rename detection is incomplete, failed or unavailable; Git cannot see some moves (untracked files, when the head is the working tree); a side has no analysable file.
+
+An invalid `graphit.architecture.json` at the head exits with code 1 and `<ref>: <reason>`. At the base, the head config is used and a warning says so; a base baseline the review refuses is a limitation, and the base config is kept. Markdown adds an "Architecture structure" section only when the verdict is `changed` or there is a warning, at most 20 lines per list then `- … N more`:
+
+```markdown
+### Architecture structure: CHANGED
+
+Units: 1 -> 1. Groups: 2 -> 2. Files: 4 -> 4. Rename detection: 3 file(s).
+
+#### Groups renamed
+- core/a -> core/z (3 files)
+```
+
+(A branch that runs `git mv src/a src/z` in a repository whose element `core` holds `src/`: a group key is `<unit>/<folder>`.)
+
+`json` carries every field; `toon` lists the nested arrays as dotted sections (`structure.units.items`, `structure.groups.items`, ...) and the nested scalars as dotted header keys (`structure.renames.mapped`).
+
 <div align="center">
   <img src="../media/review-pr-architecture-rules.png" alt="Rendered review-pr Markdown on the rules test fixture: Architecture rules DEGRADED, one new frontend-not-backend error violation from mfe/checkout to backend, one resolved violation from frontend, two unchanged unit cycles" width="800"/>
 </div>
