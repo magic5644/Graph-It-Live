@@ -2,8 +2,14 @@ export const MARKER = "<!-- graph-it-review-gate -->";
 const MAX_ROWS = 20;
 const MAX_CYCLE_FILES = 10;
 
+/** One Markdown cell or list item, escaped like ReviewGateAnalyzer's `safe()`: no link, image or @mention from pull-request content. */
 export function sanitize(value) {
-  return String(value ?? "").replace(/[\r\n|<>]/g, " ").replaceAll("`", "'").trim();
+  return String(value ?? "")
+    .replaceAll(/[\r\n|<>]/g, " ")
+    .replaceAll("`", "'")
+    .replaceAll(/[[\]()!]/g, String.raw`\$&`)
+    .replaceAll("@", "@\u200B")
+    .trim();
 }
 
 function safeScore(value) {
