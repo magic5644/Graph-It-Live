@@ -88,6 +88,9 @@ describe('agent plugin manifests', () => {
     ['1.26.10', ['serve', '--no-skills']],
     ['1.3.0', ['serve']],
     ['2.0.0', ['serve', '--no-skills']],
+    ['1.26.1-rc.1', ['serve']],
+    ['1.26.2-beta.1', ['serve', '--no-skills']],
+    ['1.27.0-rc.1', ['serve', '--no-skills']],
   ])('pin %s with server args %j', (pinned, serverArgs) => {
     const copy = copyWorkspace();
     try {
