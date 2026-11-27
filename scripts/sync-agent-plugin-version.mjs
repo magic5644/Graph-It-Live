@@ -46,6 +46,7 @@ function fetchLatestVersion() {
 
 // --no-skills: the plugin ships these skills itself, so its MCP server must not serve them again.
 // shortcut: 1.26.1 and older reject --no-skills (exit 1), so it is added from 1.26.2 on; drop the check once 1.26.1 is never pinned.
+// A 1.26.2 prerelease counts as supporting it: prereleases are cut from main, which has the flag.
 const servesSkills = (version) => version.localeCompare('1.26.2', 'en', { numeric: true }) >= 0;
 
 // npx runs an exact pinned version from its cache after revalidating the package
