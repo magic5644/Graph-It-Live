@@ -344,6 +344,6 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
     write(root, { "graphit.architecture.json": JSON.stringify(CONFIG) });
     const { review, structure } = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["graphit.architecture.json"]);
     expect(review?.verdict).toBe("unchanged");
-    expect(structure?.warnings[0]).toMatch(/^Units differ in definition between base and head \(base graphit\.architecture\.json is invalid \(graphit\.architecture\.json: \$: not valid JSON.*\): built with the head's\)/);
+    expect(structure?.warnings[0]).toMatch(/^Units differ in definition between base and head \(base config refused \(graphit\.architecture\.json: \$: not valid JSON.*\): built with the head's\)/);
   });
 });
