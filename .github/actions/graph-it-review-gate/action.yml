@@ -38,6 +38,9 @@ inputs:
   max-files:
     description: Maximum changed files to analyze (at least 1; a CLI older than 1.24.2 accepts at most 1000).
     default: "200"
+  delta-diagram:
+    description: 'Draw the before/after architecture diagram when the architecture changed (a unit or unit edge added, removed or renamed, a role, a cycle or the rules verdict; file counts alone do not count), upload it as the artifact graph-it-architecture-delta and link it in the comment. Needs CLI 1.26.2 or newer (an older pinned CLI skips it with a notice). Set "false" to turn it off.'
+    default: "true"
 runs:
   using: composite
   steps:
@@ -74,22 +77,51 @@ runs:
         BASE_REF: ${{ inputs.base-ref || github.event.pull_request.base.sha || 'HEAD~1' }}
         MAX_DEPTH: ${{ inputs.max-depth }}
         MAX_FILES: ${{ inputs.max-files }}
+        DELTA_DIAGRAM: ${{ inputs.delta-diagram }}
+        DELTA_SUPPORTED: ${{ steps.cli-version.outputs.delta-svg }}
+        INSTALLED_VERSION: ${{ steps.cli-version.outputs.cli-version }}
       run: |
         set -euo pipefail
         cd "$GITHUB_WORKSPACE"
+        DELTA_FILE=".graph-it/review/architecture-delta.svg"
+        DELTA_ARGS=()
+        # A stale file of an earlier run must never be uploaded.
+        rm -f "$GITHUB_WORKSPACE/$DELTA_FILE"
+        if [ "$DELTA_DIAGRAM" = "true" ]; then
+          if [ -n "$LOCAL_DIST" ] || [ "$DELTA_SUPPORTED" = "true" ]; then
+            DELTA_ARGS=(--deltaSvg "$DELTA_FILE")
+          else
+            echo "::notice::delta-diagram needs Graph-It-Live CLI 1.26.2 or newer (installed: ${INSTALLED_VERSION:-unknown}): no architecture diagram."
+          fi
+        fi
         if [ -n "$LOCAL_DIST" ]; then
           CLI_CMD=(node "$GITHUB_WORKSPACE/$LOCAL_DIST")
         else
           CLI_CMD=(npx --no-install --prefix "$CLI_DIR" graph-it)
         fi
-        "${CLI_CMD[@]}" review-pr --workspace "$GITHUB_WORKSPACE" --base "$BASE_REF" --depth "$MAX_DEPTH" --max-files "$MAX_FILES" --format json > "$RUNNER_TEMP/graph-it-review.json"
+        "${CLI_CMD[@]}" review-pr --workspace "$GITHUB_WORKSPACE" --base "$BASE_REF" --depth "$MAX_DEPTH" --max-files "$MAX_FILES" ${DELTA_ARGS[@]+"${DELTA_ARGS[@]}"} --format json > "$RUNNER_TEMP/graph-it-review.json"
         node -e 'const fs=require("node:fs"); const result=JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP+"/graph-it-review.json","utf8")); fs.appendFileSync(process.env.GITHUB_OUTPUT, "risk="+result.risk+"\nscore="+result.score+"\narchitecture-new-errors="+(result.architecture?.newErrors ?? 0)+"\n")'
+        if [ -f "$GITHUB_WORKSPACE/$DELTA_FILE" ]; then
+          printf 'delta-file=%s\n' "$DELTA_FILE" >> "$GITHUB_OUTPUT"
+        fi
+    - name: Upload architecture delta
+      id: delta
+      if: steps.review.outputs.delta-file != ''
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: graph-it-architecture-delta
+        path: ${{ steps.review.outputs.delta-file }}
+        overwrite: true
+        retention-days: 14
+        if-no-files-found: error
+        include-hidden-files: true
     - name: Update review comment
       if: inputs.comment == 'true' && github.event_name == 'pull_request' && inputs.token != ''
       shell: bash
       env:
         GITHUB_TOKEN: ${{ inputs.token }}
         REVIEW_FILE: ${{ runner.temp }}/graph-it-review.json
+        DELTA_ARTIFACT_URL: ${{ steps.delta.outputs.artifact-url }}
       run: node "$GITHUB_ACTION_PATH/comment.mjs"
     - name: Apply optional risk gate
       shell: node {0}

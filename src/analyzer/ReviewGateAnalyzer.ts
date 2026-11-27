@@ -141,6 +141,8 @@ export interface ReviewGateResult {
   limitations: string[];
 }
 
+export type ArchitectureDeltaSource = Pick<ReviewGateResult, "baseRef" | "headRef" | "architecture" | "structure"> & { limitations: string[] };
+
 export interface SymbolDependentsProvider {
   getSymbolDependents(filePath: string, symbolName: string): Promise<Array<{ sourceSymbolId: string }>>;
   /**
@@ -263,11 +265,7 @@ export class ReviewGateAnalyzer {
   async analyze(options: ReviewGateOptions): Promise<ReviewGateResult> {
     const maxFiles = this.validateLimit(options.maxFiles, DEFAULT_MAX_FILES, Number.POSITIVE_INFINITY, "maxFiles");
     const maxDepth = this.validateLimit(options.maxDepth, DEFAULT_MAX_DEPTH, MAX_MAX_DEPTH, "maxDepth");
-    const headRef = options.headRef ?? "HEAD";
-    this.validateRef(options.baseRef, "baseRef");
-    this.validateRef(headRef, "headRef");
-    await this.assertCommit(options.baseRef);
-    await this.assertCommit(headRef);
+    const headRef = await this.checkRefs(options.baseRef, options.headRef);
     const changedFiles = await this.getChangedFiles(options.baseRef, headRef, maxFiles);
     const changedFileSet = new Set(changedFiles);
     const symbols: ReviewSymbol[] = [];
@@ -324,6 +322,32 @@ export class ReviewGateAnalyzer {
       isPartial: limitations.length > 0,
       limitations,
     };
+  }
+
+  /** analyze() minus the symbol work: the architecture review and structure diff only. Throws an invalid head rules file. */
+  async analyzeArchitecture(options: { baseRef: string; headRef?: string }): Promise<ArchitectureDeltaSource> {
+    const headRef = await this.checkRefs(options.baseRef, options.headRef);
+    // Only rules-file edits are read from the changed files; no cap.
+    const changedFiles = await this.getChangedFiles(options.baseRef, headRef, Number.POSITIVE_INFINITY);
+    const architecture = await this.collectArchitecture(changedFiles, options.baseRef, headRef);
+    if (architecture.fatal) throw architecture.fatal;
+    return {
+      baseRef: options.baseRef,
+      headRef,
+      ...(architecture.review ? { architecture: architecture.review } : {}),
+      ...(architecture.structure ? { structure: architecture.structure } : {}),
+      limitations: architecture.limitations,
+    };
+  }
+
+  /** Validates both refs and checks they name commits; returns the head ref (default HEAD). */
+  private async checkRefs(baseRef: string, headOption: string | undefined): Promise<string> {
+    const headRef = headOption ?? "HEAD";
+    this.validateRef(baseRef, "baseRef");
+    this.validateRef(headRef, "headRef");
+    await this.assertCommit(baseRef);
+    await this.assertCommit(headRef);
+    return headRef;
   }
 
   private async collectFileCycles(changedFiles: string[], baseRef: string, headRef: string): Promise<FileCycleAnalysis> {

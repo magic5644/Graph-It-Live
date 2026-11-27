@@ -209,12 +209,12 @@ function diffItems(base: LevelSnapshot, head: LevelSnapshot, pairs: ReadonlyMap<
 /** A base item's identity in the head key space: its head match, else a key no head item has. */
 const baseId = (pairs: ReadonlyMap<string, string>) => (key: string) => pairs.get(key) ?? `\u0001${key}`;
 
-interface Edge { from: string; to: string; pairs: number }
+interface Edge { from: string; to: string; pairs: number; rawFrom: string; rawTo: string }
 
 function translateEdges(edges: ReadonlyMap<string, number>, id: (key: string) => string, shown: (key: string) => string): Map<string, Edge> {
   return new Map([...edges].map(([pair, pairs]) => {
     const [from, to] = pair.split("\0");
-    return [edgeKey(id(from), id(to)), { from: shown(from), to: shown(to), pairs }];
+    return [edgeKey(id(from), id(to)), { from: shown(from), to: shown(to), pairs, rawFrom: from, rawTo: to }];
   }));
 }
 
@@ -225,7 +225,10 @@ function diffEdges(base: LevelSnapshot, head: LevelSnapshot, pairs: ReadonlyMap<
   let unchanged = 0;
   for (const [key, old] of before) {
     const current = after.get(key);
-    if (current === undefined) edges.push({ status: "REMOVED", from: old.from, to: old.to, pairs: count(old.pairs) });
+    if (current === undefined) {
+      const gone = (["from", "to"] as const).filter((end) => !pairs.has(end === "from" ? old.rawFrom : old.rawTo));
+      edges.push({ status: "REMOVED", from: old.from, to: old.to, pairs: count(old.pairs), ...(gone.length > 0 && { gone }) });
+    }
     else if (current.pairs === old.pairs) unchanged += 1;
     else edges.push({ status: "CHANGED", from: current.from, to: current.to, pairs: count(old.pairs, current.pairs) });
   }
@@ -234,12 +237,16 @@ function diffEdges(base: LevelSnapshot, head: LevelSnapshot, pairs: ReadonlyMap<
 }
 
 function diffCycles(base: LevelSnapshot, head: LevelSnapshot, pairs: ReadonlyMap<string, string>): StructureCycleDiff[] {
-  const cycles = (level: LevelSnapshot, id: (key: string) => string, shown: (key: string) => string) =>
-    new Map(level.cycles.map((members) => [members.map(id).sort(byCodeUnit).join("\0"), members.map(shown).sort(byCodeUnit)]));
-  const before = cycles(base, baseId(pairs), (key) => pairs.get(key) ?? key);
-  const after = cycles(head, (key) => key, (key) => key);
-  const status = (kind: StructureCycleDiff["status"], from: Map<string, string[]>, other: Map<string, string[]>) =>
-    [...from].filter(([id]) => !other.has(id)).map(([, members]): StructureCycleDiff => ({ status: kind, members }));
+  interface Ring { members: string[]; gone: string[] }
+  const cycles = (level: LevelSnapshot, id: (key: string) => string, shown: (key: string) => string, isGone: (key: string) => boolean) =>
+    new Map(level.cycles.map((members): [string, Ring] => [
+      members.map(id).sort(byCodeUnit).join("\0"),
+      { members: members.map(shown).sort(byCodeUnit), gone: members.filter(isGone).sort(byCodeUnit) },
+    ]));
+  const before = cycles(base, baseId(pairs), (key) => pairs.get(key) ?? key, (key) => !pairs.has(key));
+  const after = cycles(head, (key) => key, (key) => key, () => false);
+  const status = (kind: StructureCycleDiff["status"], from: Map<string, Ring>, other: Map<string, Ring>) =>
+    [...from].filter(([id]) => !other.has(id)).map(([, ring]): StructureCycleDiff => ({ status: kind, members: ring.members, ...(ring.gone.length > 0 && { gone: ring.gone }) }));
   return [...status("ADDED", after, before), ...status("REMOVED", before, after)].sort((left, right) => byCodeUnit(left.members.join("\0"), right.members.join("\0")));
 }
 
@@ -360,7 +367,7 @@ export function capped(title: string, lines: string[]): string[] {
 }
 
 const STATUS_WORDS = { ADDED: "added", REMOVED: "removed", RENAMED: "renamed", CHANGED: "changed" } as const;
-const range = (value: StructureCount) => (value.before !== undefined && value.after !== undefined && value.before !== value.after ? `${value.before} -> ${value.after}` : String(value.after ?? value.before));
+export const range = (value: StructureCount) => (value.before !== undefined && value.after !== undefined && value.before !== value.after ? `${value.before} -> ${value.after}` : String(value.after ?? value.before));
 
 function itemLine(item: StructureItemDiff, safe: (value: string) => string): string {
   const role = item.role?.before !== undefined && item.role.after !== undefined && item.role.before !== item.role.after ? `, role ${safe(item.role.before)} -> ${safe(item.role.after)}` : "";

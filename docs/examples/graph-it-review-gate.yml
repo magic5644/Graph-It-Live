@@ -22,3 +22,5 @@ jobs:
           # Empty uses npm's latest tag. Set cli-version to pin a release.
           comment: ${{ github.event.pull_request.head.repo.fork && 'false' || 'true' }}
           fail-on-risk: high
+          # Architecture delta (CLI 1.26.2+): uploaded as an artifact and linked in the comment. "false" turns it off.
+          delta-diagram: "true"

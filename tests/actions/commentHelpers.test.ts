@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 // @ts-expect-error The composite Action runs this JavaScript module directly in Node.
 import { MARKER, buildReviewDeepLink, fetchJsonOrThrow, findStickyComment, getCommentUpsert, renderReviewComment, upsertReviewComment } from "../../.github/actions/graph-it-review-gate/commentHelpers.mjs";
 // @ts-expect-error The composite Action runs this JavaScript module directly in Node.
-import { assertSupportedCliVersion, compareSemver, parseCliVersion } from "../../.github/actions/graph-it-review-gate/verifyCliVersion.mjs";
+import { assertSupportedCliVersion, compareSemver, parseCliVersion, supportsDeltaSvg } from "../../.github/actions/graph-it-review-gate/verifyCliVersion.mjs";
 
 describe("review-gate comment helpers", () => {
   const result = {
@@ -231,5 +231,46 @@ describe("review-gate action risk threshold", () => {
     expect(runRiskGate("low", "medium", "2").status).toBe(2);
     expect(action).toContain("ARCHITECTURE_NEW_ERRORS: ${{ steps.review.outputs.architecture-new-errors }}");
     expect(action).toContain('"\\narchitecture-new-errors="+(result.architecture?.newErrors ?? 0)');
+  });
+});
+describe("review-gate architecture delta (#449)", () => {
+  const url = "https://github.com/owner/repo/actions/runs/1/artifacts/2";
+  const result = { risk: "low", score: 0, changedFiles: [], symbols: [] };
+  const action = readFileSync(resolve(__dirname, "../../.github/actions/graph-it-review-gate/action.yml"), "utf8");
+
+  it("supportsDeltaSvg is true from CLI 1.26.2 and false for older, prerelease or unparsable versions", () => {
+    expect(supportsDeltaSvg("1.26.2")).toBe(true);
+    expect(supportsDeltaSvg("1.27.0")).toBe(true);
+    expect(supportsDeltaSvg("2.0.0")).toBe(true);
+    expect(supportsDeltaSvg("1.26.1")).toBe(false);
+    expect(supportsDeltaSvg("1.26.2-beta.1")).toBe(false);
+    expect(supportsDeltaSvg("latest")).toBe(false);
+    expect(supportsDeltaSvg(undefined)).toBe(false);
+  });
+
+  it("adds one artifact link line with a GitHub URL, and is byte-identical without one", () => {
+    const plain = renderReviewComment(result, "x");
+    expect(renderReviewComment(result, "x", {})).toBe(plain);
+    expect(renderReviewComment(result, "x", { deltaUrl: undefined })).toBe(plain);
+    const linked = renderReviewComment(result, "x", { deltaUrl: url });
+    expect(linked).toContain(`Architecture changed: [before / after diagram](${url}) (artifact, zip download).`);
+    expect(linked.split("\n").filter((line) => line.includes("Architecture changed"))).toHaveLength(1);
+  });
+
+  it.each(["http://github.com/a/b", "https://evil.example/a", "https://github.com/a b", "https://github.com/a)[x](https://evil", "javascript:alert(1)", "", 7])("ignores the hostile URL %j", (deltaUrl) => {
+    expect(renderReviewComment(result, "x", { deltaUrl })).toBe(renderReviewComment(result, "x"));
+  });
+
+  it("the action passes the flag and the URL through env, uploads the pinned artifact action, and never interpolates inputs in a script", () => {
+    expect(action).toContain("actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2");
+    expect(action).toContain("id: delta");
+    // GATE-5: the image is on by default; the CLI version gate keeps older pinned CLIs working.
+    expect(action).toMatch(/ {2}delta-diagram:\n(?: {4}.*\n)*? {4}default: "true"\n/);
+    expect(action).toContain("DELTA_ARTIFACT_URL: ${{ steps.delta.outputs.artifact-url }}");
+    expect(action).toContain("DELTA_DIAGRAM: ${{ inputs.delta-diagram }}");
+    expect(action).toContain("::notice::delta-diagram needs Graph-It-Live CLI 1.26.2 or newer");
+    expect(action).toContain('rm -f "$GITHUB_WORKSPACE/$DELTA_FILE"');
+    const scripts = [...action.matchAll(/run: \|\n((?: {8}.*\n?)+)/g)].map((match) => match[1]).join("\n");
+    expect(scripts).not.toContain("${{");
   });
 });

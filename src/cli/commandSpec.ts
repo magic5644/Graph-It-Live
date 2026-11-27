@@ -60,6 +60,7 @@ export const COMMAND_SPECS: Readonly<Record<string, CommandSpec>> = {
       "--rules": "flag", "--config": "value", "--baseline": "optional-value",
       "--maxSteps": "value", "--startLine": "value", "--spec": "value",
       "--depth": "value", "--maxMessages": "value", "--participants": "value",
+      "--delta": "flag", "--base": "value", "--head": "value",
     },
     maxPositionals: 1,
   },
@@ -71,7 +72,7 @@ export const COMMAND_SPECS: Readonly<Record<string, CommandSpec>> = {
   "review-pr": {
     formats: [...REPORT, "sarif"],
     // --max-files: the spelling of 1.25.4 and earlier, still passed by the review gate action.
-    options: { "--base": "value", "--head": "value", "--depth": "value", "--maxFiles": "value", "--max-files": "value" },
+    options: { "--base": "value", "--head": "value", "--depth": "value", "--maxFiles": "value", "--max-files": "value", "--deltaSvg": "value" },
     maxPositionals: 0,
   },
   serve: { formats: ["text"], options: { "--no-skills": "flag" }, maxPositionals: 0 },

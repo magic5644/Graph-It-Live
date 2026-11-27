@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Architecture delta diagram** (#449). `graph-it diagram --delta --base <ref> [--head <ref>]` writes `architecture-delta.svg`: Before and After on the same grid, then the list of every change (units, unit edges, cycles, rule violations), each status told by word and border. `graph-it review-pr --deltaSvg <file.svg>` writes the same diagram from the review's own comparison. The Review Gate action has a new input `delta-diagram` (default `true`, CLI 1.26.2 or newer): it uploads the SVG as the artifact `graph-it-architecture-delta` and links it in the PR comment. Nothing is drawn when only file or file-pair counts changed.
+
+### Changed
+
+- **`gone` on structure edges and cycles** (#449). A `structure` unit edge or cycle of `review-pr` (CLI, JSON, TOON, MCP) gains an optional `gone` field naming the ends that are removed units whose key a head unit reuses: additive, absent otherwise.
+
 ## v1.26.1
 
 Patch release on the *Flow* and *Seq* tabs of VS Code: they draw the symbol at the cursor on a click, zoom and pan, and no longer say *No calls found* for a symbol that makes calls.

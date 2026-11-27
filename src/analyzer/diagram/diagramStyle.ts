@@ -56,8 +56,9 @@ export const DIAGRAM_VIEWS = ["units", "folder", "matrix", "flow", "sequence"] a
 export const DIAGRAM_FORMATS = ["svg", "html", "diagram-spec", "mermaid"] as const;
 
 /** The file a diagram goes to when none is named. */
-export function defaultDiagramFile(format: (typeof DIAGRAM_FORMATS)[number], view?: DiagramRequestView) {
-  const name = view === "flow" || view === "sequence" ? view : "architecture";
+export function defaultDiagramFile(format: (typeof DIAGRAM_FORMATS)[number], view?: DiagramRequestView | "delta") {
+  let name = view === "flow" || view === "sequence" ? view : "architecture";
+  if (view === "delta") name = "architecture-delta";
   if (format === "diagram-spec") return `${name}.diagram-spec.json`;
   return format === "mermaid" ? `${name}.mmd` : `${name}.${format}`;
 }
@@ -136,6 +137,19 @@ export const LEGEND = {
   call: { colour: "line", text: "call" },
   "catch-call": { colour: "error", text: "call in a catch" },
 } as const satisfies Record<string, { colour: keyof Palette; dash?: string; text: string }>;
+
+/**
+ * The architecture delta (#449): each status has its own (border width, dash) pair, so the shape alone
+ * names it with colours off. `UNCHANGED` is context: thin and solid.
+ */
+export const DELTA = {
+  ADDED: { width: 3 },
+  REMOVED: { width: 2, dash: "6 3" },
+  CHANGED: { width: 2, dash: "2 3" },
+  RENAMED: { width: 2, dash: "8 2 2 2" },
+  REWIRED: { width: 2, dash: "12 3 2 3" },
+  UNCHANGED: { width: 1 },
+} as const satisfies Record<string, { width: number; dash?: string }>;
 
 export type LegendKind = keyof typeof LEGEND;
 

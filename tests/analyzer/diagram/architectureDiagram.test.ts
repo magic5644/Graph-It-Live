@@ -19,6 +19,7 @@ import {
   type Box,
   type DiagramInput,
   type DiagramLayout,
+  sanitizeText,
 } from "@/analyzer/diagram/architectureDiagram";
 import { layoutMatrix, type MatrixLayout } from "@/analyzer/diagram/diagramMatrix";
 import { DIAGRAM_SPEC_SCHEMA, diagramSpec, type DiagramSpec } from "@/analyzer/diagram/diagramSpec";
@@ -697,5 +698,11 @@ describe("unit names sharing a long prefix (#774)", () => {
         expect(label.endsWith(text.split("…")[1])).toBe(true);
       }
     }
+  });
+});
+
+describe("sanitizeText", () => {
+  it("replaces control characters, bidi overrides, lone surrogates and the noncharacters U+FFFE/U+FFFF, keeps the rest", () => {
+    expect(sanitizeText("a\n::error::b\u001B[31m\u202Ec\uD800d\uFFFEe\uFFFFf é")).toBe("a\uFFFD::error::b\uFFFD[31m\uFFFDc\uFFFDd\uFFFDe\uFFFDf é");
   });
 });

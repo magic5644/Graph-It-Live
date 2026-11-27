@@ -15,6 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ARCHITECTURE_BASELINE_FILE } from "../../analyzer/architecture/architectureRules.js";
 import { DIAGRAM_THEMES, DIAGRAM_VIEWS, defaultDiagramFile, diagramLevel, MAX_FLOW_STEPS, MAX_SEQUENCE_MESSAGES, type DiagramRequestView } from "../../analyzer/diagram/diagramStyle.js";
+import { deltaChanged, deltaUnchangedLine, renderArchitectureDelta } from "../../analyzer/diagram/deltaSvg.js";
 import { cutNote, readDiagramSpec, specFlowRequest, specLevel, specSequenceRequest } from "../../analyzer/diagram/diagramSpecImport.js";
 import { renderFlowDiagram, renderSequenceDiagram, renderWorkspaceDiagram, type WorkspaceDiagramOptions } from "../../analyzer/diagram/workspaceDiagram.js";
 import { workerFlowSources } from "../../mcp/tools/architecture";
@@ -27,6 +28,7 @@ import { readChoiceOption, readIntegerOption, readStringOption } from "../option
 import type { CliRuntime } from "../runtime";
 import { parseTargetRef } from "../symbols";
 import { resolveInWorkspace, writeWorkspaceFile } from "../workspaceFiles";
+import { createReviewAnalyzer } from "./reviewPr";
 
 /** The options of the architecture levels, refused with --view flow or sequence, and those of one symbol's views. */
 const LEVEL_VIEWS = DIAGRAM_VIEWS.filter((view) => view !== "flow" && view !== "sequence");
@@ -222,8 +224,68 @@ async function runSpec(args: string[], runtime: CliRuntime, format: CliOutputFor
   return writeDiagram(runtime, options.file, target, diagram);
 }
 
+/** What `--delta` replaces: it draws the structure diff of two refs, nothing else. */
+const DELTA_REFUSED = ["--view", "--folder", "--spec", "--rules", "--config", "--baseline", "--maxSteps", "--startLine", "--depth", "--maxMessages", "--participants"];
+
+/** `--base`/`--head` without `--delta`, and the flags `--delta` refuses, before any indexing. */
+function checkDeltaFlags(args: string[]): void {
+  if (!args.includes("--delta")) {
+    if (args.includes("--base") || args.includes("--head")) throw new CliError("--base and --head apply to --delta", ExitCode.GENERAL_ERROR);
+    return;
+  }
+  const refused = DELTA_REFUSED.find((flag) => args.includes(flag)) ?? (args[0] !== undefined && !args[0].startsWith("-") ? args[0] : undefined);
+  if (refused !== undefined) throw new CliError(`--delta draws the structure diff of two refs: drop ${refused}`, ExitCode.GENERAL_ERROR);
+}
+
+/** The svg output file of `--delta`: any other format, or a file of another format, exits 4. */
+function readDeltaOutput(args: string[], format: CliOutputFormat) {
+  const file = readStringOption(args, "--output", "a file of the workspace, or - for stdout");
+  const isSvg = file === undefined || file === "-" || file.toLowerCase().endsWith(".svg");
+  if (format !== "svg" && (format !== "text" || !isSvg)) {
+    throw new CliError("graph-it diagram --delta writes --format svg", ExitCode.UNSUPPORTED_FORMAT);
+  }
+  if (!isSvg) throw new CliError(`--output ${file} does not match --format svg: name it *.svg, or pass the format of that file.`, ExitCode.GENERAL_ERROR);
+  const theme = readChoiceOption(args, "--theme", DIAGRAM_THEMES) ?? "light";
+  return { file: file ?? defaultDiagramFile("svg", "delta"), theme };
+}
+
+/** `--delta --base <ref> [--head <ref>]`: the before/after structure diagram of two Git refs (#449). */
+async function runDelta(args: string[], runtime: CliRuntime, format: CliOutputFormat): Promise<string> {
+  const { workspaceRoot } = runtime;
+  const baseRef = readStringOption(args, "--base", "a Git ref");
+  if (baseRef === undefined) throw new CliError("--delta compares two refs: pass --base <git-ref>", ExitCode.GENERAL_ERROR);
+  const headRef = readStringOption(args, "--head", "a Git ref");
+  const { file, theme } = readDeltaOutput(args, format);
+  const target = file === "-" ? undefined : resolveInWorkspace(workspaceRoot, file);
+  await runtime.ensureIndexed({ silent: !runtime.progress.enabled });
+  const source = await runtime.progress.phase("Comparing the structures", () => createReviewAnalyzer(runtime).analyzeArchitecture({ baseRef, headRef }));
+  const { structure } = source;
+  if (structure === undefined) {
+    // A fixed reason: limitations can quote raw Git or file-system text with absolute paths.
+    throw new CliError(`No structure comparison between ${source.baseRef} and ${source.headRef}: the trees could not be read; graph-it review-pr --base ${source.baseRef} --head ${source.headRef} lists the limitations.`, ExitCode.GENERAL_ERROR);
+  }
+  if (structure.verdict === "empty") {
+    throw new CliError(`No analyzable file at ${source.baseRef} or ${source.headRef}: nothing to compare.`, ExitCode.GENERAL_ERROR);
+  }
+  if (!deltaChanged(source)) {
+    const line = deltaUnchangedLine(source);
+    // stdout of --output - stays empty: it holds a diagram or nothing.
+    if (target === undefined) {
+      process.stderr.write(`${line}\n`);
+      return "";
+    }
+    return line;
+  }
+  const { markup, counts, cut, warnings } = await renderArchitectureDelta(source, { theme });
+  // The delta's cut lines name what is not drawn (not cut labels, writeDiagram's `cut`): status, so stderr.
+  for (const line of [...warnings, ...cut]) process.stderr.write(`${line}\n`);
+  return writeDiagram(runtime, file, target, { markup, counts });
+}
+
 export async function run(args: string[], runtime: CliRuntime, format: CliOutputFormat): Promise<string> {
   const { workspaceRoot } = runtime;
+  checkDeltaFlags(args);
+  if (args.includes("--delta")) return runDelta(args, runtime, format);
   const spec = readStringOption(args, "--spec", "an annotated diagram-spec JSON file of the workspace");
   if (spec !== undefined) return runSpec(args, runtime, format, spec);
   const view = readChoiceOption(args, "--view", DIAGRAM_VIEWS);
