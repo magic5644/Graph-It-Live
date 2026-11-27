@@ -131,7 +131,7 @@ exposes an opaque cursor for continuation.
 ### Tool result encoding
 
 Other MCP tools and the CLI share `encodeToonSections` (`src/shared/toonSections.ts`).
-Each non-empty top-level array becomes its own block, named after its key.
+Each non-empty array becomes its own block, named after its key; arrays nested in objects get a dotted name (`structure.groups.items`).
 Scalar fields go in a leading `#` line, and nested scalar records are flattened
 (`omitted.nodes=3`). A list of primitives, such as paths or cycles, becomes a
 single `value` column:

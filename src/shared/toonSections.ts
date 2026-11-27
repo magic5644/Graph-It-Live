@@ -74,10 +74,10 @@ export function collectScalarFields(data: unknown, sections: ToonSection[]): Arr
   return flattenScalars(data as Record<string, unknown>, "", 0, encoded);
 }
 
-/** Scalars of nested records get dotted keys (`structure.renames.mapped`); arrays are sections, not scalars. */
 /** Nesting levels below the root that scalars and lists are read from; both guards use `depth > MAX_NESTED_DEPTH`. */
 const MAX_NESTED_DEPTH = 3;
 
+/** Scalars of nested records get dotted keys (`structure.renames.mapped`); arrays are sections, not scalars. */
 function flattenScalars(obj: Record<string, unknown>, prefix: string, depth: number, encoded: Set<string>): Array<[string, unknown]> {
   return Object.entries(obj).flatMap(([key, value]): Array<[string, unknown]> => {
     const path = `${prefix}${key}`;

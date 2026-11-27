@@ -149,6 +149,8 @@ describe("compareStructure", () => {
     const diff = compare(base, head);
     expect(diff.units.items).toEqual([]);
     expect(diff.groups.items).toEqual([expect.objectContaining({ status: "CHANGED", key: "g", previousKey: "g", unit: "v", previousUnit: "u" })]);
+    // The PR comment says why the group changed: it moved to another unit.
+    expect(renderStructureMarkdown(diff, (value) => value)).toContain("- g (4 files, unit u -> v)");
     // A unit renamed with all its files does not move its groups.
     const renamed = snapshot({ w: files("g", 4), v: files("h", 2) });
     renamed.groups = level({ g: files("g", 4), h: files("h", 2) }, { units: { g: "w", h: "v" } });

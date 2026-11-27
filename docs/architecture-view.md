@@ -118,3 +118,7 @@ Declare your intended architecture in `graphit.architecture.json` at the workspa
 </div>
 
 *`graph-it check-architecture` on the rules test fixture: verdict, totals, rules table, then each new violation as `importing/file.ts:line → target`. Add `--verbose` to list baselined violations, `--format markdown` for a PR comment.*
+
+## Before/after comparison in review-pr
+
+`graph-it review-pr` compares the structure of the head with the base at the same two levels as the view: units, then the folder groups of each unit. It lists added, removed, renamed and changed units and groups, files that moved between them, and edges and cycles that appeared or were resolved. Items are matched by file overlap after Git rename detection, so a renamed folder is not a removal plus an addition. The comparison never changes the review score or gate. Fields, warnings and failure cases: [`review-pr`](CLI.md#review-pr).
