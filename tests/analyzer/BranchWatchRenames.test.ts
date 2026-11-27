@@ -3,7 +3,8 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { BranchWatchAnalyzer, parseRenames, RENAME_LIMIT, renameKey } from "@/analyzer/BranchWatchAnalyzer";
+import { BranchWatchAnalyzer, parseRenames, renameKey } from "@/analyzer/BranchWatchAnalyzer";
+import { RENAME_LIMIT_REASON } from "@/analyzer/architecture/architectureStructure";
 
 const roots: string[] = [];
 const git = (root: string, ...args: string[]) => execFileSync("git", args, { cwd: root, stdio: "ignore" });
@@ -93,7 +94,7 @@ describe("BranchWatchAnalyzer.renames", { timeout: 60_000 }, () => {
     vi.stubEnv("LANGUAGE", "fr");
     const result = await new BranchWatchAnalyzer(root).renames("main", undefined);
     vi.unstubAllEnvs();
-    expect(result).toMatchObject({ complete: false, reason: RENAME_LIMIT });
+    expect(result).toMatchObject({ complete: false, reason: RENAME_LIMIT_REASON });
     // The wording the detection reads, as this Git prints it.
     const stderr = spawnSync("git", ["diff", "-M", "--name-status", "main", "--"], { cwd: root, env: { ...process.env, LC_ALL: "C" }, encoding: "utf8" }).stderr;
     expect(stderr).toMatch(/rename detection was skipped due to too many files/);
@@ -102,7 +103,7 @@ describe("BranchWatchAnalyzer.renames", { timeout: 60_000 }, () => {
   it("refuses a ref that starts with `-` without running Git", async () => {
     const root = repository({ "a.ts": "a\n" });
     const result = await new BranchWatchAnalyzer(root).renames("--output=leak.txt", undefined);
-    expect(result).toMatchObject({ complete: false, reason: expect.stringContaining('"-"') });
+    expect(result).toMatchObject({ complete: false, reason: "refused ref" });
     expect((await new BranchWatchAnalyzer(root).renames("main", "-x")).complete).toBe(false);
     expect(fs.existsSync(path.join(root, "leak.txt"))).toBe(false);
   });
@@ -112,7 +113,8 @@ describe("BranchWatchAnalyzer.renames", { timeout: 60_000 }, () => {
     const result = await new BranchWatchAnalyzer(root).renames("no-such-ref", undefined);
     expect(result.complete).toBe(false);
     expect(result.moves.size).toBe(0);
-    expect(result.reason).toContain("no-such-ref");
+    // Never Git's own message: it holds absolute paths and the command line, and reaches PR comments.
+    expect(result.reason).toBe("git error");
   });
 
   it("drops absolute and `..` entries and treats truncated or odd -z output as incomplete", async () => {

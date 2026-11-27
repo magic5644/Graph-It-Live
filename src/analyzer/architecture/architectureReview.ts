@@ -230,21 +230,29 @@ interface SideOptions {
   tolerant: boolean;
 }
 
-/** The config and baseline of the tree at `root`; a refused one is `invalid` (base) or an ArchitectureReviewError (head). */
-async function readRulesFiles(root: string, ref: string, tolerant: boolean) {
-  try {
-    const configText = await readWorkspaceFile(root, ARCHITECTURE_CONFIG_FILE, MAX_CONFIG_BYTES);
-    const baselineText = await readWorkspaceFile(root, ARCHITECTURE_BASELINE_FILE, MAX_BASELINE_BYTES);
-    return {
-      config: configText === undefined ? undefined : parseArchitectureConfig(configText),
-      baseline: baselineText === undefined ? undefined : parseBaseline(baselineText),
-      invalid: undefined as string | undefined,
-    };
-  } catch (error) {
-    if (!(error instanceof ArchitectureRulesFileError)) throw error;
-    if (!tolerant) throw new ArchitectureReviewError(`${ref}: ${error.message}`, { cause: error });
-    return { config: undefined, baseline: undefined, invalid: error.message };
-  }
+/** Longest config error text a warning or limitation quotes: Zod and JSON messages echo the refused file. */
+const MAX_REASON_CHARS = 240;
+
+/**
+ * The config and baseline of the tree at `root`. At the head a refused file is an ArchitectureReviewError;
+ * at the base (`tolerant`) a refused config is `invalid` (the head's replaces it) and a refused baseline
+ * is a limitation, the base config kept.
+ */
+async function readRulesFiles(root: string, ref: string, tolerant: boolean, limitations: string[]) {
+  const parse = async <T>(file: string, maxBytes: number, parseText: (text: string) => T): Promise<{ value?: T; invalid?: string }> => {
+    try {
+      const text = await readWorkspaceFile(root, file, maxBytes);
+      return { value: text === undefined ? undefined : parseText(text) };
+    } catch (error) {
+      if (!(error instanceof ArchitectureRulesFileError)) throw error;
+      if (!tolerant) throw new ArchitectureReviewError(`${ref}: ${error.message}`, { cause: error });
+      return { invalid: error.message.slice(0, MAX_REASON_CHARS) };
+    }
+  };
+  const config = await parse(ARCHITECTURE_CONFIG_FILE, MAX_CONFIG_BYTES, parseArchitectureConfig);
+  const baseline = await parse(ARCHITECTURE_BASELINE_FILE, MAX_BASELINE_BYTES, parseBaseline);
+  if (baseline.invalid !== undefined) limitations.push(`${ref}: ${baseline.invalid}; the base baseline is ignored, so its accepted violations count as found at the base.`);
+  return { config: config.value, baseline: baseline.value, invalid: config.invalid };
 }
 
 /**
@@ -253,7 +261,7 @@ async function readRulesFiles(root: string, ref: string, tolerant: boolean) {
  */
 async function readSide(root: string, ref: string, analyzeFile: AnalyzeFile, options: SideOptions, limitations: string[]): Promise<ArchitectureSide> {
   try {
-    const { config, baseline, invalid } = await readRulesFiles(root, ref, options.tolerant);
+    const { config, baseline, invalid } = await readRulesFiles(root, ref, options.tolerant, limitations);
     const { graph, imports } = await readTreeImports(root, ref, analyzeFile, limitations);
     const structureConfig = options.structureFor(config);
     let configFrom: StructureSnapshot["configFrom"] = "none";
@@ -295,8 +303,9 @@ export async function readReviewTrees(host: ArchitectureReviewHost, baseRef: str
   // One base for both reads: the tree compared and the commit the renames start from.
   const baseTreeRef = workingTree ? baseRef : await host.mergeBase(baseRef, headRef);
   // Settles (never rejects) while the trees are read.
-  const renames = host.renames?.(baseTreeRef, workingTree ? undefined : headRef).catch((error): RenameInfo =>
-    ({ moves: new Map(), complete: false, reason: error instanceof Error ? error.message : String(error) }));
+  const renames = host.renames?.(baseTreeRef, workingTree ? undefined : headRef).catch((): RenameInfo =>
+    // A fixed reason: Git's message holds absolute paths and the command line, and the warning reaches PR comments.
+    ({ moves: new Map(), complete: false, reason: "git error" }));
   const head = workingTree
     ? await readSide(host.workspaceRoot, headRef, host.analyzeFile, { rulesFor: (config) => config, structureFor: (config) => config, tolerant: false }, limitations)
     : await host.withRefTree(headRef, (directory, copyLimitations) => {
