@@ -88,6 +88,9 @@ describe("attachBundledSkills (#837)", () => {
     "skill://pr-review/%2e%2e/%2e%2e/package.json",
     "skill://unknown/SKILL.md",
     "skill://pr-review/references/missing.md",
+    String.raw`skill://pr-review/..\..\..\package.json`,
+    "skill://C:/Windows/win.ini",
+    "skill:///etc/passwd",
     `file://${path.join(SKILLS_ROOT, "pr-review", "SKILL.md").replaceAll("\\", "/")}`,
   ])("answers %s with an MCP error, never a file", async (uri) => {
     const server = newServer();
@@ -129,6 +132,20 @@ describe("attachBundledSkills (#837)", () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/^\[McpServer\] WARNING: no skills served from .*serving tools only$/);
     expect(warn.mock.calls[0][0]).not.toContain("\n");
+  });
+
+  it("skips a skill that contains a symlink and serves the others", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "graph-it-skills-"));
+    tmpDirs.push(root);
+    fs.cpSync(path.join(SKILLS_ROOT, "pr-review"), path.join(root, "pr-review"), { recursive: true });
+    fs.cpSync(path.join(SKILLS_ROOT, "graph-it-live"), path.join(root, "linked"), { recursive: true });
+    fs.writeFileSync(path.join(root, "linked", "SKILL.md"), "---\nname: linked\ndescription: A skill whose references folder links outside the catalog.\n---\n");
+    fs.rmSync(path.join(root, "linked", "references"), { recursive: true });
+    // A junction needs no privilege on Windows.
+    fs.symlinkSync(os.tmpdir(), path.join(root, "linked", "references"), "junction");
+    const warn = vi.fn();
+    expect(await attachBundledSkills(newServer(), root, warn)).toBe(1);
+    expect(warn.mock.calls.map(([message]) => message).join("\n")).toMatch(/skill skipped, linked/);
   });
 
   it("forwards a per-skill problem as a warning and still serves the valid skills", async () => {
