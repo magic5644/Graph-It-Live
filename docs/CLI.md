@@ -2186,11 +2186,13 @@ graph-it serve [options]
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--workspace, -w` | auto-detected | Project root the server will analyze |
+| `--no-skills` | off | Do not serve the bundled agent skills. Use it for clients that already load them, such as the Agent Plugin |
 
 **What it does:**
 
 Launches the full 25-tool MCP server process on `stdio`. The server:
-- Accepts MCP JSON-RPC messages from stdin
+- Accepts MCP JSON-RPC messages from stdin (MCP revisions `2025-11-25` and earlier, and `2026-07-28`)
+- Serves the five bundled agent skills through the MCP Skills extension (`skills/list`, `skills/get`, `resources/read` on `skill://` URIs), unless `--no-skills` is set; see [Skills over MCP](ai-integrations.md#skills-over-mcp). If the skill files are missing from the install, it logs one warning on stderr and serves the tools only
 - Performs dependency analysis on the workspace
 - Returns results on stdout
 - Auto-invalidates the cache when files change (via `chokidar`, debounced 300 ms)

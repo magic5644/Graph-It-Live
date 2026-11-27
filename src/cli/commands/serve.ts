@@ -15,7 +15,7 @@ import type { CliRuntime } from "../runtime";
 const FORWARDED_SIGNALS = ["SIGINT", "SIGTERM"] as const;
 
 export async function run(
-  _args: string[],
+  args: string[],
   runtime: CliRuntime,
   _format: CliOutputFormat,
 ): Promise<string> {
@@ -27,7 +27,7 @@ export async function run(
   // the one the CLI resolved from --workspace or auto-detection. Outside a project,
   // pass none: the server starts and waits for graphitlive_set_workspace.
   const env = runtime.isProjectRoot ? { ...process.env, WORKSPACE_ROOT: runtime.workspaceRoot } : process.env;
-  const child = spawn(process.execPath, [mcpServerPath], { stdio: "inherit", env });
+  const child = spawn(process.execPath, [mcpServerPath, ...args], { stdio: "inherit", env });
 
   // Forward termination signals so a supervisor that stops the CLI also stops
   // the server. index.ts handles the same signals and sets the exit code.

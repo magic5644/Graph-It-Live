@@ -15,6 +15,7 @@ export const NPM_FILES = [
   'dist/indexerWorker.js',
   'dist/wasm/',
   'dist/queries/',
+  'dist/skills/',
   'dist/vis-network.min.js',
   'README.md',
   'LICENSE',

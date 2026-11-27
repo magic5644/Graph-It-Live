@@ -509,6 +509,8 @@ Usage: graph-it serve [options]
 
 Options:
   --workspace, -w   Workspace root directory (default: auto-detected)
+  --no-skills       Do not serve the bundled agent skills (MCP Skills extension);
+                    for clients that already load them, such as the Agent Plugin
   --help, -h        Show this help
 
 MCP Client Configuration:
@@ -553,6 +555,7 @@ MCP Client Configuration:
 Examples:
   graph-it serve
   graph-it --workspace /path/to/project serve
+  graph-it serve --no-skills
 `,
   tool: `graph-it tool — Invoke any MCP tool directly
 

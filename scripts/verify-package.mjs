@@ -24,10 +24,18 @@ export const REQUIRED_WASM = [
   'sqljs.wasm',
 ];
 
-/** dist/ paths of every required WASM file and of every query in resources/queries/. */
+/** dist/ paths of every required WASM file, of every query in resources/queries/ and of every bundled skill file. */
 export function requiredAssets(root = path.resolve(import.meta.dirname, '..')) {
   const queries = readdirSync(path.join(root, 'resources', 'queries')).filter((file) => file.endsWith('.scm'));
-  return [...REQUIRED_WASM.map((file) => `dist/wasm/${file}`), ...queries.map((file) => `dist/queries/${file}`)];
+  const skillsDir = path.join(root, 'plugins', 'graph-it-live', 'skills');
+  const skills = readdirSync(skillsDir, { recursive: true, withFileTypes: true })
+    .filter((entry) => entry.isFile())
+    .map((entry) => `dist/skills/${path.relative(skillsDir, path.join(entry.parentPath, entry.name)).replaceAll('\\', '/')}`);
+  return [
+    ...REQUIRED_WASM.map((file) => `dist/wasm/${file}`),
+    ...queries.map((file) => `dist/queries/${file}`),
+    ...skills,
+  ];
 }
 
 /** Returns one error message per failed check of the packaged file list. */
@@ -50,5 +58,5 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   if (errors.length > 0) process.exit(1);
   console.log('✅ No .map files in package');
   console.log('✅ Extension icon in package');
-  console.log('✅ WASM and query assets in package');
+  console.log('✅ WASM, query and skill assets in package');
 }

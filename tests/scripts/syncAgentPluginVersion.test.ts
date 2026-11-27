@@ -73,11 +73,33 @@ describe('agent plugin manifests', () => {
       const config = JSON.parse(fs.readFileSync(path.join(pluginDir, file), 'utf8')) as {
         mcpServers: Record<string, { args: string[] }>;
       };
-      expect(config.mcpServers['graph-it-live'].args).toEqual([
+      expect(config.mcpServers['graph-it-live'].args.slice(0, 3)).toEqual([
         '-y',
         `@magic5644/graph-it-live@${version}`,
         'serve',
       ]);
+    }
+  });
+
+  // The plugin ships its own skills; older servers reject the flag (#837).
+  it.each([
+    ['1.26.1', ['serve']],
+    ['1.26.2', ['serve', '--no-skills']],
+    ['1.26.10', ['serve', '--no-skills']],
+    ['1.3.0', ['serve']],
+    ['2.0.0', ['serve', '--no-skills']],
+  ])('pin %s with server args %j', (pinned, serverArgs) => {
+    const copy = copyWorkspace();
+    try {
+      expect(run(copy, pinned).status).toBe(0);
+      for (const file of ['plugins/graph-it-live/mcp.json', 'plugins/graph-it-live/.mcp.json']) {
+        const config = JSON.parse(fs.readFileSync(path.join(copy, file), 'utf8')) as {
+          mcpServers: Record<string, { args: string[] }>;
+        };
+        expect(config.mcpServers['graph-it-live'].args.slice(2)).toEqual(serverArgs);
+      }
+    } finally {
+      fs.rmSync(copy, { recursive: true, force: true });
     }
   });
 

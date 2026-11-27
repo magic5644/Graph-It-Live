@@ -44,11 +44,16 @@ function fetchLatestVersion() {
   });
 }
 
+// --no-skills: the plugin ships these skills itself, so its MCP server must not serve them again.
+// shortcut: 1.26.1 and older reject --no-skills (exit 1), so it is added from 1.26.2 on; drop the check once 1.26.1 is never pinned.
+const servesSkills = (version) => version.localeCompare('1.26.2', 'en', { numeric: true }) >= 0;
+
 // npx runs an exact pinned version from its cache after revalidating the package
 // metadata, and downloads the package only on a cache miss. No --prefer-offline: it
 // trusts metadata cached before a release and fails with ETARGET.
 function mcpServer(version) {
-  return { command: 'npx', args: ['-y', `${packageName}@${version}`, 'serve'] };
+  const args = ['-y', `${packageName}@${version}`, 'serve'];
+  return { command: 'npx', args: servesSkills(version) ? [...args, '--no-skills'] : args };
 }
 
 const args = process.argv.slice(2);

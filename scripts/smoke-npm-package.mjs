@@ -62,6 +62,9 @@ async function checkMcpServer(entry, workspace, version) {
     const { tools } = (await request('tools/list', {})).result;
     assert.ok(tools.some((tool) => tool.name === 'graphitlive_analyze_dependencies'), 'tools/list has graphitlive_analyze_dependencies');
     pass(`serve tools/list (${tools.length} tools)`);
+    const { skills } = (await request('skills/list', {})).result;
+    assert.equal(skills.length, 5, 'skills/list serves the five bundled skills');
+    pass(`serve skills/list (${skills.map((skill) => skill.frontmatter.name).join(', ')})`);
     const status = await callTool('graphitlive_get_index_status', {});
     assert.ok(!status.isError, `get_index_status: ${status.content[0]?.text}`);
     const deps = await callTool('graphitlive_analyze_dependencies', { filePath: path.join(workspace, 'main.py') });
@@ -85,8 +88,8 @@ try {
   const bin = path.join(install, 'node_modules', '.bin', isWindows ? 'graph-it.cmd' : 'graph-it');
   const packageRoot = path.join(install, 'node_modules', ...NPM_PACKAGE_NAME.split('/'));
   const entry = path.join(packageRoot, 'dist', 'graph-it.js');
-  assert.deepEqual(requiredAssets(root).filter((asset) => !existsSync(path.join(packageRoot, asset))), [], 'WASM and query assets missing');
-  pass('WASM grammars and queries in the package');
+  assert.deepEqual(requiredAssets(root).filter((asset) => !existsSync(path.join(packageRoot, asset))), [], 'WASM, query and skill assets missing');
+  pass('WASM grammars, queries and skills in the package');
 
   assert.equal(run(bin, ['--version'], workspace).trim(), `graph-it-live v${version}`);
   pass('graph-it --version');

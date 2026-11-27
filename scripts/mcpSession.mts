@@ -43,9 +43,10 @@ export async function startMcpSession(
   workspace: string | undefined,
   cwd: string,
   env: NodeJS.ProcessEnv = process.env,
+  serveArgs: string[] = [],
 ) {
   const workspaceArgs = workspace === undefined ? [] : ["--workspace", workspace];
-  const child = spawn(process.execPath, [distEntry, "serve", ...workspaceArgs], {
+  const child = spawn(process.execPath, [distEntry, "serve", ...workspaceArgs, ...serveArgs], {
     cwd,
     env,
     stdio: ["pipe", "pipe", "ignore"],
