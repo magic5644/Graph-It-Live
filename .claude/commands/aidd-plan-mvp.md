@@ -3,6 +3,12 @@ description: AIDD MVP plan — Paul writes specs and estimates, Julien (devil) c
 argument-hint: [stories path, default docs/specs/requirements/]
 disable-model-invocation: true
 allowed-tools: Read, Write, Agent, Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
 ---
 
 # /aidd-plan-mvp — GATE-4

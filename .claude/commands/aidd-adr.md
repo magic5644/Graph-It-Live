@@ -2,6 +2,12 @@
 description: AIDD one-off architecture decision — Antoine compares options, Marine (devil) challenges, Antoine writes the ADR in docs/architecture/. Use when a single technical decision must be made and recorded outside a feature loop.
 argument-hint: <decision to make>
 allowed-tools: Read, Write, Agent, Bash(graph-it *), Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
 ---
 
 # /aidd-adr — Architecture Decision Record

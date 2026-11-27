@@ -67,6 +67,7 @@ Apply this file by explicit routing for AIDD orchestration tasks, even when no m
 - Start of any stateful command: `node scripts/aidd-state.mjs status <id>`. If the item exists, resume at `next`; an `interrupted` step is rerun with a fresh agent after checking the branch with `git status`. Otherwise `start <id> <tier> [--parent <epic id>]`. `status` without id lists open items after a stop or crash.
 - Per step: `begin <id> <step> <agent>` before invoking the agent, `done <id> <step> [--artifact k=path]` (or `skip <id> <step> --reason`) after it; human gates only through `gate <id> GATE-n approve|reject`.
 - A BLOCK is `round <id> <step> --reason <text>`: it rewinds to the step to redo and counts against the bounds. Tier changes go through `retier`; extra rounds only through a human `override`.
+- Hooks in the stateful commands' frontmatter enforce it (`scripts/aidd-hook.mjs`): an AIDD agent call is blocked unless its step was started with `begin`; `gh pr merge` is blocked unless the item recording the current branch has GATE-6 approved. A local SessionStart hook (`aidd-hook.mjs session`) lists open items.
 - State passed between agents = artifacts (spec, ADR, report paths) plus the five-field handoff stored with `handoff <id> <agent> <file>`; the next agent gets the handoff and artifact paths, never a previous agent's raw output.
 
 ## Agent Memory Scope

@@ -3,6 +3,16 @@ description: AIDD reduced loop for a trivial S story — short spec, implementat
 argument-hint: <issue number or story>
 disable-model-invocation: true
 allowed-tools: Read, Write, Agent, Bash(graph-it *), Bash(bash scripts/aidd-gate-check.sh), Bash(npx vitest run *), Bash(npm run build), Bash(npm run lint), Bash(npm run check:types), Bash(gh issue view *), Bash(git status), Bash(git diff *), Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" merge'
 ---
 
 # /aidd-quick-win — Trivial story
@@ -22,7 +32,7 @@ Follow `.claude/rules/agent-workflow.md` (five-line handoff, fresh agent per rou
 
 ## Sequence
 
-1. Branch from up-to-date `main` (`feat/`, `fix/`, `docs/` or `chore/`); never commit on `main`.
+1. Branch from up-to-date `main` (`feat/`, `fix/`, `docs/` or `chore/`); never commit on `main`. Record it: `done <id> branch --artifact branch=<name>` (the merge hook checks it).
 2. **paul-spec-writer**: one paragraph plus a TypeScript interface if needed, with hand-back checks.
 3. **julien-spec-devil**: contradictions only.
 4. Developer of the layer (lucas / emma / marco / kevin): implementation with tests; black-box failure cases for user-facing changes.

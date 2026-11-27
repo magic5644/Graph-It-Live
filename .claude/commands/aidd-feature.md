@@ -3,6 +3,16 @@ description: AIDD full feature loop for one story — spec, GATE-5, implementati
 argument-hint: <issue number or story>
 disable-model-invocation: true
 allowed-tools: Read, Write, Agent, Bash(graph-it *), Bash(bash scripts/aidd-gate-check.sh), Bash(npx vitest run *), Bash(npm run build), Bash(npm run lint), Bash(npm run check:types), Bash(gh issue view *), Bash(git status), Bash(git diff *), Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" merge'
 ---
 
 # /aidd-feature — Feature loop
@@ -24,7 +34,7 @@ The main conversation orchestrates and holds the gates. Every agent call follows
 
 ## Implementation (after GATE-5)
 
-7. Create the branch from up-to-date `main` (`feat/<issue>-<slug>`); never commit on `main`.
+7. Create the branch from up-to-date `main` (`feat/<issue>-<slug>`); never commit on `main`. Record it: `done <id> branch --artifact branch=<name>` (the merge hook checks it).
 8. Developers by layer, in parallel when independent: **lucas-analyzer-developer** (`src/analyzer/`), **emma-webview-developer** (`src/webview/`), **marco-mcp-developer** (`src/mcp/`), **kevin-extension-cli-developer** (`src/extension/`, `src/cli/`). The first handoff lists every check they must pass before handing back: tests with the code, black-box failure cases (`.claude/rules/user-contract.md`), A/B bench `scripts/bench-e2e.mjs` on each touched language corpus, visual outputs at ≥ 50 units, corrupt/truncated cache input, Sonar.
 9. Deterministic checks (no agent):
    - `bash scripts/aidd-gate-check.sh` and `graph-it check-architecture` (0 violations, 0 unmatched)

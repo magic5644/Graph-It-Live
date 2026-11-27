@@ -2,6 +2,12 @@
 description: AIDD read-only memory leak audit — Mia checks caches, listeners, WASM instances and workers and returns CONFIRMED/SUSPECTED/NONE per component with evidence. Use when the user suspects a memory leak or growing memory in the extension, CLI, MCP server or workers.
 argument-hint: [component or area]
 allowed-tools: Read, Agent, Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
 ---
 
 # /aidd-leak-check — Memory audit

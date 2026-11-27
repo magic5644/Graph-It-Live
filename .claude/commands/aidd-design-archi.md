@@ -2,6 +2,12 @@
 description: AIDD architecture step — Antoine and Clara write ADRs, Marine (devil) challenges them. Use after /aidd-analyze-req when stories need cross-layer or webview design.
 argument-hint: [stories path, default docs/specs/requirements/]
 allowed-tools: Read, Write, Agent, Bash(graph-it *), Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
 ---
 
 # /aidd-design-archi — GATE-3 (internal)

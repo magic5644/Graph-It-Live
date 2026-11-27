@@ -2,6 +2,12 @@
 description: AIDD requirements step after GATE-0 — Julie writes user stories with testable acceptance criteria, Romain (devil) challenges them. Use after /aidd-clarify approval.
 argument-hint: [brief path, default docs/specs/brief.md]
 allowed-tools: Read, Write, Agent, Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
 ---
 
 # /aidd-analyze-req — GATE-1 (internal)

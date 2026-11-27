@@ -3,6 +3,16 @@ description: AIDD bug loop without design phase — reproduce, fix with a regres
 argument-hint: <issue number or bug description>
 disable-model-invocation: true
 allowed-tools: Read, Write, Agent, Bash(graph-it *), Bash(bash scripts/aidd-gate-check.sh), Bash(npx vitest run *), Bash(npm run build), Bash(npm run lint), Bash(npm run check:types), Bash(gh issue view *), Bash(git status), Bash(git diff *), Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
+    - matcher: "Bash"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" merge'
 ---
 
 # /aidd-bugfix — Bug loop
@@ -20,7 +30,7 @@ No design phase: the scope is already defined. Follow `.claude/rules/agent-workf
    - Reproduce: exact steps, error message, `file:line`.
    - Find every caller of the faulty function (`graph-it path-in`, `graph-it trace`); fix the root cause once in shared code.
    - Identify the layer (analyzer / extension / CLI / MCP / webview). Systemic → `/aidd-feature` (one tier change).
-2. Branch `fix/<issue>-<slug>` from up-to-date `main`.
+2. Branch `fix/<issue>-<slug>` from up-to-date `main`. Record it: `done <id> branch --artifact branch=<name>` (the merge hook checks it).
 3. **Fix + test** by the developer of the layer: lucas (`src/analyzer/`), emma (`src/webview/`), marco (`src/mcp/`), kevin (`src/extension/`, `src/cli/`).
    - The test reproducing the bug ships with the fix.
    - Critical rules still apply (no vscode in analyzer/MCP, `normalizePath`, etc.).
