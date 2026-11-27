@@ -36,15 +36,17 @@ export function checkMerge(input, branch) {
 export function sessionContext() {
   const items = listOpen();
   if (items.length === 0) return '';
-  const lines = items.map((item) =>
-    item.corrupt ? `- ${item.id}: corrupt state (${item.corrupt})` : `- ${item.id} [${item.tier}] next: ${item.next}${item.interrupted ? ' (interrupted step: check git status, rerun with a fresh agent)' : ''}`,
-  );
+  const lines = items.map((item) => {
+    if (item.corrupt) return `- ${item.id}: corrupt state (${item.corrupt})`;
+    const resume = item.interrupted ? ' (interrupted step: check git status, rerun with a fresh agent)' : '';
+    return `- ${item.id} [${item.tier}] next: ${item.next}${resume}`;
+  });
   return [`Open AIDD items (${STATE} status <id>):`, ...lines].join('\n');
 }
 
 function currentBranch() {
   try {
-    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim();
+    return execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { encoding: 'utf8' }).trim(); // NOSONAR S4036: developer tool, trusted PATH
   } catch {
     return '';
   }
