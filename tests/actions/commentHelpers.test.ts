@@ -250,7 +250,8 @@ describe("review-gate action risk threshold", () => {
 describe("review-gate architecture delta (#449)", () => {
   const url = "https://github.com/owner/repo/actions/runs/1/artifacts/2";
   const result = { risk: "low", score: 0, changedFiles: [], symbols: [] };
-  const action = readFileSync(resolve(__dirname, "../../.github/actions/graph-it-review-gate/action.yml"), "utf8");
+  // LF only: a Windows checkout has CRLF, and the script regex below would then match nothing and pass vacuously.
+  const action = readFileSync(resolve(__dirname, "../../.github/actions/graph-it-review-gate/action.yml"), "utf8").replaceAll("\r\n", "\n");
 
   it("supportsDeltaSvg is true from CLI 1.26.2 and false for older, prerelease or unparsable versions", () => {
     expect(supportsDeltaSvg("1.26.2")).toBe(true);
