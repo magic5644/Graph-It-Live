@@ -7,7 +7,7 @@
  */
 
 import * as path from "node:path";
-import type { ArchitectureRuleSummary } from "../../shared/architecture-model";
+import type { ArchitectureRuleSummary, ArchitectureStructureDiff } from "../../shared/architecture-model";
 import type { GraphEdge } from "../../shared/graph-types";
 import { normalizePath } from "../../shared/path";
 import { LanguageService } from "../LanguageService";
@@ -18,6 +18,7 @@ import { buildArchitectureGraph, type AnalyzeFile } from "./ArchitectureGraphBui
 import {
   ARCHITECTURE_BASELINE_FILE,
   ARCHITECTURE_CONFIG_FILE,
+  ArchitectureRulesFileError,
   checkGraphArchitecture,
   MAX_BASELINE_BYTES,
   MAX_CONFIG_BYTES,
@@ -29,7 +30,15 @@ import {
   type ArchitectureViolation,
   type BaselineEntry,
 } from "./architectureRules";
-import { byCodeUnit } from "./architectureUnits";
+import {
+  buildStructureSnapshot,
+  capped,
+  compareStructure,
+  namedChanges,
+  type NamedChanges,
+  type RenameInfo,
+  type StructureSnapshot,
+} from "./architectureStructure";
 
 /** One import between two files, as a violation or a unit cycle reports it. */
 export type ArchitecturePair = Pick<ArchitectureViolation, "source" | "target" | "line" | "from" | "to" | "cycle">;
@@ -49,12 +58,7 @@ export type NewArchitectureViolation = ArchitecturePair & { accepted: boolean };
 /** One rule the head checks: its new, resolved and unchanged violations against the base. */
 export interface ArchitectureRuleReview extends Pick<ArchitectureRuleSummary, "name" | "kind" | "severity" | "reason">, ArchitecturePairDiff<NewArchitectureViolation> {}
 
-/** Names (of rules or elements) the diff adds, removes or changes. */
-export interface NamedChanges {
-  added: string[];
-  removed: string[];
-  changed: string[];
-}
+export type { NamedChanges };
 
 /** What the diff changes in graphit.architecture.json and its baseline. */
 export interface ArchitectureConfigChange {
@@ -90,6 +94,16 @@ export interface ArchitectureSide {
     rules: ArchitectureRuleSummary[];
     unitCycles: ArchitecturePair[];
   };
+  /** The units and folder groups of the tree (analyzer-internal: never in src/shared). */
+  structure?: StructureSnapshot;
+}
+
+/** The head config or baseline of a review is invalid: the review cannot go on (message `<ref>: <reason>`). */
+export class ArchitectureReviewError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "ArchitectureReviewError";
+  }
 }
 
 /** What reviewArchitecture reads: the workspace, its warmed imports, and copies of Git refs. */
@@ -101,6 +115,8 @@ export interface ArchitectureReviewHost {
   withRefTree<T>(ref: string, read: (directory: string, limitations: string[]) => Promise<T>): Promise<T>;
   /** The commit `git diff base...head` compares `head` with. */
   mergeBase(base: string, head: string): Promise<string>;
+  /** Git renames from `from` to `to` (undefined: the working tree), base path -> head path. Absent: no rename information (a warning). */
+  renames?(from: string, to: string | undefined): Promise<RenameInfo>;
   /** Locates the WASM parsers of the non-TypeScript languages. */
   extensionPath?: string;
 }
@@ -119,15 +135,6 @@ function diffPairs<T extends ArchitecturePair>(base: readonly ArchitecturePair[]
     newViolations,
     resolvedViolations: base.filter((pair) => !after.has(pairKey(pair))).map(toPair),
     unchanged: head.length - newViolations.length,
-  };
-}
-
-function namedChanges(before: ReadonlyMap<string, unknown>, after: ReadonlyMap<string, unknown>): NamedChanges {
-  const names = (map: ReadonlyMap<string, unknown>, keep: (name: string) => boolean) => [...map.keys()].filter(keep).sort(byCodeUnit);
-  return {
-    added: names(after, (name) => !before.has(name)),
-    removed: names(before, (name) => !after.has(name)),
-    changed: names(after, (name) => before.has(name) && JSON.stringify(before.get(name)) !== JSON.stringify(after.get(name))),
   };
 }
 
@@ -216,23 +223,49 @@ export async function readTreeImports(root: string, ref: string, analyzeFile: An
   return { graph, imports };
 }
 
-/**
- * The rules files and the whole import graph of the tree at `root` (one parse of every file, shared by
- * the import-cycle check and the rules), checked with the config `rulesFor` returns for its own.
- */
-async function readSide(root: string, ref: string, analyzeFile: AnalyzeFile,
-  rulesFor: (config: ArchitectureConfig | undefined) => ArchitectureConfig | undefined, limitations: string[]): Promise<ArchitectureSide> {
+/** How a side takes its config for the rules and for the structure; `tolerant`: an invalid config or baseline is reported, not thrown (the base). */
+interface SideOptions {
+  rulesFor: (config: ArchitectureConfig | undefined) => ArchitectureConfig | undefined;
+  structureFor: (config: ArchitectureConfig | undefined) => ArchitectureConfig | undefined;
+  tolerant: boolean;
+}
+
+/** The config and baseline of the tree at `root`; a refused one is `invalid` (base) or an ArchitectureReviewError (head). */
+async function readRulesFiles(root: string, ref: string, tolerant: boolean) {
   try {
     const configText = await readWorkspaceFile(root, ARCHITECTURE_CONFIG_FILE, MAX_CONFIG_BYTES);
     const baselineText = await readWorkspaceFile(root, ARCHITECTURE_BASELINE_FILE, MAX_BASELINE_BYTES);
-    const config = configText === undefined ? undefined : parseArchitectureConfig(configText);
-    const baseline = baselineText === undefined ? undefined : parseBaseline(baselineText);
-    const { graph, imports } = await readTreeImports(root, ref, analyzeFile, limitations);
-    const rules = rulesFor(config);
-    if (rules === undefined) return { config, baseline, imports };
-    const { assignment, check } = checkGraphArchitecture(graph, root, rules, baseline);
-    return { config, baseline, imports, check: { violations: check.violations, rules: check.rules, unitCycles: unitCyclePairs(graph, assignment) } };
+    return {
+      config: configText === undefined ? undefined : parseArchitectureConfig(configText),
+      baseline: baselineText === undefined ? undefined : parseBaseline(baselineText),
+      invalid: undefined as string | undefined,
+    };
   } catch (error) {
+    if (!(error instanceof ArchitectureRulesFileError)) throw error;
+    if (!tolerant) throw new ArchitectureReviewError(`${ref}: ${error.message}`, { cause: error });
+    return { config: undefined, baseline: undefined, invalid: error.message };
+  }
+}
+
+/**
+ * The rules files and the whole import graph of the tree at `root` (one parse of every file, shared by
+ * the import-cycle check, the rules and the structure snapshot).
+ */
+async function readSide(root: string, ref: string, analyzeFile: AnalyzeFile, options: SideOptions, limitations: string[]): Promise<ArchitectureSide> {
+  try {
+    const { config, baseline, invalid } = await readRulesFiles(root, ref, options.tolerant);
+    const { graph, imports } = await readTreeImports(root, ref, analyzeFile, limitations);
+    const structureConfig = options.structureFor(config);
+    let configFrom: StructureSnapshot["configFrom"] = "none";
+    if (config !== undefined) configFrom = "own";
+    else if (structureConfig !== undefined) configFrom = "head";
+    const structure = buildStructureSnapshot(graph, root, structureConfig, { configFrom, ...(invalid === undefined ? {} : { configError: invalid }) });
+    const rules = options.rulesFor(config);
+    if (rules === undefined) return { config, baseline, imports, structure };
+    const { assignment, check } = checkGraphArchitecture(graph, root, rules, baseline);
+    return { config, baseline, imports, structure, check: { violations: check.violations, rules: check.rules, unitCycles: unitCyclePairs(graph, assignment) } };
+  } catch (error) {
+    if (error instanceof ArchitectureReviewError) throw error;
     throw new Error(`${ref}: ${error instanceof Error ? error.message : String(error)}`, { cause: error });
   }
 }
@@ -242,6 +275,10 @@ export interface ReviewTrees {
   head: ArchitectureSide;
   base: ArchitectureSide;
   limitations: string[];
+  /** Git renames from the base to the head; absent when the host cannot tell. */
+  renames?: RenameInfo;
+  /** The head is the working tree. */
+  workingTree?: boolean;
 }
 
 /**
@@ -254,28 +291,38 @@ export interface ReviewTrees {
  */
 export async function readReviewTrees(host: ArchitectureReviewHost, baseRef: string, headRef: string): Promise<ReviewTrees> {
   const limitations: string[] = [];
-  const head = headRef === "HEAD"
-    ? await readSide(host.workspaceRoot, headRef, host.analyzeFile, (config) => config, limitations)
+  const workingTree = headRef === "HEAD";
+  // One base for both reads: the tree compared and the commit the renames start from.
+  const baseTreeRef = workingTree ? baseRef : await host.mergeBase(baseRef, headRef);
+  // Settles (never rejects) while the trees are read.
+  const renames = host.renames?.(baseTreeRef, workingTree ? undefined : headRef).catch((error): RenameInfo =>
+    ({ moves: new Map(), complete: false, reason: error instanceof Error ? error.message : String(error) }));
+  const head = workingTree
+    ? await readSide(host.workspaceRoot, headRef, host.analyzeFile, { rulesFor: (config) => config, structureFor: (config) => config, tolerant: false }, limitations)
     : await host.withRefTree(headRef, (directory, copyLimitations) => {
       limitations.push(...copyLimitations);
-      return readSide(directory, headRef, treeAnalyzer(directory, host.extensionPath), (config) => config, limitations);
+      return readSide(directory, headRef, treeAnalyzer(directory, host.extensionPath), { rulesFor: (config) => config, structureFor: (config) => config, tolerant: false }, limitations);
     });
-  const base = await host.withRefTree(headRef === "HEAD" ? baseRef : await host.mergeBase(baseRef, headRef), (directory, copyLimitations) => {
+  const base = await host.withRefTree(baseTreeRef, (directory, copyLimitations) => {
     limitations.push(...copyLimitations);
     // Without a head config there is nothing to compare: the base rules are not checked.
-    return readSide(directory, baseRef, treeAnalyzer(directory, host.extensionPath), (config) => head.config && (config ?? head.config), limitations);
+    const options: SideOptions = { rulesFor: (config) => head.config && (config ?? head.config), structureFor: (config) => config ?? head.config, tolerant: true };
+    return readSide(directory, baseRef, treeAnalyzer(directory, host.extensionPath), options, limitations);
   });
-  return { head, base, limitations };
+  return { head, base, limitations, ...(renames === undefined ? {} : { renames: await renames }), workingTree };
 }
 
-/** Compares the rules of the head and base trees, with the limitations of reading them; no review when neither has a config. */
-export function reviewArchitecture({ head, base, limitations }: ReviewTrees, changedFiles: readonly string[]): { review?: ArchitectureReview; limitations: string[] } {
-  if (head.config === undefined && base.config === undefined) return { limitations };
+/**
+ * Compares the rules of the head and base trees, with the limitations of reading them; no review when neither
+ * has a config. The structure (units and folder groups) is compared whether or not a config exists, when both sides carry a snapshot.
+ */
+export function reviewArchitecture({ head, base, limitations, renames, workingTree }: ReviewTrees, changedFiles: readonly string[], refs = { base: "base", head: "head" }):
+  { review?: ArchitectureReview; structure?: ArchitectureStructureDiff; limitations: string[] } {
+  const structure = base.structure && head.structure ? compareStructure(base.structure, head.structure, { renames, refs, workingTree }) : undefined;
+  if (head.config === undefined && base.config === undefined) return { ...(structure ? { structure } : {}), limitations };
   const rulesFilesChanged = changedFiles.some((file) => [ARCHITECTURE_CONFIG_FILE, ARCHITECTURE_BASELINE_FILE].includes(normalizePath(file)));
-  return { review: compareArchitecture(base, head, rulesFilesChanged), limitations };
+  return { review: compareArchitecture(base, head, rulesFilesChanged), ...(structure ? { structure } : {}), limitations };
 }
-
-const MAX_MARKDOWN_ITEMS = 20;
 
 /** The architecture section of the review-pr markdown report; `safe` sanitizes table cells and list items. */
 export function renderArchitectureMarkdown(review: ArchitectureReview, safe: (value: string) => string): string[] {
@@ -301,8 +348,6 @@ export function renderArchitectureMarkdown(review: ArchitectureReview, safe: (va
       ? [`- Baseline: ${configChange.baseline.added.length} violation(s) accepted, ${configChange.baseline.removed.length} entry(ies) removed`]
       : []),
   ];
-  const capped = (title: string, lines: string[]) => lines.length === 0 ? [] : ["", title, ...lines.slice(0, MAX_MARKDOWN_ITEMS),
-    ...(lines.length > MAX_MARKDOWN_ITEMS ? [`- … ${lines.length - MAX_MARKDOWN_ITEMS} more`] : [])];
   return [
     "", `### Architecture rules: ${review.verdict.toUpperCase()}`,
     "",

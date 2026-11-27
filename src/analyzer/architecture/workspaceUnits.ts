@@ -226,6 +226,24 @@ function revised(units: ArchitectureUnits, check: WorkspaceArchitectureCheck): A
   return { ...units, context: { ...units.context, revision } };
 }
 
+/**
+ * The units and their file assignment, with no rule check: what workspaceUnits draws, and the part
+ * the review's structure diff needs (checkArchitecture is not run again there).
+ */
+export function declaredStructure(graph: ArchitectureGraph, workspaceRoot: string, config?: ArchitectureConfig) {
+  const paths = graph.nodes.map((node) => node.relativePath);
+  const detected = assignUnits(workspaceRoot, paths, config === undefined ? [] : declaredUnitPatterns(config));
+  const detectedUnits = buildArchitectureUnits(graph, workspaceRoot, detected, config?.roles);
+  if (config === undefined) return { units: detectedUnits, assignment: detected, detected };
+
+  const roleOf = new Map(detectedUnits.units.map((unit) => [unit.key, unit.role]));
+  const elements = resolveElements(config, paths, detected, roleOf);
+  const fromElements = Object.keys(config.elements).length > 0;
+  const declared = fromElements ? elementAssignment(config, paths, detected, elements) : { assignment: detected, elementOf: new Map<string, string>(), warnings: [] };
+  const units = fromElements ? buildArchitectureUnits(graph, workspaceRoot, declared.assignment, config.roles, "elements") : detectedUnits;
+  return { units, assignment: declared.assignment, detected, roleOf, elements, declared };
+}
+
 /** The same from a config held in memory (init's merged config, review's config). */
 export function workspaceUnits(
   graph: ArchitectureGraph,
@@ -234,21 +252,14 @@ export function workspaceUnits(
   baseline?: readonly BaselineEntry[],
   files?: { configFile: string; baselineFile?: string },
 ): WorkspaceUnits {
-  const paths = graph.nodes.map((node) => node.relativePath);
-  const detected = assignUnits(workspaceRoot, paths, config === undefined ? [] : declaredUnitPatterns(config));
-  const detectedUnits = buildArchitectureUnits(graph, workspaceRoot, detected, config?.roles);
-  if (config === undefined) return { graph, units: detectedUnits, assignment: detected, detected };
-
-  const roleOf = new Map(detectedUnits.units.map((unit) => [unit.key, unit.role]));
-  const elements = resolveElements(config, paths, detected, roleOf);
+  const structure = declaredStructure(graph, workspaceRoot, config);
+  const { detected, roleOf, elements, declared, units: built } = structure;
+  if (config === undefined || !roleOf || !elements || !declared) return { graph, units: built, assignment: structure.assignment, detected };
   const check: WorkspaceArchitectureCheck = {
     configFile: files?.configFile ?? ARCHITECTURE_CONFIG_FILE,
     baselineFile: files?.baselineFile,
     ...checkArchitecture(graph, detected, config, baseline, roleOf, elements),
   };
-  const fromElements = Object.keys(config.elements).length > 0;
-  const declared = fromElements ? elementAssignment(config, paths, detected, elements) : { assignment: detected, elementOf: new Map<string, string>(), warnings: [] };
-  const built = fromElements ? buildArchitectureUnits(graph, workspaceRoot, declared.assignment, config.roles, "elements") : detectedUnits;
   const attached = attachRules(built, graph, config, check, { membership: elements.membership, detected, assignment: declared.assignment, elementOf: declared.elementOf });
   const units: ArchitectureUnits = {
     ...built,

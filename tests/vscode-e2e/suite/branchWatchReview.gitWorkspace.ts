@@ -1,9 +1,11 @@
 import * as assert from 'node:assert';
+import { execFileSync } from 'node:child_process';
+import * as os from 'node:os';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
-import { branchWatchReact } from '../fixtures/branchWatch.fixture';
-import { waitUntil } from './_helpers';
+import { branchWatchReact, fixtureGit } from '../fixtures/branchWatch.fixture';
+import { getIndexStatus, sleep, waitUntil } from './_helpers';
 
 interface SnapshotItem {
   label: string | { label: string };
@@ -123,6 +125,39 @@ suite('Branch Watch review in a Git workspace (#546)', function () {
     } finally {
       await configuration.update('branchWatch.maxFiles', undefined, vscode.ConfigurationTarget.WorkspaceFolder);
       await vscode.commands.executeCommand('workbench.action.closeQuickOpen');
+    }
+  });
+
+  // #345: the LM tool returns the structure diff of a folder rename, the same as the built CLI.
+  test('review_pr returns the structure diff of a renamed folder, like the CLI', async function () {
+    if (typeof vscode.lm.invokeTool !== 'function') this.skip();
+    const worktree = path.join(await fs.mkdtemp(path.join(os.tmpdir(), 'graph-it-rename-e2e-')), 'wt');
+    try {
+      // A worktree keeps the open workspace (and Branch Watch) on `feature`.
+      fixtureGit(root(), 'worktree', 'add', '-b', 'rename-e2e', worktree, 'feature');
+      fixtureGit(worktree, 'mv', 'typescript', 'typescript-renamed');
+      fixtureGit(worktree, '-c', 'user.email=fixture@example.com', '-c', 'user.name=Fixture', 'commit', '-m', 'rename typescript');
+
+      for (const deadline = Date.now() + 120_000; Date.now() < deadline;) {
+        if ((await getIndexStatus<{ isReady?: boolean }>()).isReady) break;
+        await sleep(500);
+      }
+      const invoked = await vscode.lm.invokeTool('graph-it-live_review_pr', {
+        input: { baseRef: 'main', headRef: 'rename-e2e', response_format: 'json' },
+        toolInvocationToken: undefined,
+      });
+      const lm = JSON.parse(invoked.content.map(part => (part instanceof vscode.LanguageModelTextPart ? part.value : '')).join('')) as { structure?: { verdict: string; groups: { items: Array<{ status: string }> } } };
+      assert.ok(lm.structure, `structure missing from the LM tool result: ${JSON.stringify(lm).slice(0, 500)}`);
+      assert.strictEqual(lm.structure.verdict, 'changed');
+      assert.ok(lm.structure.groups.items.some(item => item.status === 'RENAMED'), JSON.stringify(lm.structure.groups.items));
+
+      const cliEntry = path.resolve(__dirname, '../../../dist/graph-it.js');
+      const cli = JSON.parse(execFileSync(process.execPath, [cliEntry, 'review-pr', '--workspace', root(), '--base', 'main', '--head', 'rename-e2e', '--format', 'json'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })) as { structure: unknown };
+      assert.deepStrictEqual(lm.structure, cli.structure);
+    } finally {
+      try { fixtureGit(root(), 'worktree', 'remove', '--force', worktree); } catch { /* already removed */ }
+      try { fixtureGit(root(), 'branch', '-D', 'rename-e2e'); } catch { /* never created */ }
+      await fs.rm(path.dirname(worktree), { recursive: true, force: true });
     }
   });
 });

@@ -4,6 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import {
+  ArchitectureReviewError,
   compareArchitecture,
   renderArchitectureMarkdown,
   readReviewTrees,
@@ -194,6 +195,7 @@ function host(root: string): ArchitectureReviewHost {
     analyzeFile: treeAnalyzer(root),
     withRefTree: (ref, read) => branch.withRefTree(ref, read),
     mergeBase: (base, head) => branch.mergeBase(base, head),
+    renames: (from, to) => branch.renames(from, to),
   };
 }
 
@@ -260,7 +262,10 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
   it("returns no review when neither side has a config", async () => {
     const root = createWorkspace({}, false);
     write(root, { "frontend/app.ts": IMPORTS_BACKEND });
-    expect(reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["frontend/app.ts"])).toEqual({ limitations: [] });
+    const { review, structure, limitations } = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["frontend/app.ts"]);
+    expect(review).toBeUndefined();
+    expect(limitations).toEqual([]);
+    expect(structure?.verdict).toBe("changed");
   });
 
   it("resolves imports by workspace package name on the base copy too: an untouched cycle stays unchanged (#616)", async () => {
@@ -326,9 +331,19 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
     expect(review?.rules[0].newViolations).toMatchObject([{ source: "frontend/app.ts", target: "backend/db.ts" }]);
   });
 
-  it("names the ref whose rules file is invalid", async () => {
+  it("throws on an invalid config at the head, naming the ref", async () => {
+    const root = createWorkspace({});
+    write(root, { "graphit.architecture.json": "{ not json" });
+    const failure = await readReviewTrees(host(root), "main", "HEAD").catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ArchitectureReviewError);
+    expect((failure as Error).message).toMatch(/^HEAD: graphit\.architecture\.json: \$: not valid JSON/);
+  });
+
+  it("builds a base with an invalid config from the head config, and says so", async () => {
     const root = createWorkspace({ "graphit.architecture.json": "{ not json" });
     write(root, { "graphit.architecture.json": JSON.stringify(CONFIG) });
-    await expect(readReviewTrees(host(root), "main", "HEAD")).rejects.toThrow(/^main: graphit\.architecture\.json: \$: not valid JSON/);
+    const { review, structure } = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["graphit.architecture.json"]);
+    expect(review?.verdict).toBe("unchanged");
+    expect(structure?.warnings[0]).toMatch(/^Units differ in definition between base and head \(base graphit\.architecture\.json is invalid \(graphit\.architecture\.json: \$: not valid JSON.*\): built with the head's\)/);
   });
 });

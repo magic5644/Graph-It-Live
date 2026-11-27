@@ -62,6 +62,7 @@ function reviewTreeProvider(rootDir: string, analyzeFile: AnalyzeFile, extension
         analyzeFile,
         withRefTree: (ref, readTree) => git.withRefTree(ref, readTree),
         mergeBase: (base, head) => git.mergeBase(base, head),
+        renames: (from, to) => git.renames(from, to),
         extensionPath,
       }, baseRef, headRef);
       trees.set(key, pending);
@@ -73,7 +74,7 @@ function reviewTreeProvider(rootDir: string, analyzeFile: AnalyzeFile, extension
       const { head, base, limitations } = await read(baseRef, headRef);
       return { cycles: addedFileCycles(head.imports ?? [], base.imports ?? [], changedFiles), limitations };
     },
-    reviewArchitecture: async (changedFiles, baseRef, headRef) => reviewArchitecture(await read(baseRef, headRef), changedFiles),
+    reviewArchitecture: async (changedFiles, baseRef, headRef) => reviewArchitecture(await read(baseRef, headRef), changedFiles, { base: baseRef, head: headRef }),
   };
 }
 

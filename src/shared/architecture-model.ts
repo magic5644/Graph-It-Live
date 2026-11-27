@@ -340,3 +340,77 @@ export interface DependentFile {
   /** 1 = imports a seed file directly. */
   depth: number;
 }
+
+// ---------------------------------------------------------------------------
+// Structure diff of a review (#345): units and folder groups, base against head
+// ---------------------------------------------------------------------------
+
+export type StructureStatus = "ADDED" | "REMOVED" | "CHANGED" | "RENAMED";
+export type StructureLevel = "units" | "groups";
+
+/** An absent side means the item is missing there. */
+export interface StructureCount {
+  before?: number;
+  after?: number;
+}
+
+export interface StructureItemDiff {
+  status: StructureStatus;
+  /** Head key; base key when REMOVED. Units: unit key. Groups: folder group key. */
+  key: string;
+  /** Base key when RENAMED (also set on a CHANGED group that moved to another unit). */
+  previousKey?: string;
+  name: string;
+  /** Groups only: owning unit key (head; base when REMOVED). */
+  unit?: string;
+  /** Groups only: the base owning unit, when it changed. */
+  previousUnit?: string;
+  fileCount: StructureCount;
+  /** Units only. */
+  role?: { before?: string; after?: string };
+}
+
+export interface StructureEdgeDiff {
+  status: "ADDED" | "REMOVED" | "CHANGED";
+  /** Item keys in the head key space (a matched base item shows its head key; a REMOVED item its base key). */
+  from: string;
+  to: string;
+  /** Distinct file pairs. */
+  pairs: StructureCount;
+}
+
+/** `file` is the head path; `from` and `to` are item keys, base then head. */
+export interface StructureMovedFile {
+  file: string;
+  from: string;
+  to: string;
+}
+
+export interface StructureCycleDiff {
+  /** ADDED: appeared; REMOVED: resolved. */
+  status: "ADDED" | "REMOVED";
+  /** Sorted item keys. */
+  members: string[];
+}
+
+export interface StructureLevelDiff {
+  items: StructureItemDiff[];
+  edges: StructureEdgeDiff[];
+  cycles: StructureCycleDiff[];
+  movedFiles: StructureMovedFile[];
+  /** Compared sizes, so "unchanged" is never empty. */
+  compared: { items: StructureCount; edges: StructureCount; unchangedItems: number; unchangedEdges: number };
+}
+
+export interface ArchitectureStructureDiff {
+  /** changed: any item, edge, cycle or moved file differs. empty: neither side has an analyzable file. */
+  verdict: "changed" | "unchanged" | "empty";
+  units: StructureLevelDiff;
+  groups: StructureLevelDiff;
+  /** Analyzed files per side. */
+  files: StructureCount;
+  /** Files mapped by Git rename detection, and whether Git read them all. */
+  renames: { mapped: number; complete: boolean };
+  /** Shown to the user whatever the format. */
+  warnings: string[];
+}
