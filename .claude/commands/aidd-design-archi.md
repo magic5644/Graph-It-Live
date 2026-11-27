@@ -1,12 +1,14 @@
 ---
 description: AIDD architecture step — Antoine and Clara write ADRs, Marine (devil) challenges them. Use after /aidd-analyze-req when stories need cross-layer or webview design.
 argument-hint: [stories path, default docs/specs/requirements/]
-allowed-tools: Read, Write, Agent, Bash(graph-it *)
+allowed-tools: Read, Write, Agent, Bash(graph-it *), Bash(node scripts/aidd-state.mjs *)
 ---
 
 # /aidd-design-archi — GATE-3 (internal)
 
 Stories: $ARGUMENTS (default `docs/specs/requirements/`)
+
+State: epic item (tier `epic`, steps design, design-review) in `scripts/aidd-state.mjs` — resume with `status <id>`, record every step, `round` on BLOCK; exit 3 = stop and ask the human (`.claude/rules/agent-workflow.md` § State and Resume).
 
 ## Sequence
 

@@ -26,7 +26,7 @@ Pick the smallest tier that fits; `marc-orchestrator` decides when unsure.
 |---|---|
 | Unformed idea | `/aidd-brainstorm` |
 | Brief or issue to frame (GATE-0) | `/aidd-clarify` |
-| Full design phase | `/aidd-clarify` → `/aidd-analyze-req` → `/aidd-design-archi` + `/aidd-design-ux` → `/aidd-security-audit` → `/aidd-plan-mvp` |
+| Epic or complex feature (design phase, then one story per session) | `/aidd-clarify` → `/aidd-analyze-req` → `/aidd-design-archi` + `/aidd-design-ux` → `/aidd-security-audit` → `/aidd-plan-mvp` |
 | M/L story, cross-layer, new MCP tool, architecture change | `/aidd-feature` |
 | S story, one layer, no new MCP tool, no architecture change | `/aidd-quick-win` |
 | Suspected bug | `/aidd-bug-hunt` (read-only) |
@@ -100,6 +100,10 @@ Diagnostic tiers (`/aidd-bug-hunt`, `/aidd-optimize`, `/aidd-leak-check`, `/aidd
 | iris-opportunity-scout | Debt and product gaps | sonnet | yes |
 
 Model policy: `opus` for rare, high-impact reasoning (architecture, security, root cause); `sonnet` for specs, implementation and reviews; `haiku` for checklists and synthesis. Every agent sets `model` explicitly so a nested call never inherits a costlier model.
+
+## State and resume
+
+`scripts/aidd-state.mjs` is the deterministic part of the workflow: it stores each item's state in `.claude/aidd-state/<id>.json`, refuses out-of-order steps, enforces loop bounds and the single tier change (exit 3 = ask the human), records gate decisions, artifacts and handoffs, and marks the running step so `status` can resume after a stop or crash. Details: `.claude/rules/agent-workflow.md` § State and Resume.
 
 ## Memory
 
