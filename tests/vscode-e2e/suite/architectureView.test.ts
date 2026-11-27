@@ -1206,12 +1206,14 @@ suite('Architecture view mode', () => {
     };
     await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
     let narrowed = 0;
+    const widths: number[] = [];
     try {
       let rendered: RenderedReport;
       for (;;) {
         await sleep(300); // NOSONAR S9382: each resize must settle before the fresh render measures it
         await openFreshArchitecture(); // NOSONAR S9382: each measure needs the previous resize applied
         rendered = await readRendered(); // NOSONAR S9382: reads the render of this width
+        widths.push(widthOf(rendered));
         if (widthOf(rendered) <= maxWidth || narrowed === maxSteps) break;
         // Focusing Branch status expands it beside the Dependency Graph view; the command gives it that view's width.
         await vscode.commands.executeCommand('graph-it-live.branchWatchView.focus'); // NOSONAR S9382: one resize at a time
@@ -1219,7 +1221,7 @@ suite('Architecture view mode', () => {
         narrowed++;
       }
       const rows = rendered.headerRows?.join(' ');
-      assert.ok(widthOf(rendered) <= maxWidth, `a view of ${maxWidth}px at most after ${narrowed} narrowing steps: ${rows}`);
+      assert.ok(widthOf(rendered) <= maxWidth, `a view of ${maxWidth}px at most after ${narrowed} narrowing steps (widths ${widths.join(' → ')}): ${rows}`);
       const viewHeight = Math.min(rendered.viewHeightPx ?? 0, 548);
       assert.ok((rendered.headerHeightPx ?? Infinity) <= viewHeight * 0.25,
         `header and controls within 25% of ${viewHeight}px (view ${rendered.viewHeightPx}px): ${rendered.headerHeightPx}px (${rows})`);
