@@ -137,7 +137,7 @@ export function round(state, step, reason = '') {
   else state.totalRounds += 1;
   rewind(state, target);
   state.running = null;
-  log(state, 'round', `${step} → ${target}${reason ? `: ${reason}` : ''}`);
+  log(state, 'round', reason ? `${step} → ${target}: ${reason}` : `${step} → ${target}`);
   return target;
 }
 
@@ -159,7 +159,8 @@ export function override(state) {
 
 export function recordHandoff(state, agent, text) {
   const missing = HANDOFF_FIELDS.filter((field) => !new RegExp(`^${field}:`, 'm').test(text));
-  if (missing.length > 0) throw new AiddError(`Handoff misses: ${missing.join(', ')}. Format: ${HANDOFF_FIELDS.map((f) => `${f}: ...`).join(' / ')}.`);
+  const format = HANDOFF_FIELDS.map((field) => field + ': ...').join(' / ');
+  if (missing.length > 0) throw new AiddError(`Handoff misses: ${missing.join(', ')}. Format: ${format}.`);
   const priorLines = (/^PRIOR OUTPUTS:([\s\S]*?)^ACTION:/m.exec(text)?.[1] ?? '').split('\n').filter((line) => line.trim()).length;
   if (priorLines > 2) throw new AiddError('PRIOR OUTPUTS holds at most two lines: point to artifacts instead of pasting output.');
   state.handoffs[agent] = { at: now(), text: text.trim() };
