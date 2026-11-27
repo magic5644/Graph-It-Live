@@ -210,8 +210,25 @@ describe("structure diff on a real Git repository", { timeout: 120_000 }, () => 
     const corruptHead = repository(many("a", 2), (dir) => write(dir, { "graphit.architecture.baseline.json": "{ nope" }));
     await expect(readReviewTrees(host(corruptHead), "main", "feature")).rejects.toThrow(/^feature: graphit\.architecture\.baseline\.json/);
     const corruptBase = repository({ ...many("a", 2), "graphit.architecture.baseline.json": "{ nope" }, (dir) => write(dir, { "graphit.architecture.baseline.json": JSON.stringify({ version: 1, violations: [] }) }));
-    const structure = await structureOf(corruptBase);
-    expect(structure.warnings[0]).toContain("invalid (graphit.architecture.baseline.json");
+    const trees = await readReviewTrees(host(corruptBase), "main", "feature");
+    // Only the baseline is refused: a limitation, the base config (none here) kept, no definition warning.
+    expect(trees.limitations.some((line) => line.startsWith("main: graphit.architecture.baseline.json") && line.endsWith("the base baseline is ignored, so its accepted violations count as found at the base."))).toBe(true);
+    expect((await structureOf(corruptBase)).warnings.some((warning) => warning.includes("is invalid"))).toBe(false);
+  });
+
+  it("keeps a valid base config when only the base baseline is refused, and caps a quoted config error", async () => {
+    const config = JSON.stringify({ elements: { core: { path: "src/" } }, rules: [] });
+    const baselineOnly = repository({ ...many("a", 2), "graphit.architecture.json": config, "graphit.architecture.baseline.json": "{ nope" },
+      (dir) => write(dir, { "graphit.architecture.baseline.json": JSON.stringify({ version: 1, violations: [] }) }));
+    const trees = await readReviewTrees(host(baselineOnly), "main", "feature");
+    expect(trees.base.config?.elements).toHaveProperty("core");
+    expect(trees.base.structure?.configFrom).toBe("own");
+    const longKey = "k".repeat(1000);
+    const invalidBase = repository({ ...many("a", 2), "graphit.architecture.json": JSON.stringify({ elements: { [longKey]: 1 } }) },
+      (dir) => write(dir, { "graphit.architecture.json": config }));
+    const [warning] = (await structureOf(invalidBase)).warnings;
+    expect(warning).toContain("is invalid (");
+    expect(warning.length).toBeLessThan(500);
   });
 
   it("compares the same with a host that cannot read renames, and says so", async () => {

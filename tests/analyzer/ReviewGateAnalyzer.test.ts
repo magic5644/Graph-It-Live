@@ -107,6 +107,12 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
       baseRef: "main",
       headRef: "HEAD",
       changedFiles: ["src/<bad>|.ts"],
+      // A PR author names folders: no link, image or @mention may come out of them.
+      structure: {
+        verdict: "changed", files: { before: 1, after: 1 }, renames: { mapped: 0, complete: true }, warnings: [],
+        units: { items: [{ status: "ADDED", key: "[click](https://evil.example)", name: "x", fileCount: { after: 1 } }], edges: [], cycles: [], movedFiles: [], compared: { items: { before: 0, after: 1 }, edges: { before: 0, after: 0 }, unchangedItems: 0, unchangedEdges: 0 } },
+        groups: { items: [{ status: "ADDED", key: "@victim/![img](x)", name: "x", fileCount: { after: 1 } }], edges: [], cycles: [], movedFiles: [], compared: { items: { before: 0, after: 1 }, edges: { before: 0, after: 0 }, unchangedItems: 0, unchangedEdges: 0 } },
+      },
       symbols: [{
         name: "bad|<script>", filePath: "src/<bad>|.ts", score: 80, risk: "critical", breakingChanges: [], impactedSymbolCount: 0,
         // Consumer paths reach the Markdown too, so they must be escaped as well.
@@ -123,6 +129,9 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(markdown).not.toContain("<script>");
     expect(markdown).not.toContain("bad|<");
     expect(markdown).not.toContain("<evil>");
+    expect(markdown).toContain(String.raw`\[click\]\(https://evil.example\)`);
+    expect(markdown).toContain(String.raw`@​victim/\!\[img\]\(x\)`);
+    expect(markdown).not.toMatch(/(?<!\\)\[click\]|@victim/);
   });
 
   it("renders the consumer buckets, not a raw dependent count", () => {

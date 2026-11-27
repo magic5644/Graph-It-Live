@@ -648,7 +648,8 @@ describe('RustParser Property-Based Tests', { timeout: 30_000 }, () => {
       await fc.assert(
         fc.asyncProperty(
           fc.record({
-            localModules: fc.array(rustModuleNameArbitrary(), { minLength: 1, maxLength: 3 }),
+            // A local module named like an external crate (`vm`) is ambiguous: the other properties skip it too.
+            localModules: fc.array(rustModuleNameArbitrary().filter((name) => !externalCrates.includes(name.toLowerCase())), { minLength: 1, maxLength: 3 }),
             externalCrates: fc.array(externalCrateArbitrary(), { minLength: 1, maxLength: 3 }),
           }),
           async ({ localModules, externalCrates: externalCratesList }) => {

@@ -1947,7 +1947,8 @@ export function riskForScore(score: number): ReviewRiskLevel {
 }
 
 export function renderReviewMarkdown(result: ReviewGateResult): string {
-  const safe = (value: string): string => value.replaceAll(/[\r\n|<>]/g, " ").replaceAll("`", "'").trim();
+  // PR-author text (paths, unit keys, refs): no table break, HTML, code span, link or @mention in the PR comment.
+  const safe = (value: string): string => value.replaceAll(/[\r\n|<>]/g, " ").replaceAll("`", "'").replaceAll(/[[\]()!]/g, String.raw`\$&`).replaceAll("@", "@\u200B").trim();
   // The consumer columns are the point of the report: a reviewer needs to see what
   // the change still leaves unchecked, not how widely the contract is used.
   const rows = result.symbols.slice(0, 20).map((symbol) =>

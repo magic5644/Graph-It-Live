@@ -306,6 +306,16 @@ export interface CompareStructureOptions {
 const removedAndAdded = (level: StructureLevelDiff) =>
   level.items.some((item) => item.status === "REMOVED") && level.items.some((item) => item.status === "ADDED");
 
+function missedMovesWarning(workingTree: boolean): string {
+  const untracked = workingTree ? "; untracked working-tree files count as added" : "";
+  return `Renames and moved files cover only what Git detects (git diff -M, 50 % similarity)${untracked}: a file moved and heavily edited counts as removed + added.`;
+}
+
+function emptySideWarning(baseEmpty: boolean, refs: CompareStructureOptions["refs"]): string {
+  const [ref, reads] = baseEmpty ? [refs.base, "added"] : [refs.head, "removed"];
+  return `No analyzable file at ${ref}: every unit and group reads as ${reads}.`;
+}
+
 function verdictOf(empty: boolean, changed: boolean): ArchitectureStructureDiff["verdict"] {
   if (empty) return "empty";
   return changed ? "changed" : "unchanged";
@@ -324,10 +334,8 @@ export function compareStructure(base: StructureSnapshot, head: StructureSnapsho
   const warnings = [
     detail === undefined ? undefined : `Units differ in definition between base and head (${detail}): units are matched by file overlap, not by name.`,
     renameWarning(renames),
-    [units.diff, groups.diff].some(removedAndAdded)
-      ? `Renames and moved files cover only what Git detects (git diff -M, 50 % similarity)${workingTree ? "; untracked working-tree files count as added" : ""}: a file moved and heavily edited counts as removed + added.`
-      : undefined,
-    oneSided ? `No analyzable file at ${base.files === 0 ? refs.base : refs.head}: every unit and group reads as ${base.files === 0 ? "added" : "removed"}.` : undefined,
+    [units.diff, groups.diff].some(removedAndAdded) ? missedMovesWarning(workingTree === true) : undefined,
+    oneSided ? emptySideWarning(base.files === 0, refs) : undefined,
   ].filter((warning): warning is string => warning !== undefined);
   return {
     verdict,

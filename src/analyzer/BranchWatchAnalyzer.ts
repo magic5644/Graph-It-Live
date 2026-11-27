@@ -13,14 +13,15 @@ import { hasSignatureAnalysis, ReviewGateAnalyzer, type FileCycleAnalysis, type 
 import { detectCycleEdges } from '../shared/cycleUtils';
 import type { GraphEdge } from '../shared/graph-types';
 import { readTreeImports, treeAnalyzer } from './architecture/architectureReview';
+import { RENAME_LIMIT_REASON } from './architecture/architectureStructure';
 import type { AnalyzeFile } from './architecture/ArchitectureGraphBuilder';
 import { checkText, MAX_TEXT_FILE_BYTES, readWorkspaceText, resolveRegularFile } from './utils/workspaceText';
 
 const execFileAsync = promisify(execFile);
 
 const CHANGED_FILE_LIST_MAX_BYTES = 64 * 1024 * 1024;
-/** `reason` of a renames() answer cut short by diff.renameLimit. */
-export const RENAME_LIMIT = 'diff.renameLimit';
+
+class RefusedRefError extends Error {}
 
 /** A workspace-relative rename path, undefined when absolute (POSIX or Windows) or leaving the repository: a key, never opened. */
 export function renameKey(file: string): string | undefined {
@@ -533,7 +534,7 @@ export class BranchWatchAnalyzer {
 
   /** The commit `git diff base...head` compares `head` with. */
   async mergeBase(base: string, head: string): Promise<string> {
-    return (await this.git(['merge-base', base, head])).trim();
+    return (await this.git(['merge-base', '--end-of-options', base, head])).trim();
   }
 
   /**
@@ -545,20 +546,20 @@ export class BranchWatchAnalyzer {
     const moves = new Map<string, string>();
     try {
       for (const ref of [from, ...(to === undefined ? [] : [to])]) {
-        if (ref.length === 0 || ref.startsWith('-')) throw new Error('refused a ref that starts with "-"');
+        if (ref.length === 0 || ref.startsWith('-')) throw new RefusedRefError();
       }
       const args = ['diff', '--no-ext-diff', '--no-textconv', '-M', '--name-status', '-z', '--diff-filter=R', from, ...(to === undefined ? [] : [to]), '--'];
       const { stdout, stderr } = await this.run(args, { maxBuffer: CHANGED_FILE_LIST_MAX_BYTES, timeout: 30_000, locale: true });
       const parsed = parseRenames(stdout, moves, renameKey);
       // Git 2.56 says "exhaustive rename detection was skipped", older versions "inexact": the pinned wording is the real-git test's.
-      if (/rename detection was skipped|diff\.renameLimit/.test(stderr)) return { moves, complete: false, reason: RENAME_LIMIT };
+      if (/rename detection was skipped|diff\.renameLimit/.test(stderr)) return { moves, complete: false, reason: RENAME_LIMIT_REASON };
       return parsed ? { moves, complete: true } : { moves, complete: false, reason: 'unparseable git output' };
     } catch (error) {
       moves.clear();
-      return { moves, complete: false, reason: (error instanceof Error ? error.message : String(error)).replace(/\s+/g, ' ').slice(0, 240) };
+      // A fixed reason: Git's message holds absolute paths and the command line, and the warning reaches PR comments.
+      return { moves, complete: false, reason: error instanceof RefusedRefError ? 'refused ref' : 'git error' };
     }
   }
-
 
   /** Entries of `ref`'s tree that `keep` selects, workspace-relative, with their blob size. */
   private async treeEntries(ref: string, keep: (file: string) => boolean): Promise<TreeEntry[]> {

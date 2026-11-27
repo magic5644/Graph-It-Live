@@ -70,6 +70,9 @@ describe('BranchWatchAnalyzer ref tree', { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(copied.files).toEqual({ 'api.ts': 'export function value(n: number) { return n; }\n', 'style.css': 'a {}\n', 'assets/logo.png': '', 'assets/big.txt': '', 'bin.ts': null });
     expect(copied.limitations).toEqual(['bin.ts: baseline file is binary.']);
     expect(await analyzer.mergeBase('main', 'HEAD')).toBe(git(root, 'rev-parse', 'HEAD'));
+    // --end-of-options: a ref that looks like an option is a ref Git cannot find, never an option.
+    await expect(analyzer.mergeBase('--output=leak.txt', 'HEAD')).rejects.toThrow();
+    await expect(fs.access(path.join(root, 'leak.txt'))).rejects.toThrow();
   });
 
   it('recreates the node_modules links to workspace packages in the copy, and no other link (#616)', async () => {
