@@ -7,12 +7,16 @@ paths:
   - ".claude/commands/**/*.md"
   - ".claude/agent-memory/**/*.md"
   - ".claude/FRAMEWORK.md"
-  - "docs/sprints/**/*.md"
 ---
 
 # AIDD Agent Workflow
 
 Apply this file by explicit routing for AIDD orchestration tasks, even when no matched file is open.
+
+## Orchestration
+
+- The main conversation runs the `/aidd-*` commands, invokes agents and holds human gates. marc-orchestrator classifies and routes only; agents never spawn agents.
+- Every agent sets `model` explicitly: `opus` for architecture, security and root cause; `sonnet` for specs, implementation and reviews; `haiku` for checklists.
 
 ## Mode Boundary
 
@@ -45,12 +49,12 @@ Apply this file by explicit routing for AIDD orchestration tasks, even when no m
 
 - Devil verdict is explicit `PASS` or `BLOCK`, with evidence and required correction.
 - Route `BLOCK` back to challenged agent.
-- Maximum two devil↔agent correction rounds; persistent disagreement goes to marc-orchestrator (Marc) or human.
+- Maximum two devil↔agent correction rounds; persistent disagreement is arbitrated by the main conversation or escalated to the human.
 - Never arbitrate away layer isolation violation, demonstrated security bypass, or touched-file coverage below 80%.
 
 ## Agent Memory Scope
 
-- Each agent reads only `.claude/agent-memory/<agent>/KNOWLEDGE.md` at task start, not every sprint/history file.
-- At task end, append 3–6 factual bullets: durable decision, verified pattern, or recurring trap. Never append activity logs.
-- marc-orchestrator (Marc) stores gate decisions and arbitration only, not every micro-decision.
+- Each agent uses only `.claude/agent-memory/<agent-name>/MEMORY.md`, not sprint or history files. Write-capable agents load it through `memory: project`; read-only agents read it and return a `MEMORY:` block that the main conversation appends.
+- At task end, add 3–6 factual bullets: durable decision, verified pattern, or recurring trap. Never activity logs. Keep each file under 150 lines.
+- marc-orchestrator stores gate decisions and arbitration only, not every micro-decision.
 - Handoff references relevant memory file rather than copying its contents.
