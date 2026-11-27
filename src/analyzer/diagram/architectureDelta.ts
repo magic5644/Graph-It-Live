@@ -181,19 +181,23 @@ function violationRows(source: ArchitectureDeltaSource, items: StructureItemDiff
   return [...rows.values()].toSorted((left, right) => byCodeUnit(`${left.rule}\0${left.from}\0${left.to}\0${left.kind}`, `${right.rule}\0${right.from}\0${right.to}\0${right.kind}`));
 }
 
+const VIOLATION_RANK: Record<ViolationKind, number> = { new: 0, accepted: 1, resolved: 2 };
+
+/** Marks the nodes and the edge one violation names. */
+function markViolation(row: ViolationRow, nodes: Map<string, DeltaNode>, edges: DeltaEdge[]): void {
+  for (const id of [row.fromId, row.toId]) {
+    const node = id === undefined ? undefined : nodes.get(id);
+    if (node) node.violations[row.kind === "resolved" ? "resolved" : "new"] += row.pairs;
+  }
+  const edge = edges.find((candidate) => candidate.from === row.fromId && candidate.to === row.toId);
+  if (!edge) return;
+  edge.rules = [...new Set([...edge.rules, row.rule])].sort(byCodeUnit);
+  if (edge.violation === undefined || VIOLATION_RANK[row.kind] < VIOLATION_RANK[edge.violation]) edge.violation = row.kind;
+}
+
 /** Marks the node and edge each violation names; a violation of a unit the diff does not name is only a ledger row. */
 function applyViolations(rows: ViolationRow[], nodes: Map<string, DeltaNode>, edges: DeltaEdge[]): void {
-  const rank: Record<ViolationKind, number> = { new: 0, accepted: 1, resolved: 2 };
-  for (const row of rows) {
-    for (const id of [row.fromId, row.toId]) {
-      const node = id === undefined ? undefined : nodes.get(id);
-      if (node) node.violations[row.kind === "resolved" ? "resolved" : "new"] += row.pairs;
-    }
-    const edge = edges.find((candidate) => candidate.from === row.fromId && candidate.to === row.toId);
-    if (!edge) continue;
-    edge.rules = [...new Set([...edge.rules, row.rule])].sort(byCodeUnit);
-    if (edge.violation === undefined || rank[row.kind] < rank[edge.violation]) edge.violation = row.kind;
-  }
+  for (const row of rows) markViolation(row, nodes, edges);
 }
 
 function markCycles(nodes: Map<string, DeltaNode>, edges: DeltaEdge[], cycles: Cycle[]): void {

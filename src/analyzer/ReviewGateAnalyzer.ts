@@ -341,8 +341,7 @@ export class ReviewGateAnalyzer {
   }
 
   /** Validates both refs and checks they name commits; returns the head ref (default HEAD). */
-  private async checkRefs(baseRef: string, headOption: string | undefined): Promise<string> {
-    const headRef = headOption ?? "HEAD";
+  private async checkRefs(baseRef: string, headRef = "HEAD"): Promise<string> {
     this.validateRef(baseRef, "baseRef");
     this.validateRef(headRef, "headRef");
     await this.assertCommit(baseRef);

@@ -1,4 +1,4 @@
-import type { ArchitectureStructureDiff, StructureCycleDiff, StructureEdgeDiff, StructureItemDiff } from "@/shared/architecture-model";
+import type { ArchitectureStructureDiff, StructureCount, StructureCycleDiff, StructureEdgeDiff, StructureItemDiff } from "@/shared/architecture-model";
 import type { ArchitectureReview, ArchitectureRuleReview } from "@/analyzer/architecture/architectureReview";
 import type { ArchitectureDeltaSource } from "@/analyzer/ReviewGateAnalyzer";
 
@@ -13,14 +13,21 @@ export interface DeltaParts {
   verdict?: "changed" | "unchanged";
 }
 
+/** `count` on the side the status has (ADDED after, REMOVED before); a matched item goes from `count` to `changed`. */
+function sided(status: string, count: number, changed: number): StructureCount {
+  if (status === "ADDED") return { after: count };
+  if (status === "REMOVED") return { before: count };
+  return { before: count, after: changed };
+}
+
 export const item = (status: StructureItemDiff["status"], key: string, extra: Partial<StructureItemDiff> = {}): StructureItemDiff => ({
   status, key, name: key,
-  fileCount: status === "ADDED" ? { after: 3 } : status === "REMOVED" ? { before: 3 } : { before: 3, after: 4 },
+  fileCount: sided(status, 3, 4),
   ...extra,
 });
 
 export const edge = (status: StructureEdgeDiff["status"], from: string, to: string, extra: Partial<StructureEdgeDiff> = {}): StructureEdgeDiff => ({
-  status, from, to, pairs: status === "ADDED" ? { after: 2 } : status === "REMOVED" ? { before: 2 } : { before: 2, after: 5 }, ...extra,
+  status, from, to, pairs: sided(status, 2, 5), ...extra,
 });
 
 const pair = (from: string, to: string) => ({ source: `${from}/a.ts`, target: `${to}/b.ts`, from, to });
