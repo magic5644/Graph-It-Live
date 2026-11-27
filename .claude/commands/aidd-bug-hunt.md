@@ -2,6 +2,12 @@
 description: AIDD read-only bug diagnosis — Diego finds the root cause of a suspected bug with evidence and a confidence level; no code change. Use when the user suspects a bug but nothing is confirmed. For a confirmed bug use /aidd-bugfix.
 argument-hint: <symptom>
 allowed-tools: Read, Agent, Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
 ---
 
 # /aidd-bug-hunt — Diagnosis (read-only)

@@ -2,6 +2,12 @@
 description: AIDD GATE-0 entry point — frames a brief or GitHub issue (gaps, constraints, out of scope) into docs/specs/brief.md before any design. Use when a new feature or project needs framing. Not for a vague idea (/aidd-brainstorm) or a bug (/aidd-bug-hunt, /aidd-bugfix).
 argument-hint: <issue number, file or brief>
 allowed-tools: Read, Write, Bash(gh issue view *), Bash(gh issue list *), Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
 ---
 
 # /aidd-clarify — GATE-0

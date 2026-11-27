@@ -2,6 +2,12 @@
 description: AIDD security audit — Nathan threat-models a validated design or existing code, Adrien (devil) attacks every control. Use after /aidd-design-archi, or on demand to audit existing code (an MCP tool, CLI command, webview, path handling).
 argument-hint: [design path | src path or area to audit]
 allowed-tools: Read, Write, Agent, Bash(graph-it *), Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
 ---
 
 # /aidd-security-audit

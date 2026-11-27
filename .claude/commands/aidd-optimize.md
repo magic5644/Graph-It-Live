@@ -2,6 +2,12 @@
 description: AIDD performance analysis — Ines analyzes complexity and caching, Victor measures a baseline, then the gain is measured after the change. Use when the user asks whether a path, command or indexing step can be made faster or lighter.
 argument-hint: <file, command or hot path>
 allowed-tools: Read, Write, Agent, Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
 ---
 
 # /aidd-optimize — Performance analysis

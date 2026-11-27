@@ -28,7 +28,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html", "lcov"],
-      include: ["src/**/*.ts", "scripts/bench-agent/**/*.mjs", "scripts/aidd-state.mjs"],
+      include: ["src/**/*.ts", "scripts/bench-agent/**/*.mjs", "scripts/aidd-state.mjs", "scripts/aidd-hook.mjs"],
       //include: ['src/analyzer/**/*.ts', 'src/webview/**/*.ts', 'src/shared/**/*.ts', 'src/mcp/**/*.ts', 'src/extension/**/*.ts'],
       exclude: [
         /*'**.test.ts',*/ "**/*.d.ts",

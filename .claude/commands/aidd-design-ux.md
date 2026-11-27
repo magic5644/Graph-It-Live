@@ -2,6 +2,12 @@
 description: AIDD UX step — Camille specifies commands, settings, views, webview layout and messages; Clara checks feasibility. Use after /aidd-analyze-req, in parallel with /aidd-design-archi, when stories change package.json contributes or a webview panel.
 argument-hint: [stories path, default docs/specs/requirements/]
 allowed-tools: Read, Write, Agent, Bash(node scripts/aidd-state.mjs *)
+hooks:
+  PreToolUse:
+    - matcher: "Agent"
+      hooks:
+        - type: command
+          command: 'node "${CLAUDE_PROJECT_DIR}/scripts/aidd-hook.mjs" agent'
 ---
 
 # /aidd-design-ux
