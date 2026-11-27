@@ -35,6 +35,7 @@ import {
   capped,
   compareStructure,
   namedChanges,
+  type CompareStructureOptions,
   type NamedChanges,
   type RenameInfo,
   type StructureSnapshot,
@@ -321,11 +322,14 @@ export async function readReviewTrees(host: ArchitectureReviewHost, baseRef: str
   return { head, base, limitations, ...(renames === undefined ? {} : { renames: await renames }), workingTree };
 }
 
+/** Ref names the structure warnings quote when the caller passes none. */
+const DEFAULT_REFS: CompareStructureOptions["refs"] = { base: "base", head: "head" };
+
 /**
  * Compares the rules of the head and base trees, with the limitations of reading them; no review when neither
  * has a config. The structure (units and folder groups) is compared whether or not a config exists, when both sides carry a snapshot.
  */
-export function reviewArchitecture({ head, base, limitations, renames, workingTree }: ReviewTrees, changedFiles: readonly string[], refs = { base: "base", head: "head" }):
+export function reviewArchitecture({ head, base, limitations, renames, workingTree }: ReviewTrees, changedFiles: readonly string[], refs: CompareStructureOptions["refs"] = DEFAULT_REFS):
   { review?: ArchitectureReview; structure?: ArchitectureStructureDiff; limitations: string[] } {
   const structure = base.structure && head.structure ? compareStructure(base.structure, head.structure, { renames, refs, workingTree }) : undefined;
   if (head.config === undefined && base.config === undefined) return { ...(structure ? { structure } : {}), limitations };

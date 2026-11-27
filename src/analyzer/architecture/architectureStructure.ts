@@ -203,7 +203,7 @@ function diffItems(base: LevelSnapshot, head: LevelSnapshot, pairs: ReadonlyMap<
   }
   const matched = new Set(pairs.values());
   for (const [key, after] of head.items) if (!matched.has(key)) items.push(itemDiff("ADDED", key, undefined, after));
-  return { items: items.sort((left, right) => byCodeUnit(left.key, right.key)), unchanged };
+  return { items: items.toSorted((left, right) => byCodeUnit(left.key, right.key)), unchanged };
 }
 
 /** A base item's identity in the head key space: its head match, else a key no head item has. */
@@ -230,7 +230,7 @@ function diffEdges(base: LevelSnapshot, head: LevelSnapshot, pairs: ReadonlyMap<
     else edges.push({ status: "CHANGED", from: current.from, to: current.to, pairs: count(old.pairs, current.pairs) });
   }
   for (const [key, current] of after) if (!before.has(key)) edges.push({ status: "ADDED", from: current.from, to: current.to, pairs: count(undefined, current.pairs) });
-  return { edges: edges.sort((left, right) => byCodeUnit(left.from, right.from) || byCodeUnit(left.to, right.to)), unchanged };
+  return { edges: edges.toSorted((left, right) => byCodeUnit(left.from, right.from) || byCodeUnit(left.to, right.to)), unchanged };
 }
 
 function diffCycles(base: LevelSnapshot, head: LevelSnapshot, pairs: ReadonlyMap<string, string>): StructureCycleDiff[] {
@@ -371,7 +371,10 @@ function itemLine(item: StructureItemDiff, safe: (value: string) => string): str
 
 function levelLines(level: StructureLevel, diff: StructureLevelDiff, safe: (value: string) => string): string[] {
   const label = level === "units" ? "Units" : "Groups";
-  const edge = (item: StructureEdgeDiff) => `- ${safe(item.from)} -> ${safe(item.to)} (${item.pairs.after ?? item.pairs.before} pairs${item.status === "CHANGED" ? `, was ${item.pairs.before}` : ""})`;
+  const edge = (item: StructureEdgeDiff) => {
+    const was = item.status === "CHANGED" ? `, was ${item.pairs.before}` : "";
+    return `- ${safe(item.from)} -> ${safe(item.to)} (${item.pairs.after ?? item.pairs.before} pairs${was})`;
+  };
   const cycle = (item: StructureCycleDiff) => `- ${item.members.map(safe).join(", ")}`;
   return [
     ...(["ADDED", "REMOVED", "RENAMED", "CHANGED"] as const).flatMap((status) =>
