@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 // @ts-expect-error The composite Action runs this JavaScript module directly in Node.
-import { MARKER, buildReviewDeepLink, fetchJsonOrThrow, findStickyComment, getCommentUpsert, renderReviewComment, upsertReviewComment } from "../../.github/actions/graph-it-review-gate/commentHelpers.mjs";
+import { MARKER, buildReviewDeepLink, fetchJsonOrThrow, findStickyComment, getCommentUpsert, renderReviewComment, sanitize, upsertReviewComment } from "../../.github/actions/graph-it-review-gate/commentHelpers.mjs";
 // @ts-expect-error The composite Action runs this JavaScript module directly in Node.
 import { assertSupportedCliVersion, compareSemver, parseCliVersion, supportsDeltaSvg } from "../../.github/actions/graph-it-review-gate/verifyCliVersion.mjs";
 
@@ -133,6 +133,20 @@ describe("review-gate comment helpers", () => {
 
   it("stringifies scalar values before rendering them", () => {
     expect(renderReviewComment({ risk: null, score: 2.6, changedFiles: [1], symbols: [{ risk: false, score: -5, filePath: 1, name: null, impactedSymbolCount: undefined, cycleEvidence: "invalid", unusedExportEvidence: 0, evidence: [{ detail: null }] }], limitations: [null] }, "extension")).toContain("| false | 0 | 1 |  |  | 0 | no |");
+  });
+});
+
+describe("review-gate comment escaping", () => {
+  it("escapes links, images and mentions from pull-request content, like the CLI markdown", () => {
+    const hostile = sanitize("![x](https://evil.example) [y](https://evil.example) @team");
+    expect(hostile).toBe(String.raw`\!\[x\]\(https://evil.example\) \[y\]\(https://evil.example\) @` + "\u200Bteam");
+    expect(hostile).not.toMatch(/(?<!\\)\[[^\]]*\]\(/);
+  });
+
+  it("escapes a hostile rule name in the rendered comment", () => {
+    const comment = renderReviewComment({ risk: "low", score: 0, symbols: [], architecture: { verdict: "degraded", rules: [{ name: "[click](https://evil.example) @org", severity: "error", newViolations: [], resolvedViolations: [] }] } }, "x");
+    expect(comment).toContain(String.raw`\[click\]\(https://evil.example\) @` + "\u200Borg");
+    expect(comment).not.toContain("[click](https://evil.example)");
   });
 });
 
