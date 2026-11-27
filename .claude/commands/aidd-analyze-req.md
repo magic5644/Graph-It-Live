@@ -1,12 +1,14 @@
 ---
 description: AIDD requirements step after GATE-0 — Julie writes user stories with testable acceptance criteria, Romain (devil) challenges them. Use after /aidd-clarify approval.
 argument-hint: [brief path, default docs/specs/brief.md]
-allowed-tools: Read, Write, Agent
+allowed-tools: Read, Write, Agent, Bash(node scripts/aidd-state.mjs *)
 ---
 
 # /aidd-analyze-req — GATE-1 (internal)
 
 Brief: $ARGUMENTS (default `docs/specs/brief.md`)
+
+State: epic item (tier `epic`, steps stories, stories-review) in `scripts/aidd-state.mjs` — resume with `status <id>`, record every step, `round` on BLOCK; exit 3 = stop and ask the human (`.claude/rules/agent-workflow.md` § State and Resume).
 
 ## Sequence
 

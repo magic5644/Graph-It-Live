@@ -52,6 +52,23 @@ Apply this file by explicit routing for AIDD orchestration tasks, even when no m
 - Maximum two devil↔agent correction rounds; persistent disagreement is arbitrated by the main conversation or escalated to the human.
 - Never arbitrate away layer isolation violation, demonstrated security bypass, or touched-file coverage below 80%.
 
+## Loop Bounds
+
+- Every return to a developer or spec writer is one correction round, whatever gate raised it (deterministic check, QA, review, security, devil).
+- At most two rounds per gate and three per story or bug across all gates. Next failure: stop, report state, open BLOCKs and options to the human.
+- CI or SonarCloud failures on a PR: at most two fix pushes, then stop and report.
+- An item changes tier at most once (`/aidd-quick-win` ↔ `/aidd-feature`, `/aidd-bug-hunt` ↔ `/aidd-bugfix`, `/aidd-bugfix` → `/aidd-feature`, diagnostic → delivery). A second change goes to the human.
+- Diagnostics (`/aidd-bug-hunt`, `/aidd-leak-check`, `/aidd-optimize`) get one follow-up investigation or iteration, then the human decides.
+- Never lower a bound to finish faster or raise it to keep going; report instead.
+
+## State and Resume
+
+- `scripts/aidd-state.mjs` holds each item's state in `.claude/aidd-state/<id>.json` (local, written atomically): tier, step order, done and skipped steps, correction rounds, human gate decisions, artifacts, last handoff per agent, running step. It enforces step order and the loop bounds above; exit code 3 = stop and ask the human.
+- Start of any stateful command: `node scripts/aidd-state.mjs status <id>`. If the item exists, resume at `next`; an `interrupted` step is rerun with a fresh agent after checking the branch with `git status`. Otherwise `start <id> <tier> [--parent <epic id>]`. `status` without id lists open items after a stop or crash.
+- Per step: `begin <id> <step> <agent>` before invoking the agent, `done <id> <step> [--artifact k=path]` (or `skip <id> <step> --reason`) after it; human gates only through `gate <id> GATE-n approve|reject`.
+- A BLOCK is `round <id> <step> --reason <text>`: it rewinds to the step to redo and counts against the bounds. Tier changes go through `retier`; extra rounds only through a human `override`.
+- State passed between agents = artifacts (spec, ADR, report paths) plus the five-field handoff stored with `handoff <id> <agent> <file>`; the next agent gets the handoff and artifact paths, never a previous agent's raw output.
+
 ## Agent Memory Scope
 
 - Each agent uses only `.claude/agent-memory/<agent-name>/MEMORY.md`, not sprint or history files. Write-capable agents load it through `memory: project`; read-only agents read it and return a `MEMORY:` block that the main conversation appends.
