@@ -100,8 +100,9 @@ if (DEBUG_MCP_ENABLED) {
   );
 }
 import { McpServer, type ToolAnnotations } from "@modelcontextprotocol/server";
+import type { SkillCatalog } from "@modelcontextprotocol/server/ext/skills";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
-import { attachBundledSkills } from "./bundledSkills";
+import { loadBundledSkills } from "./bundledSkills";
 import * as path from "node:path";
 import * as z from "zod/v4";
 import { McpWorkerHost } from "./McpWorkerHost";
@@ -241,11 +242,6 @@ const DESTRUCTIVE: ToolAnnotations = { ...WRITES, destructiveHint: true };
 // ============================================================================
 // Server Setup
 // ============================================================================
-
-const server = new McpServer({
-  name: "graph-it-live",
-  version: MCP_SERVER_VERSION,
-});
 
 let workerHost: McpWorkerHost | null = null;
 let isInitialized = false;
@@ -566,283 +562,298 @@ function checkRateLimit(tool: string): string | null {
 // Tool Definitions - Using registerTool (recommended over deprecated tool())
 // ============================================================================
 
-// Tool: graphitlive_set_workspace
-const SetWorkspaceInputSchema = SetWorkspaceParamsSchema.safeExtend({ response_format: ResponseFormatSchema });
-// This tool is special - it doesn't require the worker to be ready first
-server.registerTool(
-  "graphitlive_set_workspace",
-  {
-    title: "Set Workspace Directory",
-    description: mcpToolDescription("set_workspace", schemaParameters(SetWorkspaceInputSchema)),
-    inputSchema: toolInputSchema(SetWorkspaceInputSchema),
-    annotations: WRITES,
-  },
-  async ({
-    workspacePath,
-    tsConfigPath,
-    excludeNodeModules,
-    maxDepth,
-    response_format,
-  }) => {
-    const startTime = Date.now();
-    const previousWorkspace = getWorkspaceRoot();
-    const responseFormat = response_format;
+/**
+ * Builds one server with every tool and, when given, the skills. serveStdio calls
+ * it for each instance it tries: a client that probes the 2026-07-28 opening then
+ * falls back to `initialize` gets a fresh legacy instance, because the SDK closes
+ * the one it discards (#837).
+ */
+function createServer(skills: SkillCatalog | undefined): McpServer {
+  const server = new McpServer({
+    name: "graph-it-live",
+    version: MCP_SERVER_VERSION,
+  });
 
-    const rateLimitError = checkRateLimit("set_workspace");
-    if (rateLimitError) {
-      return formatToolResponse(
-        createSetWorkspaceErrorResponse(
-          workspacePath,
-          previousWorkspace,
-          rateLimitError,
-          startTime,
-        ),
-        responseFormat,
-        "graphitlive_set_workspace",
-      );
-    }
-
-    debugLog(`[McpServer] setWorkspace called with: ${workspacePath}`);
-
-    // Validate workspace path
-    const workspaceError = validateWorkspacePath(workspacePath);
-    if (workspaceError) {
-      return formatToolResponse(
-        createSetWorkspaceErrorResponse(
-          workspacePath,
-          previousWorkspace,
-          workspaceError,
-          startTime,
-        ),
-        responseFormat,
-      "graphitlive_set_workspace",
-      );
-    }
-
-    // Validate tsConfigPath if provided
-    const { resolvedPath: resolvedTsConfigPath, error: tsConfigError } =
-      validateTsConfigPath(tsConfigPath, workspacePath);
-    if (tsConfigError) {
-      return formatToolResponse(
-        createSetWorkspaceErrorResponse(
-          workspacePath,
-          previousWorkspace,
-          tsConfigError,
-          startTime,
-        ),
-        responseFormat,
-      "graphitlive_set_workspace",
-      );
-    }
-
-    Object.assign(currentConfig, nextWorkspaceConfig(currentConfig, {
-      workspaceRoot: workspacePath,
-      tsConfigPath: resolvedTsConfigPath,
+  // Tool: graphitlive_set_workspace
+  const SetWorkspaceInputSchema = SetWorkspaceParamsSchema.safeExtend({ response_format: ResponseFormatSchema });
+  // This tool is special - it doesn't require the worker to be ready first
+  server.registerTool(
+    "graphitlive_set_workspace",
+    {
+      title: "Set Workspace Directory",
+      description: mcpToolDescription("set_workspace", schemaParameters(SetWorkspaceInputSchema)),
+      inputSchema: toolInputSchema(SetWorkspaceInputSchema),
+      annotations: WRITES,
+    },
+    async ({
+      workspacePath,
+      tsConfigPath,
       excludeNodeModules,
       maxDepth,
-    }));
+      response_format,
+    }) => {
+      const startTime = Date.now();
+      const previousWorkspace = getWorkspaceRoot();
+      const responseFormat = response_format;
 
-    debugLog(`[McpServer] Workspace updated to: ${workspacePath}`);
-
-    // Dispose existing worker if any
-    if (workerHost) {
-      debugLog("[McpServer] Disposing previous worker...");
-      await workerHost.dispose();
-      workerHost = null;
-    }
-
-    // Reset initialization state
-    resetInitializationState();
-
-    // Initialize with new workspace
-    try {
-      await initializeWorker();
-
-      const executionTimeMs = Date.now() - startTime;
-      let filesIndexed = 0;
-
-      // Get index status to report number of files indexed
-      // workerHost is reassigned inside initializeWorker() — re-read the module-level variable.
-      // Type assertion required: TS control-flow narrows workerHost to `null` (set above)
-      // but initializeWorker() reassigns it — TS cannot track cross-function mutations.
-      const activeWorker = workerHost as McpWorkerHost | null; // NOSONAR
-      if (activeWorker?.ready()) {
-        const statusResult = await activeWorker.invoke<GetIndexStatusResult>(
-          "get_index_status",
-          {},
-        );
-        // cacheSize counts the in-memory analysis cache: empty after a cache
-        // restore and capped on large workspaces.
-        filesIndexed = statusResult.warmup.filesIndexed ?? statusResult.reverseIndexStats?.indexedFiles ?? 0;
-      }
-
-      const response: McpToolResponse<SetWorkspaceResult> = {
-        success: true,
-        data: {
-          success: true,
-          workspacePath,
-          workspaceName: path.basename(workspacePath),
-          filesIndexed,
-          indexingTimeMs: executionTimeMs,
-          previousWorkspace: previousWorkspace || undefined,
-          // The basename, not the path: response redaction only rewrites whole path strings.
-          message: `Workspace set to ${path.basename(workspacePath)}. Indexed ${filesIndexed} files in ${executionTimeMs}ms.`,
-        },
-        metadata: {
-          executionTimeMs,
-          toolVersion: MCP_TOOL_VERSION,
-          timestamp: new Date().toISOString(),
-          workspaceRoot: workspacePath,
-        },
-      };
-
-      debugLog(
-        `[McpServer] Workspace configured successfully: ${filesIndexed} files indexed`,
-      );
-
-      return formatToolResponse(response, responseFormat, "graphitlive_set_workspace");
-    } catch (error) {
-      const errorMessage =
-        error instanceof Error
-          ? error.message
-          : "Unknown error during initialization";
-      debugLog(`[McpServer] setWorkspace failed: ${errorMessage}`);
-
-      return formatToolResponse(
-        createSetWorkspaceErrorResponse(
-          workspacePath,
-          previousWorkspace,
-          `Failed to initialize workspace: ${errorMessage}`,
-          startTime,
-        ),
-        responseFormat,
-      "graphitlive_set_workspace",
-      );
-    }
-  },
-);
-
-// Tool: graphitlive_crawl_dependency_graph
-const CrawlInputSchema = CrawlDependencyGraphParamsSchema.safeExtend({ response_format: ResponseFormatSchema });
-server.registerTool(
-  "graphitlive_crawl_dependency_graph",
-  {
-    title: "Crawl Full Dependency Graph",
-    description: mcpToolDescription("crawl_dependency_graph", schemaParameters(CrawlInputSchema)),
-    inputSchema: toolInputSchema(CrawlInputSchema),
-    annotations: READ_ONLY,
-  },
-  async ({ response_format, ...params }) => {
-    const workerCheck = await ensureWorkerReady();
-    if (workerCheck.error)
-      return formatToolResponse(workerCheck.response, response_format, "graphitlive_crawl_dependency_graph");
-
-    const response = await invokeToolWithResponse<CrawlDependencyGraphResult>("crawl_dependency_graph", params);
-    const result = response.data;
-    // Pagination info when limit/offset were used
-    if (result && (params.limit !== undefined || params.offset !== undefined)) {
-      const offset = params.offset ?? 0;
-      response.pagination = {
-        total: result.nodeCount,
-        limit: params.limit ?? result.nodeCount,
-        offset,
-        hasMore: offset + result.nodes.length < result.nodeCount,
-      };
-    }
-    return formatToolResponse(response, response_format, "graphitlive_crawl_dependency_graph");
-  },
-);
-
-/** Tools whose handler only forwards its parameters to the worker. */
-const WORKER_TOOLS: ReadonlyArray<{
-  tool: McpToolName;
-  title: string;
-  schema: z.ZodObject;
-  annotations: ToolAnnotations;
-  /** Worker parameters derived from the validated ones, when the tool needs the response format. */
-  toWorker?: (params: Record<string, unknown>, format: ResponseFormat) => Record<string, unknown>;
-}> = [
-  { tool: "analyze_dependencies", title: "Analyze File Dependencies", schema: AnalyzeDependenciesParamsSchema, annotations: READ_ONLY },
-  { tool: "find_referencing_files", title: "Find Files That Import This File", schema: FindReferencingFilesParamsSchema, annotations: READ_ONLY },
-  { tool: "verify_dependency_usage", title: "Verify Dependency Usage", schema: VerifyDependencyUsageParamsSchema, annotations: READ_ONLY },
-  { tool: "resolve_module_path", title: "Resolve Module Specifier to File Path", schema: ResolveModulePathParamsSchema, annotations: READ_ONLY },
-  { tool: "get_index_status", title: "Get Dependency Index Status", schema: GetIndexStatusParamsSchema, annotations: READ_ONLY },
-  { tool: "invalidate_files", title: "Invalidate File Cache", schema: InvalidateFilesParamsSchema, annotations: DESTRUCTIVE },
-  { tool: "rebuild_index", title: "Rebuild Full Dependency Index", schema: RebuildIndexParamsSchema, annotations: DESTRUCTIVE },
-  { tool: "get_symbol_graph", title: "Get Symbol-Level Dependency Graph", schema: GetSymbolGraphParamsSchema, annotations: READ_ONLY },
-  { tool: "find_unused_symbols", title: "Find Dead Code (Unused Exports)", schema: FindUnusedSymbolsParamsSchema, annotations: READ_ONLY },
-  { tool: "trace_function_execution", title: "Trace Function Execution Chain", schema: TraceFunctionExecutionParamsSchema, annotations: READ_ONLY },
-  { tool: "analyze_breaking_changes", title: "Analyze Breaking Changes in Signature", schema: AnalyzeBreakingChangesParamsSchema, annotations: READ_ONLY },
-  { tool: "review_pr", title: "Review Pull Request Diff", schema: ReviewPrParamsSchema, annotations: READ_ONLY },
-  { tool: "get_impact_analysis", title: "Get Comprehensive Impact Analysis", schema: GetImpactAnalysisParamsSchema, annotations: READ_ONLY },
-  { tool: "generate_codemap", title: "Generate File Codemap", schema: GenerateCodemapParamsSchema, annotations: READ_ONLY },
-  { tool: "query_call_graph", title: "Query Cross-File Call Graph", schema: QueryCallGraphParamsSchema, annotations: READ_ONLY },
-  { tool: "scan_dead_code", title: "Scan Workspace for Dead Code", schema: ScanDeadCodeParamsSchema, annotations: READ_ONLY },
-  { tool: "graph_context", title: "Retrieve Unified Graph Context", schema: GraphContextParamsObject, annotations: READ_ONLY },
-  { tool: "explore_architecture", title: "Explore Grouped Architecture", schema: ExploreArchitectureParamsSchema, annotations: READ_ONLY },
-  { tool: "check_architecture", title: "Check Architecture Rules", schema: CheckArchitectureParamsSchema, annotations: READ_ONLY },
-  // Overwrites output, or architecture.<format> for a diagram over the inline cap.
-  { tool: "export_architecture_diagram", title: "Export Architecture Diagram", schema: ExportArchitectureDiagramParamsSchema, annotations: DESTRUCTIVE },
-  {
-    tool: "query_natural_language",
-    title: "Query Codebase with Natural Language",
-    schema: QueryNaturalLanguageParamsSchema,
-    annotations: READ_ONLY,
-    // response_format is the only format knob: TOON gets the compact subgraph, json and markdown the full one.
-    toWorker: (params, format) => ({ ...params, outputFormat: format === "toon" ? "toon" : "json" }),
-  },
-  { tool: "generate_wiki", title: "Generate Markdown Wiki from Call Graph", schema: GenerateWikiParamsSchema, annotations: WRITES },
-];
-
-for (const { tool, title, schema, annotations, toWorker } of WORKER_TOOLS) {
-  const name = `graphitlive_${tool}`;
-  const inputSchema = schema.safeExtend({ response_format: ResponseFormatSchema });
-  server.registerTool(
-    name,
-    {
-      title,
-      description: mcpToolDescription(tool, schemaParameters(inputSchema)),
-      inputSchema: toolInputSchema(inputSchema),
-      annotations,
-    },
-    async (args) => {
-      // The table loses each schema's own type: the validated arguments keep response_format.
-      const { response_format, ...params } = args as { response_format: ResponseFormat } & Record<string, unknown>;
-      const rateLimitError = checkRateLimit(tool);
+      const rateLimitError = checkRateLimit("set_workspace");
       if (rateLimitError) {
-        return formatToolResponse(createErrorResponse(rateLimitError, 0, getWorkspaceRoot()), response_format, name);
+        return formatToolResponse(
+          createSetWorkspaceErrorResponse(
+            workspacePath,
+            previousWorkspace,
+            rateLimitError,
+            startTime,
+          ),
+          responseFormat,
+          "graphitlive_set_workspace",
+        );
       }
-      const workerCheck = await ensureWorkerReady();
-      if (workerCheck.error) return formatToolResponse(workerCheck.response, response_format, name);
 
-      const response = await invokeToolWithResponse(tool, toWorker ? toWorker(params, response_format) : params);
-      return formatToolResponse(response, response_format, name, (params as { detail?: GraphContextDetail }).detail);
+      debugLog(`[McpServer] setWorkspace called with: ${workspacePath}`);
+
+      // Validate workspace path
+      const workspaceError = validateWorkspacePath(workspacePath);
+      if (workspaceError) {
+        return formatToolResponse(
+          createSetWorkspaceErrorResponse(
+            workspacePath,
+            previousWorkspace,
+            workspaceError,
+            startTime,
+          ),
+          responseFormat,
+        "graphitlive_set_workspace",
+        );
+      }
+
+      // Validate tsConfigPath if provided
+      const { resolvedPath: resolvedTsConfigPath, error: tsConfigError } =
+        validateTsConfigPath(tsConfigPath, workspacePath);
+      if (tsConfigError) {
+        return formatToolResponse(
+          createSetWorkspaceErrorResponse(
+            workspacePath,
+            previousWorkspace,
+            tsConfigError,
+            startTime,
+          ),
+          responseFormat,
+        "graphitlive_set_workspace",
+        );
+      }
+
+      Object.assign(currentConfig, nextWorkspaceConfig(currentConfig, {
+        workspaceRoot: workspacePath,
+        tsConfigPath: resolvedTsConfigPath,
+        excludeNodeModules,
+        maxDepth,
+      }));
+
+      debugLog(`[McpServer] Workspace updated to: ${workspacePath}`);
+
+      // Dispose existing worker if any
+      if (workerHost) {
+        debugLog("[McpServer] Disposing previous worker...");
+        await workerHost.dispose();
+        workerHost = null;
+      }
+
+      // Reset initialization state
+      resetInitializationState();
+
+      // Initialize with new workspace
+      try {
+        await initializeWorker();
+
+        const executionTimeMs = Date.now() - startTime;
+        let filesIndexed = 0;
+
+        // Get index status to report number of files indexed
+        // workerHost is reassigned inside initializeWorker() — re-read the module-level variable.
+        // Type assertion required: TS control-flow narrows workerHost to `null` (set above)
+        // but initializeWorker() reassigns it — TS cannot track cross-function mutations.
+        const activeWorker = workerHost as McpWorkerHost | null; // NOSONAR
+        if (activeWorker?.ready()) {
+          const statusResult = await activeWorker.invoke<GetIndexStatusResult>(
+            "get_index_status",
+            {},
+          );
+          // cacheSize counts the in-memory analysis cache: empty after a cache
+          // restore and capped on large workspaces.
+          filesIndexed = statusResult.warmup.filesIndexed ?? statusResult.reverseIndexStats?.indexedFiles ?? 0;
+        }
+
+        const response: McpToolResponse<SetWorkspaceResult> = {
+          success: true,
+          data: {
+            success: true,
+            workspacePath,
+            workspaceName: path.basename(workspacePath),
+            filesIndexed,
+            indexingTimeMs: executionTimeMs,
+            previousWorkspace: previousWorkspace || undefined,
+            // The basename, not the path: response redaction only rewrites whole path strings.
+            message: `Workspace set to ${path.basename(workspacePath)}. Indexed ${filesIndexed} files in ${executionTimeMs}ms.`,
+          },
+          metadata: {
+            executionTimeMs,
+            toolVersion: MCP_TOOL_VERSION,
+            timestamp: new Date().toISOString(),
+            workspaceRoot: workspacePath,
+          },
+        };
+
+        debugLog(
+          `[McpServer] Workspace configured successfully: ${filesIndexed} files indexed`,
+        );
+
+        return formatToolResponse(response, responseFormat, "graphitlive_set_workspace");
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error
+            ? error.message
+            : "Unknown error during initialization";
+        debugLog(`[McpServer] setWorkspace failed: ${errorMessage}`);
+
+        return formatToolResponse(
+          createSetWorkspaceErrorResponse(
+            workspacePath,
+            previousWorkspace,
+            `Failed to initialize workspace: ${errorMessage}`,
+            startTime,
+          ),
+          responseFormat,
+        "graphitlive_set_workspace",
+        );
+      }
     },
   );
-}
 
-// Tool: graphitlive_get_session_stats
-// Runs in the server process (no worker needed): the sessionStats singleton
-// is populated by responseFormatter in this same process.
-server.registerTool(
-  "graphitlive_get_session_stats",
-  {
-    title: "Get Session Token Stats",
-    description: mcpToolDescription("get_session_stats", ["response_format"]),
-    inputSchema: toolInputSchema(GetSessionStatsSchema.safeExtend({ response_format: ResponseFormatSchema })),
-    annotations: READ_ONLY,
-  },
-  ({ response_format }) => {
-    const startTime = Date.now();
-    const result = executeGetSessionStats();
-    const response = createSuccessResponse<GetSessionStatsResult>(
-      result,
-      Date.now() - startTime,
-      getWorkspaceRoot(),
+  // Tool: graphitlive_crawl_dependency_graph
+  const CrawlInputSchema = CrawlDependencyGraphParamsSchema.safeExtend({ response_format: ResponseFormatSchema });
+  server.registerTool(
+    "graphitlive_crawl_dependency_graph",
+    {
+      title: "Crawl Full Dependency Graph",
+      description: mcpToolDescription("crawl_dependency_graph", schemaParameters(CrawlInputSchema)),
+      inputSchema: toolInputSchema(CrawlInputSchema),
+      annotations: READ_ONLY,
+    },
+    async ({ response_format, ...params }) => {
+      const workerCheck = await ensureWorkerReady();
+      if (workerCheck.error)
+        return formatToolResponse(workerCheck.response, response_format, "graphitlive_crawl_dependency_graph");
+
+      const response = await invokeToolWithResponse<CrawlDependencyGraphResult>("crawl_dependency_graph", params);
+      const result = response.data;
+      // Pagination info when limit/offset were used
+      if (result && (params.limit !== undefined || params.offset !== undefined)) {
+        const offset = params.offset ?? 0;
+        response.pagination = {
+          total: result.nodeCount,
+          limit: params.limit ?? result.nodeCount,
+          offset,
+          hasMore: offset + result.nodes.length < result.nodeCount,
+        };
+      }
+      return formatToolResponse(response, response_format, "graphitlive_crawl_dependency_graph");
+    },
+  );
+
+  /** Tools whose handler only forwards its parameters to the worker. */
+  const WORKER_TOOLS: ReadonlyArray<{
+    tool: McpToolName;
+    title: string;
+    schema: z.ZodObject;
+    annotations: ToolAnnotations;
+    /** Worker parameters derived from the validated ones, when the tool needs the response format. */
+    toWorker?: (params: Record<string, unknown>, format: ResponseFormat) => Record<string, unknown>;
+  }> = [
+    { tool: "analyze_dependencies", title: "Analyze File Dependencies", schema: AnalyzeDependenciesParamsSchema, annotations: READ_ONLY },
+    { tool: "find_referencing_files", title: "Find Files That Import This File", schema: FindReferencingFilesParamsSchema, annotations: READ_ONLY },
+    { tool: "verify_dependency_usage", title: "Verify Dependency Usage", schema: VerifyDependencyUsageParamsSchema, annotations: READ_ONLY },
+    { tool: "resolve_module_path", title: "Resolve Module Specifier to File Path", schema: ResolveModulePathParamsSchema, annotations: READ_ONLY },
+    { tool: "get_index_status", title: "Get Dependency Index Status", schema: GetIndexStatusParamsSchema, annotations: READ_ONLY },
+    { tool: "invalidate_files", title: "Invalidate File Cache", schema: InvalidateFilesParamsSchema, annotations: DESTRUCTIVE },
+    { tool: "rebuild_index", title: "Rebuild Full Dependency Index", schema: RebuildIndexParamsSchema, annotations: DESTRUCTIVE },
+    { tool: "get_symbol_graph", title: "Get Symbol-Level Dependency Graph", schema: GetSymbolGraphParamsSchema, annotations: READ_ONLY },
+    { tool: "find_unused_symbols", title: "Find Dead Code (Unused Exports)", schema: FindUnusedSymbolsParamsSchema, annotations: READ_ONLY },
+    { tool: "trace_function_execution", title: "Trace Function Execution Chain", schema: TraceFunctionExecutionParamsSchema, annotations: READ_ONLY },
+    { tool: "analyze_breaking_changes", title: "Analyze Breaking Changes in Signature", schema: AnalyzeBreakingChangesParamsSchema, annotations: READ_ONLY },
+    { tool: "review_pr", title: "Review Pull Request Diff", schema: ReviewPrParamsSchema, annotations: READ_ONLY },
+    { tool: "get_impact_analysis", title: "Get Comprehensive Impact Analysis", schema: GetImpactAnalysisParamsSchema, annotations: READ_ONLY },
+    { tool: "generate_codemap", title: "Generate File Codemap", schema: GenerateCodemapParamsSchema, annotations: READ_ONLY },
+    { tool: "query_call_graph", title: "Query Cross-File Call Graph", schema: QueryCallGraphParamsSchema, annotations: READ_ONLY },
+    { tool: "scan_dead_code", title: "Scan Workspace for Dead Code", schema: ScanDeadCodeParamsSchema, annotations: READ_ONLY },
+    { tool: "graph_context", title: "Retrieve Unified Graph Context", schema: GraphContextParamsObject, annotations: READ_ONLY },
+    { tool: "explore_architecture", title: "Explore Grouped Architecture", schema: ExploreArchitectureParamsSchema, annotations: READ_ONLY },
+    { tool: "check_architecture", title: "Check Architecture Rules", schema: CheckArchitectureParamsSchema, annotations: READ_ONLY },
+    // Overwrites output, or architecture.<format> for a diagram over the inline cap.
+    { tool: "export_architecture_diagram", title: "Export Architecture Diagram", schema: ExportArchitectureDiagramParamsSchema, annotations: DESTRUCTIVE },
+    {
+      tool: "query_natural_language",
+      title: "Query Codebase with Natural Language",
+      schema: QueryNaturalLanguageParamsSchema,
+      annotations: READ_ONLY,
+      // response_format is the only format knob: TOON gets the compact subgraph, json and markdown the full one.
+      toWorker: (params, format) => ({ ...params, outputFormat: format === "toon" ? "toon" : "json" }),
+    },
+    { tool: "generate_wiki", title: "Generate Markdown Wiki from Call Graph", schema: GenerateWikiParamsSchema, annotations: WRITES },
+  ];
+
+  for (const { tool, title, schema, annotations, toWorker } of WORKER_TOOLS) {
+    const name = `graphitlive_${tool}`;
+    const inputSchema = schema.safeExtend({ response_format: ResponseFormatSchema });
+    server.registerTool(
+      name,
+      {
+        title,
+        description: mcpToolDescription(tool, schemaParameters(inputSchema)),
+        inputSchema: toolInputSchema(inputSchema),
+        annotations,
+      },
+      async (args) => {
+        // The table loses each schema's own type: the validated arguments keep response_format.
+        const { response_format, ...params } = args as { response_format: ResponseFormat } & Record<string, unknown>;
+        const rateLimitError = checkRateLimit(tool);
+        if (rateLimitError) {
+          return formatToolResponse(createErrorResponse(rateLimitError, 0, getWorkspaceRoot()), response_format, name);
+        }
+        const workerCheck = await ensureWorkerReady();
+        if (workerCheck.error) return formatToolResponse(workerCheck.response, response_format, name);
+
+        const response = await invokeToolWithResponse(tool, toWorker ? toWorker(params, response_format) : params);
+        return formatToolResponse(response, response_format, name, (params as { detail?: GraphContextDetail }).detail);
+      },
     );
-    return formatToolResponse(response, response_format, "graphitlive_get_session_stats");
-  },
-);
+  }
+
+  // Tool: graphitlive_get_session_stats
+  // Runs in the server process (no worker needed): the sessionStats singleton
+  // is populated by responseFormatter in this same process.
+  server.registerTool(
+    "graphitlive_get_session_stats",
+    {
+      title: "Get Session Token Stats",
+      description: mcpToolDescription("get_session_stats", ["response_format"]),
+      inputSchema: toolInputSchema(GetSessionStatsSchema.safeExtend({ response_format: ResponseFormatSchema })),
+      annotations: READ_ONLY,
+    },
+    ({ response_format }) => {
+      const startTime = Date.now();
+      const result = executeGetSessionStats();
+      const response = createSuccessResponse<GetSessionStatsResult>(
+        result,
+        Date.now() - startTime,
+        getWorkspaceRoot(),
+      );
+      return formatToolResponse(response, response_format, "graphitlive_get_session_stats");
+    },
+  );
+  skills?.attach(server);
+  return server;
+}
 
 // ============================================================================
 // Server Startup
@@ -865,17 +876,16 @@ async function main(): Promise<void> {
   debugLog(`[McpServer] Max depth: ${currentConfig.maxDepth}`);
 
   // `graph-it serve --no-skills`: the Agent Plugin ships the same skills itself.
-  if (process.argv.includes("--no-skills")) {
-    debugLog("[McpServer] Skills not served (--no-skills)");
-  } else {
-    const skills = await attachBundledSkills(server, path.join(__dirname, "skills"), debugLog);
-    if (skills > 0) debugLog(`[McpServer] Serving ${skills} skills`);
-  }
+  const noSkills = process.argv.includes("--no-skills");
+  const skills = noSkills ? undefined : await loadBundledSkills(path.join(__dirname, "skills"), debugLog);
+  debugLog(noSkills ? "[McpServer] Skills not served (--no-skills)" : `[McpServer] Serving ${skills?.entries.length ?? 0} skills`);
 
   // serveStdio answers both the 2025 `initialize` handshake and the 2026-07-28
   // opening; Claude Code loads MCP skills only on a 2026-07-28 connection (#837).
-  // A stdio process has one connection, so the factory runs once.
-  serveStdio(() => server, { onerror: (error) => debugLog(`[McpServer] stdio error: ${error.message}`) });
+  serveStdio(() => createServer(skills), {
+    // Capped: a malformed request can carry megabytes of client-chosen keys.
+    onerror: (error) => debugLog(`[McpServer] stdio error: ${error.message.slice(0, 500)}`),
+  });
 
   debugLog("[McpServer] MCP Server connected via stdio");
 

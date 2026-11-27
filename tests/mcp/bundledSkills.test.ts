@@ -4,7 +4,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { attachBundledSkills } from "@/mcp/bundledSkills";
+import { loadBundledSkills } from "@/mcp/bundledSkills";
 
 const SKILLS_ROOT = path.resolve(__dirname, "../../plugins/graph-it-live/skills");
 const SKILL_NAMES = ["dead-code-hunter", "graph-it-live", "graph-it-refactor", "onboarding-express", "pr-review"];
@@ -38,7 +38,14 @@ async function connect(server: McpServer) {
 
 const newServer = () => new McpServer({ name: "test", version: "1" });
 
-describe("attachBundledSkills (#837)", () => {
+/** What mcpServer.ts does per server instance: load once, attach when there is a catalog. */
+async function attach(server: McpServer, root: string, warn: (message: string) => void): Promise<number> {
+  const catalog = await loadBundledSkills(root, warn);
+  catalog?.attach(server);
+  return catalog?.entries.length ?? 0;
+}
+
+describe("loadBundledSkills (#837)", () => {
   const tmpDirs: string[] = [];
   afterEach(() => {
     for (const dir of tmpDirs.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
@@ -47,7 +54,7 @@ describe("attachBundledSkills (#837)", () => {
   it("serves the five plugin skills with their frontmatter and a complete file manifest", async () => {
     const server = newServer();
     const warn = vi.fn();
-    expect(await attachBundledSkills(server, SKILLS_ROOT, warn)).toBe(5);
+    expect(await attach(server, SKILLS_ROOT, warn)).toBe(5);
     expect(warn).not.toHaveBeenCalled();
     const { request, capabilities } = await connect(server);
 
@@ -67,9 +74,17 @@ describe("attachBundledSkills (#837)", () => {
     }
   });
 
+  it("attaches one catalog to several servers", async () => {
+    const catalog = await loadBundledSkills(SKILLS_ROOT, vi.fn());
+    const servers = [newServer(), newServer()];
+    for (const server of servers) catalog?.attach(server);
+    const replies = await Promise.all(servers.map(async (server) => (await connect(server)).request("skills/list")));
+    expect(replies.map((reply) => (reply.result?.skills as unknown[]).length)).toEqual([5, 5]);
+  });
+
   it.each(SKILL_NAMES)("returns every file of %s byte for byte through skills/get and resources/read", async (name) => {
     const server = newServer();
-    await attachBundledSkills(server, SKILLS_ROOT, vi.fn());
+    await attach(server, SKILLS_ROOT, vi.fn());
     const { request } = await connect(server);
 
     const { skill } = (await request("skills/get", { uri: `skill://${name}/SKILL.md` })).result as {
@@ -94,7 +109,7 @@ describe("attachBundledSkills (#837)", () => {
     `file://${path.join(SKILLS_ROOT, "pr-review", "SKILL.md").replaceAll("\\", "/")}`,
   ])("answers %s with an MCP error, never a file", async (uri) => {
     const server = newServer();
-    await attachBundledSkills(server, SKILLS_ROOT, vi.fn());
+    await attach(server, SKILLS_ROOT, vi.fn());
     const { request } = await connect(server);
 
     const reply = await request("resources/read", { uri });
@@ -105,7 +120,7 @@ describe("attachBundledSkills (#837)", () => {
   it("starts without skills and warns once when the skills folder is missing", async () => {
     const server = newServer();
     const warn = vi.fn();
-    expect(await attachBundledSkills(server, path.join(os.tmpdir(), "graph-it-no-such-skills"), warn)).toBe(0);
+    expect(await attach(server, path.join(os.tmpdir(), "graph-it-no-such-skills"), warn)).toBe(0);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/skills folder not found: .*serving tools only/);
     const { request, capabilities } = await connect(server);
@@ -119,7 +134,7 @@ describe("attachBundledSkills (#837)", () => {
     tmpDirs.push(empty);
     const server = newServer();
     const warn = vi.fn();
-    expect(await attachBundledSkills(server, empty, warn)).toBe(0);
+    expect(await attach(server, empty, warn)).toBe(0);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/^\[McpServer\] WARNING: no skills served from .*no skills found.*serving tools only$/);
     const { capabilities } = await connect(server);
@@ -128,7 +143,7 @@ describe("attachBundledSkills (#837)", () => {
 
   it("starts without skills and warns on one line when the skills path cannot be listed", async () => {
     const warn = vi.fn();
-    expect(await attachBundledSkills(newServer(), path.join(SKILLS_ROOT, "pr-review", "SKILL.md"), warn)).toBe(0);
+    expect(await attach(newServer(), path.join(SKILLS_ROOT, "pr-review", "SKILL.md"), warn)).toBe(0);
     expect(warn).toHaveBeenCalledTimes(1);
     expect(warn.mock.calls[0][0]).toMatch(/^\[McpServer\] WARNING: no skills served from .*serving tools only$/);
     expect(warn.mock.calls[0][0]).not.toContain("\n");
@@ -144,7 +159,7 @@ describe("attachBundledSkills (#837)", () => {
     // A junction needs no privilege on Windows.
     fs.symlinkSync(os.tmpdir(), path.join(root, "linked", "references"), "junction");
     const warn = vi.fn();
-    expect(await attachBundledSkills(newServer(), root, warn)).toBe(1);
+    expect(await attach(newServer(), root, warn)).toBe(1);
     expect(warn.mock.calls.map(([message]) => message).join("\n")).toMatch(/skill skipped, linked/);
   });
 
@@ -155,7 +170,7 @@ describe("attachBundledSkills (#837)", () => {
     fs.mkdirSync(path.join(root, "broken"));
     fs.writeFileSync(path.join(root, "broken", "SKILL.md"), "no frontmatter\n");
     const warn = vi.fn();
-    expect(await attachBundledSkills(newServer(), root, warn)).toBe(1);
+    expect(await attach(newServer(), root, warn)).toBe(1);
     expect(warn).toHaveBeenCalled();
     expect(warn.mock.calls[0][0]).toMatch(/^\[McpServer\] WARNING: skill skipped, broken/);
   });

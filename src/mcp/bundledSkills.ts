@@ -6,34 +6,32 @@
  */
 
 import * as fs from "node:fs";
-import type { McpServer } from "@modelcontextprotocol/server";
+import type { SkillCatalog } from "@modelcontextprotocol/server/ext/skills";
 import { loadSkills } from "@modelcontextprotocol/server/ext/skills/node";
 
 /**
- * Attaches the skills found under `root` to `server` (before it connects) and
- * returns how many it serves. Missing or unreadable skills never stop the
- * server: `warn` gets one line and the tools still start.
+ * Loads the skills found under `root`, to attach to each server before it
+ * connects. Missing or unreadable skills never stop the server: `warn` gets one
+ * line, the result is `undefined`, and the tools still start.
  */
-export async function attachBundledSkills(
-  server: McpServer,
+export async function loadBundledSkills(
   root: string,
   warn: (message: string) => void,
-): Promise<number> {
+): Promise<SkillCatalog | undefined> {
   if (!fs.existsSync(root)) {
     warn(`[McpServer] WARNING: bundled skills folder not found: ${root}; serving tools only (reinstall the package)`);
-    return 0;
+    return undefined;
   }
   const problems: string[] = [];
   try {
     const catalog = await loadSkills(root, { onWarning: ({ path, message }) => problems.push(`${path}: ${message}`) });
     if (catalog.entries.length > 0) {
-      catalog.attach(server);
       for (const problem of problems) warn(`[McpServer] WARNING: skill skipped, ${problem}`);
-      return catalog.entries.length;
+      return catalog;
     }
   } catch (error) {
     problems.push(error instanceof Error ? error.message.split("\n").map((line) => line.trim()).join(" ") : String(error));
   }
   warn(`[McpServer] WARNING: no skills served from ${root} (${problems.join("; ")}); serving tools only`);
-  return 0;
+  return undefined;
 }
