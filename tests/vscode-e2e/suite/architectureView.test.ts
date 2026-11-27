@@ -1197,6 +1197,8 @@ suite('Architecture view mode', () => {
     this.timeout(180000);
     // #426: a 229 × 548px view (the macOS runner's) kept its header within 25% of the view height. Every runner gets
     // there by narrowing the view down to 240px at most, then the check uses at most 548px of the view height.
+    // The view narrows by widening the side bar: decreaseViewWidth shrinks the editor part, and since VS Code 1.148
+    // that width can go to the chat part instead of the centered panel (Linux stayed at 398px).
     const maxWidth = 240;
     const maxSteps = 12;
     const widthOf = (rendered: RenderedReport) => {
@@ -1205,6 +1207,8 @@ suite('Architecture view mode', () => {
       return Number(width);
     };
     await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
+    // Focusing Branch status expands it beside the Dependency Graph view, which takes part of the panel width.
+    await vscode.commands.executeCommand('graph-it-live.branchWatchView.focus');
     let narrowed = 0;
     const widths: number[] = [];
     try {
@@ -1215,9 +1219,8 @@ suite('Architecture view mode', () => {
         rendered = await readRendered(); // NOSONAR S9382: reads the render of this width
         widths.push(widthOf(rendered));
         if (widthOf(rendered) <= maxWidth || narrowed === maxSteps) break;
-        // Focusing Branch status expands it beside the Dependency Graph view; the command gives it that view's width.
-        await vscode.commands.executeCommand('graph-it-live.branchWatchView.focus'); // NOSONAR S9382: one resize at a time
-        await vscode.commands.executeCommand('workbench.action.decreaseViewWidth'); // NOSONAR S9382: one resize at a time
+        await vscode.commands.executeCommand('workbench.action.focusSideBar'); // NOSONAR S9382: one resize at a time
+        await vscode.commands.executeCommand('workbench.action.increaseViewSize'); // NOSONAR S9382: one resize at a time
         narrowed++;
       }
       const rows = rendered.headerRows?.join(' ');
@@ -1227,11 +1230,11 @@ suite('Architecture view mode', () => {
         `header and controls within 25% of ${viewHeight}px (view ${rendered.viewHeightPx}px): ${rendered.headerHeightPx}px (${rows})`);
       assert.strictEqual(rendered.legendOverflowing, false, 'the legend overlay stays inside the canvas');
     } finally {
-      // Widen back from the same focus, then hide Branch status: no command collapses a view, and hidden it leaves
-      // the whole panel width to the Dependency Graph view, as the collapsed view of a fresh profile does.
-      await vscode.commands.executeCommand('graph-it-live.branchWatchView.focus');
+      // Shrink the side bar back from the same focus, then hide Branch status: no command collapses a view, and hidden
+      // it leaves the whole panel width to the Dependency Graph view, as the collapsed view of a fresh profile does.
+      await vscode.commands.executeCommand('workbench.action.focusSideBar');
       for (let index = 0; index < narrowed; index++) {
-        await vscode.commands.executeCommand('workbench.action.increaseViewWidth'); // NOSONAR S9382: one resize at a time
+        await vscode.commands.executeCommand('workbench.action.decreaseViewSize'); // NOSONAR S9382: one resize at a time
       }
       await vscode.commands.executeCommand('graph-it-live.branchWatchView.toggleVisibility');
       await vscode.commands.executeCommand('workbench.action.toggleMaximizedPanel');
