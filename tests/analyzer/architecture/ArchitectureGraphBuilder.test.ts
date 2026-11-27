@@ -53,6 +53,23 @@ describe("buildArchitectureGraph", () => {
     expect(graph.context).toMatchObject({ communityMode: "path", indexedAt: "2026-10-15T00:00:00Z", truncated: false, maxFiles: undefined });
   });
 
+  it("applies every exclusion its context announces (#300: scope and exclusions applied where announced)", async () => {
+    const excluded = ["node_modules/pkg/index.ts", "dist/out.ts", ".cache/c.ts", "ignored-by-git/g.ts", "ignored-by-graphit/h.ts"];
+    for (const file of excluded) {
+      await fs.mkdir(path.join(root, path.dirname(file)), { recursive: true });
+      await fs.writeFile(path.join(root, file), "export const x = 1;\n");
+    }
+    await fs.writeFile(path.join(root, ".gitignore"), "ignored-by-git/\n");
+    await fs.writeFile(path.join(root, ".graphitignore"), "ignored-by-graphit/\n");
+
+    const graph = await buildArchitectureGraph(root, async () => []);
+
+    expect(graph.nodes.map((node) => node.relativePath).sort()).toEqual(["src/api/a.ts", "src/db/b.ts"]);
+    for (const announced of ["node_modules", "dist", ".*/", ".gitignore", ".graphitignore"]) {
+      expect(graph.context.exclusions.split(", ")).toContain(announced);
+    }
+  });
+
   it("keeps the strongest kind of repeated edges: static, then import(), then type-only (#741)", async () => {
     const kinds = async (...deps: Partial<Dependency>[]) => {
       const graph = await buildArchitectureGraph(root, async (filePath) =>
