@@ -61,6 +61,23 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(result.symbols.find(s => s.filePath === filename)?.name).toBe("value");
   });
 
+  it("analyzeArchitecture returns the review and the structure, reading the rules files whatever the file count", async () => {
+    const workspace = await createGitWorkspace();
+    const reviewArchitecture = vi.fn().mockResolvedValue({ review: { verdict: "unchanged" }, structure: { verdict: "unchanged" }, limitations: ["l"] });
+    const result = await new ReviewGateAnalyzer(workspace, { reviewArchitecture } as unknown as SymbolDependentsProvider).analyzeArchitecture({ baseRef: "main" });
+    expect(result).toEqual({ baseRef: "main", headRef: "HEAD", architecture: { verdict: "unchanged" }, structure: { verdict: "unchanged" }, limitations: ["l"] });
+    expect(reviewArchitecture).toHaveBeenCalledWith(["src/api.ts"], "main", "HEAD");
+  });
+
+  it("analyzeArchitecture throws an invalid head rules file and validates both refs first", async () => {
+    const workspace = await createGitWorkspace();
+    const fatal = new ArchitectureReviewError("HEAD: invalid");
+    const provider = { reviewArchitecture: vi.fn().mockResolvedValue({ limitations: [], fatal }) } as unknown as SymbolDependentsProvider;
+    await expect(new ReviewGateAnalyzer(workspace, provider).analyzeArchitecture({ baseRef: "main" })).rejects.toBe(fatal);
+    await expect(new ReviewGateAnalyzer(workspace, provider).analyzeArchitecture({ baseRef: "--output=x" })).rejects.toThrow();
+    await expect(new ReviewGateAnalyzer(workspace, provider).analyzeArchitecture({ baseRef: "main", headRef: "missing" })).rejects.toThrow();
+  });
+
   it("reports deterministic breaking-change risk for a Git diff", async () => {
     const workspace = await createGitWorkspace();
     const result = await new ReviewGateAnalyzer(workspace).analyze({ baseRef: "main" });

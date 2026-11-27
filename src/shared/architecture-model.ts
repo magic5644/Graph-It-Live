@@ -377,6 +377,8 @@ export interface StructureEdgeDiff {
   to: string;
   /** Distinct file pairs. */
   pairs: StructureCount;
+  /** REMOVED only: the ends (`from`/`to`) that are base keys with no head match, i.e. a REMOVED item, not the head item of that key. */
+  gone?: ("from" | "to")[];
 }
 
 /** `file` is the head path; `from` and `to` are item keys, base then head. */
@@ -391,6 +393,8 @@ export interface StructureCycleDiff {
   status: "ADDED" | "REMOVED";
   /** Sorted item keys. */
   members: string[];
+  /** REMOVED only: base keys of members with no head match (a REMOVED item). Base keys, as in `members`. */
+  gone?: string[];
 }
 
 export interface StructureLevelDiff {

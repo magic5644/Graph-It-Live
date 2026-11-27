@@ -34,6 +34,7 @@ describe("diagramLevel", () => {
 
   it("names the default file after the view: flow.<format> for a flow, architecture.<format> otherwise", () => {
     expect(defaultDiagramFile("svg")).toBe("architecture.svg");
+    expect(defaultDiagramFile("svg", "delta")).toBe("architecture-delta.svg");
     expect(defaultDiagramFile("diagram-spec", "matrix")).toBe("architecture.diagram-spec.json");
     expect(defaultDiagramFile("html", "flow")).toBe("flow.html");
     expect(defaultDiagramFile("diagram-spec", "flow")).toBe("flow.diagram-spec.json");

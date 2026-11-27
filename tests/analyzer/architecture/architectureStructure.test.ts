@@ -184,6 +184,31 @@ describe("compareStructure", () => {
     expect(compare(base, base).units.cycles).toEqual([]);
   });
 
+  it("flags the REMOVED ends and cycle members that are base keys with no head match (gone)", () => {
+    // base `a` (unmatched, REMOVED) and an unrelated head `a`: the key is shared by two units.
+    const base = snapshot({ a: files("old", 2), x: files("x", 2), k: files("k", 2) });
+    base.units = level({ a: files("old", 2), x: files("x", 2), k: files("k", 2) }, { edges: { "a>x": 1, "k>x": 1 }, cycles: [["a", "k"]] });
+    const head = snapshot({ a: files("new", 2), x: files("x", 2), k: files("k", 2) });
+    head.units = level({ a: files("new", 2), x: files("x", 2), k: files("k", 2) }, { edges: { "x>k": 1 } });
+    const diff = compare(base, head);
+    expect(diff.units.edges.find((edge) => edge.status === "REMOVED" && edge.from === "a")).toEqual(expect.objectContaining({ to: "x", gone: ["from"] }));
+    const keptEnd = diff.units.edges.find((edge) => edge.from === "k" && edge.to === "x");
+    expect(keptEnd).toEqual({ status: "REMOVED", from: "k", to: "x", pairs: { before: 1 } });
+    expect(keptEnd).not.toHaveProperty("gone");
+    expect(diff.units.cycles).toEqual([{ status: "REMOVED", members: ["a", "k"], gone: ["a"] }]);
+  });
+
+  it("leaves ADDED edges, ADDED cycles and a matched REMOVED edge without `gone`", () => {
+    const state = { a: files("a", 2), b: files("b", 2) };
+    const base = snapshot(state);
+    base.units = level(state, { edges: { "a>b": 1 } });
+    const head = snapshot(state);
+    head.units = level(state, { edges: { "b>a": 1 }, cycles: [["a", "b"]] });
+    const diff = compare(base, head);
+    expect(diff.units.edges.map((edge) => edge.status).toSorted()).toEqual(["ADDED", "REMOVED"]);
+    expect(JSON.stringify(diff)).not.toContain("gone");
+  });
+
   it("is deterministic whatever the order of the input maps", () => {
     const state = (reverse: boolean) => {
       const entries = Object.entries({ a: files("a", 3), b: files("b", 3), c: files("c", 3) });

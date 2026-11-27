@@ -276,8 +276,8 @@ const cells = (text: string) => Array.from(text).reduce((sum, char) => sum + (WI
 /** Upper bound of a text's drawn width at `fontSize`. */
 export const textWidth = (text: string, fontSize: number) => cells(text) * SIZES.monoAdvance * fontSize;
 
-/** Text XML accepts, read as stored: lone surrogates, control characters and bidi overrides replaced with U+FFFD. */
-export const sanitizeText = (text: string) => text.toWellFormed().replaceAll(/[\p{Cc}\u202A-\u202E\u2066-\u2069]/gu, String.fromCodePoint(0xfffd));
+/** Text XML accepts, read as stored: lone surrogates, control characters, bidi overrides and the noncharacters U+FFFE/U+FFFF replaced with U+FFFD. */
+export const sanitizeText = (text: string) => text.toWellFormed().replaceAll(/[\p{Cc}\u202A-\u202E\u2066-\u2069\uFFFE\uFFFF]/gu, String.fromCodePoint(0xfffd));
 
 /** A label safe to draw, cut to `max` cells with "…". */
 export function fitLabel(label: string, max: number = SIZES.maxLabelChars): string {

@@ -13,7 +13,7 @@ try {
 } catch (error) {
 	throw new Error(`Invalid review report or GitHub event JSON: ${error instanceof Error ? error.message : String(error)}`);
 }
-const body = renderReviewComment(result, "magic5644.graph-it-live");
+const body = renderReviewComment(result, "magic5644.graph-it-live", { deltaUrl: process.env.DELTA_ARTIFACT_URL || undefined });
 const pullNumber = event.pull_request?.number;
 if (!pullNumber) process.exit(0);
 const [owner, repo, ...extra] = process.env.GITHUB_REPOSITORY.split("/");

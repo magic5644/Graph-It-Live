@@ -21,11 +21,11 @@ export const escapeXml = (text: string) => sanitizeText(text).replaceAll(/[&<>"'
 const styleClass = (kind: LegendKind) => `s-${kind}`;
 
 /** The palette as CSS custom properties of `selector`. */
-const variables = (selector: string, palette: Palette) =>
+export const variables = (selector: string, palette: Palette) =>
   `${selector}{--bg:${palette.background};--surface:${palette.surface};--text:${palette.text};--muted:${palette.muted};` +
   `--line:${palette.line};--accent:${palette.accent};--cycle:${palette.cycle};--error:${palette.error}}`;
 
-const CLASSES = [
+export const CLASSES = [
   `svg{font-family:${FONT_MONO}}`,
   ".bg{fill:var(--bg)}",
   `.node{fill:var(--surface);stroke:var(--line);stroke-width:${SIZES.hairline}px}`,
@@ -51,11 +51,11 @@ const CLASSES = [
   `.fragment{fill:none;stroke:var(--line);stroke-width:${SIZES.hairline}px}.operand{stroke-dasharray:4 3}`,
 ].join("");
 
-const markers = LEGEND_KINDS.map((kind) =>
+export const markers = LEGEND_KINDS.map((kind) =>
   `<marker id="arrow-${kind}" viewBox="0 0 8 8" refX="8" refY="4" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">` +
   `<path class="head-${kind}" d="M0 0L8 4L0 8z"/></marker>`).join("");
 
-const text = (x: number, y: number, className: string, content: string) =>
+export const text = (x: number, y: number, className: string, content: string) =>
   `<text class="${className}" x="${x}" y="${y}">${escapeXml(content)}</text>`;
 
 /** One edge line in `kind`'s style, its arrow at the last point. */

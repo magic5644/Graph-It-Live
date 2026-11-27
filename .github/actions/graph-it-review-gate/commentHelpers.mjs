@@ -106,7 +106,15 @@ export async function upsertReviewComment(fetchImpl, endpoint, headers, existing
   }
 }
 
-export function renderReviewComment(result, extensionId) {
+const DELTA_URL = /^https:\/\/github\.com\/[^\s)]+$/;
+
+/** The architecture delta artifact link, or nothing for a missing or foreign URL. */
+function deltaLines(deltaUrl) {
+  if (typeof deltaUrl !== "string" || !DELTA_URL.test(deltaUrl)) return [];
+  return ["", `Architecture changed: [before / after diagram](${deltaUrl}) (artifact, zip download).`];
+}
+
+export function renderReviewComment(result, extensionId, options = {}) {
   const symbols = Array.isArray(result?.symbols) ? result.symbols : [];
   const limitations = Array.isArray(result?.limitations) ? result.limitations : [];
   const changedFiles = Array.isArray(result?.changedFiles) ? result.changedFiles : [];
@@ -137,6 +145,7 @@ export function renderReviewComment(result, extensionId) {
     ...(evidence.length > 0 ? ["", "### Evidence", ...evidence] : []),
     ...(cycleLines.length > 0 ? ["", "### Import cycles", ...cycleLines] : []),
     ...architectureLines(result?.architecture),
+    ...deltaLines(options.deltaUrl),
     ...(limitationLines.length > 0 ? ["", "### Limitations", ...limitationLines] : []),
     // GitHub strips non-http(s) links from comments, so the URI is a code span to copy, not a Markdown link.
     ...(deepLink ? ["", "Open the highest-risk call graph: copy this URI and paste it in your browser address bar (VS Code with Graph-It-Live must be installed).", "", `\`${deepLink}\``] : []),

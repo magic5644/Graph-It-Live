@@ -1,13 +1,46 @@
 import { ARCHITECTURE_CONFIG_FILE } from "../../analyzer/architecture/architectureRules";
 import { ReviewGateAnalyzer, renderReviewMarkdown, type ReviewGateResult } from "../../analyzer/ReviewGateAnalyzer";
+import { deltaChanged, deltaUnchangedLine, renderArchitectureDelta } from "../../analyzer/diagram/deltaSvg";
 import { createSpiderDependentsProvider } from "../../mcp/tools/impact";
 import { workerState } from "../../mcp/shared/state";
 import { CliError, ExitCode } from "../errors";
-import { readIntegerOption } from "../options";
+import { readIntegerOption, readStringOption } from "../options";
 import type { CliOutputFormat } from "../formatter";
 import { formatOutput } from "../formatter";
 import type { CliRuntime } from "../runtime";
+import { resolveInWorkspace, writeWorkspaceFile } from "../workspaceFiles";
 import { toSarif } from "./checkArchitecture";
+
+/** The review analyzer over the indexed workspace (shared with `diagram --delta`). */
+export function createReviewAnalyzer(runtime: CliRuntime): ReviewGateAnalyzer {
+  return new ReviewGateAnalyzer(runtime.workspaceRoot, createSpiderDependentsProvider(workerState.getSpider(), runtime.workspaceRoot, workerState.getConfig().extensionPath));
+}
+
+/** `--deltaSvg <file.svg>`: the workspace file, refused before any work when it is not a .svg inside the workspace. */
+function readDeltaSvg(args: string[], workspaceRoot: string): string | undefined {
+  const file = readStringOption(args, "--deltaSvg", "a .svg file of the workspace");
+  if (file === undefined) return undefined;
+  if (file === "-" || !file.toLowerCase().endsWith(".svg")) {
+    throw new CliError("--deltaSvg writes a .svg file of the workspace", ExitCode.GENERAL_ERROR);
+  }
+  resolveInWorkspace(workspaceRoot, file);
+  return file;
+}
+
+/** The delta SVG of a review it already holds; a stderr line, no file, when there is nothing to draw. */
+async function writeDeltaSvg(runtime: CliRuntime, file: string, result: ReviewGateResult): Promise<void> {
+  if (result.structure === undefined) {
+    process.stderr.write("No architecture delta written: the review holds no structure comparison (see limitations).\n");
+  } else if (result.structure.verdict === "empty") {
+    process.stderr.write(`No architecture delta written: no analyzable file at ${result.baseRef} or ${result.headRef}.\n`);
+  } else if (deltaChanged(result)) {
+    const { markup, cut, warnings } = await renderArchitectureDelta(result);
+    await writeWorkspaceFile(runtime.workspaceRoot, file, markup);
+    for (const line of [...warnings, ...cut]) process.stderr.write(`${line}\n`);
+  } else {
+    process.stderr.write(`${deltaUnchangedLine(result)}\n`);
+  }
+}
 
 /** Analyze the checked-out diff against a Git base ref. */
 export async function run(args: string[], runtime: CliRuntime, format: CliOutputFormat): Promise<string> {
@@ -19,10 +52,12 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   const maxDepth = readIntegerOption(args, "--depth", { min: 1, max: 10 });
   // --max-files: the 1.25.4 spelling, still passed by the review gate action.
   const maxFiles = readIntegerOption(args, "--maxFiles", { min: 1 }) ?? readIntegerOption(args, "--max-files", { min: 1 });
+  const deltaSvg = readDeltaSvg(args, runtime.workspaceRoot);
   // Silent off the progress TTY: a CI gate log keeps only the review.
   await runtime.ensureIndexed({ silent: !runtime.progress.enabled });
-  const analyzer = new ReviewGateAnalyzer(runtime.workspaceRoot, createSpiderDependentsProvider(workerState.getSpider(), runtime.workspaceRoot, workerState.getConfig().extensionPath));
+  const analyzer = createReviewAnalyzer(runtime);
   const result = await runtime.progress.phase("Reviewing the diff", () => analyzer.analyze({ baseRef, headRef, maxDepth, maxFiles }));
+  if (deltaSvg !== undefined) await writeDeltaSvg(runtime, deltaSvg, result);
   if (format === "sarif") return reviewSarif(result);
   return format === "markdown" ? renderReviewMarkdown(result) : formatOutput(result, format, "review-pr");
 }

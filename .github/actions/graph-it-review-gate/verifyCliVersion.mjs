@@ -1,6 +1,17 @@
 import { appendFile } from "node:fs/promises";
 
 export const MINIMUM_CLI_VERSION = "1.13.0";
+/** First CLI with `review-pr --deltaSvg`. */
+export const DELTA_SVG_CLI_VERSION = "1.26.2";
+
+/** Whether `graph-it review-pr` of this version accepts --deltaSvg. */
+export function supportsDeltaSvg(version) {
+  try {
+    return compareSemver(version, DELTA_SVG_CLI_VERSION) >= 0;
+  } catch {
+    return false;
+  }
+}
 
 function isAlphanumericHyphen(value) {
   return [...value].every((character) => /[0-9A-Za-z-]/.test(character));
@@ -84,7 +95,7 @@ async function main() {
   const version = assertSupportedCliVersion(Buffer.concat(chunks).toString("utf8"));
   console.log(`Using Graph-It-Live CLI ${version}`);
   if (process.env.GITHUB_OUTPUT) {
-    await appendFile(process.env.GITHUB_OUTPUT, `cli-version=${version}\n`);
+    await appendFile(process.env.GITHUB_OUTPUT, `cli-version=${version}\ndelta-svg=${supportsDeltaSvg(version)}\n`);
   }
 }
 

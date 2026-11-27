@@ -946,6 +946,8 @@ Checks every static import of the workspace against the **architecture rules** d
 graph-it check-architecture [--config <file>] [--baseline <file>] [--update-baseline] [--verbose] [--format text|json|toon|markdown|sarif]
 ```
 
+`--deltaSvg <file.svg>` also writes the [architecture delta](#architecture-delta) of the review's own comparison (no second read of the trees), only when the architecture changed (see [architecture delta](#architecture-delta)); stdout still holds the review in any `--format`. A value that is missing, `-` or not a `.svg` exits 1, a path outside the workspace exits 5; with nothing to draw, no file is written, and an empty or missing comparison is said on stderr.
+
 #### Architecture rules
 
 ```json
@@ -1169,6 +1171,7 @@ Every diagram draws from one legend, shared with the `init` page, and lists only
 ```bash
 graph-it diagram [<dir>] [--view units|folder|matrix|flow|sequence] [--folder <key>] [--format svg|html|diagram-spec|mermaid] [--theme light|dark] [--output <file>] [--rules [--config <file>] [--baseline [<file>]]]
 graph-it diagram --spec <file.json> [options]
+graph-it diagram --delta --base <git-ref> [--head <git-ref>] [--theme light|dark] [--output <file.svg>|-]
 ```
 
 `--spec` draws an annotated diagram spec again: see [Annotated spec](#annotated-spec---spec).
@@ -1185,6 +1188,8 @@ graph-it diagram --spec <file.json> [options]
 | `--config <file>` | `graphit.architecture.json` | Rules file, with `--rules` |
 | `--baseline [<file>]` | off | With `--rules`: draws the violations the baseline accepts as dashed lines, counted apart (`3 violations (2 accepted)`). Without a file it reads `graphit.architecture.baseline.json`, which must then exist |
 
+| `--delta` | off | Draws the before/after structure diff of two Git refs ([Architecture delta](#architecture-delta)). Needs `--base`; refuses `--view`, `--folder`, `--spec`, `--rules`, `--config`, `--baseline`, `--maxSteps`, `--startLine`, `--depth`, `--maxMessages`, `--participants` and `<dir>` |
+| `--base <ref>` / `--head <ref>` | — / `HEAD` | With `--delta`: the refs compared (branch, tag or commit) |
 At most 60 units or groups are drawn, the largest ones; a note counts the others, and the header counts cover the whole level. Under the matrix, a note says how to read it: row imports column, N file pairs per cell, the greyed diagonal counting the pairs inside each row. The output has no script, no external resource and no `foreignObject`. Labels are escaped, and paths are workspace-relative.
 
 <img src="../media/cli-diagram-units.svg" alt="graph-it diagram on tests/fixtures/workspaces-project: seven units in three layers, the cycle between @ws/core and @ws/types outlined, edge widths by file pairs, and a legend" width="596"/>
@@ -1196,6 +1201,11 @@ At most 60 units or groups are drawn, the largest ones; a note counts the others
 **Exit code**: 0 when the file is written. An invalid `--view` or `--theme`, a `--folder` without files, a `<dir>` that is missing, holds no indexed file or spans several units, `--view folder` without `--folder` or `<dir>`, `--view units` with `--folder` or `<dir>`, `<dir>` with `--folder`, `--theme` with `--format html` or `diagram-spec`, `--config` or `--baseline` without `--rules`, a missing rules file, a missing named baseline or an `--output` whose extension does not match the format (`--format svg --output a.html`) exit 1. A `<dir>`, `--output`, `--config` or `--baseline` outside the workspace exits 5, and any other `--format`, or `diagram-spec` with `--view matrix`, exits 4.
 
 **MCP and VS Code**: the `graphitlive_export_architecture_diagram` MCP tool and the `graph-it-live_export_architecture_diagram` Language Model tool (`#graphArchitectureDiagram`) draw the same diagram from `view`, `folder`, `diagramFormat` (default `svg`), `theme`, `rules`, `config` and `baseline`. They return the markup inline up to 60,000 characters; with `output`, or for a larger diagram, they write it to that workspace file (default `architecture.<diagramFormat>`) and return its workspace-relative path. With `rules` and no `baseline`, they read `graphit.architecture.baseline.json` when it exists, as `check_architecture` does. An `output` outside the workspace is refused before any work. `diagramFormat: "diagram-spec"` returns the spec below as `markup` (default file `architecture.diagram-spec.json`).
+
+#### Architecture delta
+
+`graph-it diagram --delta --base origin/main` writes `architecture-delta.svg`: two panels on the same grid, Before and After, then the list of every change (units and unit edges added, removed, changed, renamed or rewired, cycles, rule violations). A status is told by its word and its border (width and dash), never by colour alone. It reads the same comparison as the `structure` of [`review-pr`](#review-pr), so the counts match. At most 40 units and 60 rows are drawn, changed ones first; a note counts the rest and names `graph-it review-pr --base <ref> --format json` for the full list. Git rename detection that could not read every file is a warning on stderr and in the footer.
+`--delta` writes `--format svg` only (the default; `html`, `diagram-spec` and `mermaid` exit 4, and so does `--output x.html`). `--output -` writes the SVG to stdout, the notes go to stderr. The architecture changed when a unit is added, removed, renamed or changes role, a unit edge appears or disappears, a cycle appears or is resolved, or the rules verdict moves; file and file-pair counts alone do not count. Otherwise no file is written (an earlier one is left untouched): stdout says `No architecture change between <base> and <head> (N units, M unit edges compared): no diagram written.` and the exit code is 0. It exits 1 without `--base`, with `--base` or `--head` but no `--delta`, with a refused option, an unknown ref, an invalid `--theme`, and for a comparison with no analyzable file or no structure (a limitation says why); an `--output` outside the workspace exits 5.
 
 #### Flow of one symbol
 
@@ -1728,7 +1738,7 @@ and a limitation say so, and the review is partial. Branch Watch reports the sam
 Run a deterministic local review of a Git diff:
 
 ```bash
-graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--maxFiles 200] --format text|json|toon|markdown|sarif
+graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--maxFiles 200] [--deltaSvg <file.svg>] --format text|json|toon|markdown|sarif
 ```
 
 The command first ensures that the workspace index is available. It then lists changed files with `git diff` and compares exported TypeScript, JavaScript and Vue signatures, and the top-level functions, classes and variables of Python modules, between the base and head. For Python, adding or dropping a type annotation is not breaking, and switching between `def` and `async def` is; methods and definitions nested in `if`/`try` blocks are not compared. Without `--head`, the head is the current working tree (`HEAD` plus staged and unstaged file contents). With `--head <ref>`, both sides come from Git refs and the changed-file list uses the three-dot comparison.
@@ -1803,6 +1813,8 @@ The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `
 The composite Action has no trigger of its own. Consumer repositories must add a `pull_request` workflow; see [`examples/graph-it-review-gate.yml`](examples/graph-it-review-gate.yml). It installs `@magic5644/graph-it-live@latest` in a temporary prefix and runs `graph-it review-pr --workspace "$GITHUB_WORKSPACE"` against the checked-out consumer repository. It never installs or builds consumer dependencies.
 
 `cli-version` is optional: omit it to use npm `latest`, or supply an npm version, tag, or range. The Action validates the CLI's actual `graph-it-live vX.Y.Z` output, logs it, exposes it as `outputs.cli-version`, and rejects versions below `1.13.0`. It also exposes `risk`, `score` and `architecture-new-errors` outputs.
+
+`delta-diagram` (default `true`) passes `--deltaSvg` when the CLI is 1.26.2 or newer (an older pinned `cli-version` gets a `::notice::` and no diagram, never a failure), uploads the SVG as the artifact `graph-it-architecture-delta` (14 days) and adds one line to the comment linking it (a zip download; no write permission needed, works on fork PRs). Nothing is uploaded when the architecture did not change. Set `delta-diagram: false` to turn it off.
 
 The Action is informational by default. Set `fail-on-risk: high` or `critical` to gate a pull request. It analyzes the consumer checkout in an isolated temporary directory and sends only a sanitized report to GitHub.
 

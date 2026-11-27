@@ -146,7 +146,7 @@ Settings live under `graph-it-live.*` (performance profile, MCP server, traversa
 
 ## CI review gate
 
-`graph-it review-pr --base <ref>` reviews a Git diff before CI: breaking signatures, consumers still importing a removed export, cycles, test candidates, architecture rules, and the before/after structure (units, folders, moves). A reusable GitHub Action posts the report and can gate a pull request with `fail-on-risk`. See the [`review-pr` reference](docs/CLI.md#review-pr) and the [example workflow](docs/examples/graph-it-review-gate.yml).
+`graph-it review-pr --base <ref>` reviews a Git diff before CI: breaking signatures, consumers still importing a removed export, cycles, test candidates, architecture rules, and the before/after structure (units, folders, moves) and an optional before/after SVG (`--deltaSvg`, `diagram --delta`). A reusable GitHub Action posts the report and can gate a pull request with `fail-on-risk`. See the [`review-pr` reference](docs/CLI.md#review-pr) and the [example workflow](docs/examples/graph-it-review-gate.yml).
 
 ## Documentation
 

@@ -271,6 +271,7 @@ Usage: graph-it diagram [dir] [options]
        graph-it diagram --view sequence <file#symbol> [--depth N] [--maxMessages N]
                         [--participants file|class] [--startLine N] [options]
        graph-it diagram --spec <file.json> [options]
+       graph-it diagram --delta --base <git-ref> [--head <git-ref>] [--theme light|dark] [--output <file.svg>|-]
 
 Draws one level of the architecture as the Architecture view lays it out: the units (layers
 top to bottom, layer 0 at the bottom, cycles outlined, stroke width = file pairs), the groups
@@ -317,6 +318,13 @@ Options:
   --maxMessages N    With --view sequence: most messages drawn, 1 to 60 (default: 30)
   --participants BY  With --view sequence: file|class, one lifeline per file (default) or
                      per class for methods; at most 12 lifelines are drawn
+  --delta            Draw the before/after structure diff of two Git refs as one SVG
+                     (architecture-delta.svg): units and unit edges added, removed or
+                     rewired, cycles, rule violations. Needs --base; writes --format svg
+                     only and refuses the other options of the views. Nothing changed:
+                     no file, a line saying so, exit 0
+  --base REF         With --delta: the Git ref to compare from (branch, tag or commit)
+  --head REF         With --delta: the Git ref to compare to (default: HEAD)
   --startLine N      With --view flow or sequence: declaration line of the symbol, 1-based
                      (the editor line), to pick one of several same-name symbols
   --folder KEY       Unit or folder key, as graph-it architecture --folder takes it
@@ -352,6 +360,7 @@ Examples:
   graph-it diagram --spec start.json --format svg --output docs/start-flow.svg
   graph-it diagram --view sequence src/cli/index.ts#main --format svg --output docs/main.svg
   graph-it diagram --view sequence src/app.ts#start --depth 2 --participants class --format mermaid --output -
+  graph-it diagram --delta --base origin/main --output docs/architecture-delta.svg
 `,
   check: `graph-it check — Find unused exported symbols in the workspace, a folder or a file
 
@@ -404,6 +413,9 @@ Options:
   --depth N            Optional: max dependency-impact traversal depth
   --maxFiles N         Optional: cap on changed files analyzed (default: 200);
                        --max-files is accepted too
+  --deltaSvg FILE      Optional: also write the before/after architecture diagram of the
+                       diff to FILE (a .svg of the workspace), only when the structure
+                       or the rules verdict changed; stdout still holds the review
   --workspace, -w      Workspace root directory (default: auto-detected)
   --format, -f         Output format: text|json|toon|markdown|sarif (default: text);
                        sarif lists the new violations of graphit.architecture.json
