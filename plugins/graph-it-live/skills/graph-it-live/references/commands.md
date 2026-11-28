@@ -154,7 +154,11 @@ point to the item's `next:` command or to `index.html`); a dead file is never al
 ```bash
 graph-it diagram --format svg --rules --output docs/architecture.svg
 graph-it diagram --format diagram-spec --output -
+graph-it diagram --delta --base <ref> [--head <ref>]
 ```
+
+`--delta` (CLI 1.26.2 or later) draws a before/after SVG of two Git refs; nothing is written when the
+architecture did not change.
 
 `graph-it diagram` writes a static, script-free SVG or HTML file of the units, one folder
 (`--folder <key>` or a `[dir]` argument) or their matrix (`--view matrix`); `--theme light|dark` for
@@ -207,7 +211,9 @@ graph-it stats                                # token stats (cl100k_base estimat
 
 `graph-it review-pr --base <ref>` indexes automatically, like every command (no `scan` first). Without `--head` it compares
 the base with the working tree, staged and unstaged included; `--head <ref>` compares two committed
-refs. `--depth 1-10`, `--max-files` (default 200, no upper bound), `--format toon|json|markdown|sarif`.
+refs. `--depth 1-10`, `--max-files` (default 200, no upper bound), `--format toon|json|markdown|sarif`. The report has a `structure` section (units, folders, moved
+files; it never changes the risk); `--deltaSvg <file.svg>` (CLI 1.26.2 or later) also writes the
+before/after SVG when the architecture changed.
 
 Read `risk`, `score`, `limitations` and `isPartial` before any merge recommendation. `isPartial: true`
 means file, parser or depth limits cut the result. No breaking signature does **not** prove a
