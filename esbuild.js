@@ -235,6 +235,8 @@ function browserBundle(entryPoint, outfile, extra = {}) {
     target: 'es2022',
     metafile: !!metafilePath,
     loader: { '.css': 'text' },
+    // Same JSX runtime as tsconfig.webview.json (react-jsx): esbuild reads the root tsconfig, which has none.
+    jsx: 'automatic',
     define: { 'process.env.NODE_ENV': '"production"' },
     ...extra,
   };
