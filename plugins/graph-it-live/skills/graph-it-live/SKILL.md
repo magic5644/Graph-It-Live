@@ -22,14 +22,15 @@ languages: TypeScript, JavaScript, Python, Rust, C#, Go, Java, Vue, Svelte, Grap
 
 | Task | First step |
 | --- | --- |
-| The file or symbol is already known (read it, explain it, edit one place) | Read it directly and bounded (the symbol's line range, or `offset`/`limit`). No graph call. |
+| The file or symbol is already known (read it, explain it, edit one place) | Read it directly and bounded (the symbol's line range, or `offset`/`limit`). No graph call, except before editing an exported symbol: one callers or impact query first. |
 | Locate code by behaviour or concept | `graph-it context "<question>" --mode search --detail compact --token-budget 2000 --format toon` |
 | Callers, importers, impact, "safe to delete or change?" | Graph first: `path-in`, `query_call_graph --direction=callers`, `get_impact_analysis` |
 | Architecture, cycles, module overview | Graph first: `architecture --level units`, `cycles`, `summary <file>` |
 | A diff or pull request | `review-pr`; use the **pr-review** skill |
 
 After a graph step, read only the files and line ranges it names. Text search locates; it does not
-prove callers or impact.
+prove callers or impact. If the graph fails or cannot answer, say so, then fall back to text search or
+direct reads.
 
 ## Setup and discovery
 

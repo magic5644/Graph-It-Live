@@ -30,9 +30,13 @@ Prefix shell commands with `rtk`; use `rtk proxy <command>` when no optimized wr
 
 ## Working Method
 
-- For exploration of `.js`, `.jsx`, `.cjs`, `.mjs`, `.ts`, `.tsx`, `.cts`, or `.mts` code, use Graph-It-Live MCP tools first (or the `graph-it` CLI fallback) before `read_file`, `rg`, or other direct source inspection. Use direct inspection afterward to verify details and edit safely.
+- Route `.js`, `.jsx`, `.cjs`, `.mjs`, `.ts`, `.tsx`, `.cts`, and `.mts` code by task (Graph-It-Live MCP tools, else the `graph-it` CLI):
+  - File or symbol already known, to read or describe: bounded direct read of its line range; no graph call.
+  - Editing an exported symbol: one Graph-It callers or impact query first.
+  - Location unknown, callers, impact, architecture: Graph-It first, then read only the files and ranges it names. Text search locates; it does not prove callers or impact.
+  - Graph-It fails or cannot answer: say so, then fall back to `rg` or direct reads.
 - Understand full flow and callers before editing. Fix root cause once.
-- For architecture, impact, or relationship questions, use the available Graph-It-Live MCP tools first; otherwise use the `graph-it` CLI. Both index on demand and pick up changed files (CLI: every command; MCP: file watcher), so no `graph-it scan` is needed before analysis or after edits; use `--reindex` (CLI) or `rebuild_index` (MCP) only when results look wrong.
+- Graph-It indexes on demand and picks up changed files (CLI: every command; MCP: file watcher), so no `graph-it scan` is needed before analysis or after edits; use `--reindex` (CLI) or `rebuild_index` (MCP) only when results look wrong.
 - Prefer deletion, existing helpers, standard library, platform features, and installed dependencies—in that order. Add no abstraction or dependency without need.
 - Make smallest complete diff; preserve unrelated code and APIs.
 
