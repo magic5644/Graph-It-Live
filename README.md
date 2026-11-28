@@ -148,6 +148,8 @@ Settings live under `graph-it-live.*` (performance profile, MCP server, traversa
 
 `graph-it review-pr --base <ref>` reviews a Git diff before CI: breaking signatures, consumers still importing a removed export, cycles, test candidates, architecture rules, and the before/after structure (units, folders, moves) and an optional before/after SVG (`--deltaSvg`, `diagram --delta`). A reusable GitHub Action posts the report and can gate a pull request with `fail-on-risk`. See the [`review-pr` reference](docs/CLI.md#review-pr) and the [example workflow](docs/examples/graph-it-review-gate.yml).
 
+<img src="media/architecture-delta.png" alt="graph-it diagram --delta on the legacy-shop demo after a refactor commit: Before and After on the same grid; the units store and money are added, legacy is removed, ui shrinks from 2 files to 1, and the cycles billing-orders and domain-ui are resolved; the list of 16 changes follows" width="800"/>
+
 ## Documentation
 
 - [CLI reference](docs/CLI.md) — commands, REPL, output formats, and MCP tools
