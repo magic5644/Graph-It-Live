@@ -863,6 +863,10 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
         <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>graph-it review-pr --base HEAD --format markdown</span></div>
         <img src="media/review-pr-architecture-rules.png" alt="Rendered review-pr Markdown on the rules test fixture: Architecture rules DEGRADED, one new frontend-not-backend error violation from mfe/checkout to backend, one resolved violation from frontend, two unchanged unit cycles" loading="lazy">
       </div>
+      <div class="frame" style="margin-top:20px">
+        <div class="frame-bar"><i class="dot"></i><i class="dot"></i><i class="dot"></i><span>graph-it diagram --delta --base HEAD~1</span></div>
+        <img src="media/architecture-delta.png" alt="graph-it diagram --delta on the legacy-shop demo after a refactor commit: Before and After on the same grid; the units store and money are added, legacy is removed, ui shrinks from 2 files to 1, and the cycles billing-orders and domain-ui are resolved; the list of 16 changes follows" loading="lazy">
+      </div>
     </div>
   </div>
 </section>
