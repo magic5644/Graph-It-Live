@@ -21,6 +21,11 @@ export const MAX_DELTA_UNITS = 40;
 export const MAX_DELTA_LEDGER = 60;
 /** Edges drawn at most: past it, a wall of removed edges hides the units (cal.com: 176 removed). */
 export const MAX_DELTA_EDGES = 60;
+/** A folder holding at least this many ADDED (or REMOVED) units is drawn as one box (#843). */
+export const MIN_FOLD = 4;
+/** Cells of a ledger or footer line; a longer one is cut by the renderer. */
+export const LEDGER_CELLS = 170;
+const UNITS_COMMAND = "graph-it architecture --level units --format json";
 
 export type DeltaStatus = "ADDED" | "REMOVED" | "CHANGED" | "RENAMED" | "REWIRED" | "UNCHANGED";
 const STATUS_ORDER: DeltaStatus[] = ["ADDED", "REMOVED", "CHANGED", "RENAMED", "REWIRED"];
@@ -38,13 +43,17 @@ export interface DeltaNode {
   inCycle?: "ADDED" | "REMOVED" | "BOTH";
   /** The node is in a cycle whose other edges are unchanged, so the diff does not draw them. */
   cycleEdgesHidden?: boolean;
+  /** A fold: the member keys, sorted; the node stands for all of them (`key` is `<folder>/*`). */
+  fold?: string[];
+  /** Edges between members of a fold, not drawn. */
+  foldEdges?: number;
   violations: { new: number; resolved: number };
 }
 
 export interface DeltaEdge {
   from: string;
   to: string;
-  status: "ADDED" | "REMOVED" | "CHANGED";
+  status: "ADDED" | "REMOVED" | "CHANGED" | "UNCHANGED";
   pairs: StructureCount;
   violation?: "new" | "accepted" | "resolved";
   rules: string[];
@@ -67,7 +76,7 @@ export interface DeltaModel {
 
 type ViolationKind = "new" | "accepted" | "resolved";
 interface ViolationRow { rule: string; from: string; to: string; kind: ViolationKind; pairs: number; fromId?: string; toId?: string }
-interface Cycle { status: "ADDED" | "REMOVED"; ids: string[]; keys: string[] }
+interface Cycle { status: "ADDED" | "REMOVED"; ids: string[]; keys: string[]; /** The ids before folding: two cycles folded onto the same ids keep distinct ledger rows. */ unfolded?: string[] }
 
 const idOf = (item: StructureItemDiff) => (item.status === "REMOVED" ? `-${item.key}` : item.key);
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? "" : "s"}`;
@@ -82,10 +91,11 @@ function roleText(role: StructureItemDiff["role"]): string | undefined {
 
 /** What a unit's change is, after its status word: files and role, or "connections changed" for REWIRED. */
 function unitFacts(node: DeltaNode): string[] {
-  if (node.status === "REWIRED") return ["connections changed"];
-  if (node.status === "UNCHANGED") return [];
+  const units = node.fold ? [plural(node.fold.length, "unit")] : [];
+  if (node.status === "REWIRED") return [...units, "connections changed"];
+  if (node.status === "UNCHANGED") return units;
   const role = roleText(node.role);
-  return [`files ${range(node.fileCount)}`, ...(role ? [role] : [])];
+  return [...units, `files ${range(node.fileCount)}`, ...(role ? [role] : [])];
 }
 
 const CYCLE_WORDS = { ADDED: "in new cycle", REMOVED: "in resolved cycle", BOTH: "in resolved and new cycles" } as const;
@@ -125,12 +135,13 @@ const deltaCycles = (cycles: StructureCycleDiff[]): Cycle[] =>
   cycles.map((cycle) => ({ status: cycle.status, keys: cycle.members, ids: cycle.members.map((member) => endId(member, cycle.gone?.includes(member) === true)) }));
 
 const keyOfId = (id: string) => (id.startsWith("-") ? id.slice(1) : id);
+const contextNode = (id: string, status: DeltaStatus): DeltaNode => ({ id, key: keyOfId(id), label: keyOfId(id), status, fileCount: {}, violations: { new: 0, resolved: 0 } });
 
 /** Units named by an edge or a cycle but absent from the diff's items: REWIRED when an ADDED or REMOVED edge touches them, else context. */
 function contextNodes(nodes: Map<string, DeltaNode>, edges: DeltaEdge[], cycles: Cycle[]): void {
   const rewired = new Set(edges.filter((edge) => edge.status !== "CHANGED").flatMap((edge) => [edge.from, edge.to]));
   const add = (id: string) => {
-    if (!nodes.has(id)) nodes.set(id, { id, key: keyOfId(id), label: keyOfId(id), status: rewired.has(id) ? "REWIRED" : "UNCHANGED", fileCount: {}, violations: { new: 0, resolved: 0 } });
+    if (!nodes.has(id)) nodes.set(id, contextNode(id, rewired.has(id) ? "REWIRED" : "UNCHANGED"));
   };
   for (const edge of edges) [edge.from, edge.to].forEach(add);
   for (const cycle of cycles) cycle.ids.forEach(add);
@@ -160,7 +171,7 @@ function violationContext(source: ArchitectureDeltaSource, items: StructureItemD
     ...rule.resolvedViolations.flatMap((pair) => [toBase(pair.from), toBase(pair.to)]),
   ]);
   for (const id of ends.filter(isUnitLabel)) {
-    if (!nodes.has(id)) nodes.set(id, { id, key: keyOfId(id), label: keyOfId(id), status: "UNCHANGED", fileCount: {}, violations: { new: 0, resolved: 0 } });
+    if (!nodes.has(id)) nodes.set(id, contextNode(id, "UNCHANGED"));
   }
 }
 
@@ -202,14 +213,14 @@ function applyViolations(rows: ViolationRow[], nodes: Map<string, DeltaNode>, ed
 
 function markCycles(nodes: Map<string, DeltaNode>, edges: DeltaEdge[], cycles: Cycle[]): void {
   for (const cycle of cycles) {
-    // A cycle of n members has at least n edges: fewer changed ones means the others are unchanged and not drawn.
+    // A cycle of n members has at least n edges: fewer drawn ones means the others are not drawn.
     const members = new Set(cycle.ids);
-    const live = new Set<DeltaEdge["status"]>(cycle.status === "ADDED" ? ["ADDED", "CHANGED"] : ["REMOVED", "CHANGED"]);
+    const live = new Set<DeltaEdge["status"]>(cycle.status === "ADDED" ? ["ADDED", "CHANGED", "UNCHANGED"] : ["REMOVED", "CHANGED", "UNCHANGED"]);
     const drawn = edges.filter((edge) => live.has(edge.status) && members.has(edge.from) && members.has(edge.to)).length;
     for (const id of cycle.ids) {
       const node = nodes.get(id)!;
       node.inCycle = node.inCycle === undefined || node.inCycle === cycle.status ? cycle.status : "BOTH";
-      if (drawn < cycle.ids.length) node.cycleEdgesHidden = true;
+      if (drawn < cycle.ids.length && cycle.ids.length > 1) node.cycleEdgesHidden = true;
     }
   }
 }
@@ -232,12 +243,13 @@ function countsLine(level: StructureLevelDiff, nodes: DeltaNode[], cycles: Cycle
 /** Rarer, content-level changes first: a branch that deletes 40 packages must not hide the one it adds (cal.com). */
 const STATUS_TIER: Record<DeltaStatus, number> = { ADDED: 1, RENAMED: 1, CHANGED: 1, REMOVED: 2, REWIRED: 2, UNCHANGED: 3 };
 
-/** The edges drawn among the drawn units: violation edges first, then the heaviest, at most MAX_DELTA_EDGES, in key order. */
+/** The edges drawn among the drawn units: violation edges, then changed, then unchanged, each the heaviest first, at most MAX_DELTA_EDGES, in key order. */
 function selectEdges(edges: DeltaEdge[], drawn: ReadonlySet<string>): DeltaEdge[] {
   const weight = (edge: DeltaEdge) => Math.max(edge.pairs.before ?? 0, edge.pairs.after ?? 0);
+  const tier = (edge: DeltaEdge) => (edge.violation === undefined ? 1 + Number(edge.status === "UNCHANGED") : 0);
   return edges
     .filter((edge) => drawn.has(edge.from) && drawn.has(edge.to))
-    .toSorted((left, right) => Number(right.violation !== undefined) - Number(left.violation !== undefined) || weight(right) - weight(left) || byCodeUnit(`${left.from}\0${left.to}`, `${right.from}\0${right.to}`))
+    .toSorted((left, right) => tier(left) - tier(right) || weight(right) - weight(left) || byCodeUnit(`${left.from}\0${left.to}`, `${right.from}\0${right.to}`))
     .slice(0, MAX_DELTA_EDGES)
     .toSorted((left, right) => byCodeUnit(`${left.from}\0${left.to}\0${left.status}`, `${right.from}\0${right.to}\0${right.status}`));
 }
@@ -257,24 +269,150 @@ function select(nodes: DeltaNode[], edges: DeltaEdge[], cycles: Cycle[]): { draw
   return { drawn: new Set(ranked.slice(0, MAX_DELTA_UNITS).map((node) => node.id)), dropped: ranked.slice(MAX_DELTA_UNITS) };
 }
 
+const sumSide = (counts: StructureCount[], side: keyof StructureCount): StructureCount =>
+  counts.some((count) => count[side] !== undefined) ? { [side]: counts.reduce((total, count) => total + (count[side] ?? 0), 0) } : {};
+const addCounts = (counts: StructureCount[]): StructureCount => ({ ...sumSide(counts, "before"), ...sumSide(counts, "after") });
+
+/** One box for the members of a group: same status, same folder. */
+function foldNode(members: DeltaNode[]): DeltaNode {
+  const { status, key } = members[0];
+  const label = `${key.slice(0, key.lastIndexOf("/"))}/*`;
+  return { id: `${status}:${label}`, key: label, label, status, fileCount: addCounts(members.map((member) => member.fileCount)), fold: members.map((member) => member.key).toSorted(byCodeUnit), violations: { new: 0, resolved: 0 } };
+}
+
+/** The edges with each end mapped to its fold, merged per (from, to, status); edges inside one fold are counted per fold, not kept. */
+function mergeEdges(edges: DeltaEdge[], foldOf: ReadonlyMap<string, string>): { edges: DeltaEdge[]; inside: Map<string, number> } {
+  const inside = new Map<string, number>();
+  if (foldOf.size === 0) return { edges, inside };
+  const merged = new Map<string, DeltaEdge>();
+  for (const edge of edges) {
+    const from = foldOf.get(edge.from) ?? edge.from;
+    const to = foldOf.get(edge.to) ?? edge.to;
+    if (from === to) {
+      inside.set(from, (inside.get(from) ?? 0) + 1);
+      continue;
+    }
+    const key = `${from}\0${to}\0${edge.status}`;
+    const prior = merged.get(key);
+    merged.set(key, prior ? { ...prior, pairs: addCounts([prior.pairs, edge.pairs]) } : { ...edge, from, to });
+  }
+  return { edges: [...merged.values()], inside };
+}
+
+function addFoldEdges(nodes: DeltaNode[], inside: ReadonlyMap<string, number>): void {
+  for (const node of nodes) if (inside.has(node.id)) node.foldEdges = (node.foldEdges ?? 0) + inside.get(node.id)!;
+}
+
+interface Folded { nodes: DeltaNode[]; edges: DeltaEdge[]; foldOf: Map<string, string> }
+
+/**
+ * ADDED (or REMOVED) units of one folder, at least MIN_FOLD of them, become one node. Kept apart: every other status
+ * (their identity matters more than their count), a unit in `keep` (a violation end) and a unit with no folder.
+ */
+function foldUnits(nodes: DeltaNode[], edges: DeltaEdge[], keep: ReadonlySet<string>): Folded {
+  const groups = new Map<string, DeltaNode[]>();
+  for (const node of nodes) {
+    if ((node.status !== "ADDED" && node.status !== "REMOVED") || keep.has(node.id) || !node.key.includes("/")) continue;
+    const group = `${node.status}\0${node.key.slice(0, node.key.lastIndexOf("/"))}`;
+    const list = groups.get(group);
+    if (list) list.push(node);
+    else groups.set(group, [node]);
+  }
+  const foldOf = new Map<string, string>();
+  const folds: DeltaNode[] = [];
+  for (const members of groups.values()) {
+    if (members.length < MIN_FOLD) continue;
+    const fold = foldNode(members);
+    folds.push(fold);
+    for (const member of members) foldOf.set(member.id, fold.id);
+  }
+  const merged = mergeEdges(edges, foldOf);
+  const kept = [...nodes.filter((node) => !foldOf.has(node.id)), ...folds];
+  addFoldEdges(kept, merged.inside);
+  return { nodes: kept, edges: merged.edges, foldOf };
+}
+
+/** Head unit edges the diff does not list as ADDED or CHANGED: the unchanged ones (their ends are head keys, the drawn ids). */
+function unchangedEdgeList(head: ReadonlyMap<string, number>, diff: DeltaEdge[]): DeltaEdge[] {
+  const listed = new Set(diff.filter((edge) => edge.status !== "REMOVED").map((edge) => `${edge.from}\0${edge.to}`));
+  return [...head].filter(([key]) => !listed.has(key)).map(([key, count]): DeltaEdge => {
+    const [from, to] = key.split("\0");
+    return { from, to, status: "UNCHANGED", pairs: { before: count, after: count }, rules: [] };
+  });
+}
+
+/** For each head unit that is no node: its unchanged edges to drawn nodes (count, file pairs); `foldOf` maps a fold member to its drawn fold. */
+function linkScores(known: ReadonlySet<string>, foldOf: ReadonlyMap<string, string>, drawn: ReadonlySet<string>, unchanged: DeltaEdge[]): { scores: Map<string, { count: number; pairs: number }>; units: Set<string> } {
+  const scores = new Map<string, { count: number; pairs: number }>();
+  const units = new Set<string>();
+  for (const edge of unchanged) {
+    for (const [unit, other] of [[edge.from, edge.to], [edge.to, edge.from]]) {
+      if (known.has(unit)) continue;
+      units.add(unit);
+      if (!drawn.has(foldOf.get(other) ?? other)) continue;
+      const score = scores.get(unit) ?? { count: 0, pairs: 0 };
+      scores.set(unit, { count: score.count + 1, pairs: score.pairs + (edge.pairs.after ?? 0) });
+    }
+  }
+  return { scores, units };
+}
+
+/**
+ * Fills the unit slots the selected units leave free with the unchanged head units most linked to them (ranked once,
+ * after folding, so a filled unit is never folded); `undrawn` counts the head units with unchanged edges left out.
+ */
+function fillContext(known: ReadonlySet<string>, folded: Folded, drawn: ReadonlySet<string>, unchanged: DeltaEdge[]): { added: DeltaNode[]; undrawn: number } {
+  const slots = Math.max(0, MAX_DELTA_UNITS - drawn.size);
+  const { scores, units } = linkScores(known, folded.foldOf, drawn, unchanged);
+  const ranked = [...scores].toSorted(([leftKey, left], [rightKey, right]) => right.count - left.count || right.pairs - left.pairs || byCodeUnit(leftKey, rightKey));
+  const added = ranked.slice(0, slots).map(([key]) => contextNode(key, "UNCHANGED"));
+  return { added, undrawn: units.size - added.length };
+}
+
+interface UnchangedDrawing { edges: DeltaEdge[]; toUndrawn: number }
+
+/** The unchanged edges between drawn nodes (ends mapped to folds); the rest is counted for the cut line. */
+function drawUnchanged(unchanged: DeltaEdge[], folded: Folded, drawn: ReadonlySet<string>): UnchangedDrawing {
+  // Only ADDED and REMOVED units fold, and no unchanged edge touches them: nothing merges inside a fold here.
+  const merged = mergeEdges(unchanged, folded.foldOf);
+  const between = merged.edges.filter((edge) => drawn.has(edge.from) && drawn.has(edge.to));
+  return { edges: between, toUndrawn: merged.edges.length - between.length };
+}
+
 const LEDGER_RANK = { violation: 0, cycle: 1, unit: 2, edge: 3 } as const;
 interface RankedRow extends DeltaLedgerRow { rank: number }
 
-function unitRow(node: DeltaNode): RankedRow {
+/** A fold: its status, size and what it holds in one row, the member names as long as the row fits LEDGER_CELLS. */
+function foldRow(node: DeltaNode, command: string): RankedRow {
+  const members = node.fold ?? [];
+  const parent = node.key.slice(0, -1);
+  const names = members.map((member) => member.slice(parent.length));
+  const facts = [...unitFacts(node).slice(1), ...(node.foldEdges ? [`${plural(node.foldEdges, "edge")} inside`] : [])].join("; ");
+  const suffix = facts ? " (" + facts + ")" : "";
+  const start = `${node.status} ${plural(members.length, "unit")} ${node.key}${suffix}: `;
+  const row = (shown: number) => start + names.slice(0, shown).join(", ") + (shown === names.length ? "" : ` … and ${names.length - shown} more: ${command}`);
+  // A name and its separator take at least 3 cells: more than LEDGER_CELLS names never fit (bounds the loop on huge folds).
+  let shown = Math.min(names.length, LEDGER_CELLS);
+  while (shown > 0 && row(shown).length > LEDGER_CELLS) shown -= 1;
+  return { rank: LEDGER_RANK.unit, target: node.id, change: node.status, text: row(shown) };
+}
+
+function unitRow(node: DeltaNode, command: string): RankedRow {
+  if (node.fold) return foldRow(node, command);
   const rename = node.status === "RENAMED" ? node.label.slice(node.key.length + 1) : "";
   const detail = [...(rename ? [rename.slice(1, -1)] : []), ...unitFacts(node)].join(", ");
   const suffix = detail ? " (" + detail + ")" : "";
   return { rank: LEDGER_RANK.unit, target: node.id, change: node.status, text: `${node.status} unit ${node.key}${suffix}` };
 }
 
-function edgeRow(edge: DeltaEdge): RankedRow {
-  const label = (id: string) => keyOfId(id);
+function edgeRow(edge: DeltaEdge, keys: ReadonlyMap<string, string>): RankedRow {
+  const label = (id: string) => keys.get(id) ?? keyOfId(id);
   const pairs = edge.status === "CHANGED" ? `${range(edge.pairs)} file pairs` : plural(edge.pairs.after ?? edge.pairs.before ?? 0, "file pair");
   return { rank: LEDGER_RANK.edge, target: `edge:${edge.from}->${edge.to}`, change: edge.status, text: `${edge.status} edge ${label(edge.from)} -> ${label(edge.to)} (${pairs})` };
 }
 
 function cycleRow(cycle: Cycle): RankedRow {
-  return { rank: LEDGER_RANK.cycle, target: `cycle:${cycle.ids.join(",")}`, change: cycle.status, text: `${cycle.status} cycle ${cycle.keys.join(", ")}` };
+  return { rank: LEDGER_RANK.cycle, target: `cycle:${(cycle.unfolded ?? cycle.ids).join(",")}`, change: cycle.status, text: `${cycle.status} cycle ${cycle.keys.join(", ")}` };
 }
 
 function violationRow(row: ViolationRow): RankedRow {
@@ -288,18 +426,66 @@ function violationRow(row: ViolationRow): RankedRow {
   };
 }
 
-function cutLines(model: { base: string; head: string }, dropped: DeltaNode[], hidden: { edges: number; cycles: number; violations: number }, level: StructureLevelDiff, ledgerCut: number): string[] {
-  const command = `graph-it review-pr --base ${model.base} --head ${model.head} --format json`;
+/** What the unchanged edges leave out; absent when the review passed no head snapshot. */
+interface UnchangedCut { capped: number; toUndrawn: number; units: number }
+
+function unchangedCutLines(model: { head: string }, level: StructureLevelDiff, cut: UnchangedCut | undefined): string[] {
+  if (cut === undefined) return [`${plural(level.compared.unchangedEdges, "unchanged unit edge")} not drawn: the review passed no head snapshot`];
+  // The command lists the checked-out tree, not the head ref.
+  const command = model.head === "HEAD" ? UNITS_COMMAND : `at ${model.head}, ${UNITS_COMMAND}`;
+  return [
+    ...(cut.capped > 0 ? [`${plural(cut.capped, "unchanged unit edge")} between drawn units not drawn (cap ${MAX_DELTA_EDGES}): ${command}`] : []),
+    ...(cut.toUndrawn > 0 ? [`${plural(cut.toUndrawn, "unchanged unit edge")} to units not drawn: ${command}`] : []),
+    ...(cut.units > 0 ? [`${plural(cut.units, "unchanged unit")} not drawn: ${command}`] : []),
+  ];
+}
+
+const reviewCommand = (model: { base: string; head: string }) => `graph-it review-pr --base ${model.base} --head ${model.head} --format json`;
+
+function cutLines(model: { base: string; head: string }, dropped: DeltaNode[], hidden: { edges: number; cycles: number; violations: number }, level: StructureLevelDiff, ledgerCut: number, unchanged: UnchangedCut | undefined): string[] {
+  const command = reviewCommand(model);
   const changed = dropped.filter((node) => node.status !== "UNCHANGED");
-  const byStatus = words(STATUS_ORDER.map((status): [string, number] => [status.toLowerCase(), changed.filter((node) => node.status === status).length]));
+  // A fold stands for its members: a dropped fold of 40 units is 40 units not drawn.
+  const units = (nodes: DeltaNode[]) => nodes.reduce((sum, node) => sum + (node.fold?.length ?? 1), 0);
+  const byStatus = words(STATUS_ORDER.map((status): [string, number] => [status.toLowerCase(), units(changed.filter((node) => node.status === status))]));
   const rest = words([["edges", hidden.edges], ["cycles", hidden.cycles], ["violations", hidden.violations]]);
   return [
-    ...(changed.length > 0 ? [`${plural(changed.length, "changed unit")} not drawn (${byStatus}): ${command}`] : []),
+    ...(changed.length > 0 ? [`${plural(units(changed), "changed unit")} not drawn (${byStatus}): ${command}`] : []),
     ...(rest === "none" ? [] : [`${rest} not drawn: ${command}`]),
     ...(ledgerCut > 0 ? [`${plural(ledgerCut, "ledger row")} not drawn: ${command}`] : []),
     ...(level.movedFiles.length > 0 ? [`${plural(level.movedFiles.length, "file")} moved between units: not drawn: ${command}`] : []),
-    `${plural(level.compared.unchangedEdges, "unchanged unit edge")} not drawn`,
+    ...unchangedCutLines(model, level, unchanged),
   ];
+}
+
+/** The head map holds the unchanged edges the comparison counted; a gap means some are not drawn, never a silent drop. */
+function countWarning(unchanged: DeltaEdge[] | undefined, level: StructureLevelDiff): string[] {
+  if (unchanged === undefined || unchanged.length === level.compared.unchangedEdges) return [];
+  return [`The head snapshot holds ${plural(unchanged.length, "unchanged unit edge")}, the comparison ${level.compared.unchangedEdges}: the unchanged edges drawn may be incomplete.`];
+}
+
+/** The drawn edges among `units`: changed ones and, with a head snapshot, the unchanged ones between them. */
+function edgesAmong(folded: Folded, unchanged: DeltaEdge[] | undefined, units: ReadonlySet<string>): { context: UnchangedDrawing; drawnEdges: DeltaEdge[] } {
+  const context = unchanged ? drawUnchanged(unchanged, folded, units) : { edges: [], toUndrawn: 0 };
+  return { context, drawnEdges: selectEdges([...folded.edges, ...context.edges], units) };
+}
+
+/**
+ * The selected and filled units and their edges. With a head snapshot, a context unit that keeps no drawn edge and is in
+ * no drawn cycle is left out: the edge cap would make it a bare box (cal.com: a row of 21 cycle members).
+ */
+function drawWithContext(folded: Folded, unchanged: DeltaEdge[] | undefined, selected: ReadonlySet<string>, filled: DeltaNode[], cycles: Cycle[]) {
+  const all = new Set([...selected, ...filled.map((node) => node.id)]);
+  const first = edgesAmong(folded, unchanged, all);
+  if (!unchanged) return { added: filled, drawn: all, bare: 0, ...first };
+  const kept = new Set([
+    ...first.drawnEdges.flatMap((edge) => [edge.from, edge.to]),
+    ...cycles.filter((cycle) => cycle.ids.every((id) => all.has(id))).flatMap((cycle) => cycle.ids),
+  ]);
+  const bare = new Set([...folded.nodes.filter((node) => selected.has(node.id)), ...filled]
+    .filter((node) => node.status === "UNCHANGED" && !kept.has(node.id)).map((node) => node.id));
+  const drawn = new Set([...all].filter((id) => !bare.has(id)));
+  return { added: filled.filter((node) => !bare.has(node.id)), drawn, bare: bare.size, ...(bare.size === 0 ? first : edgesAmong(folded, unchanged, drawn)) };
 }
 
 /** Builds the model of the delta from the review's structure diff and rule review; pure, sync. */
@@ -313,33 +499,47 @@ export function buildDeltaModel(source: ArchitectureDeltaSource): DeltaModel {
   violationContext(source, level.items, nodes);
   const rows = violationRows(source, level.items, new Set(nodes.keys()));
   applyViolations(rows, nodes, edges);
-  const all = [...nodes.values()].toSorted((left, right) => byCodeUnit(left.id, right.id));
-  const { drawn, dropped } = select(all, edges, cycles);
-  const drawnEdges = selectEdges(edges, drawn);
-  const drawnCycles = cycles.filter((cycle) => cycle.ids.every((id) => drawn.has(id)));
+  const unfolded = [...nodes.values()].toSorted((left, right) => byCodeUnit(left.id, right.id));
+  const unchanged = source.headUnitEdges ? unchangedEdgeList(source.headUnitEdges, edges) : undefined;
+  // A rules-only change can break an unchanged edge: it is drawn red like a changed one (node counts are already set).
+  if (unchanged) applyViolations(rows, new Map(), unchanged);
+  // A violation end keeps its own box, so a merged edge never carries a violation.
+  const keep = new Set(rows.flatMap((row) => [row.fromId, row.toId]).filter((id) => id !== undefined));
+  const folded = foldUnits([...nodes.values()], edges, keep);
+  // A cycle that holds every removed unit (cal.com app-store) is drawn on the fold: its ring and members follow the fold ids.
+  const foldedCycles = cycles.map((cycle) => ({ ...cycle, ids: [...new Set(cycle.ids.map((id) => folded.foldOf.get(id) ?? id))], unfolded: cycle.ids }));
+  const selected = select(folded.nodes.toSorted((left, right) => byCodeUnit(left.id, right.id)), folded.edges, foldedCycles);
+  const filler = unchanged ? fillContext(new Set(nodes.keys()), folded, selected.drawn, unchanged) : { added: [], undrawn: 0 };
+  const { added, drawn, bare, context, drawnEdges } = drawWithContext(folded, unchanged, selected.drawn, filler.added, foldedCycles);
+  const all = [...folded.nodes, ...added].toSorted((left, right) => byCodeUnit(left.id, right.id));
+  const { dropped } = selected;
+  const drawnChanged = drawnEdges.filter((edge) => edge.status !== "UNCHANGED");
+  const drawnCycles = foldedCycles.filter((cycle) => cycle.ids.every((id) => drawn.has(id)));
   const drawnNodes = all.filter((node) => drawn.has(node.id));
-  markCycles(nodes, drawnEdges, drawnCycles);
+  markCycles(new Map(all.map((node) => [node.id, node])), drawnEdges, drawnCycles);
+  const refs = { base: source.baseRef, head: source.headRef };
+  const keys = new Map(all.map((node) => [node.id, node.key] as const));
   const ledger = [
     ...rows.map(violationRow),
     ...drawnCycles.map(cycleRow),
-    ...drawnNodes.filter((node) => node.status !== "UNCHANGED").map(unitRow),
-    ...drawnEdges.map(edgeRow),
+    ...drawnNodes.filter((node) => node.status !== "UNCHANGED").map((node) => unitRow(node, reviewCommand(refs))),
+    ...drawnChanged.map((edge) => edgeRow(edge, keys)),
   ].toSorted((left, right) => left.rank - right.rank || byCodeUnit(`${left.target}\0${left.change}`, `${right.target}\0${right.change}`));
   const unique = [...new Map(ledger.map((row) => [`${row.target}\0${row.change}`, row])).values()];
   const hidden = {
-    edges: edges.length - drawnEdges.length,
-    cycles: cycles.length - drawnCycles.length,
+    edges: folded.edges.length - drawnChanged.length,
+    cycles: foldedCycles.length - drawnCycles.length,
     violations: rows.filter((row) => (row.fromId !== undefined && !drawn.has(row.fromId)) || (row.toId !== undefined && !drawn.has(row.toId))).length,
   };
-  const refs = { base: source.baseRef, head: source.headRef };
+  const unchangedCut = unchanged && { capped: context.edges.length - (drawnEdges.length - drawnChanged.length), toUndrawn: context.toUndrawn, units: filler.undrawn + bare };
   return {
     refs,
     nodes: drawnNodes,
     edges: drawnEdges,
     ledger: unique.slice(0, MAX_DELTA_LEDGER).map(({ target, change, text }) => ({ target, change, text })),
-    cut: cutLines(refs, dropped, hidden, level, Math.max(0, unique.length - MAX_DELTA_LEDGER)),
-    counts: countsLine(level, all, cycles, rows),
-    warnings: source.structure?.warnings ?? [],
+    cut: cutLines(refs, dropped, hidden, level, Math.max(0, unique.length - MAX_DELTA_LEDGER), unchangedCut),
+    counts: countsLine(level, unfolded, cycles, rows),
+    warnings: [...(source.structure?.warnings ?? []), ...countWarning(unchanged, level)],
   };
 }
 

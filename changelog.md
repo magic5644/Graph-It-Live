@@ -8,6 +8,7 @@
 
 ### Changed
 
+- **Architecture delta readable at scale** (#843). The delta diagram folds four or more added (or removed) units of one folder into one box (cal.com: 40 removed `app-store` packages are one node; rewired, changed and renamed units are never folded), draws the unchanged unit edges between drawn units as thin arrows, and fills free unit slots with the unchanged units most linked to the changes. The cut lines say what stays out and the command that lists it. `review-pr --deltaSvg` and `diagram --delta` still write the same SVG; the `review-pr` output is unchanged.
 - **`gone` on structure edges and cycles** (#449). A `structure` unit edge or cycle of `review-pr` (CLI, JSON, TOON, MCP) gains an optional `gone` field naming the ends that are removed units whose key a head unit reuses: additive, absent otherwise.
 
 ## v1.26.1

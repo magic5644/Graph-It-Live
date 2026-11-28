@@ -330,11 +330,13 @@ const DEFAULT_REFS: CompareStructureOptions["refs"] = { base: "base", head: "hea
  * has a config. The structure (units and folder groups) is compared whether or not a config exists, when both sides carry a snapshot.
  */
 export function reviewArchitecture({ head, base, limitations, renames, workingTree }: ReviewTrees, changedFiles: readonly string[], refs: CompareStructureOptions["refs"] = DEFAULT_REFS):
-  { review?: ArchitectureReview; structure?: ArchitectureStructureDiff; limitations: string[] } {
+  { review?: ArchitectureReview; structure?: ArchitectureStructureDiff; headUnitEdges?: ReadonlyMap<string, number>; limitations: string[] } {
   const structure = base.structure && head.structure ? compareStructure(base.structure, head.structure, { renames, refs, workingTree }) : undefined;
-  if (head.config === undefined && base.config === undefined) return { ...(structure ? { structure } : {}), limitations };
+  // The delta SVG draws the unchanged unit edges from the head map (#843); the review result never carries it.
+  const headUnitEdges = head.structure ? { headUnitEdges: head.structure.units.edges } : {};
+  if (head.config === undefined && base.config === undefined) return { ...(structure ? { structure } : {}), ...headUnitEdges, limitations };
   const rulesFilesChanged = changedFiles.some((file) => [ARCHITECTURE_CONFIG_FILE, ARCHITECTURE_BASELINE_FILE].includes(normalizePath(file)));
-  return { review: compareArchitecture(base, head, rulesFilesChanged), ...(structure ? { structure } : {}), limitations };
+  return { review: compareArchitecture(base, head, rulesFilesChanged), ...(structure ? { structure } : {}), ...headUnitEdges, limitations };
 }
 
 /** The architecture section of the review-pr markdown report; `safe` sanitizes table cells and list items. */

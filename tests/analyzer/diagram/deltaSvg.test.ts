@@ -30,7 +30,7 @@ describe("renderArchitectureDelta", () => {
     expect(ids(before, "edge").toSorted()).toEqual(["api->-legacy", "web->api"]);
     expect(ids(after, "edge").toSorted()).toEqual(["api->billing", "db->api", "web->api"]);
     expect(counts).toContain("units");
-    expect(cut).toContain("3 unchanged unit edges not drawn");
+    expect(cut).toContain("3 unchanged unit edges not drawn: the review passed no head snapshot");
     for (const unit of doc.querySelectorAll('g[data-kind="unit"]')) {
       expect(unit.querySelector('rect[data-role="bounds"]')).not.toBeNull();
       expect(unit.getAttribute("data-status")).toMatch(/^(ADDED|REMOVED|CHANGED|RENAMED|REWIRED|UNCHANGED)$/);
@@ -131,8 +131,8 @@ describe("renderArchitectureDelta", () => {
     const { markup, warnings } = await renderArchitectureDelta({ ...SOURCE(), structure: { ...SOURCE().structure!, warnings: ["Git rename detection failed"] } });
     expect(warnings).toEqual(["Git rename detection failed"]);
     expect(markup).toContain("warning: Git rename detection failed");
-    expect(markup).toContain("3 unchanged unit edges not drawn");
-    for (const word of ["ADDED", "REMOVED", "CHANGED", "RENAMED", "REWIRED", "UNCHANGED (context)"]) expect(markup).toContain(`>${word}</text>`);
+    expect(markup).toContain("3 unchanged unit edges not drawn: the review passed no head snapshot");
+    for (const word of ["ADDED", "REMOVED", "CHANGED", "RENAMED", "REWIRED", "UNCHANGED (context unit or edge)"]) expect(markup).toContain(`>${word}</text>`);
   });
 
   it("marks a violation edge red on the side where it exists and a resolved one in Before", async () => {
@@ -182,5 +182,52 @@ describe("deltaChanged", () => {
     const source = deltaSource({ items: [item("CHANGED", "a")], edges: [edge("CHANGED", "a", "b")] });
     expect(deltaUnchangedLine({ ...source, baseRef: "main", headRef: "feature" })).toBe(
       "No architecture change between main and feature (1 unit, 1 unit edge compared; 1 unit and 1 unit edge only changed size (file or file-pair counts)): no diagram written.");
+  });
+});
+
+describe("renderArchitectureDelta unchanged edges and folds (#843)", () => {
+  const source = () => deltaSource({ items: [item("ADDED", "a")], edges: [edge("ADDED", "a", "c")], head: [["a", "b", 3], ["c", "a", 2]], unchangedEdges: 2 });
+
+  it("draws an unchanged edge in both panels, thin, solid, kind down, beneath the changed edges", async () => {
+    const doc = parse((await renderArchitectureDelta(source())).markup);
+    const edges = [...doc.querySelectorAll('g[data-snapshot="after"] [data-kind="edge"]')];
+    const unchanged = edges.filter((el) => el.getAttribute("data-status") === "UNCHANGED");
+    expect(unchanged.map((el) => el.getAttribute("data-object-id"))).toEqual(["a->b", "c->a"]);
+    for (const el of unchanged) {
+      expect(el.getAttribute("class")).toContain("s-down");
+      expect(el.getAttribute("marker-end")).toBe("url(#arrow-down)");
+      expect(el.getAttribute("stroke-width")).toBe(String(DELTA.UNCHANGED.width));
+      expect(el.hasAttribute("stroke-dasharray")).toBe(false);
+    }
+    expect(edges.at(-1)!.getAttribute("data-status")).toBe("ADDED");
+    // both ends exist before: the edge is in Before too, with the same count label
+    expect(ids(panel(doc, "before"), "edge")).toEqual([]);
+    const withBefore = parse((await renderArchitectureDelta(deltaSource({ items: [item("CHANGED", "a", { role: { before: "x", after: "y" } })], head: [["a", "b", 3]], unchangedEdges: 1 }))).markup);
+    expect(ids(panel(withBefore, "before"), "edge")).toEqual(["a->b"]);
+    expect(ids(panel(withBefore, "after"), "edge")).toEqual(["a->b"]);
+  });
+
+  it("names the context unit or edge in the legend and draws a fold with its unit count", async () => {
+    const { markup } = await renderArchitectureDelta(deltaSource({ items: Array.from({ length: 5 }, (_, index) => item("REMOVED", `pkg/p${index}`)) }));
+    expect(markup).toContain(">UNCHANGED (context unit or edge)</text>");
+    expect(markup).toContain("REMOVED · 5 units · files 15");
+    expect(markup).toContain('data-object-id="REMOVED:pkg/*"');
+  });
+
+  it("stacks Before above After when two panels side by side would pass 4000 px, and keeps them side by side otherwise", async () => {
+    const layout = await layoutDelta(buildDeltaModel(source()));
+    const wide = parse(renderDeltaSvg({ ...layout, width: 2400, height: 300 }));
+    const [before, after] = ["before", "after"].map((name) => panel(wide, name).getAttribute("transform")!.match(/translate\((\d+) (\d+)\)/)!.slice(1).map(Number));
+    expect(after[0]).toBe(before[0]);
+    expect(after[1]).toBeGreaterThanOrEqual(before[1] + 300);
+    expect(Number(wide.documentElement.getAttribute("width"))).toBeLessThan(4000);
+    const narrow = parse(renderDeltaSvg({ ...layout, width: 800, height: 300 }));
+    const [narrowBefore, narrowAfter] = ["before", "after"].map((name) => panel(narrow, name).getAttribute("transform")!);
+    expect(narrowAfter.split(" ")[1]).toBe(narrowBefore.split(" ")[1]);
+  });
+
+  it("is still not a change when only sizes changed, with the head map or without", () => {
+    const sized = deltaSource({ items: [item("CHANGED", "a")], edges: [edge("CHANGED", "a", "b")], head: [["a", "b"]], unchangedEdges: 0 });
+    expect(deltaChanged(sized)).toBe(false);
   });
 });

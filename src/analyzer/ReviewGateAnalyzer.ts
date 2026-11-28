@@ -141,7 +141,13 @@ export interface ReviewGateResult {
   limitations: string[];
 }
 
-export type ArchitectureDeltaSource = Pick<ReviewGateResult, "baseRef" | "headRef" | "architecture" | "structure"> & { limitations: string[] };
+export type ArchitectureDeltaSource = Pick<ReviewGateResult, "baseRef" | "headRef" | "architecture" | "structure"> & {
+  limitations: string[];
+  /** Head unit edges (`from\0to` -> file pairs): the delta draws the unchanged ones; never part of a ReviewGateResult (#843). */
+  headUnitEdges?: ReadonlyMap<string, number>;
+};
+
+type ArchitectureReading = { review?: ArchitectureReview; structure?: ArchitectureStructureDiff; headUnitEdges?: ReadonlyMap<string, number>; limitations: string[] };
 
 export interface SymbolDependentsProvider {
   getSymbolDependents(filePath: string, symbolName: string): Promise<Array<{ sourceSymbolId: string }>>;
@@ -161,7 +167,7 @@ export interface SymbolDependentsProvider {
   /** Import cycles among `changedFiles` that the diff from `baseRef` to `headRef` adds; absent when the host cannot read the base. */
   findFileCycles?(changedFiles: string[], baseRef: string, headRef: string): Promise<FileCycleAnalysis>;
   /** The architecture rules checked on the base and the head, compared; no review when neither has a config. */
-  reviewArchitecture?(changedFiles: string[], baseRef: string, headRef: string): Promise<{ review?: ArchitectureReview; structure?: ArchitectureStructureDiff; limitations: string[] }>;
+  reviewArchitecture?(changedFiles: string[], baseRef: string, headRef: string): Promise<ArchitectureReading>;
 }
 
 type ReviewDependent = Pick<SymbolDependency, "sourceSymbolId"> & Partial<Pick<SymbolDependency, "relation" | "line">>;
@@ -263,6 +269,11 @@ export class ReviewGateAnalyzer {
   }
 
   async analyze(options: ReviewGateOptions): Promise<ReviewGateResult> {
+    return (await this.analyzeWithDelta(options)).result;
+  }
+
+  /** analyze() plus the head unit edges the delta SVG draws as context; the result is the one analyze() returns. */
+  async analyzeWithDelta(options: ReviewGateOptions): Promise<{ result: ReviewGateResult; headUnitEdges?: ReadonlyMap<string, number> }> {
     const maxFiles = this.validateLimit(options.maxFiles, DEFAULT_MAX_FILES, Number.POSITIVE_INFINITY, "maxFiles");
     const maxDepth = this.validateLimit(options.maxDepth, DEFAULT_MAX_DEPTH, MAX_MAX_DEPTH, "maxDepth");
     const headRef = await this.checkRefs(options.baseRef, options.headRef);
@@ -309,7 +320,7 @@ export class ReviewGateAnalyzer {
     symbols.sort((a, b) => b.score - a.score || a.filePath.localeCompare(b.filePath) || a.name.localeCompare(b.name));
     const symbolScore = symbols.reduce((highest, symbol) => Math.max(highest, symbol.score), 0);
     const score = architecture.review?.newErrors ? Math.max(symbolScore, ARCHITECTURE_ERROR_SCORE) : symbolScore;
-    return {
+    const result: ReviewGateResult = {
       baseRef: options.baseRef,
       headRef,
       changedFiles,
@@ -322,6 +333,7 @@ export class ReviewGateAnalyzer {
       isPartial: limitations.length > 0,
       limitations,
     };
+    return { result, ...(architecture.headUnitEdges ? { headUnitEdges: architecture.headUnitEdges } : {}) };
   }
 
   /** analyze() minus the symbol work: the architecture review and structure diff only. Throws an invalid head rules file. */
@@ -336,6 +348,7 @@ export class ReviewGateAnalyzer {
       headRef,
       ...(architecture.review ? { architecture: architecture.review } : {}),
       ...(architecture.structure ? { structure: architecture.structure } : {}),
+      ...(architecture.headUnitEdges ? { headUnitEdges: architecture.headUnitEdges } : {}),
       limitations: architecture.limitations,
     };
   }
@@ -361,7 +374,7 @@ export class ReviewGateAnalyzer {
   }
 
   /** The architecture review and structure diff, or why they are unavailable; settles (never rejects), an invalid head rules file is `fatal`. */
-  private async collectArchitecture(changedFiles: string[], baseRef: string, headRef: string): Promise<{ review?: ArchitectureReview; structure?: ArchitectureStructureDiff; limitations: string[]; fatal?: Error }> {
+  private async collectArchitecture(changedFiles: string[], baseRef: string, headRef: string): Promise<ArchitectureReading & { fatal?: Error }> {
     if (!this.dependents?.reviewArchitecture) return { limitations: [] };
     try {
       return await this.dependents.reviewArchitecture(changedFiles, baseRef, headRef);

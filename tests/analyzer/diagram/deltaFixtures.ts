@@ -8,6 +8,8 @@ export interface DeltaParts {
   cycles?: StructureCycleDiff[];
   movedFiles?: number;
   unchangedEdges?: number;
+  /** Head unit edges `[from, to, file pairs]`: the map the delta draws the unchanged edges from. */
+  head?: [string, string, number?][];
   rules?: Partial<ArchitectureRuleReview>[];
   warnings?: string[];
   verdict?: "changed" | "unchanged";
@@ -57,5 +59,6 @@ export function deltaSource(parts: DeltaParts = {}): ArchitectureDeltaSource {
     verdict: "unchanged", configFile: "graphit.architecture.json", newErrors: 0, rules,
     unitCycles: { newViolations: [], resolvedViolations: [], unchanged: 0 },
   } as ArchitectureReview;
-  return { baseRef: "main", headRef: "feature", structure, architecture, limitations: [] };
+  const headUnitEdges = parts.head && new Map(parts.head.map(([from, to, count]) => [`${from}\0${to}`, count ?? 1] as const));
+  return { baseRef: "main", headRef: "feature", structure, architecture, limitations: [], ...(headUnitEdges ? { headUnitEdges } : {}) };
 }

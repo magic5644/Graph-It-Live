@@ -9,14 +9,15 @@
 
 import type { ArchitectureDeltaSource } from "../ReviewGateAnalyzer";
 import { fitLabel, sanitizeText, textWidth } from "./architectureDiagram";
-import { buildDeltaModel, layoutDelta, type DeltaEdge, type DeltaLayout, type DeltaPlacedNode, type DeltaStatus } from "./architectureDelta";
+import { buildDeltaModel, LEDGER_CELLS, layoutDelta, type DeltaEdge, type DeltaLayout, type DeltaPlacedNode, type DeltaStatus } from "./architectureDelta";
 import { CLASSES, escapeXml, markers, text, variables } from "./diagramSvg";
 import { DELTA, PALETTES, SIZES, snap, type DiagramTheme } from "./diagramStyle";
 
 const GAP = 48;
 const ROW = 18;
-const MAX_LINE_CELLS = 170;
 const LEGEND_WIDTH = 760;
+/** Side by side only while the SVG stays at most this wide: a wider pair is stacked, Before above After (#843). */
+const MAX_SIDE_BY_SIDE = 4000;
 
 const DELTA_CSS = [
   ".dnode{fill:var(--surface)}",
@@ -58,7 +59,8 @@ function middle(points: readonly { x: number; y: number }[]): { x: number; y: nu
 function edgeMarkup(edge: DeltaEdge & { points: { x: number; y: number }[] }, snapshot: "before" | "after"): string {
   // A violation is red on the side where it exists: a resolved one in Before, a new or accepted one in After.
   const broken = snapshot === "before" ? edge.violation === "resolved" : edge.violation === "new" || edge.violation === "accepted";
-  const kind = broken ? "error" : "upward";
+  const context = edge.status === "UNCHANGED" ? "down" : "upward";
+  const kind = broken ? "error" : context;
   const path = edge.points.map((point, index) => `${index === 0 ? "M" : "L"}${point.x} ${point.y}`).join("");
   const count = snapshot === "before" ? edge.pairs.before : edge.pairs.after;
   const rules = edge.rules.length > 0 ? "; " + edge.rules.join(", ") : "";
@@ -77,11 +79,11 @@ function panelMarkup(layout: DeltaLayout, snapshot: "before" | "after", x: numbe
   const edges = layout.edges.filter((edge) => edge.status !== absent && ids.has(edge.from) && ids.has(edge.to));
   return text(x, y - 12, "heading", heading) +
     `<g data-snapshot="${snapshot}" data-grid="${layout.width}x${layout.height}" transform="translate(${x} ${y})">` +
-    `${edges.map((edge) => edgeMarkup(edge, snapshot)).join("")}${nodes.map((node) => nodeMarkup(node, snapshot)).join("")}</g>`;
+    `${edges.toSorted((left, right) => Number(right.status === "UNCHANGED") - Number(left.status === "UNCHANGED")).map((edge) => edgeMarkup(edge, snapshot)).join("")}${nodes.map((node) => nodeMarkup(node, snapshot)).join("")}</g>`;
 }
 
 const STATUS_WORDS: [DeltaStatus, string][] = [
-  ["ADDED", "ADDED"], ["REMOVED", "REMOVED"], ["CHANGED", "CHANGED"], ["RENAMED", "RENAMED"], ["REWIRED", "REWIRED"], ["UNCHANGED", "UNCHANGED (context)"],
+  ["ADDED", "ADDED"], ["REMOVED", "REMOVED"], ["CHANGED", "CHANGED"], ["RENAMED", "RENAMED"], ["REWIRED", "REWIRED"], ["UNCHANGED", "UNCHANGED (context unit or edge)"],
 ];
 
 function legendMarkup(y: number): string {
@@ -104,13 +106,16 @@ export function renderDeltaSvg(layout: DeltaLayout, theme: DiagramTheme = "light
   const [first, ...more] = model.counts.split(" · ");
   const countLines = [first, more.join(" · ")];
   const panel = Math.max(layout.width, textWidth(`Before · ${model.refs.base}`, SIZES.label));
-  const footer = [...model.cut, ...model.warnings.map((warning) => `warning: ${warning}`)].map((line) => fitLabel(line, MAX_LINE_CELLS));
-  const ledger = model.ledger.map((row) => ({ ...row, text: fitLabel(row.text, MAX_LINE_CELLS) }));
+  const footer = [...model.cut, ...model.warnings.map((warning) => `warning: ${warning}`)].map((line) => fitLabel(line, LEDGER_CELLS));
+  const ledger = model.ledger.map((row) => ({ ...row, text: fitLabel(row.text, LEDGER_CELLS) }));
   const lines = [...footer, ...ledger.map((row) => row.text), NOTE, ...countLines];
-  const width = snap(margin * 2 + Math.max(2 * panel + GAP, ...lines.map((line) => textWidth(line, SIZES.caption)), LEGEND_WIDTH));
+  const stacked = 2 * (panel + margin) + GAP > MAX_SIDE_BY_SIDE;
+  const width = snap(margin * 2 + Math.max(stacked ? panel : 2 * panel + GAP, ...lines.map((line) => textWidth(line, SIZES.caption)), LEGEND_WIDTH));
   const top = margin + 84;
   const originY = top + 28;
-  const ledgerY = originY + Math.max(layout.height, SIZES.nodeHeight) + 40;
+  const panelHeight = Math.max(layout.height, SIZES.nodeHeight);
+  const afterY = stacked ? originY + panelHeight + 56 : originY;
+  const ledgerY = afterY + panelHeight + 40;
   const footerY = ledgerY + 24 + ROW * ledger.length + 16;
   const height = snap(footerY + ROW * (footer.length + 1) + 16 + SIZES.legendHeight);
   const title = `Architecture delta · ${fitLabel(model.refs.base, 48)} -> ${fitLabel(model.refs.head, 48)}`;
@@ -126,7 +131,7 @@ export function renderDeltaSvg(layout: DeltaLayout, theme: DiagramTheme = "light
     text(margin, margin + 36, "caption", countLines[0]),
     text(margin, margin + 54, "caption", countLines[1]),
     panelMarkup(layout, "before", margin, originY, `Before · ${fitLabel(model.refs.base, 48)}`),
-    panelMarkup(layout, "after", margin + panel + GAP, originY, `After · ${fitLabel(model.refs.head, 48)}`),
+    panelMarkup(layout, "after", stacked ? margin : margin + panel + GAP, afterY, `After · ${fitLabel(model.refs.head, 48)}`),
     text(margin, ledgerY, "heading", `Changes (${ledger.length})`),
     ...ledger.map((row, index) => `<text class="ledger" x="${margin}" y="${ledgerY + 24 + ROW * index}" data-target="${escapeXml(row.target)}" data-change="${escapeXml(row.change)}">${escapeXml(row.text)}</text>`),
     ...footer.map((line, index) => text(margin, footerY + ROW * index, "caption", line)),

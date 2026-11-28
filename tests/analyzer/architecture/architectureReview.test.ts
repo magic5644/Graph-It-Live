@@ -209,7 +209,8 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
   it("reports a new violation of the working tree, with its importing line, and a new unit cycle", async () => {
     const root = createWorkspace({});
     write(root, { "frontend/app.ts": IMPORTS_BACKEND, "backend/db.ts": 'import { app } from "../frontend/app";\nexport const db = 1;\nexport const used = app;\n' });
-    const { review, limitations } = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["backend/db.ts", "frontend/app.ts"]);
+    const { review, limitations, headUnitEdges } = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["backend/db.ts", "frontend/app.ts"]);
+    expect(headUnitEdges).toBeInstanceOf(Map);
     expect(limitations).toEqual([]);
     expect(review).toMatchObject({ verdict: "degraded", newErrors: 1, configFile: "graphit.architecture.json" });
     expect(review?.configChange).toBeUndefined();
@@ -257,6 +258,13 @@ describe("reviewArchitecture", { timeout: 60_000 }, () => {
     write(root, { "graphit.architecture.json": null });
     const removed = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["graphit.architecture.json"]);
     expect(removed.review).toMatchObject({ verdict: "unchanged", rules: [], configChange: { rules: { removed: ["backend-not-frontend", "frontend-not-backend"] } } });
+  });
+
+  it("returns the head unit edges, with or without a config (#843)", async () => {
+    const root = createWorkspace({}, false);
+    write(root, { "frontend/app.ts": IMPORTS_BACKEND });
+    const { headUnitEdges } = reviewArchitecture(await readReviewTrees(host(root), "main", "HEAD"), ["frontend/app.ts"]);
+    expect(headUnitEdges).toBeInstanceOf(Map);
   });
 
   it("returns no review when neither side has a config", async () => {
