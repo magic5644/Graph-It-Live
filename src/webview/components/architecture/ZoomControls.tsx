@@ -2,7 +2,6 @@
  * Zoom of the Architecture view's diagrams: the toolbar over a canvas, its keys, and the zoom and pan
  * of the Flow and Sequence tabs (the Units and Folder canvases zoom through Cytoscape).
  */
-import React from "react";
 
 export type ZoomAction = "fit" | "in" | "out" | "reset";
 /** Keys of a focused diagram: 0 fits, + (or =) zooms in, - zooms out. */
