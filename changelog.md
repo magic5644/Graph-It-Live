@@ -1,20 +1,36 @@
 # Changelog
 
-## Unreleased
+## v1.26.2
+
+Patch release on architecture reviews: `graph-it review-pr` now compares the structure of the head with the base, and `graph-it diagram --delta` draws that comparison as a Before/After SVG. The MCP server also serves the five agent skills.
+
+[![graph-it diagram --delta on the legacy-shop demo after a refactor commit: Before and After on the same grid; the units store and money are added, legacy is removed, ui shrinks from 2 files to 1, and the cycles billing-orders and domain-ui are resolved; the list of 16 changes follows](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-delta.png)](https://github.com/magic5644/Graph-It-Live/raw/HEAD/media/architecture-delta.png)
+
+*`graph-it diagram --delta --base HEAD~1` after one refactor commit: two new units, one removed, both cycles resolved.*
 
 ### Added
 
-- **Architecture delta diagram** (#449). `graph-it diagram --delta --base <ref> [--head <ref>]` writes `architecture-delta.svg`: Before and After on the same grid, then the list of every change (units, unit edges, cycles, rule violations), each status told by word and border. `graph-it review-pr --deltaSvg <file.svg>` writes the same diagram from the review's own comparison. The Review Gate action has a new input `delta-diagram` (default `true`, CLI 1.26.2 or newer): it uploads the SVG as the artifact `graph-it-architecture-delta` and links it in the PR comment. Nothing is drawn when only file or file-pair counts changed.
+- **Before/after structure comparison in `review-pr`** (#345). Every review in CLI text, JSON and TOON, and the MCP `graphitlive_review_pr` result, has a `structure` section that compares the head with the base at two levels: units, then the folders of each unit. It lists added, removed, renamed and changed units and folders, files that moved between them, and unit edges and cycles that appeared or were resolved. Items are matched by file overlap after Git rename detection, so a renamed folder is one `RENAMED` item, not a removal plus an addition. The Markdown report adds an *Architecture structure* section when the structure changed or carries a warning; SARIF does not carry it. `structure` never changes the risk, the score or the gate.
+  ```bash
+  graph-it review-pr --base origin/main --format json   # .structure.verdict: changed | unchanged | empty
+  ```
+- **Architecture delta diagram** (#449). `graph-it diagram --delta --base <ref> [--head <ref>]` writes `architecture-delta.svg`: Before and After on the same grid, then the list of every change (units, unit edges, cycles, rule violations), each status told by word and border. `graph-it review-pr --deltaSvg <file.svg>` writes the same diagram from the review's own comparison. Nothing is drawn when only file or file-pair counts changed. The Review Gate action has a new input `delta-diagram` (default `true`, CLI 1.26.2 or newer): it uploads the SVG as the artifact `graph-it-architecture-delta` and links it in the PR comment.
+- **Agent skills over MCP** (#837). `graph-it serve` and the server the extension starts serve the five agent skills through the MCP Skills extension (`io.modelcontextprotocol/skills`), so a client that supports it (Claude Code, as `/graph-it-live:pr-review`) loads a skill only when it needs it, at the server's version. `graph-it serve --no-skills` turns it off.
 
 ### Changed
 
-- **Architecture delta readable at scale** (#843). The delta diagram folds four or more added (or removed) units of one folder into one box (cal.com: 40 removed `app-store` packages are one node; rewired, changed and renamed units are never folded), draws the unchanged unit edges between drawn units as thin arrows, and fills free unit slots with the unchanged units most linked to the changes. The cut lines say what stays out and the command that lists it. `review-pr --deltaSvg` and `diagram --delta` still write the same SVG; the `review-pr` output is unchanged.
-- **Agent routing by task** (#401). The `graph-it-live` skill states the two missing routes: before editing an exported symbol, run one callers or impact query; when the graph fails or cannot answer, say so, then fall back to text search or direct reads. A known file or symbol still gets a bounded direct read, with no graph call.
-- **`gone` on structure edges and cycles** (#449). A `structure` unit edge or cycle of `review-pr` (CLI, JSON, TOON, MCP) gains an optional `gone` field naming the ends that are removed units whose key a head unit reuses: additive, absent otherwise.
+- **Architecture delta readable at scale** (#843). The delta diagram folds four or more added (or removed) units of one folder into one box (cal.com: 40 removed `app-store` packages are one node; rewired, changed and renamed units are never folded), draws the unchanged unit edges between drawn units as thin arrows, and fills free unit slots with the unchanged units most linked to the changes. The cut lines say what stays out and the command that lists it.
+- **`gone` on structure edges and cycles** (#449). A removed unit edge or cycle of `structure` gains an optional `gone` field naming its ends (or members) that are base keys with no head match: additive, absent otherwise.
+- **Agent routing by task** (#401). The `graph-it-live` skill states two more routes: before editing an exported symbol, run one callers or impact query; when the graph fails or cannot answer, say so, then fall back to text search or direct reads. A known file or symbol still gets a bounded direct read, with no graph call.
+- **Dependencies**: `elkjs` 0.12.2, `ignore` 7.0.17, `eslint` 10.16.0, `@types/react` 19.3.3, `@types/sql.js` 1.16.1. `npm audit`: 0 vulnerabilities.
 
 ### Fixed
 
-- **Architecture delta names the working tree** (#849). Without `--head`, `review-pr` and `diagram --delta` compare the working tree: the delta SVG title, its After panel, the "No architecture change" line and the CLI messages for an empty or unreadable comparison now say `working tree` instead of `HEAD`, and the commands they suggest no longer add `--head HEAD`.
+- **Architecture delta names the working tree** (#849). Without `--head` (or with `--head HEAD`), `review-pr` and `diagram --delta` compare the working tree: the delta SVG title, its After panel, the "No architecture change" line and the CLI messages for an empty or unreadable comparison now say `working tree` instead of `HEAD`, and the commands they suggest no longer add `--head HEAD`.
+
+### Known limits
+
+- On a dense delta (cal.com, 121 units), some edge-weight numbers touch or overlap (`285` and `9` read `2859`). Fix tracked in #848 (1.26.3).
 
 ## v1.26.1
 
