@@ -12,6 +12,10 @@
 - **Agent routing by task** (#401). The `graph-it-live` skill states the two missing routes: before editing an exported symbol, run one callers or impact query; when the graph fails or cannot answer, say so, then fall back to text search or direct reads. A known file or symbol still gets a bounded direct read, with no graph call.
 - **`gone` on structure edges and cycles** (#449). A `structure` unit edge or cycle of `review-pr` (CLI, JSON, TOON, MCP) gains an optional `gone` field naming the ends that are removed units whose key a head unit reuses: additive, absent otherwise.
 
+### Fixed
+
+- **Architecture delta names the working tree** (#849). Without `--head`, `review-pr` and `diagram --delta` compare the working tree: the delta SVG title, its After panel and the "No architecture change" line now say `working tree` instead of `HEAD`, and the commands it suggests no longer add `--head HEAD`.
+
 ## v1.26.1
 
 Patch release on the *Flow* and *Seq* tabs of VS Code: they draw the symbol at the cursor on a click, zoom and pan, and no longer say *No calls found* for a symbol that makes calls.

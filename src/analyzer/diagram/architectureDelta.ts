@@ -23,6 +23,9 @@ export const MAX_DELTA_LEDGER = 60;
 export const MAX_DELTA_EDGES = 60;
 /** A folder holding at least this many ADDED (or REMOVED) units is drawn as one box (#843). */
 export const MIN_FOLD = 4;
+
+/** The head as a reader names it: review-pr without --head (headRef "HEAD") reads the working tree, not the last commit. */
+export const headLabel = (headRef: string): string => (headRef === "HEAD" ? "working tree" : headRef);
 /** Cells of a ledger or footer line; a longer one is cut by the renderer. */
 export const LEDGER_CELLS = 170;
 const UNITS_COMMAND = "graph-it architecture --level units --format json";
@@ -440,7 +443,9 @@ function unchangedCutLines(model: { head: string }, level: StructureLevelDiff, c
   ];
 }
 
-const reviewCommand = (model: { base: string; head: string }) => `graph-it review-pr --base ${model.base} --head ${model.head} --format json`;
+// No --head for the working tree: --head HEAD would read the same tree, but reads as the last commit.
+const reviewCommand = (model: { base: string; head: string }) =>
+  ["graph-it review-pr --base", model.base, ...(model.head === "HEAD" ? [] : ["--head", model.head]), "--format json"].join(" ");
 
 function cutLines(model: { base: string; head: string }, dropped: DeltaNode[], hidden: { edges: number; cycles: number; violations: number }, level: StructureLevelDiff, ledgerCut: number, unchanged: UnchangedCut | undefined): string[] {
   const command = reviewCommand(model);
