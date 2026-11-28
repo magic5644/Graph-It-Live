@@ -9,7 +9,7 @@
 
 import type { ArchitectureDeltaSource } from "../ReviewGateAnalyzer";
 import { fitLabel, sanitizeText, textWidth } from "./architectureDiagram";
-import { buildDeltaModel, LEDGER_CELLS, layoutDelta, type DeltaEdge, type DeltaLayout, type DeltaPlacedNode, type DeltaStatus } from "./architectureDelta";
+import { buildDeltaModel, headLabel, LEDGER_CELLS, layoutDelta, type DeltaEdge, type DeltaLayout, type DeltaPlacedNode, type DeltaStatus } from "./architectureDelta";
 import { CLASSES, escapeXml, markers, text, variables } from "./diagramSvg";
 import { DELTA, PALETTES, SIZES, snap, type DiagramTheme } from "./diagramStyle";
 
@@ -105,7 +105,7 @@ export function renderDeltaSvg(layout: DeltaLayout, theme: DiagramTheme = "light
   const margin = SIZES.margin;
   const [first, ...more] = model.counts.split(" · ");
   const countLines = [first, more.join(" · ")];
-  const panel = Math.max(layout.width, textWidth(`Before · ${model.refs.base}`, SIZES.label));
+  const panel = Math.max(layout.width, textWidth(`Before · ${model.refs.base}`, SIZES.label), textWidth(`After · ${headLabel(model.refs.head)}`, SIZES.label));
   const footer = [...model.cut, ...model.warnings.map((warning) => `warning: ${warning}`)].map((line) => fitLabel(line, LEDGER_CELLS));
   const ledger = model.ledger.map((row) => ({ ...row, text: fitLabel(row.text, LEDGER_CELLS) }));
   const lines = [...footer, ...ledger.map((row) => row.text), NOTE, ...countLines];
@@ -118,7 +118,7 @@ export function renderDeltaSvg(layout: DeltaLayout, theme: DiagramTheme = "light
   const ledgerY = afterY + panelHeight + 40;
   const footerY = ledgerY + 24 + ROW * ledger.length + 16;
   const height = snap(footerY + ROW * (footer.length + 1) + 16 + SIZES.legendHeight);
-  const title = `Architecture delta · ${fitLabel(model.refs.base, 48)} -> ${fitLabel(model.refs.head, 48)}`;
+  const title = `Architecture delta · ${fitLabel(model.refs.base, 48)} -> ${fitLabel(headLabel(model.refs.head), 48)}`;
   const style = variables("svg", PALETTES[theme]) + CLASSES + DELTA_CSS;
   return [
     `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" role="img" aria-labelledby="diagram-title diagram-desc" data-diagram="architecture-delta">`,
@@ -131,7 +131,7 @@ export function renderDeltaSvg(layout: DeltaLayout, theme: DiagramTheme = "light
     text(margin, margin + 36, "caption", countLines[0]),
     text(margin, margin + 54, "caption", countLines[1]),
     panelMarkup(layout, "before", margin, originY, `Before · ${fitLabel(model.refs.base, 48)}`),
-    panelMarkup(layout, "after", stacked ? margin : margin + panel + GAP, afterY, `After · ${fitLabel(model.refs.head, 48)}`),
+    panelMarkup(layout, "after", stacked ? margin : margin + panel + GAP, afterY, `After · ${fitLabel(headLabel(model.refs.head), 48)}`),
     text(margin, ledgerY, "heading", `Changes (${ledger.length})`),
     ...ledger.map((row, index) => `<text class="ledger" x="${margin}" y="${ledgerY + 24 + ROW * index}" data-target="${escapeXml(row.target)}" data-change="${escapeXml(row.change)}">${escapeXml(row.text)}</text>`),
     ...footer.map((line, index) => text(margin, footerY + ROW * index, "caption", line)),
@@ -162,7 +162,7 @@ export function deltaUnchangedLine({ structure, baseRef, headRef }: Pick<Archite
   const count = (value: number, noun: string) => `${value} ${noun}${value === 1 ? "" : "s"}`;
   const sized = [count(structure!.units.items.length, "unit"), count(structure!.units.edges.length, "unit edge")].filter((part) => !part.startsWith("0 "));
   const only = sized.length > 0 ? `; ${sized.join(" and ")} only changed size (file or file-pair counts)` : "";
-  return sanitizeText(`No architecture change between ${baseRef} and ${headRef} (${count(items.after ?? items.before ?? 0, "unit")}, ${count(edges.after ?? edges.before ?? 0, "unit edge")} compared${only}): no diagram written.`);
+  return sanitizeText(`No architecture change between ${baseRef} and ${headLabel(headRef)} (${count(items.after ?? items.before ?? 0, "unit")}, ${count(edges.after ?? edges.before ?? 0, "unit edge")} compared${only}): no diagram written.`);
 }
 
 /** The delta of a review as an SVG, with the counts, the cut notes and the warnings the caller reports. */

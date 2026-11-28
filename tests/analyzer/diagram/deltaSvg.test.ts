@@ -155,6 +155,20 @@ describe("renderArchitectureDelta", () => {
     expect(cut.some((line) => line.includes("graph-it review-pr --base main --head feature --format json"))).toBe(true);
     expect(doc.querySelectorAll("text[data-target]").length).toBeLessThanOrEqual(60);
   });
+
+  // Without --head the review reads the working tree, which the analyzer names "HEAD" (#849).
+  it.each([
+    ["the working tree", "HEAD", "working tree", "graph-it review-pr --base main --format json"],
+    ["a head ref", "feature", "feature", "graph-it review-pr --base main --head feature --format json"],
+  ] as const)("names %s in the title, the After panel and the suggested command", async (_name, headRef, label, command) => {
+    const items = Array.from({ length: 60 }, (_, index) => item("ADDED", `unit-${String(index).padStart(2, "0")}`));
+    const { markup, cut } = await renderArchitectureDelta({ ...deltaSource({ items }), headRef });
+    const doc = parse(markup);
+    expect(doc.querySelector("title")!.textContent).toBe(`Architecture delta · main -> ${label}`);
+    expect(markup).toContain(`After · ${label}`);
+    expect(cut.some((line) => line.endsWith(command))).toBe(true);
+    expect(markup.includes("--head HEAD")).toBe(false);
+  });
 });
 
 describe("deltaChanged", () => {
@@ -182,6 +196,10 @@ describe("deltaChanged", () => {
     const source = deltaSource({ items: [item("CHANGED", "a")], edges: [edge("CHANGED", "a", "b")] });
     expect(deltaUnchangedLine({ ...source, baseRef: "main", headRef: "feature" })).toBe(
       "No architecture change between main and feature (1 unit, 1 unit edge compared; 1 unit and 1 unit edge only changed size (file or file-pair counts)): no diagram written.");
+  });
+
+  it("names the working tree, not HEAD, when the review read it (#849)", () => {
+    expect(deltaUnchangedLine({ ...deltaSource({}), baseRef: "main", headRef: "HEAD" })).toMatch(/^No architecture change between main and working tree \(/);
   });
 });
 
