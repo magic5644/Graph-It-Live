@@ -69,6 +69,20 @@ describe("ReviewGateAnalyzer", { timeout: GIT_TEST_TIMEOUT }, () => {
     expect(reviewArchitecture).toHaveBeenCalledWith(["src/api.ts"], "main", "HEAD");
   });
 
+  it("analyzeWithDelta returns the head unit edges beside the result; analyze() and analyzeArchitecture keep their keys (#843)", async () => {
+    const workspace = await createGitWorkspace();
+    const headUnitEdges = new Map([["a\0b", 2]]);
+    const reviewArchitecture = vi.fn().mockResolvedValue({ review: { verdict: "unchanged", newErrors: 0 }, structure: { verdict: "unchanged" }, headUnitEdges, limitations: [] });
+    const analyzer = new ReviewGateAnalyzer(workspace, { reviewArchitecture, getSymbolDependents: async () => [] } as unknown as SymbolDependentsProvider);
+    const withDelta = await analyzer.analyzeWithDelta({ baseRef: "main" });
+    expect(withDelta.headUnitEdges).toBe(headUnitEdges);
+    const plain = await analyzer.analyze({ baseRef: "main" });
+    expect(Object.keys(withDelta.result).sort((a, b) => a.localeCompare(b))).toEqual(Object.keys(plain).sort((a, b) => a.localeCompare(b)));
+    expect(plain).not.toHaveProperty("headUnitEdges");
+    expect(await analyzer.analyzeArchitecture({ baseRef: "main" })).toMatchObject({ headUnitEdges });
+    expect((await new ReviewGateAnalyzer(workspace).analyzeWithDelta({ baseRef: "main" })).headUnitEdges).toBeUndefined();
+  });
+
   it("analyzeArchitecture throws an invalid head rules file and validates both refs first", async () => {
     const workspace = await createGitWorkspace();
     const fatal = new ArchitectureReviewError("HEAD: invalid");

@@ -28,13 +28,13 @@ function readDeltaSvg(args: string[], workspaceRoot: string): string | undefined
 }
 
 /** The delta SVG of a review it already holds; a stderr line, no file, when there is nothing to draw. */
-async function writeDeltaSvg(runtime: CliRuntime, file: string, result: ReviewGateResult): Promise<void> {
+async function writeDeltaSvg(runtime: CliRuntime, file: string, result: ReviewGateResult, headUnitEdges?: ReadonlyMap<string, number>): Promise<void> {
   if (result.structure === undefined) {
     process.stderr.write("No architecture delta written: the review holds no structure comparison (see limitations).\n");
   } else if (result.structure.verdict === "empty") {
     process.stderr.write(`No architecture delta written: no analyzable file at ${result.baseRef} or ${result.headRef}.\n`);
   } else if (deltaChanged(result)) {
-    const { markup, cut, warnings } = await renderArchitectureDelta(result);
+    const { markup, cut, warnings } = await renderArchitectureDelta({ ...result, ...(headUnitEdges ? { headUnitEdges } : {}) });
     await writeWorkspaceFile(runtime.workspaceRoot, file, markup);
     for (const line of [...warnings, ...cut]) process.stderr.write(`${line}\n`);
   } else {
@@ -56,8 +56,10 @@ export async function run(args: string[], runtime: CliRuntime, format: CliOutput
   // Silent off the progress TTY: a CI gate log keeps only the review.
   await runtime.ensureIndexed({ silent: !runtime.progress.enabled });
   const analyzer = createReviewAnalyzer(runtime);
-  const result = await runtime.progress.phase("Reviewing the diff", () => analyzer.analyze({ baseRef, headRef, maxDepth, maxFiles }));
-  if (deltaSvg !== undefined) await writeDeltaSvg(runtime, deltaSvg, result);
+  const options = { baseRef, headRef, maxDepth, maxFiles };
+  const { result, headUnitEdges } = await runtime.progress.phase("Reviewing the diff", async (): Promise<Awaited<ReturnType<typeof analyzer.analyzeWithDelta>>> =>
+    deltaSvg === undefined ? { result: await analyzer.analyze(options) } : analyzer.analyzeWithDelta(options));
+  if (deltaSvg !== undefined) await writeDeltaSvg(runtime, deltaSvg, result, headUnitEdges);
   if (format === "sarif") return reviewSarif(result);
   return format === "markdown" ? renderReviewMarkdown(result) : formatOutput(result, format, "review-pr");
 }

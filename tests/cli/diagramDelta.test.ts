@@ -10,12 +10,13 @@ import { deltaSource, edge, item } from "../analyzer/diagram/deltaFixtures";
 
 const analyzeArchitecture = vi.fn<() => Promise<ArchitectureDeltaSource>>();
 const analyze = vi.fn<() => Promise<ReviewGateResult>>();
+let headUnitEdges: ReadonlyMap<string, number> | undefined;
 
 vi.mock("@/analyzer/ReviewGateAnalyzer", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/analyzer/ReviewGateAnalyzer")>()),
   // A function, not an arrow: the command calls it with `new`.
   ReviewGateAnalyzer: vi.fn().mockImplementation(function () {
-    return { analyze, analyzeArchitecture };
+    return { analyze, analyzeArchitecture, analyzeWithDelta: async () => ({ result: await analyze(), ...(headUnitEdges ? { headUnitEdges } : {}) }) };
   }),
 }));
 vi.mock("@/mcp/tools/impact", () => ({ createSpiderDependentsProvider: vi.fn(() => ({})) }));
@@ -36,6 +37,7 @@ beforeEach(() => {
   vi.spyOn(process.stderr, "write").mockImplementation((chunk) => { stderr.push(String(chunk)); return true; });
   analyzeArchitecture.mockReset();
   analyze.mockReset();
+  headUnitEdges = undefined;
 });
 afterEach(() => {
   vi.restoreAllMocks();
@@ -145,6 +147,13 @@ describe("review-pr --deltaSvg", () => {
     await runReview(["--base", "main", "--deltaSvg", "out/d.svg"], runtime(), "json");
     expect(fs.readFileSync(path.join(root, "out", "d.svg"), "utf8")).toContain('data-diagram="architecture-delta"');
     expect(analyzeArchitecture).not.toHaveBeenCalled();
+  });
+
+  it("draws the unchanged edges from the head unit edges of analyzeWithDelta, not of analyze", async () => {
+    headUnitEdges = new Map([["billing\0core", 2]]);
+    analyze.mockResolvedValue(review({ ...changed(), structure: deltaSource({ items: [item("ADDED", "billing")], unchangedEdges: 1 }).structure }));
+    await runReview(["--base", "main", "--deltaSvg", "d.svg"], runtime(), "json");
+    expect(fs.readFileSync(path.join(root, "d.svg"), "utf8")).toContain('data-status="UNCHANGED" class="edge s-down"');
   });
 
   it("writes no file for an unchanged, empty or structureless review, and says why on stderr for the last two", async () => {
