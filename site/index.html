@@ -856,6 +856,7 @@ footer{border-top:1px solid var(--line);padding:46px 0 40px;color:var(--muted);f
         <code>graph-it review-pr</code> runs a deterministic local diff review before CI: exported signature changes,
         bounded dependent-symbol impact, deleted and moved modules, import cycles the diff introduces, unused exports, test candidates and consumer standing.
         With a <code>graphit.architecture.json</code>, it checks the rules on both sides and says whether the diff degrades or improves them; a new <code>error</code> violation fails the gate.
+        It also compares the head and base structure (units, folders, moved files) and can attach a before/after SVG (<code>--deltaSvg</code>, <code>diagram --delta</code>).
         The reusable GitHub Action is informational by default — set <code>fail-on-risk: high</code> to gate a pull request.
       </p>
       <div class="frame" style="margin-top:20px">

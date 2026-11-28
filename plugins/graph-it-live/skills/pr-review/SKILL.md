@@ -61,9 +61,14 @@ the Review Gate. A `configChange` that weakens or removes a rule or accepts new 
 finding to justify. `graph-it check-architecture --format toon` gives the whole-workspace check
 (`--verbose` lists accepted violations in text/markdown).
 
+The report always has a `structure` section comparing head and base: `verdict` (`changed`, `unchanged`,
+`empty`), `warnings`, and `units` and `groups`, each with `items`, `edges`, `cycles` and `movedFiles`.
+It never changes `risk`, `score` or the gate. `--deltaSvg <file.svg>` (CLI 1.26.2 or later) also writes
+the before/after SVG, only when the architecture changed.
+
 ### 2. Interpret evidence before concluding
 
-The report includes a top-level `risk`, `score`, `changedFiles`, `symbols`, `cycles`, `limitations`, and `isPartial`, plus `architecture` with a rules file.
+The report includes a top-level `risk`, `score`, `changedFiles`, `symbols`, `cycles`, `limitations`, and `isPartial`, plus `architecture` with a rules file and `structure`.
 
 | Risk | Meaning | Review action |
 | --- | --- | --- |

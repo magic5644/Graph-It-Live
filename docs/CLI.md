@@ -946,8 +946,6 @@ Checks every static import of the workspace against the **architecture rules** d
 graph-it check-architecture [--config <file>] [--baseline <file>] [--update-baseline] [--verbose] [--format text|json|toon|markdown|sarif]
 ```
 
-`--deltaSvg <file.svg>` also writes the [architecture delta](#architecture-delta) of the review's own comparison (no second read of the trees), only when the architecture changed (see [architecture delta](#architecture-delta)); stdout still holds the review in any `--format`. A value that is missing, `-` or not a `.svg` exits 1, a path outside the workspace exits 5; with nothing to draw, no file is written, and an empty or missing comparison is said on stderr.
-
 #### Architecture rules
 
 ```json
@@ -1187,9 +1185,9 @@ graph-it diagram --delta --base <git-ref> [--head <git-ref>] [--theme light|dark
 | `--rules` | off | Draws the violations of `graphit.architecture.json` in the error colour; the legend names the broken rules |
 | `--config <file>` | `graphit.architecture.json` | Rules file, with `--rules` |
 | `--baseline [<file>]` | off | With `--rules`: draws the violations the baseline accepts as dashed lines, counted apart (`3 violations (2 accepted)`). Without a file it reads `graphit.architecture.baseline.json`, which must then exist |
-
 | `--delta` | off | Draws the before/after structure diff of two Git refs ([Architecture delta](#architecture-delta)). Needs `--base`; refuses `--view`, `--folder`, `--spec`, `--rules`, `--config`, `--baseline`, `--maxSteps`, `--startLine`, `--depth`, `--maxMessages`, `--participants` and `<dir>` |
 | `--base <ref>` / `--head <ref>` | — / `HEAD` | With `--delta`: the refs compared (branch, tag or commit) |
+
 At most 60 units or groups are drawn, the largest ones; a note counts the others, and the header counts cover the whole level. Under the matrix, a note says how to read it: row imports column, N file pairs per cell, the greyed diagonal counting the pairs inside each row. The output has no script, no external resource and no `foreignObject`. Labels are escaped, and paths are workspace-relative.
 
 <img src="../media/cli-diagram-units.svg" alt="graph-it diagram on tests/fixtures/workspaces-project: seven units in three layers, the cycle between @ws/core and @ws/types outlined, edge widths by file pairs, and a legend" width="596"/>
@@ -1741,6 +1739,8 @@ Run a deterministic local review of a Git diff:
 graph-it review-pr --base origin/main [--head <ref>] [--depth 3] [--maxFiles 200] [--deltaSvg <file.svg>] --format text|json|toon|markdown|sarif
 ```
 
+`--deltaSvg <file.svg>` writes the [architecture delta](#architecture-delta) of the review's own comparison (no second read of the trees), only when the architecture changed; stdout still holds the review in any `--format`. A value that is missing, `-` or not a `.svg` exits 1, a path outside the workspace exits 5; with nothing to draw, no file is written, and an empty or missing comparison is said on stderr.
+
 The command first ensures that the workspace index is available. It then lists changed files with `git diff` and compares exported TypeScript, JavaScript and Vue signatures, and the top-level functions, classes and variables of Python modules, between the base and head. For Python, adding or dropping a type annotation is not breaking, and switching between `def` and `async def` is; methods and definitions nested in `if`/`try` blocks are not compared. Without `--head`, the head is the current working tree (`HEAD` plus staged and unstaged file contents). With `--head <ref>`, both sides come from Git refs and the changed-file list uses the three-dot comparison.
 
 For each changed symbol, the bounded analysis can report:
@@ -1765,6 +1765,8 @@ A changed file that cannot be read safely at the base or the head (a symbolic li
 
 The Action's PR comment adds the "Architecture rules" section of the review, and the gate fails on any new `error` violation the baseline does not accept, even without `fail-on-risk`, as `check-architecture` would; an older CLI without `architecture` leaves the gate unchanged. The Action's PR comment lists `cycles` in an "Import cycles" section (classification and files, at most 20 cycles and 10 files each, escaped like the other values); the section is absent when there is none or when the CLI predates `cycles`. The risk and summary lines ignore it, so a cycle-only diff keeps its risk.
 
+The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `baseRef`, optional `headRef`, `maxDepth`, and `maxFiles`. Omit `headRef` to review the checked-out worktree; provide a local or remote branch ref to compare two committed branch refs. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file, printed in the PR comment as a code span to copy (GitHub strips non-http(s) Markdown links, so it is not clickable); the extension accepts depth 1–5 and validates the path again. Branch Watch's VS Code confidence label is UI context for incomplete local evidence; the CLI and MCP continue to expose the structured limitations and `isPartial` fields instead of that label.
+
 #### Architecture rules
 
 When the head has a `graphit.architecture.json` (or the diff edits it or its baseline), `architecture` says whether the diff **degrades** or **improves** the declared architecture. The rules are checked on the head (the working tree, or a copy of `--head`) and on the base (a copy of `--base`, or of its merge base with `--head`), each with its own config, or with the head config when the base has none. The base tree is copied from the Git objects of every tracked file (no checkout, no hooks) and its imports are parsed again, so the review takes about as long again as a [`check-architecture`](#check-architecture) run.
@@ -1777,11 +1779,17 @@ When the head has a `graphit.architecture.json` (or the diff edits it or its bas
 
 Without a config at the head and in the diff, no `architecture` field is returned and nothing more is read. An invalid rules file, at either ref, is reported as the limitation `Architecture rules unavailable: <ref>: <reason>`. Markdown adds an "Architecture rules" section (verdict, rules table, new and resolved violations, at most 20 each, rules-file changes); `--format sarif` lists the new violations the baseline does not accept on their importing line, as `check-architecture --format sarif` does (driver `graph-it review-pr`; without a config, a run with no result, so a CI upload step still works).
 
+<div align="center">
+  <img src="../media/review-pr-architecture-rules.png" alt="Rendered review-pr Markdown on the rules test fixture: Architecture rules DEGRADED, one new frontend-not-backend error violation from mfe/checkout to backend, one resolved violation from frontend, two unchanged unit cycles" width="800"/>
+</div>
+
+*`graph-it review-pr --base HEAD --format markdown` on the rules test fixture, rendered as the Review Gate Action posts it: the diff moves a backend import from `frontend` to `mfe/checkout`, so one violation is resolved and one new `error` violation fails the gate; the two existing unit cycles stay unchanged.*
+
 #### Structure comparison
 
 `structure` is always present, with or without a config; it never changes `architecture`, the score, the risk or the gate. It compares the head with the base at two levels: **units** (the declared elements, else the detected projects) and **groups** (the folders of each unit). Items are matched by file overlap (Dice coefficient of at least `0.5`), not by name, after Git rename detection (`git diff -M`, 50 % similarity), so a renamed folder or unit is one `RENAMED` item, not a removal plus an addition.
 
-- `units` and `groups`, each with: `items` (`ADDED`, `REMOVED`, `RENAMED` or `CHANGED`, with `key`, `previousKey`, `fileCount` before and after, and for units the `role`, for groups the owning `unit` and `previousUnit`), `movedFiles` (`file`, `from`, `to`), `edges` (`ADDED`, `REMOVED`, `CHANGED`, with file `pairs` before and after), `cycles` (`ADDED` appeared, `REMOVED` resolved, sorted `members`) and `compared` (item and edge counts per side, and how many stayed unchanged).
+- `units` and `groups`, each with: `items` (`ADDED`, `REMOVED`, `RENAMED` or `CHANGED`, with `key`, `previousKey`, `fileCount` before and after, and for units the `role`, for groups the owning `unit` and `previousUnit`), `movedFiles` (`file`, `from`, `to`), `edges` (`ADDED`, `REMOVED`, `CHANGED`, with file `pairs` before and after), `cycles` (`ADDED` appeared, `REMOVED` resolved, sorted `members`; a `REMOVED` edge adds `gone`, the ends `from`/`to` that are base keys with no head match, and a `REMOVED` cycle adds `gone`, the base keys of members with no head match) and `compared` (item and edge counts per side, and how many stayed unchanged).
 - `files` (analysed files per side), `renames` (`mapped` files, `complete` when Git read every rename), `verdict` (`changed`; `unchanged`; `empty` when neither side has an analysable file) and `warnings`.
 - Warnings: the unit definitions differ between the base and the head (including a base without a config, or with an invalid one, read with the head config); rename detection is incomplete, failed or unavailable; Git cannot see some moves (untracked files, when the head is the working tree); a side has no analysable file.
 
@@ -1799,14 +1807,6 @@ Units: 1 -> 1. Groups: 2 -> 2. Files: 4 -> 4. Rename detection: 3 file(s).
 (A branch that runs `git mv src/a src/z` in a repository whose element `core` holds `src/`: a group key is `<unit>/<folder>`.)
 
 `json` carries every field; `toon` lists the nested arrays as dotted sections (`structure.units.items`, `structure.groups.items`, ...) and the nested scalars as dotted header keys (`structure.renames.mapped`).
-
-<div align="center">
-  <img src="../media/review-pr-architecture-rules.png" alt="Rendered review-pr Markdown on the rules test fixture: Architecture rules DEGRADED, one new frontend-not-backend error violation from mfe/checkout to backend, one resolved violation from frontend, two unchanged unit cycles" width="800"/>
-</div>
-
-*`graph-it review-pr --base HEAD --format markdown` on the rules test fixture, rendered as the Review Gate Action posts it: the diff moves a backend import from `frontend` to `mfe/checkout`, so one violation is resolved and one new `error` violation fails the gate; the two existing unit cycles stay unchanged.*
-
-The MCP tool `graphitlive_review_pr` exposes the same bounded analysis through `baseRef`, optional `headRef`, `maxDepth`, and `maxFiles`. Omit `headRef` to review the checked-out worktree; provide a local or remote branch ref to compare two committed branch refs. The Action emits `vscode://magic5644.graph-it-live/graph-it-live.reviewCallGraph?file=<workspace-relative>&symbol=<encoded>&depth=3` only when a risky symbol has a workspace-relative file, printed in the PR comment as a code span to copy (GitHub strips non-http(s) Markdown links, so it is not clickable); the extension accepts depth 1–5 and validates the path again. Branch Watch's VS Code confidence label is UI context for incomplete local evidence; the CLI and MCP continue to expose the structured limitations and `isPartial` fields instead of that label.
 
 #### GitHub Actions consumer workflow
 
