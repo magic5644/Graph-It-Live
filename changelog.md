@@ -14,7 +14,7 @@
 
 ### Fixed
 
-- **Architecture delta names the working tree** (#849). Without `--head`, `review-pr` and `diagram --delta` compare the working tree: the delta SVG title, its After panel and the "No architecture change" line now say `working tree` instead of `HEAD`, and the commands it suggests no longer add `--head HEAD`.
+- **Architecture delta names the working tree** (#849). Without `--head`, `review-pr` and `diagram --delta` compare the working tree: the delta SVG title, its After panel, the "No architecture change" line and the CLI messages for an empty or unreadable comparison now say `working tree` instead of `HEAD`, and the commands they suggest no longer add `--head HEAD`.
 
 ## v1.26.1
 

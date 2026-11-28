@@ -444,7 +444,7 @@ function unchangedCutLines(model: { head: string }, level: StructureLevelDiff, c
 }
 
 // No --head for the working tree: --head HEAD would read the same tree, but reads as the last commit.
-const reviewCommand = (model: { base: string; head: string }) =>
+export const reviewCommand = (model: { base: string; head: string }) =>
   ["graph-it review-pr --base", model.base, ...(model.head === "HEAD" ? [] : ["--head", model.head]), "--format json"].join(" ");
 
 function cutLines(model: { base: string; head: string }, dropped: DeltaNode[], hidden: { edges: number; cycles: number; violations: number }, level: StructureLevelDiff, ledgerCut: number, unchanged: UnchangedCut | undefined): string[] {

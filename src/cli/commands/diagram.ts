@@ -15,6 +15,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ARCHITECTURE_BASELINE_FILE } from "../../analyzer/architecture/architectureRules.js";
 import { DIAGRAM_THEMES, DIAGRAM_VIEWS, defaultDiagramFile, diagramLevel, MAX_FLOW_STEPS, MAX_SEQUENCE_MESSAGES, type DiagramRequestView } from "../../analyzer/diagram/diagramStyle.js";
+import { headLabel, reviewCommand } from "../../analyzer/diagram/architectureDelta.js";
 import { deltaChanged, deltaUnchangedLine, renderArchitectureDelta } from "../../analyzer/diagram/deltaSvg.js";
 import { cutNote, readDiagramSpec, specFlowRequest, specLevel, specSequenceRequest } from "../../analyzer/diagram/diagramSpecImport.js";
 import { renderFlowDiagram, renderSequenceDiagram, renderWorkspaceDiagram, type WorkspaceDiagramOptions } from "../../analyzer/diagram/workspaceDiagram.js";
@@ -262,10 +263,10 @@ async function runDelta(args: string[], runtime: CliRuntime, format: CliOutputFo
   const { structure } = source;
   if (structure === undefined) {
     // A fixed reason: limitations can quote raw Git or file-system text with absolute paths.
-    throw new CliError(`No structure comparison between ${source.baseRef} and ${source.headRef}: the trees could not be read; graph-it review-pr --base ${source.baseRef} --head ${source.headRef} lists the limitations.`, ExitCode.GENERAL_ERROR);
+    throw new CliError(`No structure comparison between ${source.baseRef} and ${headLabel(source.headRef)}: the trees could not be read; ${reviewCommand({ base: source.baseRef, head: source.headRef })} lists the limitations.`, ExitCode.GENERAL_ERROR);
   }
   if (structure.verdict === "empty") {
-    throw new CliError(`No analyzable file at ${source.baseRef} or ${source.headRef}: nothing to compare.`, ExitCode.GENERAL_ERROR);
+    throw new CliError(`No analyzable file at ${source.baseRef} or ${headLabel(source.headRef)}: nothing to compare.`, ExitCode.GENERAL_ERROR);
   }
   if (!deltaChanged(source)) {
     const line = deltaUnchangedLine(source);

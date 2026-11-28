@@ -114,10 +114,14 @@ describe("diagram --delta", () => {
     empty.structure!.verdict = "empty";
     analyzeArchitecture.mockResolvedValueOnce(empty);
     await expect(runDiagram(["--delta", "--base", "main"], runtime(), "text")).rejects.toMatchObject({ exitCode: 1, message: "No analyzable file at main or feature: nothing to compare." });
+    analyzeArchitecture.mockResolvedValueOnce({ ...empty, headRef: "HEAD" });
+    await expect(runDiagram(["--delta", "--base", "main"], runtime(), "text")).rejects.toMatchObject({ exitCode: 1, message: "No analyzable file at main or working tree: nothing to compare." });
     analyzeArchitecture.mockResolvedValueOnce({ baseRef: "main", headRef: "HEAD", limitations: ["Architecture rules unavailable: /home/me/repo boom"] });
     const failure = runDiagram(["--delta", "--base", "main"], runtime(), "text");
-    await expect(failure).rejects.toThrow("No structure comparison between main and HEAD: the trees could not be read; graph-it review-pr --base main --head HEAD lists the limitations.");
+    await expect(failure).rejects.toThrow("No structure comparison between main and working tree: the trees could not be read; graph-it review-pr --base main --format json lists the limitations.");
     await expect(failure).rejects.not.toThrow("/home/me");
+    analyzeArchitecture.mockResolvedValueOnce({ baseRef: "main", headRef: "feature", limitations: [] });
+    await expect(runDiagram(["--delta", "--base", "main", "--head", "feature"], runtime(), "text")).rejects.toThrow("No structure comparison between main and feature: the trees could not be read; graph-it review-pr --base main --head feature --format json lists the limitations.");
   });
 
   it.each([
@@ -163,10 +167,13 @@ describe("review-pr --deltaSvg", () => {
     empty.structure!.verdict = "empty";
     analyze.mockResolvedValueOnce(review(empty));
     await runReview(["--base", "main", "--deltaSvg", "d.svg"], runtime(), "json");
+    analyze.mockResolvedValueOnce(review({ ...empty, headRef: "HEAD" }));
+    await runReview(["--base", "main", "--deltaSvg", "d.svg"], runtime(), "json");
     analyze.mockResolvedValueOnce(review({ baseRef: "main", headRef: "HEAD", limitations: [] }));
     await runReview(["--base", "main", "--deltaSvg", "d.svg"], runtime(), "json");
     expect(fs.existsSync(path.join(root, "d.svg"))).toBe(false);
     expect(stderr.join("")).toContain("no analyzable file at main or feature");
+    expect(stderr.join("")).toContain("no analyzable file at main or working tree");
     expect(stderr.join("")).toContain("no structure comparison");
   });
 

@@ -1,5 +1,6 @@
 import { ARCHITECTURE_CONFIG_FILE } from "../../analyzer/architecture/architectureRules";
 import { ReviewGateAnalyzer, renderReviewMarkdown, type ReviewGateResult } from "../../analyzer/ReviewGateAnalyzer";
+import { headLabel } from "../../analyzer/diagram/architectureDelta";
 import { deltaChanged, deltaUnchangedLine, renderArchitectureDelta } from "../../analyzer/diagram/deltaSvg";
 import { createSpiderDependentsProvider } from "../../mcp/tools/impact";
 import { workerState } from "../../mcp/shared/state";
@@ -32,7 +33,7 @@ async function writeDeltaSvg(runtime: CliRuntime, file: string, result: ReviewGa
   if (result.structure === undefined) {
     process.stderr.write("No architecture delta written: the review holds no structure comparison (see limitations).\n");
   } else if (result.structure.verdict === "empty") {
-    process.stderr.write(`No architecture delta written: no analyzable file at ${result.baseRef} or ${result.headRef}.\n`);
+    process.stderr.write(`No architecture delta written: no analyzable file at ${result.baseRef} or ${headLabel(result.headRef)}.\n`);
   } else if (deltaChanged(result)) {
     const { markup, cut, warnings } = await renderArchitectureDelta({ ...result, ...(headUnitEdges ? { headUnitEdges } : {}) });
     await writeWorkspaceFile(runtime.workspaceRoot, file, markup);
